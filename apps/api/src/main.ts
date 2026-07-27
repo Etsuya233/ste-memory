@@ -7,9 +7,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
   const config = loadConfig(environment);
   const server = await buildServer({
     coreDatabase: new CoreDatabaseHealthCheck(config.coreDatabaseUrl),
-    sourceStoreDatabase: new SourceStoreDatabaseHealthCheck(
-      config.sourceStoreDatabaseUrl,
-    ),
+    sourceStoreDatabase: new SourceStoreDatabaseHealthCheck(config.sourceStoreDatabaseUrl),
   });
 
   await server.listen({ host: config.host, port: config.port });

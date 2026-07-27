@@ -18,5 +18,6 @@
 
 ## Comments
 
-- 已建立 TypeScript workspace，划分 Domain、Application、Core SQLite、HTTP API、Source Store 和 React Web 边界。
-- `npm run typecheck`、`npm test`、`npm run build` 均通过；已用共享 SQLite 文件完成迁移和 API 健康检查烟测。
+- 已建立 pnpm TypeScript workspace；Core 包内部保留 Domain、Application 和 Ports 目录，各 Adapter 位于 `apps`，通用工具和共享工程配置位于 `packages`。
+- API 与 Web 分别维护环境配置示例，项目通过 mise 固定 Node.js 和 pnpm 版本。
+- `pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm test`、`pnpm build` 均通过；已用共享 SQLite 文件完成迁移和 API 健康检查烟测。

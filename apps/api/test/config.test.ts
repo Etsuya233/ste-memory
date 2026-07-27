@@ -6,8 +6,8 @@ describe("loadConfig", () => {
     expect(loadConfig({})).toEqual({
       host: "127.0.0.1",
       port: 3000,
-      coreDatabaseUrl: "sqlite:./data/core.sqlite",
-      sourceStoreDatabaseUrl: "sqlite:./data/source-store.sqlite",
+      coreDatabaseUrl: "sqlite:../../data/core.sqlite",
+      sourceStoreDatabaseUrl: "sqlite:../../data/source-store.sqlite",
     });
   });
 

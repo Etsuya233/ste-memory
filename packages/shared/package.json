@@ -1,0 +1,15 @@
+{
+  "name": "@ste-memory/shared-config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint": "./eslint/index.js",
+    "./prettier": "./prettier/index.js"
+  },
+  "peerDependencies": {
+    "@eslint/js": "^10.0.0",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

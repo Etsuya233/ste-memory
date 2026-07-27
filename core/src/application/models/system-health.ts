@@ -10,7 +10,3 @@ export interface SystemHealth {
     readonly sourceStore: DatabaseStatus;
   };
 }
-
-export interface DatabaseHealthCheck {
-  check(): DatabaseStatus;
-}

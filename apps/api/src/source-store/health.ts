@@ -1,4 +1,4 @@
-import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/application";
+import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/core";
 import { checkSqliteConnection } from "@ste-memory/sqlite-utils";
 
 export class SourceStoreDatabaseHealthCheck implements DatabaseHealthCheck {

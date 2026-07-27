@@ -1,8 +1,5 @@
-import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/application";
-import {
-  checkSqliteConnection,
-  openSqliteDatabase,
-} from "@ste-memory/sqlite-utils";
+import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/core";
+import { checkSqliteConnection, openSqliteDatabase } from "@ste-memory/sqlite-utils";
 
 const CREATE_MIGRATIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS core_migrations (

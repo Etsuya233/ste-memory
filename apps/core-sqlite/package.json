@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ste-memory/application": "*",
-    "@ste-memory/sqlite-utils": "*"
+    "@ste-memory/core": "workspace:*",
+    "@ste-memory/sqlite-utils": "workspace:*"
   }
 }

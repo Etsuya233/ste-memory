@@ -24,13 +24,10 @@ export function loadConfig(environment: Environment): ApiConfig {
   return {
     host: valueOrDefault(environment.API_HOST, "127.0.0.1"),
     port: parsePort(environment.API_PORT),
-    coreDatabaseUrl: valueOrDefault(
-      environment.CORE_DATABASE_URL,
-      "sqlite:./data/core.sqlite",
-    ),
+    coreDatabaseUrl: valueOrDefault(environment.CORE_DATABASE_URL, "sqlite:../../data/core.sqlite"),
     sourceStoreDatabaseUrl: valueOrDefault(
       environment.SOURCE_STORE_DATABASE_URL,
-      "sqlite:./data/source-store.sqlite",
+      "sqlite:../../data/source-store.sqlite",
     ),
   };
 }

@@ -1,18 +1,13 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
-import type {
-  DatabaseHealthCheck,
-  SystemHealth,
-} from "@ste-memory/application";
+import type { DatabaseHealthCheck, SystemHealth } from "@ste-memory/core";
 
 export interface ServerDependencies {
   readonly coreDatabase: DatabaseHealthCheck;
   readonly sourceStoreDatabase: DatabaseHealthCheck;
 }
 
-export async function buildServer(
-  dependencies: ServerDependencies,
-): Promise<FastifyInstance> {
+export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
   const server = Fastify({ logger: true });
   await server.register(cors, {
     origin: /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/,

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "@ste-memory/application";
+import type { DatabaseHealthCheck } from "@ste-memory/core";
 import { buildServer } from "../src/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
   return {
-    check: () => connected ? { connected: true } : { connected: false, error: "unavailable" },
+    check: () => (connected ? { connected: true } : { connected: false, error: "unavailable" }),
   };
 }
 

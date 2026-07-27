@@ -38,9 +38,6 @@ describe("SQLite migrations", () => {
     migrateCoreDatabase(`sqlite:${sharedPath}`);
     migrateSourceStoreDatabase(`sqlite:${sharedPath}`);
 
-    expect(tablesAt(sharedPath)).toEqual([
-      "core_migrations",
-      "source_store_migrations",
-    ]);
+    expect(tablesAt(sharedPath)).toEqual(["core_migrations", "source_store_migrations"]);
   });
 });
