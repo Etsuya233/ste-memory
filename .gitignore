@@ -28,6 +28,9 @@ test-results/
 *.log
 *.db
 *.db-journal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 apps/api/prisma/dev.db
 apps/api/prisma/test-*.db
 

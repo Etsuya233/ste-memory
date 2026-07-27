@@ -1,0 +1,25 @@
+{
+  "name": "ste-memory",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently --kill-others --names api,web \"npm run dev --workspace @ste-memory/api\" \"npm run dev --workspace @ste-memory/web\"",
+    "migrate": "npm run migrate --workspace @ste-memory/api",
+    "test": "vitest run",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.0.0",
+    "typescript": "^7.0.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

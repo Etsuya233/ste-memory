@@ -1,0 +1,14 @@
+{
+  "name": "@ste-memory/application",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ste-memory/domain": "*"
+  }
+}
