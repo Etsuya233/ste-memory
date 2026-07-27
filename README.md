@@ -1,6 +1,6 @@
 # STR-MEMORY
 
-本仓库用于构建 SillyTavern 长对话记忆的本地实验工具。当前骨架提供 Core、Core SQLite Adapter、HTTP API 与 React Web；表格与对话处理功能将在后续工单中加入。
+本仓库用于构建 SillyTavern 长对话记忆的本地实验工具。当前提供 Core、Core SQLite Adapter、HTTP API 与 React Web，并支持上传 SillyTavern JSONL 创建记忆空间、浏览原始聊天及管理空间；表格与对话处理功能将在后续工单中加入。
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ pnpm migrate
 pnpm dev
 ```
 
-API 默认运行在 `http://127.0.0.1:3000`，Web 默认运行在 `http://127.0.0.1:5173`。Web 首屏显示 HTTP API、Core SQLite 和 HTTP Source Store SQLite 的连接状态。
+API 默认运行在 `http://127.0.0.1:3000`，Web 默认运行在 `http://127.0.0.1:5173`。Web 首屏提供记忆空间列表，可上传 JSONL、浏览原始消息和解析错误，并进行重命名与删除。
 
 默认 API 只监听 `127.0.0.1`，用于本机单用户实验，当前版本不提供认证。
 

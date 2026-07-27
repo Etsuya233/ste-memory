@@ -27,8 +27,13 @@ describe("SQLite migrations", () => {
     migrateCoreDatabase(`sqlite:${corePath}`);
     migrateSourceStoreDatabase(`sqlite:${sourcePath}`);
 
-    expect(tablesAt(corePath)).toEqual(["core_migrations"]);
-    expect(tablesAt(sourcePath)).toEqual(["source_store_migrations"]);
+    expect(tablesAt(corePath)).toEqual(["core_migrations", "memory_spaces"]);
+    expect(tablesAt(sourcePath)).toEqual([
+      "source_store_chats",
+      "source_store_messages",
+      "source_store_migrations",
+      "source_store_parse_errors",
+    ]);
   });
 
   it("keeps migration ownership separate in a shared file", () => {
@@ -38,6 +43,13 @@ describe("SQLite migrations", () => {
     migrateCoreDatabase(`sqlite:${sharedPath}`);
     migrateSourceStoreDatabase(`sqlite:${sharedPath}`);
 
-    expect(tablesAt(sharedPath)).toEqual(["core_migrations", "source_store_migrations"]);
+    expect(tablesAt(sharedPath)).toEqual([
+      "core_migrations",
+      "memory_spaces",
+      "source_store_chats",
+      "source_store_messages",
+      "source_store_migrations",
+      "source_store_parse_errors",
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DatabaseHealthCheck } from "../src/health/types.ts";
+import type { MemorySpaceManager } from "../src/memory-spaces/types.ts";
 import { buildServer } from "../src/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
@@ -8,11 +9,23 @@ function healthCheck(connected: boolean): DatabaseHealthCheck {
   };
 }
 
+const memorySpaces: MemorySpaceManager = {
+  create: () => {
+    throw new Error("not used");
+  },
+  delete: () => false,
+  errors: () => undefined,
+  list: () => [],
+  messages: () => undefined,
+  rename: () => undefined,
+};
+
 describe("GET /health", () => {
   it("reports API and database connection status", async () => {
     const server = await buildServer({
       coreDatabase: healthCheck(true),
       sourceStoreDatabase: healthCheck(false),
+      memorySpaces,
     });
 
     const response = await server.inject({ method: "GET", url: "/health" });

@@ -6,6 +6,9 @@
     ".": "./src/index.ts",
     "./database": "./src/database.ts"
   },
+  "dependencies": {
+    "@ste-memory/core": "workspace:*"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   }
