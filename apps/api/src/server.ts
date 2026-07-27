@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
-import type { DatabaseHealthCheck, SystemHealth } from "@ste-memory/core";
+import type { DatabaseHealthCheck, SystemHealth } from "./health/types.ts";
 
 export interface ServerDependencies {
   readonly coreDatabase: DatabaseHealthCheck;

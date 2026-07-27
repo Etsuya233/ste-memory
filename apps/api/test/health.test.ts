@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "@ste-memory/core";
+import type { DatabaseHealthCheck } from "../src/health/types.ts";
 import { buildServer } from "../src/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {

@@ -1,5 +1,4 @@
-import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/core";
-import { checkSqliteConnection, openSqliteDatabase } from "./database.ts";
+import { openSqliteDatabase } from "./database.ts";
 
 const CREATE_MIGRATIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS core_migrations (
@@ -14,25 +13,5 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     database.exec(CREATE_MIGRATIONS_TABLE);
   } finally {
     database.close();
-  }
-}
-
-export class CoreDatabaseHealthCheck implements DatabaseHealthCheck {
-  readonly #databaseUrl: string;
-
-  constructor(databaseUrl: string) {
-    this.#databaseUrl = databaseUrl;
-  }
-
-  check(): DatabaseStatus {
-    try {
-      checkSqliteConnection(this.#databaseUrl);
-      return { connected: true };
-    } catch (error) {
-      return {
-        connected: false,
-        error: error instanceof Error ? error.message : "Unknown database error",
-      };
-    }
   }
 }

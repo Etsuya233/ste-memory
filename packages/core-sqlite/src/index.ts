@@ -1,1 +1,1 @@
-export { CoreDatabaseHealthCheck, migrateCoreDatabase } from "./core-database.ts";
+export { migrateCoreDatabase } from "./core-database.ts";

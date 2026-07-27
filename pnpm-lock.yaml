@@ -43,9 +43,6 @@ importers:
       "@fastify/cors":
         specifier: ^11.0.0
         version: 11.3.0
-      "@ste-memory/core":
-        specifier: workspace:*
-        version: link:../../core
       "@ste-memory/core-sqlite":
         specifier: workspace:*
         version: link:../../packages/core-sqlite
@@ -55,9 +52,6 @@ importers:
 
   apps/web:
     dependencies:
-      "@ste-memory/core":
-        specifier: workspace:*
-        version: link:../../core
       "@vitejs/plugin-react":
         specifier: latest
         version: 6.0.4(vite@8.1.5(@types/node@24.13.3))
@@ -83,11 +77,7 @@ importers:
 
   core: {}
 
-  packages/core-sqlite:
-    dependencies:
-      "@ste-memory/core":
-        specifier: workspace:*
-        version: link:../../core
+  packages/core-sqlite: {}
 
   packages/shared:
     dependencies:

@@ -46,7 +46,7 @@ pnpm build
 
 - `core/src/domain`: 纯领域模型与规则，不依赖 HTTP、SQLite、SillyTavern 或 LLM SDK。
 - `core/src/application`: 用例、应用编排及其 Ports；与 Domain 同属一个 Core 包。
-- `apps/api`: HTTP Adapter、Source Store 持久化、API 组合和迁移命令。
-- `apps/web`: React 实验界面，只通过 HTTP API 访问系统。
+- `apps/api`: HTTP Adapter、Source Store 持久化、运行状态探测、API 组合和迁移命令。
+- `apps/web`: React 实验界面，只通过 HTTP API 访问系统，并在自身 API client 边界维护传输契约。
 - `packages/core-sqlite`: Core Memory 持久化 Adapter、迁移和其他 Adapter 可复用的 SQLite 基础工具。
 - `packages/shared`: ESLint 和 Prettier 的共享配置。

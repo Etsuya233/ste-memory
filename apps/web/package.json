@@ -8,7 +8,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ste-memory/core": "workspace:*",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "^1.27.0",
     "react": "^19.0.0",

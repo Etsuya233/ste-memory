@@ -1,7 +1,7 @@
-import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/core";
 import { checkSqliteConnection } from "@ste-memory/core-sqlite/database";
+import type { DatabaseHealthCheck, DatabaseStatus } from "./types.ts";
 
-export class SourceStoreDatabaseHealthCheck implements DatabaseHealthCheck {
+export class SqliteDatabaseHealthCheck implements DatabaseHealthCheck {
   readonly #databaseUrl: string;
 
   constructor(databaseUrl: string) {

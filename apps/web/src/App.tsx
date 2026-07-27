@@ -1,6 +1,6 @@
 import { CircleAlert, Database, RefreshCw, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import type { SystemHealth } from "@ste-memory/core";
+import type { SystemHealth } from "./api/system-health.ts";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3000";
 
