@@ -1,5 +1,5 @@
 import type { DatabaseHealthCheck, DatabaseStatus } from "@ste-memory/core";
-import { checkSqliteConnection } from "@ste-memory/sqlite-utils";
+import { checkSqliteConnection } from "@ste-memory/core-sqlite/database";
 
 export class SourceStoreDatabaseHealthCheck implements DatabaseHealthCheck {
   readonly #databaseUrl: string;

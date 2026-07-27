@@ -13,7 +13,6 @@
     "@fastify/cors": "^11.0.0",
     "@ste-memory/core": "workspace:*",
     "@ste-memory/core-sqlite": "workspace:*",
-    "@ste-memory/sqlite-utils": "workspace:*",
     "fastify": "^5.0.0"
   }
 }

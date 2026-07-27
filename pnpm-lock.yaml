@@ -48,22 +48,10 @@ importers:
         version: link:../../core
       "@ste-memory/core-sqlite":
         specifier: workspace:*
-        version: link:../core-sqlite
-      "@ste-memory/sqlite-utils":
-        specifier: workspace:*
-        version: link:../../packages/sqlite-utils
+        version: link:../../packages/core-sqlite
       fastify:
         specifier: ^5.0.0
         version: 5.10.0
-
-  apps/core-sqlite:
-    dependencies:
-      "@ste-memory/core":
-        specifier: workspace:*
-        version: link:../../core
-      "@ste-memory/sqlite-utils":
-        specifier: workspace:*
-        version: link:../../packages/sqlite-utils
 
   apps/web:
     dependencies:
@@ -95,6 +83,12 @@ importers:
 
   core: {}
 
+  packages/core-sqlite:
+    dependencies:
+      "@ste-memory/core":
+        specifier: workspace:*
+        version: link:../../core
+
   packages/shared:
     dependencies:
       "@eslint/js":
@@ -109,8 +103,6 @@ importers:
       typescript-eslint:
         specifier: ^8.0.0
         version: 8.65.0(eslint@10.8.0(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
-
-  packages/sqlite-utils: {}
 
 packages:
   "@emnapi/core@1.11.1":

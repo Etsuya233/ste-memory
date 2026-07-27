@@ -1,4 +1,4 @@
-import { openSqliteDatabase } from "@ste-memory/sqlite-utils";
+import { openSqliteDatabase } from "@ste-memory/core-sqlite/database";
 
 const CREATE_MIGRATIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS source_store_migrations (

@@ -68,7 +68,7 @@ Adapter 为证据传入存储模式。`snapshot` 在 Core 中保存 `content` �
 
 ## 实现栈
 
-第一阶段使用 TypeScript 单仓库：根级 `core` 包通过内部目录划分纯领域模型、应用用例、Agent 编排与 Ports；各 Adapter 放在 `apps`，其中 `apps/api` 实现 HTTP Adapter，`apps/web` 为 React 桌面实验前端，Core SQLite 持久化也是独立 Adapter；通用工具和共享工程配置放在 `packages`。未来 SillyTavern 插件作为独立 Adapter 或包，复用契约而不依赖领域层。
+第一阶段使用 TypeScript 单仓库：根级 `core` 包通过内部目录划分纯领域模型、应用用例、Agent 编排与 Ports；业务接入 Adapter 放在 `apps`，其中 `apps/api` 实现 HTTP Adapter，`apps/web` 为 React 桌面实验前端；Core SQLite 持久化 Adapter 与通用 SQLite 工具合并在 `packages/core-sqlite`，共享工程配置放在 `packages/shared`。未来 SillyTavern 插件作为独立 Adapter 或包，复用契约而不依赖领域层。
 
 v1 只实现 SQLite 持久化；PostgreSQL 和迁移工具延期。Core Memory 与 HTTP Adapter Source Store 分别接收数据库连接 URL，可以指向同一个 SQLite 文件，也可以分开；双方可使用不同的数据访问依赖。共享文件时仍保持表名和所有权边界分离。
 
