@@ -195,68 +195,68 @@ describe("system memory table initialization", () => {
         repository.fields.filter((field) => field.tableId === table.id),
       ]),
     );
-    expect([...fieldsByTable.get("characters")!].map((field) => field.name)).toEqual([
-      "名称",
-      "别名",
-      "身份/定位",
-      "性格特征",
-      "外貌特征",
-      "背景/经历",
-      "当前状态",
-      "备注",
+    expect([...fieldsByTable.get("characters")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["aliases", "别名"],
+      ["role", "身份/定位"],
+      ["personality", "性格特征"],
+      ["appearance", "外貌特征"],
+      ["background", "背景/经历"],
+      ["current_status", "当前状态"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("relationships")!].map((field) => field.name)).toEqual([
-      "人物 A",
-      "人物 B",
-      "关系描述",
-      "当前状态",
-      "关键事实",
-      "备注",
+    expect([...fieldsByTable.get("relationships")!].map(({ key, name }) => [key, name])).toEqual([
+      ["character_a", "人物 A"],
+      ["character_b", "人物 B"],
+      ["description", "关系描述"],
+      ["current_status", "当前状态"],
+      ["key_facts", "关键事实"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("locations")!].map((field) => field.name)).toEqual([
-      "名称",
-      "地点类型",
-      "详细地点文本",
-      "当前状态",
-      "相关人物",
-      "相关物品",
-      "备注",
+    expect([...fieldsByTable.get("locations")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["type", "地点类型"],
+      ["details", "详细地点文本"],
+      ["current_status", "当前状态"],
+      ["related_characters", "相关人物"],
+      ["related_items", "相关物品"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("items")!].map((field) => field.name)).toEqual([
-      "名称",
-      "物品类型",
-      "持有者/所属人物",
-      "当前位置",
-      "状态",
-      "关键属性",
-      "备注",
+    expect([...fieldsByTable.get("items")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["type", "物品类型"],
+      ["owner", "持有者/所属人物"],
+      ["current_location", "当前位置"],
+      ["current_status", "状态"],
+      ["key_attributes", "关键属性"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("plots")!].map((field) => field.name)).toEqual([
-      "名称",
-      "详情",
-      "相关人物",
-      "相关地点",
-      "状态",
-      "备注",
+    expect([...fieldsByTable.get("plots")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["details", "详情"],
+      ["related_characters", "相关人物"],
+      ["related_locations", "相关地点"],
+      ["status", "状态"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("foreshadowing")!].map((field) => field.name)).toEqual([
-      "名称",
-      "详情",
-      "相关人物",
-      "相关地点",
-      "状态",
-      "计划回收信息",
-      "备注",
+    expect([...fieldsByTable.get("foreshadowing")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["details", "详情"],
+      ["related_characters", "相关人物"],
+      ["related_locations", "相关地点"],
+      ["status", "状态"],
+      ["resolution_plan", "计划回收信息"],
+      ["notes", "备注"],
     ]);
-    expect([...fieldsByTable.get("todos")!].map((field) => field.name)).toEqual([
-      "名称",
-      "详情",
-      "相关人物",
-      "相关地点",
-      "优先级",
-      "状态",
-      "截止日期",
-      "备注",
+    expect([...fieldsByTable.get("todos")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["details", "详情"],
+      ["related_characters", "相关人物"],
+      ["related_locations", "相关地点"],
+      ["priority", "优先级"],
+      ["status", "状态"],
+      ["due_date", "截止日期"],
+      ["notes", "备注"],
     ]);
 
     const characters = repository.tables.find((table) => table.key === "characters")!;
