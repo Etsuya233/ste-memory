@@ -95,6 +95,10 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
     setTables((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   }
 
+  function replaceTable(table: MemoryTable) {
+    setTables((current) => current.map((item) => (item.id === table.id ? table : item)));
+  }
+
   async function toggle(table: MemoryTable, enabled: boolean) {
     setUpdatingId(table.id);
     setWorkspaceError(undefined);
@@ -169,7 +173,10 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
       </aside>
       <TableWorkspace
         table={selectedTable}
+        tables={tables}
+        memorySpaceId={props.selectedSpaceId}
         onSave={update}
+        onTableUpdated={replaceTable}
         onDelete={(table) => setDialog({ mode: "delete", table })}
       />
       <aside className="chat-inspector">

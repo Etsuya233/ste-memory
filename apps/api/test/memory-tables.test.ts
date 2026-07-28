@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MemorySpaceService,
+  MemoryFieldService,
+  type MemoryFieldId,
+  type MemoryFieldType,
   MemoryTableService,
   type MemorySpaceId,
   type MemoryTableId,
 } from "@ste-memory/core";
 import {
   migrateCoreDatabase,
+  SqliteMemoryFieldRepository,
   SqliteMemorySpaceRepository,
   SqliteMemoryTableRepository,
 } from "@ste-memory/core-sqlite";
@@ -35,10 +39,17 @@ async function testServer() {
     () => randomUUID() as MemorySpaceId,
     () => "2026-07-28T00:00:00.000Z",
   );
+  const tableRepository = new SqliteMemoryTableRepository(coreUrl);
   const tables = new MemoryTableService(
     spacesRepository,
-    new SqliteMemoryTableRepository(coreUrl),
+    tableRepository,
     () => randomUUID() as MemoryTableId,
+    () => "2026-07-28T00:00:00.000Z",
+  );
+  const fields = new MemoryFieldService(
+    tableRepository,
+    new SqliteMemoryFieldRepository(coreUrl),
+    () => randomUUID() as MemoryFieldId,
     () => "2026-07-28T00:00:00.000Z",
   );
   const server = await buildServer({
@@ -46,6 +57,7 @@ async function testServer() {
     sourceStoreDatabase: healthCheck,
     memorySpaces: new DefaultMemorySpaceManager(spaces, new SqliteSourceChatRepository(sourceUrl)),
     memoryTables: tables,
+    memoryFields: fields,
   });
   servers.push(server);
   return { server, spaces };
@@ -134,5 +146,124 @@ describe("memory table API", () => {
       url: `/memory-spaces/${space.id}/tables/${table.id}`,
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("creates and lists every v1 field type with its type-specific configuration", async () => {
+    const { server, spaces } = await testServer();
+    const space = spaces.create("会话");
+    const tableResponse = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables`,
+      payload: { name: "人物" },
+    });
+    const table = tableResponse.json<{ id: string }>();
+    const types: MemoryFieldType[] = [
+      "short_text",
+      "long_text",
+      "short_text_list",
+      "integer",
+      "decimal",
+      "boolean",
+      "date",
+      "datetime",
+      "single_select",
+      "multi_select",
+      "single_reference",
+      "multi_reference",
+    ];
+
+    for (const [position, type] of types.entries()) {
+      const response = await server.inject({
+        method: "POST",
+        url: `/memory-spaces/${space.id}/tables/${table.id}/fields`,
+        payload: {
+          name: `字段 ${position + 1}`,
+          type,
+          required: position === 0,
+          prompt: "字段填写规则",
+          enabled: true,
+          position,
+          ...(type.endsWith("select") ? { options: ["选项 A", "选项 B"] } : {}),
+          ...(type.endsWith("reference") ? { referenceTableId: table.id } : {}),
+        },
+      });
+      expect(response.statusCode, response.body).toBe(201);
+    }
+
+    const listed = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/fields`,
+    });
+    expect(listed.json<{ type: MemoryFieldType }[]>().map((field) => field.type)).toEqual(types);
+  });
+
+  it("updates and deletes fields while enforcing display strategy and immutable types", async () => {
+    const { server, spaces } = await testServer();
+    const space = spaces.create("会话");
+    const table = (
+      await server.inject({
+        method: "POST",
+        url: `/memory-spaces/${space.id}/tables`,
+        payload: { name: "人物" },
+      })
+    ).json<{ id: string }>();
+    const field = (
+      await server.inject({
+        method: "POST",
+        url: `/memory-spaces/${space.id}/tables/${table.id}/fields`,
+        payload: {
+          name: "名称",
+          type: "short_text",
+          required: true,
+          prompt: "",
+          enabled: true,
+          position: 0,
+        },
+      })
+    ).json<{ id: string }>();
+
+    const updated = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/fields/${field.id}`,
+      payload: {
+        name: "人物名称",
+        required: true,
+        prompt: "保留原始称呼。",
+        enabled: false,
+        position: 1,
+      },
+    });
+    expect(updated.json()).toMatchObject({
+      field: { name: "人物名称", enabled: false, position: 1 },
+      warnings: ["停用必填字段后，Agent 可能无法创建合法记录"],
+    });
+
+    const changedType = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/fields/${field.id}`,
+      payload: { type: "long_text" },
+    });
+    expect(changedType.statusCode).toBe(400);
+    expect(changedType.json()).toMatchObject({ type: "memory_field_type_immutable" });
+
+    await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/fields/${field.id}`,
+      payload: { enabled: true },
+    });
+
+    const display = await server.inject({
+      method: "PUT",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/display-strategy`,
+      payload: { type: "field", fieldId: field.id },
+    });
+    expect(display.json()).toMatchObject({ displayStrategy: { type: "field", fieldId: field.id } });
+
+    const protectedDelete = await server.inject({
+      method: "DELETE",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/fields/${field.id}`,
+    });
+    expect(protectedDelete.statusCode).toBe(400);
+    expect(protectedDelete.json()).toMatchObject({ type: "memory_field_used_by_display_strategy" });
   });
 });

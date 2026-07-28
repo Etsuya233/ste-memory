@@ -5,6 +5,7 @@ import "./styles.css";
 import "./workspace.css";
 import "./memory-table-navigation.css";
 import "./memory-table-workspace.css";
+import "./field-editor.css";
 
 const root = document.getElementById("root");
 if (!root) {

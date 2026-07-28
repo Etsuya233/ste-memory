@@ -52,6 +52,7 @@ export class MemoryTableService {
       description: input.description,
       prompt: input.prompt,
       enabled: true,
+      displayStrategy: null,
       createdAt: now,
       updatedAt: now,
     };

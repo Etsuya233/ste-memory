@@ -1,0 +1,214 @@
+.field-editor {
+  position: relative;
+}
+.display-strategy,
+.field-definition-list {
+  padding: 22px;
+  border-bottom: 1px solid #e1e4df;
+}
+.definition-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.definition-section-heading h3 {
+  font-size: 14px;
+}
+.definition-section-heading span {
+  display: block;
+  margin-top: 3px;
+  color: #747c72;
+  font-size: 10px;
+}
+.strategy-modes {
+  width: fit-content;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 15px;
+  border: 1px solid #c8cec5;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.strategy-modes button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: #596056;
+  background: #fff;
+  border: 0;
+}
+.strategy-modes button + button {
+  border-left: 1px solid #c8cec5;
+}
+.strategy-modes button.active {
+  color: #263018;
+  background: #e8efda;
+  font-weight: 700;
+}
+.display-strategy label > span,
+.field-dialog label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #555d53;
+  font-size: 12px;
+  font-weight: 650;
+}
+.display-strategy input,
+.display-strategy select,
+.field-dialog input:not([type="checkbox"]),
+.field-dialog select,
+.field-dialog textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: #30352f;
+  background: #fff;
+  border: 1px solid #c7cdc5;
+  border-radius: 5px;
+}
+.template-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.template-fields button {
+  min-height: 28px;
+  padding: 0 9px;
+  color: #4f5f29;
+  background: #f2f6e9;
+  border: 1px solid #cbd7b2;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.field-definition {
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 54px minmax(140px, 1fr) 38px 34px 34px;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #e3e6e1;
+}
+.field-definition:last-child {
+  border-bottom: 1px solid #e3e6e1;
+}
+.field-definition.disabled {
+  background: #f7f7f5;
+}
+.field-order {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #777f75;
+}
+.field-order strong {
+  width: 19px;
+  font-size: 11px;
+  text-align: center;
+}
+.field-order div {
+  display: grid;
+}
+.field-order button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #70776e;
+  background: transparent;
+  border: 0;
+}
+.field-summary strong,
+.field-summary span {
+  display: block;
+}
+.field-summary strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-summary span {
+  margin-top: 4px;
+  color: #747c72;
+  font-size: 10px;
+}
+.field-list-state {
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+  color: #7a8278;
+  font-size: 11px;
+}
+.field-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 22px;
+  padding: 9px 11px;
+  color: #77521d;
+  background: #fff5dc;
+  border: 1px solid #ead5a4;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.field-warning button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+.field-editor-error {
+  margin: 14px 22px;
+}
+.field-dialog {
+  width: min(100%, 620px);
+}
+.field-dialog label + label,
+.field-dialog .field-form-grid + label,
+.field-dialog label + .field-checks {
+  display: block;
+  margin-top: 14px;
+}
+.field-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px 90px;
+  gap: 12px;
+}
+.field-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 14px;
+}
+.field-checks label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.field-checks label > span {
+  margin: 0;
+}
+.dialog > .delete-copy {
+  padding: 18px 18px 0;
+}
+.dialog > .delete-copy + .dialog-footer {
+  padding: 0 18px 18px;
+}
+
+@media (max-width: 720px) {
+  .field-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .display-strategy,
+  .field-definition-list {
+    padding: 18px 14px;
+  }
+}

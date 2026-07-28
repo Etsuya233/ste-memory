@@ -3,6 +3,7 @@ import type {
   MemoryTable,
   MemoryTableId,
   MemoryTableKind,
+  MemoryTableDisplayStrategy,
   MemoryTableRepository,
 } from "@ste-memory/core";
 import { openSqliteDatabase } from "./database.ts";
@@ -15,6 +16,7 @@ interface MemoryTableRow {
   readonly description: string;
   readonly prompt: string;
   readonly enabled: number;
+  readonly display_strategy: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -28,6 +30,9 @@ function toMemoryTable(row: MemoryTableRow): MemoryTable {
     description: row.description,
     prompt: row.prompt,
     enabled: row.enabled === 1,
+    displayStrategy: row.display_strategy
+      ? (JSON.parse(row.display_strategy) as MemoryTableDisplayStrategy)
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -47,8 +52,9 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
         .prepare(
           `
           INSERT INTO memory_tables (
-            id, memory_space_id, kind, name, description, prompt, enabled, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, memory_space_id, kind, name, description, prompt, enabled, display_strategy,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         )
         .run(
@@ -59,6 +65,7 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
           memoryTable.description,
           memoryTable.prompt,
           memoryTable.enabled ? 1 : 0,
+          memoryTable.displayStrategy ? JSON.stringify(memoryTable.displayStrategy) : null,
           memoryTable.createdAt,
           memoryTable.updatedAt,
         );
@@ -112,7 +119,7 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
           .prepare(
             `
           UPDATE memory_tables
-          SET name = ?, description = ?, prompt = ?, enabled = ?, updated_at = ?
+          SET name = ?, description = ?, prompt = ?, enabled = ?, display_strategy = ?, updated_at = ?
           WHERE memory_space_id = ? AND id = ?
         `,
           )
@@ -121,6 +128,7 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
             memoryTable.description,
             memoryTable.prompt,
             memoryTable.enabled ? 1 : 0,
+            memoryTable.displayStrategy ? JSON.stringify(memoryTable.displayStrategy) : null,
             memoryTable.updatedAt,
             memoryTable.memorySpaceId,
             memoryTable.id,

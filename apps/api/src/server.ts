@@ -2,6 +2,8 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { DomainError, type DomainErrorType } from "@ste-memory/core";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerMemoryFieldRoutes } from "./memory-fields/routes.ts";
+import type { MemoryFieldManager } from "./memory-fields/types.ts";
 import type { DatabaseHealthCheck, SystemHealth } from "./health/types.ts";
 import { registerMemoryTableRoutes } from "./memory-tables/routes.ts";
 import type { MemoryTableManager } from "./memory-tables/types.ts";
@@ -13,6 +15,7 @@ export interface ServerDependencies {
   readonly sourceStoreDatabase: DatabaseHealthCheck;
   readonly memorySpaces: MemorySpaceManager;
   readonly memoryTables: MemoryTableManager;
+  readonly memoryFields: MemoryFieldManager;
 }
 
 const domainErrorMessages: Record<DomainErrorType, string> = {
@@ -20,13 +23,21 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_space_name_too_long: "记忆空间名称不能超过 120 个字符",
   memory_table_name_required: "记忆表格名称不能为空",
   memory_table_name_too_long: "记忆表格名称不能超过 120 个字符",
+  memory_field_reference_table_invalid: "引用字段的目标表必须属于当前记忆空间",
+  memory_field_options_invalid: "单选和多选字段需要互不重复的非空固定选项",
+  memory_field_type_immutable: "字段创建后不能修改类型",
+  memory_field_name_required: "字段名称不能为空",
+  memory_field_name_too_long: "字段名称不能超过 120 个字符",
+  memory_field_position_invalid: "字段顺序必须是大于或等于 0 的整数",
+  memory_table_display_strategy_invalid: "记忆表格显示策略无效",
+  memory_field_used_by_display_strategy: "请先指定不使用该字段的其他显示策略，再删除或停用该字段",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
   const server = Fastify({ logger: true });
   await server.register(cors, {
     origin: /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/,
-    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
   await server.register(multipart, {
     limits: { files: 1, fileSize: 50 * 1024 * 1024, fields: 1 },
@@ -52,6 +63,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   }));
   registerMemorySpaceRoutes(server, dependencies.memorySpaces);
   registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);
+  registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
 
   return server;
 }

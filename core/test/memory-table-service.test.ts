@@ -95,6 +95,7 @@ describe("MemoryTableService", () => {
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",
       enabled: true,
+      displayStrategy: null,
       createdAt: now,
       updatedAt: now,
     });

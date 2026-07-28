@@ -1,8 +1,36 @@
 import { DomainError } from "./domain-error.ts";
 import type { MemorySpaceId } from "./memory-space.ts";
+import type { MemoryFieldId } from "./memory-field.ts";
 
 export type MemoryTableId = string & { readonly __brand: "MemoryTableId" };
 export type MemoryTableKind = "custom" | "system";
+export type MemoryTableDisplayStrategy =
+  | { readonly type: "field"; readonly fieldId: MemoryFieldId }
+  | { readonly type: "template"; readonly template: string };
+
+export interface DerivedDisplayTemplate {
+  readonly template: string;
+  readonly fieldIds: readonly MemoryFieldId[];
+}
+
+export function derivedDisplayTemplate(value: string): DerivedDisplayTemplate {
+  const fieldIds = [...value.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1] as MemoryFieldId);
+  if (fieldIds.length === 0) {
+    throw new DomainError({
+      type: "memory_table_display_strategy_invalid",
+      humanMsg: "显示模板只能引用当前表中的字段",
+    });
+  }
+  return { template: value, fieldIds };
+}
+
+export function memoryTableDisplayFieldIds(
+  strategy: MemoryTableDisplayStrategy,
+): readonly MemoryFieldId[] {
+  return strategy.type === "field"
+    ? [strategy.fieldId]
+    : derivedDisplayTemplate(strategy.template).fieldIds;
+}
 
 export interface MemoryTable {
   readonly id: MemoryTableId;
@@ -12,6 +40,7 @@ export interface MemoryTable {
   readonly description: string;
   readonly prompt: string;
   readonly enabled: boolean;
+  readonly displayStrategy: MemoryTableDisplayStrategy | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

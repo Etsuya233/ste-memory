@@ -1,14 +1,25 @@
 import { Columns3, Database, Save, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import type { MemoryTable, MemoryTablePatch } from "../api/memory-tables.ts";
+import { FieldEditor } from "./FieldEditor.tsx";
 
 interface TableWorkspaceProps {
   readonly table?: MemoryTable;
+  readonly tables: readonly MemoryTable[];
+  readonly memorySpaceId?: string;
   readonly onDelete: (table: MemoryTable) => void;
   readonly onSave: (table: MemoryTable, patch: MemoryTablePatch) => Promise<void>;
+  readonly onTableUpdated: (table: MemoryTable) => void;
 }
 
-export function TableWorkspace({ table, onDelete, onSave }: TableWorkspaceProps) {
+export function TableWorkspace({
+  table,
+  tables,
+  memorySpaceId,
+  onDelete,
+  onSave,
+  onTableUpdated,
+}: TableWorkspaceProps) {
   const [tab, setTab] = useState<"data" | "fields">("data");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -92,7 +103,7 @@ export function TableWorkspace({ table, onDelete, onSave }: TableWorkspaceProps)
           <p>这张自定义表已经可以使用，记录编辑将在后续工作中提供。</p>
         </div>
       ) : (
-        <div className="table-config-layout">
+        <div className="table-definition-workspace">
           <form className="table-config-form" onSubmit={(event) => void save(event)}>
             <div className="config-heading">
               <div>
@@ -138,11 +149,15 @@ export function TableWorkspace({ table, onDelete, onSave }: TableWorkspaceProps)
             </label>
             {error ? <p className="form-error">{error}</p> : null}
           </form>
-          <aside className="field-empty-state">
-            <Settings2 size={24} />
-            <h3>尚未配置字段</h3>
-            <p>空表可以正常保存和浏览。字段编辑能力将在下一阶段加入。</p>
-          </aside>
+          {memorySpaceId ? (
+            <FieldEditor
+              key={table.id}
+              memorySpaceId={memorySpaceId}
+              table={table}
+              tables={tables}
+              onTableUpdated={onTableUpdated}
+            />
+          ) : null}
         </div>
       )}
     </section>

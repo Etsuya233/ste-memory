@@ -8,6 +8,10 @@ export interface MemoryTable {
   readonly description: string;
   readonly prompt: string;
   readonly enabled: boolean;
+  readonly displayStrategy:
+    | { readonly type: "field"; readonly fieldId: string }
+    | { readonly type: "template"; readonly template: string }
+    | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

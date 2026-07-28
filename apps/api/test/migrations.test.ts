@@ -27,7 +27,12 @@ describe("SQLite migrations", () => {
     migrateCoreDatabase(`sqlite:${corePath}`);
     migrateSourceStoreDatabase(`sqlite:${sourcePath}`);
 
-    expect(tablesAt(corePath)).toEqual(["core_migrations", "memory_spaces", "memory_tables"]);
+    expect(tablesAt(corePath)).toEqual([
+      "core_migrations",
+      "memory_fields",
+      "memory_spaces",
+      "memory_tables",
+    ]);
     expect(tablesAt(sourcePath)).toEqual([
       "source_store_chats",
       "source_store_messages",
@@ -45,6 +50,7 @@ describe("SQLite migrations", () => {
 
     expect(tablesAt(sharedPath)).toEqual([
       "core_migrations",
+      "memory_fields",
       "memory_spaces",
       "memory_tables",
       "source_store_chats",

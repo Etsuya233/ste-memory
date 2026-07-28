@@ -90,6 +90,15 @@
   gap: 24px;
   padding: 22px;
 }
+.table-definition-workspace {
+  min-height: calc(100vh - 217px);
+  padding-bottom: 48px;
+}
+.table-definition-workspace > .table-config-form {
+  max-width: none;
+  padding: 22px;
+  border-bottom: 1px solid #e1e4df;
+}
 .table-config-form {
   max-width: 680px;
 }
@@ -211,6 +220,9 @@
   }
   .table-config-layout {
     grid-template-columns: 1fr;
+    padding: 18px 14px;
+  }
+  .table-definition-workspace > .table-config-form {
     padding: 18px 14px;
   }
   .table-workspace-header {

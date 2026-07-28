@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MemorySpaceService,
+  MemoryFieldService,
+  type MemoryFieldId,
   MemoryTableService,
   type MemorySpaceId,
   type MemoryTableId,
 } from "@ste-memory/core";
 import {
   migrateCoreDatabase,
+  SqliteMemoryFieldRepository,
   SqliteMemorySpaceRepository,
   SqliteMemoryTableRepository,
 } from "@ste-memory/core-sqlite";
@@ -38,14 +41,21 @@ async function testServer() {
     ),
     new SqliteSourceChatRepository(sourceUrl),
   );
+  const tableRepository = new SqliteMemoryTableRepository(coreUrl);
   const server = await buildServer({
     coreDatabase: healthCheck,
     sourceStoreDatabase: healthCheck,
     memorySpaces: manager,
     memoryTables: new MemoryTableService(
       spacesRepository,
-      new SqliteMemoryTableRepository(coreUrl),
+      tableRepository,
       () => randomUUID() as MemoryTableId,
+      () => "2026-07-27T00:00:00.000Z",
+    ),
+    memoryFields: new MemoryFieldService(
+      tableRepository,
+      new SqliteMemoryFieldRepository(coreUrl),
+      () => randomUUID() as MemoryFieldId,
       () => "2026-07-27T00:00:00.000Z",
     ),
   });
@@ -83,6 +93,7 @@ describe("memory space API", () => {
     expect(response.statusCode).toBe(204);
     expect(response.headers["access-control-allow-methods"]).toContain("PATCH");
     expect(response.headers["access-control-allow-methods"]).toContain("DELETE");
+    expect(response.headers["access-control-allow-methods"]).toContain("PUT");
   });
 
   it("rejects creation without a JSONL file and creates no space", async () => {
