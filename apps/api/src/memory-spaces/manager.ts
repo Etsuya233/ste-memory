@@ -44,6 +44,10 @@ export class DefaultMemorySpaceManager implements MemorySpaceManager {
     return this.sourceChats.errors(id);
   }
 
+  exists(id: MemorySpaceId): boolean {
+    return this.spaces.find(id) !== undefined;
+  }
+
   list(): MemorySpaceView[] {
     return this.spaces.list().map((space) => ({ ...space, ...this.sourceChats.summary(space.id) }));
   }

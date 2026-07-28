@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import "./styles.css";
 import "./workspace.css";
+import "./memory-table-navigation.css";
+import "./memory-table-workspace.css";
 
 const root = document.getElementById("root");
 if (!root) {

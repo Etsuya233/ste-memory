@@ -1,0 +1,134 @@
+.space-navigation {
+  min-height: 0;
+  max-height: 43%;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #dfe3dc;
+}
+.space-navigation .space-list {
+  min-height: 0;
+  overflow: auto;
+}
+.table-navigation {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.table-navigation-heading {
+  min-height: 67px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  border-bottom: 1px solid #e0e3de;
+}
+.table-navigation-heading h2 {
+  font-size: 14px;
+}
+.table-navigation-heading span {
+  display: block;
+  margin-top: 4px;
+  color: #747c72;
+  font-size: 11px;
+}
+.table-list {
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+}
+.table-list-state {
+  min-height: 130px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px;
+  color: #7b8279;
+  font-size: 12px;
+  text-align: center;
+}
+.table-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+.table-list-item + .table-list-item {
+  margin-top: 4px;
+}
+.table-list-item:hover {
+  background: #eef0ec;
+}
+.table-list-item.selected {
+  background: #e8edde;
+  border-color: #cbd8ad;
+}
+.table-select {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+.table-select span,
+.table-select strong,
+.table-select small {
+  min-width: 0;
+  display: block;
+}
+.table-select strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.table-select small {
+  margin-top: 3px;
+  color: #747c72;
+  font-size: 10px;
+}
+.table-toggle {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  display: block;
+  cursor: pointer;
+}
+.table-toggle input {
+  position: absolute;
+  opacity: 0;
+}
+.table-toggle span {
+  position: absolute;
+  inset: 0;
+  background: #b7bdb4;
+  border-radius: 9px;
+}
+.table-toggle span::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  content: "";
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+.table-toggle input:checked + span {
+  background: #779526;
+}
+.table-toggle input:checked + span::after {
+  transform: translateX(12px);
+}
+.table-toggle input:focus-visible + span {
+  outline: 2px solid #506a13;
+  outline-offset: 2px;
+}

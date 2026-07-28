@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3000";
+import { API_URL, responseJson } from "./http.ts";
 
 export interface MemorySpace {
   readonly id: string;
@@ -20,12 +20,6 @@ export interface SourceParseError {
   readonly lineNumber: number;
   readonly rawLine: string;
   readonly message: string;
-}
-
-async function responseJson<T>(response: Response): Promise<T> {
-  if (response.ok) return (await response.json()) as T;
-  const body = (await response.json()) as { message?: string };
-  throw new Error(body.message ?? `HTTP ${response.status}`);
 }
 
 export async function listMemorySpaces(): Promise<MemorySpace[]> {

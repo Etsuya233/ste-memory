@@ -1,0 +1,227 @@
+.workspace {
+  grid-template-columns: 286px minmax(420px, 1fr) minmax(320px, 390px);
+}
+
+.table-workspace {
+  min-width: 0;
+  background: #fff;
+  border-right: 1px solid #dde1da;
+}
+.table-workspace-header {
+  min-height: 104px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e1e4df;
+}
+.table-workspace-header h2 {
+  margin-top: 7px;
+  font-size: 19px;
+}
+.table-workspace-header p {
+  max-width: 680px;
+  margin-top: 5px;
+  color: #687066;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.status-label {
+  color: #4e6220;
+  font-size: 10px;
+  font-weight: 700;
+}
+.status-label.disabled {
+  color: #8b5d28;
+}
+.table-tabs {
+  height: 49px;
+  display: flex;
+  align-items: end;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e1e4df;
+}
+.table-tabs button {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: #687066;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 12px;
+}
+.table-tabs button.active {
+  color: #273119;
+  border-bottom-color: #8eae35;
+  font-weight: 700;
+}
+.table-empty-state,
+.empty-workspace {
+  min-height: calc(100vh - 217px);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px;
+  color: #7a8278;
+  text-align: center;
+}
+.table-empty-state h3,
+.empty-workspace h2,
+.field-empty-state h3 {
+  color: #3f473d;
+  font-size: 14px;
+}
+.table-empty-state p,
+.empty-workspace p,
+.field-empty-state p {
+  max-width: 380px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.table-config-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  padding: 22px;
+}
+.table-config-form {
+  max-width: 680px;
+}
+.config-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.config-heading h3 {
+  font-size: 14px;
+}
+.config-heading p {
+  margin-top: 4px;
+  color: #747c72;
+  font-size: 11px;
+}
+.table-config-form label,
+.table-create-fields label {
+  display: block;
+}
+.table-config-form label + label,
+.table-create-fields label + label {
+  margin-top: 15px;
+}
+.table-config-form label > span,
+.table-create-fields label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #555d53;
+  font-size: 12px;
+  font-weight: 650;
+}
+.table-config-form input:not([type="checkbox"]),
+.table-config-form textarea,
+.table-create-fields input,
+.table-create-fields textarea {
+  width: 100%;
+  padding: 9px 10px;
+  color: #30352f;
+  background: #fff;
+  border: 1px solid #c7cdc5;
+  border-radius: 5px;
+  outline: none;
+  resize: vertical;
+}
+.table-config-form input:not([type="checkbox"]):focus,
+.table-config-form textarea:focus,
+.table-create-fields input:focus,
+.table-create-fields textarea:focus {
+  border-color: #779526;
+  box-shadow: 0 0 0 2px #e8f2ca;
+}
+.table-config-form .config-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.table-config-form .config-checkbox span {
+  margin: 0;
+}
+.field-empty-state {
+  align-self: start;
+  padding: 18px;
+  color: #7a8278;
+  background: #f7f8f5;
+  border-left: 3px solid #c9d6a7;
+}
+.field-empty-state h3 {
+  margin-top: 10px;
+}
+.field-empty-state p {
+  margin-top: 5px;
+}
+.chat-inspector {
+  min-width: 0;
+  background: #fff;
+}
+.chat-inspector .viewer-toolbar {
+  padding: 14px 16px;
+}
+.chat-inspector .locate-form input {
+  width: 105px;
+}
+.chat-inspector .message-list {
+  padding: 8px 12px 50px;
+}
+.chat-inspector .message-row {
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 1120px) {
+  .workspace {
+    grid-template-columns: 270px minmax(0, 1fr);
+  }
+  .chat-inspector {
+    grid-column: 2;
+    border-top: 1px solid #dde1da;
+  }
+}
+@media (max-width: 720px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    max-height: none;
+  }
+  .space-navigation {
+    max-height: 300px;
+  }
+  .table-navigation {
+    min-height: 240px;
+  }
+  .table-workspace,
+  .chat-inspector {
+    grid-column: 1;
+  }
+  .table-config-layout {
+    grid-template-columns: 1fr;
+    padding: 18px 14px;
+  }
+  .table-workspace-header {
+    padding: 16px 14px;
+  }
+  .table-tabs {
+    padding: 0 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-toggle span::after {
+    transition: none;
+  }
+}

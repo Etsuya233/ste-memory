@@ -7,6 +7,15 @@ export type DomainErrorData =
       readonly type: "memory_space_name_too_long";
       readonly param: { readonly maxLength: number };
       readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_table_name_required";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_table_name_too_long";
+      readonly param: { readonly maxLength: number };
+      readonly humanMsg: string;
     };
 
 export type DomainErrorType = DomainErrorData["type"];

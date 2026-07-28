@@ -16,6 +16,7 @@ export interface MemorySpaceManager {
   create(input: CreateMemorySpaceInput): MemorySpaceView;
   delete(id: MemorySpaceId): boolean;
   errors(id: MemorySpaceId): readonly SourceParseError[] | undefined;
+  exists(id: MemorySpaceId): boolean;
   list(): readonly MemorySpaceView[];
   messages(id: MemorySpaceId): readonly SourceMessage[] | undefined;
   rename(id: MemorySpaceId, name: string): MemorySpaceView | undefined;

@@ -3,6 +3,8 @@ import multipart from "@fastify/multipart";
 import { DomainError, type DomainErrorType } from "@ste-memory/core";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { DatabaseHealthCheck, SystemHealth } from "./health/types.ts";
+import { registerMemoryTableRoutes } from "./memory-tables/routes.ts";
+import type { MemoryTableManager } from "./memory-tables/types.ts";
 import { registerMemorySpaceRoutes } from "./memory-spaces/routes.ts";
 import type { MemorySpaceManager } from "./memory-spaces/types.ts";
 
@@ -10,11 +12,14 @@ export interface ServerDependencies {
   readonly coreDatabase: DatabaseHealthCheck;
   readonly sourceStoreDatabase: DatabaseHealthCheck;
   readonly memorySpaces: MemorySpaceManager;
+  readonly memoryTables: MemoryTableManager;
 }
 
 const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_space_name_required: "记忆空间名称不能为空",
   memory_space_name_too_long: "记忆空间名称不能超过 120 个字符",
+  memory_table_name_required: "记忆表格名称不能为空",
+  memory_table_name_too_long: "记忆表格名称不能超过 120 个字符",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
@@ -46,6 +51,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
     },
   }));
   registerMemorySpaceRoutes(server, dependencies.memorySpaces);
+  registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);
 
   return server;
 }

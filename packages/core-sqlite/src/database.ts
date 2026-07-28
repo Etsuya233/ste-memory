@@ -22,7 +22,9 @@ export function openSqliteDatabase(databaseUrl: string): DatabaseSync {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
   }
-  return new DatabaseSync(path);
+  const database = new DatabaseSync(path);
+  database.exec("PRAGMA foreign_keys = ON");
+  return database;
 }
 
 export function checkSqliteConnection(databaseUrl: string): void {

@@ -1,18 +1,14 @@
-import { Database, Plus, RefreshCw } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   createMemorySpace,
   deleteMemorySpace,
   listMemorySpaces,
-  loadSourceChat,
   renameMemorySpace,
   type MemorySpace,
-  type SourceMessage,
-  type SourceParseError,
 } from "./api/memory-spaces.ts";
-import { ChatViewer } from "./components/ChatViewer.tsx";
+import { MemoryWorkspace } from "./components/MemoryWorkspace.tsx";
 import { SpaceDialog } from "./components/SpaceDialog.tsx";
-import { SpaceList } from "./components/SpaceList.tsx";
 
 type DialogState =
   { readonly mode: "create" } | { readonly mode: "rename" | "delete"; readonly space: MemorySpace };
@@ -20,10 +16,7 @@ type DialogState =
 export function App() {
   const [spaces, setSpaces] = useState<MemorySpace[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
-  const [messages, setMessages] = useState<SourceMessage[]>([]);
-  const [parseErrors, setParseErrors] = useState<SourceParseError[]>([]);
   const [loadingSpaces, setLoadingSpaces] = useState(true);
-  const [loadingChat, setLoadingChat] = useState(false);
   const [pageError, setPageError] = useState<string>();
   const [dialog, setDialog] = useState<DialogState>();
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -46,31 +39,6 @@ export function App() {
   }, []);
 
   useEffect(() => void refreshSpaces(), [refreshSpaces]);
-
-  useEffect(() => {
-    let active = true;
-    if (!selectedId) {
-      setMessages([]);
-      setParseErrors([]);
-      return;
-    }
-    setLoadingChat(true);
-    void loadSourceChat(selectedId)
-      .then((chat) => {
-        if (!active) return;
-        setMessages(chat.messages);
-        setParseErrors(chat.errors);
-      })
-      .catch((error: unknown) => {
-        if (active) setPageError(error instanceof Error ? error.message : "无法读取原始聊天");
-      })
-      .finally(() => {
-        if (active) setLoadingChat(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selectedId]);
 
   function openDialog(state: DialogState) {
     setDialogError(undefined);
@@ -136,44 +104,16 @@ export function App() {
           <Plus size={17} /> 创建空间
         </button>
       </header>
-      <main className="workspace">
-        <aside className="sidebar">
-          <div className="sidebar-heading">
-            <div>
-              <h2>记忆空间</h2>
-              <span>{spaces.length} 个会话</span>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              title="刷新列表"
-              aria-label="刷新列表"
-              disabled={loadingSpaces}
-              onClick={() => void refreshSpaces()}
-            >
-              <RefreshCw size={16} className={loadingSpaces ? "spinning" : ""} />
-            </button>
-          </div>
-          {pageError ? <div className="page-error">API 连接失败：{pageError}</div> : null}
-          {loadingSpaces && spaces.length === 0 ? (
-            <div className="empty-list">正在读取...</div>
-          ) : (
-            <SpaceList
-              spaces={spaces}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onRename={(space) => openDialog({ mode: "rename", space })}
-              onDelete={(space) => openDialog({ mode: "delete", space })}
-            />
-          )}
-          <footer className="storage-note">
-            <Database size={14} /> 原始消息保存在本机 Source Store
-          </footer>
-        </aside>
-        <section className="viewer">
-          <ChatViewer messages={messages} errors={parseErrors} loading={loadingChat} />
-        </section>
-      </main>
+      <MemoryWorkspace
+        spaces={spaces}
+        selectedSpaceId={selectedId}
+        loadingSpaces={loadingSpaces}
+        pageError={pageError}
+        onRefreshSpaces={() => void refreshSpaces()}
+        onSelectSpace={setSelectedId}
+        onRenameSpace={(space) => openDialog({ mode: "rename", space })}
+        onDeleteSpace={(space) => openDialog({ mode: "delete", space })}
+      />
       {dialog ? (
         <SpaceDialog
           mode={dialog.mode}

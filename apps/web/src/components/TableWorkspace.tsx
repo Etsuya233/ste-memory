@@ -1,0 +1,150 @@
+import { Columns3, Database, Save, Settings2, Trash2 } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import type { MemoryTable, MemoryTablePatch } from "../api/memory-tables.ts";
+
+interface TableWorkspaceProps {
+  readonly table?: MemoryTable;
+  readonly onDelete: (table: MemoryTable) => void;
+  readonly onSave: (table: MemoryTable, patch: MemoryTablePatch) => Promise<void>;
+}
+
+export function TableWorkspace({ table, onDelete, onSave }: TableWorkspaceProps) {
+  const [tab, setTab] = useState<"data" | "fields">("data");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    setName(table?.name ?? "");
+    setDescription(table?.description ?? "");
+    setPrompt(table?.prompt ?? "");
+    setEnabled(table?.enabled ?? true);
+    setError(undefined);
+  }, [table]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!table) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onSave(table, { name, description, prompt, enabled });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法保存表格配置");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!table) {
+    return (
+      <section className="table-workspace empty-workspace">
+        <Columns3 size={30} />
+        <h2>选择一张记忆表格</h2>
+        <p>表格的数据和字段配置会显示在这里。</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="table-workspace">
+      <header className="table-workspace-header">
+        <div>
+          <span className={`status-label ${table.enabled ? "enabled" : "disabled"}`}>
+            {table.enabled ? "已启用" : "已停用"}
+          </span>
+          <h2>{table.name}</h2>
+          <p>{table.description || "暂无描述"}</p>
+        </div>
+        <button
+          className="icon-button danger"
+          type="button"
+          title="删除表格"
+          aria-label={`删除 ${table.name}`}
+          onClick={() => onDelete(table)}
+        >
+          <Trash2 size={16} />
+        </button>
+      </header>
+      <nav className="table-tabs" aria-label="表格视图">
+        <button
+          className={tab === "data" ? "active" : ""}
+          type="button"
+          onClick={() => setTab("data")}
+        >
+          <Database size={15} /> 数据查看
+        </button>
+        <button
+          className={tab === "fields" ? "active" : ""}
+          type="button"
+          onClick={() => setTab("fields")}
+        >
+          <Settings2 size={15} /> 字段配置
+        </button>
+      </nav>
+      {tab === "data" ? (
+        <div className="table-empty-state">
+          <Database size={28} />
+          <h3>表中暂无记录</h3>
+          <p>这张自定义表已经可以使用，记录编辑将在后续工作中提供。</p>
+        </div>
+      ) : (
+        <div className="table-config-layout">
+          <form className="table-config-form" onSubmit={(event) => void save(event)}>
+            <div className="config-heading">
+              <div>
+                <h3>表格配置</h3>
+                <p>这些设置只影响当前记忆空间。</p>
+              </div>
+              <button className="primary-button" type="submit" disabled={busy}>
+                <Save size={15} /> {busy ? "保存中..." : "保存"}
+              </button>
+            </div>
+            <label>
+              <span>表格名称</span>
+              <input
+                required
+                maxLength={120}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>描述</span>
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>表级 Prompt</span>
+              <textarea
+                rows={8}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+            </label>
+            <label className="config-checkbox">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+              />
+              <span>参与 Agent 自动填写</span>
+            </label>
+            {error ? <p className="form-error">{error}</p> : null}
+          </form>
+          <aside className="field-empty-state">
+            <Settings2 size={24} />
+            <h3>尚未配置字段</h3>
+            <p>空表可以正常保存和浏览。字段编辑能力将在下一阶段加入。</p>
+          </aside>
+        </div>
+      )}
+    </section>
+  );
+}

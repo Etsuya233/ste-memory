@@ -2,8 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemorySpaceService, type MemorySpaceId } from "@ste-memory/core";
-import { migrateCoreDatabase, SqliteMemorySpaceRepository } from "@ste-memory/core-sqlite";
+import {
+  MemorySpaceService,
+  MemoryTableService,
+  type MemorySpaceId,
+  type MemoryTableId,
+} from "@ste-memory/core";
+import {
+  migrateCoreDatabase,
+  SqliteMemorySpaceRepository,
+  SqliteMemoryTableRepository,
+} from "@ste-memory/core-sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DatabaseHealthCheck } from "../src/health/types.ts";
 import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
@@ -20,9 +29,10 @@ async function testServer() {
   const sourceUrl = `sqlite:${join(directory, "source.sqlite")}`;
   migrateCoreDatabase(coreUrl);
   migrateSourceStoreDatabase(sourceUrl);
+  const spacesRepository = new SqliteMemorySpaceRepository(coreUrl);
   const manager = new DefaultMemorySpaceManager(
     new MemorySpaceService(
-      new SqliteMemorySpaceRepository(coreUrl),
+      spacesRepository,
       () => randomUUID() as MemorySpaceId,
       () => "2026-07-27T00:00:00.000Z",
     ),
@@ -32,6 +42,12 @@ async function testServer() {
     coreDatabase: healthCheck,
     sourceStoreDatabase: healthCheck,
     memorySpaces: manager,
+    memoryTables: new MemoryTableService(
+      spacesRepository,
+      new SqliteMemoryTableRepository(coreUrl),
+      () => randomUUID() as MemoryTableId,
+      () => "2026-07-27T00:00:00.000Z",
+    ),
   });
   servers.push(server);
   return server;
