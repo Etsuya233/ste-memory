@@ -49,6 +49,22 @@ export type DomainErrorData =
   | {
       readonly type: "memory_field_used_by_display_strategy";
       readonly humanMsg: string;
+    }
+  | {
+      readonly type:
+        | "memory_record_display_strategy_missing"
+        | "memory_record_paging_invalid"
+        | "memory_record_source_invalid";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type:
+        | "memory_record_field_value_invalid"
+        | "memory_record_reference_invalid"
+        | "memory_record_required_field_missing"
+        | "memory_record_unknown_field";
+      readonly param: { readonly fieldId: string };
+      readonly humanMsg: string;
     };
 
 export type DomainErrorType = DomainErrorData["type"];

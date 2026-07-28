@@ -5,7 +5,10 @@ import { join } from "node:path";
 import {
   MemorySpaceService,
   MemoryFieldService,
+  MemoryRecordService,
   type MemoryFieldId,
+  type MemoryRecordId,
+  type MemoryRevisionId,
   MemoryTableService,
   type MemorySpaceId,
   type MemoryTableId,
@@ -13,6 +16,7 @@ import {
 import {
   migrateCoreDatabase,
   SqliteMemoryFieldRepository,
+  SqliteMemoryRecordRepository,
   SqliteMemorySpaceRepository,
   SqliteMemoryTableRepository,
 } from "@ste-memory/core-sqlite";
@@ -58,6 +62,14 @@ async function testServer() {
       tableRepository,
       new SqliteMemoryFieldRepository(coreUrl),
       () => randomUUID() as MemoryFieldId,
+      () => "2026-07-27T00:00:00.000Z",
+    ),
+    memoryRecords: new MemoryRecordService(
+      tableRepository,
+      new SqliteMemoryFieldRepository(coreUrl),
+      new SqliteMemoryRecordRepository(coreUrl),
+      () => randomUUID() as MemoryRecordId,
+      () => randomUUID() as MemoryRevisionId,
       () => "2026-07-27T00:00:00.000Z",
     ),
   });

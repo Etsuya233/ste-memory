@@ -5,7 +5,10 @@ import { join } from "node:path";
 import {
   MemorySpaceService,
   MemoryFieldService,
+  MemoryRecordService,
   type MemoryFieldId,
+  type MemoryRecordId,
+  type MemoryRevisionId,
   type MemoryFieldType,
   MemoryTableService,
   type MemorySpaceId,
@@ -14,6 +17,7 @@ import {
 import {
   migrateCoreDatabase,
   SqliteMemoryFieldRepository,
+  SqliteMemoryRecordRepository,
   SqliteMemorySpaceRepository,
   SqliteMemoryTableRepository,
 } from "@ste-memory/core-sqlite";
@@ -60,6 +64,14 @@ async function testServer() {
     memorySpaces: new DefaultMemorySpaceManager(spaces, new SqliteSourceChatRepository(sourceUrl)),
     memoryTables: tables,
     memoryFields: fields,
+    memoryRecords: new MemoryRecordService(
+      tableRepository,
+      new SqliteMemoryFieldRepository(coreUrl),
+      new SqliteMemoryRecordRepository(coreUrl),
+      () => randomUUID() as MemoryRecordId,
+      () => randomUUID() as MemoryRevisionId,
+      () => "2026-07-28T00:00:00.000Z",
+    ),
   });
   servers.push(server);
   return { server, spaces };

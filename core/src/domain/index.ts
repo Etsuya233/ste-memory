@@ -22,3 +22,12 @@ export type {
 } from "./memory-table.ts";
 export { memorySpaceName } from "./memory-space.ts";
 export type { MemorySpace, MemorySpaceId } from "./memory-space.ts";
+export type {
+  MemoryFieldValue,
+  MemoryRecord,
+  MemoryRecordId,
+  MemoryRecordPayload,
+  MemoryRecordSource,
+  MemoryRevisionId,
+  MemoryRevisionSource,
+} from "./memory-record.ts";

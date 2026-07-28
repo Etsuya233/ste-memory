@@ -9,6 +9,8 @@ import { registerMemoryTableRoutes } from "./memory-tables/routes.ts";
 import type { MemoryTableManager } from "./memory-tables/types.ts";
 import { registerMemorySpaceRoutes } from "./memory-spaces/routes.ts";
 import type { MemorySpaceManager } from "./memory-spaces/types.ts";
+import { registerMemoryRecordRoutes } from "./memory-records/routes.ts";
+import type { MemoryRecordManager } from "./memory-records/types.ts";
 
 export interface ServerDependencies {
   readonly coreDatabase: DatabaseHealthCheck;
@@ -16,6 +18,7 @@ export interface ServerDependencies {
   readonly memorySpaces: MemorySpaceManager;
   readonly memoryTables: MemoryTableManager;
   readonly memoryFields: MemoryFieldManager;
+  readonly memoryRecords: MemoryRecordManager;
 }
 
 const domainErrorMessages: Record<DomainErrorType, string> = {
@@ -31,6 +34,13 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_field_position_invalid: "字段顺序必须是大于或等于 0 的整数",
   memory_table_display_strategy_invalid: "记忆表格显示策略无效",
   memory_field_used_by_display_strategy: "请先指定不使用该字段的其他显示策略，再删除或停用该字段",
+  memory_record_display_strategy_missing: "创建记录前必须配置表格显示策略",
+  memory_record_field_value_invalid: "记录字段值格式无效",
+  memory_record_paging_invalid: "分页参数无效",
+  memory_record_reference_invalid: "记录引用目标无效",
+  memory_record_required_field_missing: "记录缺少必填字段",
+  memory_record_source_invalid: "记录来源格式无效",
+  memory_record_unknown_field: "记录包含未知字段",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
@@ -64,6 +74,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemorySpaceRoutes(server, dependencies.memorySpaces);
   registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);
   registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
+  registerMemoryRecordRoutes(server, dependencies.memoryRecords);
 
   return server;
 }

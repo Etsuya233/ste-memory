@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto";
 import {
   MemorySpaceService,
   MemoryFieldService,
+  MemoryRecordService,
   type MemoryFieldId,
+  type MemoryRecordId,
+  type MemoryRevisionId,
   MemoryTableService,
   type MemorySpaceId,
   type MemoryTableId,
 } from "@ste-memory/core";
 import {
   SqliteMemoryFieldRepository,
+  SqliteMemoryRecordRepository,
   SqliteMemorySpaceRepository,
   SqliteMemoryTableRepository,
 } from "@ste-memory/core-sqlite";
@@ -47,6 +51,14 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       memoryTableRepository,
       new SqliteMemoryFieldRepository(config.coreDatabaseUrl),
       () => randomUUID() as MemoryFieldId,
+      () => new Date().toISOString(),
+    ),
+    memoryRecords: new MemoryRecordService(
+      memoryTableRepository,
+      new SqliteMemoryFieldRepository(config.coreDatabaseUrl),
+      new SqliteMemoryRecordRepository(config.coreDatabaseUrl),
+      () => randomUUID() as MemoryRecordId,
+      () => randomUUID() as MemoryRevisionId,
       () => new Date().toISOString(),
     ),
   });

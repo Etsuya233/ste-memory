@@ -1,9 +1,17 @@
-export { MemoryFieldService, MemorySpaceService, MemoryTableService } from "./application/index.ts";
+export {
+  MemoryFieldService,
+  MemoryRecordService,
+  MemorySpaceService,
+  MemoryTableService,
+} from "./application/index.ts";
 export type {
   CreateCustomMemoryTableInput,
   CreateMemoryFieldInput,
+  CreateMemoryRecordInput,
   MemoryFieldUpdateResult,
   MemoryFieldRepository,
+  MemoryRecordPage,
+  MemoryRecordRepository,
   MemorySpaceRepository,
   MemoryTableRepository,
   UpdateMemoryFieldInput,
@@ -22,6 +30,13 @@ export type {
   MemoryField,
   MemoryFieldId,
   MemoryFieldType,
+  MemoryFieldValue,
+  MemoryRecord,
+  MemoryRecordId,
+  MemoryRecordPayload,
+  MemoryRecordSource,
+  MemoryRevisionId,
+  MemoryRevisionSource,
   MemorySpace,
   MemorySpaceId,
   MemoryTable,

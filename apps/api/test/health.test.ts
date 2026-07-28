@@ -3,6 +3,7 @@ import type { DatabaseHealthCheck } from "../src/health/types.ts";
 import type { MemorySpaceManager } from "../src/memory-spaces/types.ts";
 import type { MemoryTableManager } from "../src/memory-tables/types.ts";
 import type { MemoryFieldManager } from "../src/memory-fields/types.ts";
+import type { MemoryRecordManager } from "../src/memory-records/types.ts";
 import { buildServer } from "../src/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
@@ -40,6 +41,12 @@ const memoryFields: MemoryFieldManager = {
   update: () => undefined,
 };
 
+const memoryRecords: MemoryRecordManager = {
+  create: () => undefined,
+  find: () => undefined,
+  list: () => undefined,
+};
+
 describe("GET /health", () => {
   it("reports API and database connection status", async () => {
     const server = await buildServer({
@@ -48,6 +55,7 @@ describe("GET /health", () => {
       memorySpaces,
       memoryTables,
       memoryFields,
+      memoryRecords,
     });
 
     const response = await server.inject({ method: "GET", url: "/health" });

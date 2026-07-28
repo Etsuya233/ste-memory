@@ -2,6 +2,7 @@ import { Columns3, Database, Save, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import type { MemoryTable, MemoryTablePatch } from "../api/memory-tables.ts";
 import { FieldEditor } from "./FieldEditor.tsx";
+import { RecordTable, type RecordSelection } from "./RecordTable.tsx";
 
 interface TableWorkspaceProps {
   readonly table?: MemoryTable;
@@ -10,6 +11,7 @@ interface TableWorkspaceProps {
   readonly onDelete: (table: MemoryTable) => void;
   readonly onSave: (table: MemoryTable, patch: MemoryTablePatch) => Promise<void>;
   readonly onTableUpdated: (table: MemoryTable) => void;
+  readonly onSelectRecord: (selection: RecordSelection | undefined) => void;
 }
 
 export function TableWorkspace({
@@ -19,6 +21,7 @@ export function TableWorkspace({
   onDelete,
   onSave,
   onTableUpdated,
+  onSelectRecord,
 }: TableWorkspaceProps) {
   const [tab, setTab] = useState<"data" | "fields">("data");
   const [name, setName] = useState("");
@@ -97,11 +100,14 @@ export function TableWorkspace({
         </button>
       </nav>
       {tab === "data" ? (
-        <div className="table-empty-state">
-          <Database size={28} />
-          <h3>表中暂无记录</h3>
-          <p>这张自定义表已经可以使用，记录编辑将在后续工作中提供。</p>
-        </div>
+        memorySpaceId ? (
+          <RecordTable
+            key={table.id}
+            memorySpaceId={memorySpaceId}
+            table={table}
+            onSelect={onSelectRecord}
+          />
+        ) : null
       ) : (
         <div className="table-definition-workspace">
           <form className="table-config-form" onSubmit={(event) => void save(event)}>

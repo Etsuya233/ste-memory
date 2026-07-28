@@ -15,11 +15,12 @@ import {
   type SourceMessage,
   type SourceParseError,
 } from "../api/memory-spaces.ts";
-import { ChatViewer } from "./ChatViewer.tsx";
 import { SpaceList } from "./SpaceList.tsx";
 import { TableDialog } from "./TableDialog.tsx";
 import { TableList } from "./TableList.tsx";
 import { TableWorkspace } from "./TableWorkspace.tsx";
+import { RecordInspector } from "./RecordInspector.tsx";
+import type { RecordSelection } from "./RecordTable.tsx";
 
 interface MemoryWorkspaceProps {
   readonly spaces: readonly MemorySpace[];
@@ -40,6 +41,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
   const [loadingContent, setLoadingContent] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [updatingId, setUpdatingId] = useState<string>();
+  const [recordSelection, setRecordSelection] = useState<RecordSelection>();
   const [dialog, setDialog] = useState<
     { mode: "create" } | { mode: "delete"; table: MemoryTable }
   >();
@@ -52,6 +54,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
     setParseErrors([]);
     setWorkspaceError(undefined);
     setLoadingContent(false);
+    setRecordSelection(undefined);
     if (!props.selectedSpaceId) return;
 
     setLoadingContent(true);
@@ -178,9 +181,15 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
         onSave={update}
         onTableUpdated={replaceTable}
         onDelete={(table) => setDialog({ mode: "delete", table })}
+        onSelectRecord={setRecordSelection}
       />
       <aside className="chat-inspector">
-        <ChatViewer messages={messages} errors={parseErrors} loading={loadingContent} />
+        <RecordInspector
+          selection={recordSelection}
+          messages={messages}
+          errors={parseErrors}
+          loading={loadingContent}
+        />
       </aside>
       {dialog?.mode === "create" ? (
         <TableDialog mode="create" onClose={() => setDialog(undefined)} onCreate={create} />

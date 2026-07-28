@@ -13,3 +13,6 @@ export type {
 export type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 export type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 export type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
+export { MemoryRecordService } from "./memory-record-service.ts";
+export type { CreateMemoryRecordInput, MemoryRecordPage } from "./memory-record-service.ts";
+export type { MemoryRecordRepository } from "./ports/memory-record-repository.ts";
