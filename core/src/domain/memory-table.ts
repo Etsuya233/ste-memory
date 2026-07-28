@@ -4,6 +4,8 @@ import type { MemoryFieldId } from "./memory-field.ts";
 
 export type MemoryTableId = string & { readonly __brand: "MemoryTableId" };
 export type MemoryTableKind = "custom" | "system";
+export type SystemMemoryTableKey =
+  "characters" | "relationships" | "locations" | "items" | "plots" | "foreshadowing" | "todos";
 export type MemoryTableDisplayStrategy =
   | { readonly type: "field"; readonly fieldId: MemoryFieldId }
   | { readonly type: "template"; readonly template: string };
@@ -36,6 +38,7 @@ export interface MemoryTable {
   readonly id: MemoryTableId;
   readonly memorySpaceId: MemorySpaceId;
   readonly kind: MemoryTableKind;
+  readonly systemKey: SystemMemoryTableKey | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;

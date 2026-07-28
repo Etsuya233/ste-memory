@@ -5,13 +5,16 @@ import type {
   MemoryTableKind,
   MemoryTableDisplayStrategy,
   MemoryTableRepository,
+  SystemMemoryTableKey,
 } from "@ste-memory/core";
 import { openSqliteDatabase } from "./database.ts";
+import { MemoryDefinitionStatements } from "./memory-definition-statements.ts";
 
 interface MemoryTableRow {
   readonly id: string;
   readonly memory_space_id: string;
   readonly kind: string;
+  readonly system_key: string | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
@@ -26,6 +29,7 @@ function toMemoryTable(row: MemoryTableRow): MemoryTable {
     id: row.id as MemoryTableId,
     memorySpaceId: row.memory_space_id as MemorySpaceId,
     kind: row.kind as MemoryTableKind,
+    systemKey: row.system_key as SystemMemoryTableKey | null,
     name: row.name,
     description: row.description,
     prompt: row.prompt,
@@ -48,27 +52,7 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
   create(memoryTable: MemoryTable): void {
     const database = openSqliteDatabase(this.databaseUrl);
     try {
-      database
-        .prepare(
-          `
-          INSERT INTO memory_tables (
-            id, memory_space_id, kind, name, description, prompt, enabled, display_strategy,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        )
-        .run(
-          memoryTable.id,
-          memoryTable.memorySpaceId,
-          memoryTable.kind,
-          memoryTable.name,
-          memoryTable.description,
-          memoryTable.prompt,
-          memoryTable.enabled ? 1 : 0,
-          memoryTable.displayStrategy ? JSON.stringify(memoryTable.displayStrategy) : null,
-          memoryTable.createdAt,
-          memoryTable.updatedAt,
-        );
+      new MemoryDefinitionStatements(database).createTable(memoryTable);
     } finally {
       database.close();
     }

@@ -1,5 +1,6 @@
 import {
   MemoryTableService,
+  type MemoryField,
   type MemorySpace,
   type MemorySpaceId,
   type MemorySpaceRepository,
@@ -13,11 +14,22 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
   readonly spaces = new Map<MemorySpaceId, MemorySpace>();
   readonly tables = new Map<MemoryTableId, MemoryTable>();
 
-  create(memorySpace: MemorySpace): void;
+  create(
+    memorySpace: MemorySpace,
+    systemTables: readonly MemoryTable[],
+    systemFields: readonly MemoryField[],
+  ): void;
   create(memoryTable: MemoryTable): void;
-  create(value: MemorySpace | MemoryTable): void {
+  create(
+    value: MemorySpace | MemoryTable,
+    systemTables?: readonly MemoryTable[],
+    _systemFields?: readonly MemoryField[],
+  ): void {
     if ("memorySpaceId" in value) this.tables.set(value.id, value);
-    else this.spaces.set(value.id, value);
+    else {
+      this.spaces.set(value.id, value);
+      for (const table of systemTables!) this.tables.set(table.id, table);
+    }
   }
 
   delete(id: MemorySpaceId): boolean;
@@ -91,6 +103,7 @@ describe("MemoryTableService", () => {
       id: tableId,
       memorySpaceId: spaceId,
       kind: "custom",
+      systemKey: null,
       name: "线索",
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",

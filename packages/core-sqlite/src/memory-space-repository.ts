@@ -1,5 +1,12 @@
-import type { MemorySpace, MemorySpaceId, MemorySpaceRepository } from "@ste-memory/core";
+import type {
+  MemoryField,
+  MemorySpace,
+  MemorySpaceId,
+  MemorySpaceRepository,
+  MemoryTable,
+} from "@ste-memory/core";
 import { openSqliteDatabase } from "./database.ts";
+import { MemoryDefinitionStatements } from "./memory-definition-statements.ts";
 
 interface MemorySpaceRow {
   readonly id: string;
@@ -24,12 +31,36 @@ export class SqliteMemorySpaceRepository implements MemorySpaceRepository {
     this.databaseUrl = databaseUrl;
   }
 
-  create(memorySpace: MemorySpace): void {
+  create(
+    memorySpace: MemorySpace,
+    systemTables: readonly MemoryTable[],
+    systemFields: readonly MemoryField[],
+  ): void {
     const database = openSqliteDatabase(this.databaseUrl);
     try {
-      database
-        .prepare("INSERT INTO memory_spaces (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-        .run(memorySpace.id, memorySpace.name, memorySpace.createdAt, memorySpace.updatedAt);
+      const createSpace = database.prepare(
+        "INSERT INTO memory_spaces (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      );
+      const definitions = new MemoryDefinitionStatements(database);
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        createSpace.run(
+          memorySpace.id,
+          memorySpace.name,
+          memorySpace.createdAt,
+          memorySpace.updatedAt,
+        );
+        for (const table of systemTables) {
+          definitions.createTable(table);
+        }
+        for (const field of systemFields) {
+          definitions.createField(field);
+        }
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     } finally {
       database.close();
     }

@@ -37,6 +37,8 @@ async function testServer() {
   const spaces = new MemorySpaceService(
     spacesRepository,
     () => randomUUID() as MemorySpaceId,
+    () => randomUUID() as MemoryTableId,
+    () => randomUUID() as MemoryFieldId,
     () => "2026-07-28T00:00:00.000Z",
   );
   const tableRepository = new SqliteMemoryTableRepository(coreUrl);
@@ -93,7 +95,7 @@ describe("memory table API", () => {
     });
     expect(
       (await server.inject({ method: "GET", url: `/memory-spaces/${space.id}/tables` })).json(),
-    ).toEqual([response.json()]);
+    ).toContainEqual(response.json());
   });
 
   it("updates, disables, reads, and physically deletes a table", async () => {

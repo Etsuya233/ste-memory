@@ -69,6 +69,7 @@ export function fieldService(repository: FieldRepository): MemoryFieldService {
     id: tableId,
     memorySpaceId,
     kind: "custom",
+    systemKey: null,
     name: "线索",
     description: "",
     prompt: "",

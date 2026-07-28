@@ -7,6 +7,7 @@ import type {
   MemoryTableId,
 } from "@ste-memory/core";
 import { openSqliteDatabase } from "./database.ts";
+import { MemoryDefinitionStatements } from "./memory-definition-statements.ts";
 
 interface MemoryFieldRow {
   readonly id: string;
@@ -52,28 +53,7 @@ export class SqliteMemoryFieldRepository implements MemoryFieldRepository {
   create(field: MemoryField): void {
     const database = openSqliteDatabase(this.databaseUrl);
     try {
-      database
-        .prepare(
-          `INSERT INTO memory_fields (
-            id, memory_space_id, table_id, name, type, required, prompt, enabled, position,
-            options_json, reference_table_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          field.id,
-          field.memorySpaceId,
-          field.tableId,
-          field.name,
-          field.type,
-          field.required ? 1 : 0,
-          field.prompt,
-          field.enabled ? 1 : 0,
-          field.position,
-          JSON.stringify(field.options),
-          field.referenceTableId,
-          field.createdAt,
-          field.updatedAt,
-        );
+      new MemoryDefinitionStatements(database).createField(field);
     } finally {
       database.close();
     }

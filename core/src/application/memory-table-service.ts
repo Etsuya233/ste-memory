@@ -48,6 +48,7 @@ export class MemoryTableService {
       id: this.createId(),
       memorySpaceId,
       kind: "custom",
+      systemKey: null,
       name: memoryTableName(input.name),
       description: input.description,
       prompt: input.prompt,

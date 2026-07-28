@@ -21,6 +21,7 @@ const CREATE_MEMORY_TABLES_TABLE = `
     id TEXT PRIMARY KEY,
     memory_space_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('custom', 'system')),
+    system_key TEXT,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     prompt TEXT NOT NULL,
@@ -28,6 +29,12 @@ const CREATE_MEMORY_TABLES_TABLE = `
     display_strategy TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    CHECK (
+      (kind = 'custom' AND system_key IS NULL) OR
+      (kind = 'system' AND system_key IS NOT NULL AND system_key IN (
+        'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
+      ))
+    ),
     FOREIGN KEY (memory_space_id) REFERENCES memory_spaces(id) ON DELETE CASCADE
   ) STRICT
 `;
@@ -63,9 +70,43 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     if (!tableColumns.some((column) => column.name === "display_strategy")) {
       database.exec("ALTER TABLE memory_tables ADD COLUMN display_strategy TEXT");
     }
+    if (!tableColumns.some((column) => column.name === "system_key")) {
+      database.exec("ALTER TABLE memory_tables ADD COLUMN system_key TEXT");
+    }
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS memory_tables_system_key_insert
+      BEFORE INSERT ON memory_tables
+      WHEN
+        (NEW.kind = 'custom' AND NEW.system_key IS NOT NULL) OR
+        (NEW.kind = 'system' AND (
+          NEW.system_key IS NULL OR NEW.system_key NOT IN (
+            'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
+          )
+        ))
+      BEGIN
+        SELECT RAISE(ABORT, 'memory table kind and system key do not match');
+      END
+    `);
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS memory_tables_system_key_update
+      BEFORE UPDATE OF kind, system_key ON memory_tables
+      WHEN
+        (NEW.kind = 'custom' AND NEW.system_key IS NOT NULL) OR
+        (NEW.kind = 'system' AND (
+          NEW.system_key IS NULL OR NEW.system_key NOT IN (
+            'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
+          )
+        ))
+      BEGIN
+        SELECT RAISE(ABORT, 'memory table kind and system key do not match');
+      END
+    `);
     database.exec(CREATE_MEMORY_FIELDS_TABLE);
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_tables_space_id ON memory_tables(memory_space_id, id)",
+    );
+    database.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS memory_tables_system_key ON memory_tables(memory_space_id, system_key) WHERE system_key IS NOT NULL",
     );
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_fields_table_id ON memory_fields(memory_space_id, table_id, position, id)",
@@ -78,6 +119,9 @@ export function migrateCoreDatabase(databaseUrl: string): void {
       .run(new Date().toISOString());
     database
       .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (3, ?)")
+      .run(new Date().toISOString());
+    database
+      .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (4, ?)")
       .run(new Date().toISOString());
   } finally {
     database.close();

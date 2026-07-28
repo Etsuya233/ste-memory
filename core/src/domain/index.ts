@@ -18,6 +18,7 @@ export type {
   MemoryTableDisplayStrategy,
   MemoryTableId,
   MemoryTableKind,
+  SystemMemoryTableKey,
 } from "./memory-table.ts";
 export { memorySpaceName } from "./memory-space.ts";
 export type { MemorySpace, MemorySpaceId } from "./memory-space.ts";

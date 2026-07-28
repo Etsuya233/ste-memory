@@ -4,6 +4,15 @@ export interface MemoryTable {
   readonly id: string;
   readonly memorySpaceId: string;
   readonly kind: "custom" | "system";
+  readonly systemKey:
+    | "characters"
+    | "relationships"
+    | "locations"
+    | "items"
+    | "plots"
+    | "foreshadowing"
+    | "todos"
+    | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;

@@ -28,4 +28,5 @@ export type {
   MemoryTableDisplayStrategy,
   MemoryTableId,
   MemoryTableKind,
+  SystemMemoryTableKey,
 } from "./domain/index.ts";

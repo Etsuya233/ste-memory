@@ -37,6 +37,8 @@ async function testServer() {
     new MemorySpaceService(
       spacesRepository,
       () => randomUUID() as MemorySpaceId,
+      () => randomUUID() as MemoryTableId,
+      () => randomUUID() as MemoryFieldId,
       () => "2026-07-27T00:00:00.000Z",
     ),
     new SqliteSourceChatRepository(sourceUrl),
@@ -146,6 +148,53 @@ describe("memory space API", () => {
     expect(created.statusCode).toBe(201);
     const space = created.json<{ id: string; messageCount: number; errorCount: number }>();
     expect(space).toMatchObject({ messageCount: 2, errorCount: 1 });
+    const tables = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/tables`,
+    });
+    expect(tables.json<{ systemKey: string }[]>()).toHaveLength(7);
+    expect(new Set(tables.json<{ systemKey: string }[]>().map((table) => table.systemKey))).toEqual(
+      new Set([
+        "characters",
+        "relationships",
+        "locations",
+        "items",
+        "plots",
+        "foreshadowing",
+        "todos",
+      ]),
+    );
+    const characterTable = tables
+      .json<{ id: string; systemKey: string; prompt: string }[]>()
+      .find((table) => table.systemKey === "characters")!;
+    expect(characterTable.prompt.length).toBeGreaterThan(0);
+    const disabled = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${characterTable.id}`,
+      payload: { enabled: false, prompt: "自定义人物填写规则" },
+    });
+    expect(disabled.json()).toMatchObject({
+      systemKey: "characters",
+      enabled: false,
+      prompt: "自定义人物填写规则",
+    });
+    const characterFields = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/tables/${characterTable.id}/fields`,
+    });
+    const currentStatus = characterFields
+      .json<{ id: string; name: string; prompt: string }[]>()
+      .find((field) => field.name === "当前状态")!;
+    expect(currentStatus.prompt.length).toBeGreaterThan(0);
+    const editedField = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${characterTable.id}/fields/${currentStatus.id}`,
+      payload: { prompt: "仅维护仍然成立的状态" },
+    });
+    expect(editedField.json()).toMatchObject({
+      field: { prompt: "仅维护仍然成立的状态" },
+      warnings: [],
+    });
     const messages = await server.inject({
       method: "GET",
       url: `/memory-spaces/${space.id}/messages`,

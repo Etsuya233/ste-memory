@@ -32,6 +32,8 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
     new MemorySpaceService(
       memorySpaceRepository,
       () => randomUUID() as MemorySpaceId,
+      () => randomUUID() as MemoryTableId,
+      () => randomUUID() as MemoryFieldId,
       () => new Date().toISOString(),
     ),
     new SqliteSourceChatRepository(config.sourceStoreDatabaseUrl),
