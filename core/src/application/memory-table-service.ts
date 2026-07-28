@@ -1,19 +1,25 @@
 import {
+  DomainError,
+  memoryTableKey,
   memoryTableName,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
+  type MemoryTableKind,
 } from "../domain/index.ts";
 import type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 
-export interface CreateCustomMemoryTableInput {
+export interface CreateMemoryTableInput {
+  readonly key: string;
+  readonly kind: MemoryTableKind;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
 }
 
 export interface UpdateMemoryTableInput {
+  readonly key?: string;
   readonly name?: string;
   readonly description?: string;
   readonly prompt?: string;
@@ -38,17 +44,21 @@ export class MemoryTableService {
     this.now = now;
   }
 
-  createCustom(
-    memorySpaceId: MemorySpaceId,
-    input: CreateCustomMemoryTableInput,
-  ): MemoryTable | undefined {
+  create(memorySpaceId: MemorySpaceId, input: CreateMemoryTableInput): MemoryTable | undefined {
     if (!this.spaces.find(memorySpaceId)) return undefined;
+    const key = memoryTableKey(input.key);
+    if (this.tables.findByKey(memorySpaceId, key)) {
+      throw new DomainError({
+        type: "memory_table_key_conflict",
+        humanMsg: "同一记忆空间内的表格 Key 不能重复",
+      });
+    }
     const now = this.now();
     const memoryTable: MemoryTable = {
       id: this.createId(),
       memorySpaceId,
-      kind: "custom",
-      systemKey: null,
+      key,
+      kind: input.kind,
       name: memoryTableName(input.name),
       description: input.description,
       prompt: input.prompt,
@@ -80,8 +90,17 @@ export class MemoryTableService {
   ): MemoryTable | undefined {
     const current = this.tables.find(memorySpaceId, id);
     if (!current) return undefined;
+    const key = input.key === undefined ? current.key : memoryTableKey(input.key);
+    const conflict = this.tables.findByKey(memorySpaceId, key);
+    if (conflict && conflict.id !== id) {
+      throw new DomainError({
+        type: "memory_table_key_conflict",
+        humanMsg: "同一记忆空间内的表格 Key 不能重复",
+      });
+    }
     const updated: MemoryTable = {
       ...current,
+      key,
       name: input.name === undefined ? current.name : memoryTableName(input.name),
       description: input.description ?? current.description,
       prompt: input.prompt ?? current.prompt,

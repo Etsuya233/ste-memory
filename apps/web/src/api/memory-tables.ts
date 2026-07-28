@@ -3,16 +3,8 @@ import { API_URL, responseJson } from "./http.ts";
 export interface MemoryTable {
   readonly id: string;
   readonly memorySpaceId: string;
+  readonly key: string;
   readonly kind: "custom" | "system";
-  readonly systemKey:
-    | "characters"
-    | "relationships"
-    | "locations"
-    | "items"
-    | "plots"
-    | "foreshadowing"
-    | "todos"
-    | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
@@ -26,12 +18,14 @@ export interface MemoryTable {
 }
 
 export interface MemoryTableInput {
+  readonly key: string;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
 }
 
 export interface MemoryTablePatch {
+  readonly key?: string;
   readonly name?: string;
   readonly description?: string;
   readonly prompt?: string;

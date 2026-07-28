@@ -20,6 +20,7 @@ interface DeleteTableDialogProps extends CommonDialogProps {
 type TableDialogProps = CreateTableDialogProps | DeleteTableDialogProps;
 
 export function TableDialog(props: TableDialogProps) {
+  const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -32,7 +33,7 @@ export function TableDialog(props: TableDialogProps) {
     setError(undefined);
     try {
       if (props.mode === "create") {
-        await props.onCreate({ name, description, prompt });
+        await props.onCreate({ key, name, description, prompt });
       } else {
         await props.onDelete();
       }
@@ -67,9 +68,18 @@ export function TableDialog(props: TableDialogProps) {
           ) : (
             <div className="table-create-fields">
               <label>
-                <span>表格名称</span>
+                <span>表格 Key</span>
                 <input
                   autoFocus
+                  required
+                  maxLength={120}
+                  value={key}
+                  onChange={(event) => setKey(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>表格名称</span>
+                <input
                   required
                   maxLength={120}
                   value={name}

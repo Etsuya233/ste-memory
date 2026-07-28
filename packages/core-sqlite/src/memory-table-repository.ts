@@ -2,10 +2,10 @@ import type {
   MemorySpaceId,
   MemoryTable,
   MemoryTableId,
+  MemoryTableKey,
   MemoryTableKind,
   MemoryTableDisplayStrategy,
   MemoryTableRepository,
-  SystemMemoryTableKey,
 } from "@ste-memory/core";
 import { openSqliteDatabase } from "./database.ts";
 import { MemoryDefinitionStatements } from "./memory-definition-statements.ts";
@@ -13,8 +13,8 @@ import { MemoryDefinitionStatements } from "./memory-definition-statements.ts";
 interface MemoryTableRow {
   readonly id: string;
   readonly memory_space_id: string;
+  readonly key: string;
   readonly kind: string;
-  readonly system_key: string | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
@@ -28,8 +28,8 @@ function toMemoryTable(row: MemoryTableRow): MemoryTable {
   return {
     id: row.id as MemoryTableId,
     memorySpaceId: row.memory_space_id as MemorySpaceId,
+    key: row.key as MemoryTableKey,
     kind: row.kind as MemoryTableKind,
-    systemKey: row.system_key as SystemMemoryTableKey | null,
     name: row.name,
     description: row.description,
     prompt: row.prompt,
@@ -83,6 +83,18 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
     }
   }
 
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined {
+    const database = openSqliteDatabase(this.databaseUrl);
+    try {
+      const row = database
+        .prepare("SELECT * FROM memory_tables WHERE memory_space_id = ? AND key = ?")
+        .get(memorySpaceId, key);
+      return row ? toMemoryTable(row as unknown as MemoryTableRow) : undefined;
+    } finally {
+      database.close();
+    }
+  }
+
   list(memorySpaceId: MemorySpaceId): MemoryTable[] {
     const database = openSqliteDatabase(this.databaseUrl);
     try {
@@ -103,11 +115,12 @@ export class SqliteMemoryTableRepository implements MemoryTableRepository {
           .prepare(
             `
           UPDATE memory_tables
-          SET name = ?, description = ?, prompt = ?, enabled = ?, display_strategy = ?, updated_at = ?
+          SET key = ?, name = ?, description = ?, prompt = ?, enabled = ?, display_strategy = ?, updated_at = ?
           WHERE memory_space_id = ? AND id = ?
         `,
           )
           .run(
+            memoryTable.key,
             memoryTable.name,
             memoryTable.description,
             memoryTable.prompt,

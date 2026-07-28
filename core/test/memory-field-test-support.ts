@@ -2,10 +2,12 @@ import {
   MemoryFieldService,
   type MemoryField,
   type MemoryFieldId,
+  type MemoryFieldKey,
   type MemoryFieldRepository,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
+  type MemoryTableKey,
   type MemoryTableRepository,
 } from "../src/index.ts";
 
@@ -38,6 +40,30 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
     return value?.memorySpaceId === memorySpaceId ? value : undefined;
   }
 
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined;
+  findByKey(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    key: MemoryFieldKey,
+  ): MemoryField | undefined;
+  findByKey(
+    memorySpaceId: MemorySpaceId,
+    tableIdOrKey: MemoryTableId | MemoryTableKey,
+    fieldKey?: MemoryFieldKey,
+  ): MemoryField | MemoryTable | undefined {
+    if (fieldKey !== undefined) {
+      return [...this.fields.values()].find(
+        (field) =>
+          field.memorySpaceId === memorySpaceId &&
+          field.tableId === tableIdOrKey &&
+          field.key === fieldKey,
+      );
+    }
+    return [...this.tables.values()].find(
+      (table) => table.memorySpaceId === memorySpaceId && table.key === tableIdOrKey,
+    );
+  }
+
   list(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId) {
     if (tableId) {
       return [...this.fields.values()].filter(
@@ -68,8 +94,8 @@ export function fieldService(repository: FieldRepository): MemoryFieldService {
   repository.tables.set(tableId, {
     id: tableId,
     memorySpaceId,
+    key: "clues" as MemoryTableKey,
     kind: "custom",
-    systemKey: null,
     name: "线索",
     description: "",
     prompt: "",

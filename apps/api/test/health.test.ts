@@ -25,7 +25,7 @@ const memorySpaces: MemorySpaceManager = {
 };
 
 const memoryTables: MemoryTableManager = {
-  createCustom: () => undefined,
+  create: () => undefined,
   delete: () => false,
   find: () => undefined,
   list: () => [],

@@ -1,40 +1,120 @@
 import {
   MemorySpaceService,
+  MemoryFieldService,
+  MemoryTableService,
   type MemoryField,
   type MemoryFieldId,
+  type MemoryFieldKey,
   type MemorySpace,
   type MemorySpaceId,
   type MemorySpaceRepository,
+  type MemoryFieldRepository,
   type MemoryTable,
   type MemoryTableId,
-} from "../src/index.ts";
+  type MemoryTableKey,
+  type MemoryTableRepository,
+} from "@ste-memory/core";
 import { describe, expect, it } from "vitest";
+import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
 
-class MemoryRepository implements MemorySpaceRepository {
+class MemoryRepository
+  implements MemorySpaceRepository, MemoryTableRepository, MemoryFieldRepository
+{
   space: MemorySpace | undefined;
-  tables: readonly MemoryTable[] = [];
-  fields: readonly MemoryField[] = [];
+  tables: MemoryTable[] = [];
+  fields: MemoryField[] = [];
 
-  create(space: MemorySpace, tables: readonly MemoryTable[], fields: readonly MemoryField[]): void {
-    this.space = space;
-    this.tables = tables;
-    this.fields = fields;
+  create(value: MemorySpace): void;
+  create(value: MemoryTable): void;
+  create(value: MemoryField): void;
+  create(value: MemorySpace | MemoryTable | MemoryField): void {
+    if ("tableId" in value) this.fields.push(value);
+    else if ("memorySpaceId" in value) this.tables.push(value);
+    else this.space = value;
   }
 
+  delete(id: MemorySpaceId): boolean;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
+  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean;
   delete(): boolean {
     return false;
   }
 
-  find(): MemorySpace | undefined {
-    return this.space;
+  find(id: MemorySpaceId): MemorySpace | undefined;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
+  find(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    id: MemoryFieldId,
+  ): MemoryField | undefined;
+  find(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId, fieldId?: MemoryFieldId) {
+    if (fieldId) {
+      return this.fields.find(
+        (field) =>
+          field.memorySpaceId === memorySpaceId &&
+          field.tableId === tableId &&
+          field.id === fieldId,
+      );
+    }
+    if (tableId) {
+      return this.tables.find(
+        (table) => table.memorySpaceId === memorySpaceId && table.id === tableId,
+      );
+    }
+    return this.space?.id === memorySpaceId ? this.space : undefined;
   }
 
-  list(): MemorySpace[] {
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined;
+  findByKey(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    key: MemoryFieldKey,
+  ): MemoryField | undefined;
+  findByKey(
+    memorySpaceId: MemorySpaceId,
+    tableIdOrKey: MemoryTableId | MemoryTableKey,
+    fieldKey?: MemoryFieldKey,
+  ) {
+    if (fieldKey !== undefined) {
+      return this.fields.find(
+        (field) =>
+          field.memorySpaceId === memorySpaceId &&
+          field.tableId === tableIdOrKey &&
+          field.key === fieldKey,
+      );
+    }
+    return this.tables.find(
+      (table) => table.memorySpaceId === memorySpaceId && table.key === tableIdOrKey,
+    );
+  }
+
+  list(): MemorySpace[];
+  list(memorySpaceId: MemorySpaceId): MemoryTable[];
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[];
+  list(memorySpaceId?: MemorySpaceId, tableId?: MemoryTableId) {
+    if (tableId) {
+      return this.fields.filter(
+        (field) => field.memorySpaceId === memorySpaceId && field.tableId === tableId,
+      );
+    }
+    if (memorySpaceId) {
+      return this.tables.filter((table) => table.memorySpaceId === memorySpaceId);
+    }
     return this.space ? [this.space] : [];
   }
 
   rename(): MemorySpace | undefined {
     return undefined;
+  }
+
+  update(value: MemoryTable): boolean;
+  update(value: MemoryField): boolean;
+  update(value: MemoryTable | MemoryField): boolean {
+    const collection = "tableId" in value ? this.fields : this.tables;
+    const index = collection.findIndex((item) => item.id === value.id);
+    if (index < 0) return false;
+    collection[index] = value as never;
+    return true;
   }
 }
 
@@ -46,21 +126,31 @@ describe("system memory table initialization", () => {
   it("creates one editable definition for every system table in a new memory space", () => {
     const repository = new MemoryRepository();
     const ids = [...tableIds];
-    const service = new MemorySpaceService(
+    const space = new MemorySpaceService(
       repository,
       () => spaceId,
-      () => ids.shift()!,
-      (() => {
-        let fieldId = 0;
-        return () => `field-${++fieldId}` as MemoryFieldId;
-      })(),
       () => now,
-    );
-
-    service.create("会话");
+    ).create("会话");
+    new SystemMemoryTableInstaller(
+      new MemoryTableService(
+        repository,
+        repository,
+        () => ids.shift()!,
+        () => now,
+      ),
+      new MemoryFieldService(
+        repository,
+        repository,
+        (() => {
+          let fieldId = 0;
+          return () => `field-${++fieldId}` as MemoryFieldId;
+        })(),
+        () => now,
+      ),
+    ).install(space.id);
 
     expect(repository.tables).toHaveLength(7);
-    expect(repository.tables.map(({ systemKey, name }) => [systemKey, name])).toEqual([
+    expect(repository.tables.map(({ key, name }) => [key, name])).toEqual([
       ["characters", "人物"],
       ["relationships", "人际关系"],
       ["locations", "地点"],
@@ -76,20 +166,32 @@ describe("system memory table initialization", () => {
   it("uses the issue field lists, references and display strategies", () => {
     const repository = new MemoryRepository();
     const ids = [...tableIds];
-    new MemorySpaceService(
+    const space = new MemorySpaceService(
       repository,
       () => spaceId,
-      () => ids.shift()!,
-      (() => {
-        let fieldId = 0;
-        return () => `field-${++fieldId}` as MemoryFieldId;
-      })(),
       () => now,
     ).create("会话");
+    new SystemMemoryTableInstaller(
+      new MemoryTableService(
+        repository,
+        repository,
+        () => ids.shift()!,
+        () => now,
+      ),
+      new MemoryFieldService(
+        repository,
+        repository,
+        (() => {
+          let fieldId = 0;
+          return () => `field-${++fieldId}` as MemoryFieldId;
+        })(),
+        () => now,
+      ),
+    ).install(space.id);
 
-    const fieldsByTable = new Map(
+    const fieldsByTable = new Map<string, MemoryField[]>(
       repository.tables.map((table) => [
-        table.systemKey,
+        table.key,
         repository.fields.filter((field) => field.tableId === table.id),
       ]),
     );
@@ -157,10 +259,10 @@ describe("system memory table initialization", () => {
       "备注",
     ]);
 
-    const characters = repository.tables.find((table) => table.systemKey === "characters")!;
-    const relationships = repository.tables.find((table) => table.systemKey === "relationships")!;
-    const locations = repository.tables.find((table) => table.systemKey === "locations")!;
-    const items = repository.tables.find((table) => table.systemKey === "items")!;
+    const characters = repository.tables.find((table) => table.key === "characters")!;
+    const relationships = repository.tables.find((table) => table.key === "relationships")!;
+    const locations = repository.tables.find((table) => table.key === "locations")!;
+    const items = repository.tables.find((table) => table.key === "items")!;
     const relationshipFields = fieldsByTable.get("relationships")!;
     expect(relationshipFields.slice(0, 2)).toMatchObject([
       { type: "single_reference", required: true, referenceTableId: characters.id },
@@ -192,8 +294,8 @@ describe("system memory table initialization", () => {
       { type: "single_select", options: ["待处理", "进行中", "已完成", "已放弃"] },
       { type: "date" },
     ]);
-    for (const table of repository.tables.filter((table) => table.systemKey !== "relationships")) {
-      const name = fieldsByTable.get(table.systemKey)![0]!;
+    for (const table of repository.tables.filter((table) => table.key !== "relationships")) {
+      const name = fieldsByTable.get(table.key)![0]!;
       expect(name).toMatchObject({ name: "名称", type: "short_text", required: true });
       expect(table.displayStrategy).toEqual({ type: "field", fieldId: name.id });
     }

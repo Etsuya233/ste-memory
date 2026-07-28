@@ -1,5 +1,5 @@
 import type {
-  CreateCustomMemoryTableInput,
+  CreateMemoryTableInput,
   MemorySpaceId,
   MemoryTable,
   MemoryTableId,
@@ -7,10 +7,7 @@ import type {
 } from "@ste-memory/core";
 
 export interface MemoryTableManager {
-  createCustom(
-    memorySpaceId: MemorySpaceId,
-    input: CreateCustomMemoryTableInput,
-  ): MemoryTable | undefined;
+  create(memorySpaceId: MemorySpaceId, input: CreateMemoryTableInput): MemoryTable | undefined;
   delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
   find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
   list(memorySpaceId: MemorySpaceId): MemoryTable[];

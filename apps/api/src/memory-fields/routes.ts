@@ -16,6 +16,7 @@ interface TableParams {
 }
 
 interface CreateFieldBody {
+  readonly key?: unknown;
   readonly name?: unknown;
   readonly type?: unknown;
   readonly required?: unknown;
@@ -77,6 +78,9 @@ export function registerMemoryFieldRoutes(
       if (typeof body?.name !== "string") {
         return reply.code(400).send({ message: "字段名称必须是文本" });
       }
+      if (typeof body.key !== "string") {
+        return reply.code(400).send({ message: "字段 Key 必须是文本" });
+      }
       if (typeof body.type !== "string" || !FIELD_TYPES.has(body.type as MemoryFieldType)) {
         return reply.code(400).send({ message: "字段类型不受支持" });
       }
@@ -99,6 +103,7 @@ export function registerMemoryFieldRoutes(
         return reply.code(400).send({ message: "引用目标表 ID 必须是文本" });
       }
       const input: CreateMemoryFieldInput = {
+        key: body.key,
         name: body.name,
         type: body.type as MemoryFieldType,
         required: body.required,
@@ -138,6 +143,9 @@ export function registerMemoryFieldRoutes(
       if (body?.name !== undefined && typeof body.name !== "string") {
         return reply.code(400).send({ message: "字段名称必须是文本" });
       }
+      if (body?.key !== undefined && typeof body.key !== "string") {
+        return reply.code(400).send({ message: "字段 Key 必须是文本" });
+      }
       if (
         body?.type !== undefined &&
         (typeof body.type !== "string" || !FIELD_TYPES.has(body.type as MemoryFieldType))
@@ -174,6 +182,7 @@ export function registerMemoryFieldRoutes(
         request.params.tableId as MemoryTableId,
         request.params.fieldId as MemoryFieldId,
         {
+          key: body?.key as string | undefined,
           name: body?.name as string | undefined,
           type: body?.type as MemoryFieldType | undefined,
           required: body?.required as boolean | undefined,

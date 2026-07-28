@@ -3,14 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MemorySpaceService,
+  type MemoryField,
   type MemoryFieldId,
+  type MemoryFieldKey,
   type MemoryRecord,
   type MemoryRecordHistory,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
   type MemoryRevisionId,
   type MemorySpaceId,
+  type MemoryTable,
   type MemoryTableId,
+  type MemoryTableKey,
 } from "@ste-memory/core";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,20 +32,15 @@ describe("SqliteMemoryRecordRepository", () => {
     const spaces = new MemorySpaceService(
       new SqliteMemorySpaceRepository(databaseUrl),
       () => "space-1" as MemorySpaceId,
-      (() => {
-        let count = 0;
-        return () => `table-${++count}` as MemoryTableId;
-      })(),
-      (() => {
-        let count = 0;
-        return () => `field-${++count}` as MemoryFieldId;
-      })(),
       () => "2026-07-28T00:00:00.000Z",
     );
     const space = spaces.create("会话");
-    const table = new SqliteMemoryTableRepository(databaseUrl).list(space.id)[0]!;
+    const tables = new SqliteMemoryTableRepository(databaseUrl);
+    const table = memoryTable(space.id, "table-1", "characters");
+    tables.create(table);
     const fields = new SqliteMemoryFieldRepository(databaseUrl);
-    const field = fields.list(space.id, table.id)[0]!;
+    const field = memoryField(space.id, table.id, "field-1", "name");
+    fields.create(field);
     fields.update({ ...field, enabled: false, updatedAt: "2026-07-28T01:00:00.000Z" });
     const repository = new SqliteMemoryRecordRepository(databaseUrl);
     const record: MemoryRecord = {
@@ -73,18 +72,15 @@ describe("SqliteMemoryRecordRepository", () => {
     const spaces = new MemorySpaceService(
       new SqliteMemorySpaceRepository(databaseUrl),
       () => "space-1" as MemorySpaceId,
-      (() => {
-        let count = 0;
-        return () => `table-${++count}` as MemoryTableId;
-      })(),
-      (() => {
-        let count = 0;
-        return () => `field-${++count}` as MemoryFieldId;
-      })(),
       () => "2026-07-28T00:00:00.000Z",
     );
     const space = spaces.create("会话");
-    const tables = new SqliteMemoryTableRepository(databaseUrl).list(space.id);
+    const tableRepository = new SqliteMemoryTableRepository(databaseUrl);
+    const tables = [
+      memoryTable(space.id, "table-1", "characters"),
+      memoryTable(space.id, "table-2", "locations"),
+    ];
+    tables.forEach((table) => tableRepository.create(table));
     const repository = new SqliteMemoryRecordRepository(databaseUrl);
     const first = record(space.id, tables[0]!.id, "record-1", "revision-1", "林夏");
     const second = record(space.id, tables[1]!.id, "record-2", "revision-2", "港口");
@@ -124,18 +120,11 @@ describe("SqliteMemoryRecordRepository", () => {
     const spaces = new MemorySpaceService(
       new SqliteMemorySpaceRepository(databaseUrl),
       () => "space-1" as MemorySpaceId,
-      (() => {
-        let count = 0;
-        return () => `table-${++count}` as MemoryTableId;
-      })(),
-      (() => {
-        let count = 0;
-        return () => `field-${++count}` as MemoryFieldId;
-      })(),
       () => "2026-07-28T00:00:00.000Z",
     );
     const space = spaces.create("会话");
-    const table = new SqliteMemoryTableRepository(databaseUrl).list(space.id)[0]!;
+    const table = memoryTable(space.id, "table-1", "characters");
+    new SqliteMemoryTableRepository(databaseUrl).create(table);
     const repository = new SqliteMemoryRecordRepository(databaseUrl);
     const first = record(space.id, table.id, "record-1", "revision-1", "林夏");
     const stale = record(space.id, table.id, "record-2", "stale", "周遥");
@@ -152,6 +141,46 @@ describe("SqliteMemoryRecordRepository", () => {
     expect(repository.listHistory({ memorySpaceId: space.id })).toEqual([]);
   });
 });
+
+function memoryTable(memorySpaceId: MemorySpaceId, id: string, key: string): MemoryTable {
+  return {
+    id: id as MemoryTableId,
+    memorySpaceId,
+    key: key as MemoryTableKey,
+    kind: "custom",
+    name: key,
+    description: "",
+    prompt: "",
+    enabled: true,
+    displayStrategy: null,
+    createdAt: "2026-07-28T00:00:00.000Z",
+    updatedAt: "2026-07-28T00:00:00.000Z",
+  };
+}
+
+function memoryField(
+  memorySpaceId: MemorySpaceId,
+  tableId: MemoryTableId,
+  id: string,
+  key: string,
+): MemoryField {
+  return {
+    id: id as MemoryFieldId,
+    memorySpaceId,
+    tableId,
+    key: key as MemoryFieldKey,
+    name: key,
+    type: "short_text",
+    required: true,
+    prompt: "",
+    enabled: true,
+    position: 0,
+    options: [],
+    referenceTableId: null,
+    createdAt: "2026-07-28T00:00:00.000Z",
+    updatedAt: "2026-07-28T00:00:00.000Z",
+  };
+}
 
 function record(
   memorySpaceId: MemorySpaceId,

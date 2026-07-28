@@ -9,12 +9,38 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_table_key_required";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_table_key_too_long";
+      readonly param: { readonly maxLength: number };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_table_key_conflict";
+      readonly humanMsg: string;
+    }
+  | {
       readonly type: "memory_table_name_required";
       readonly humanMsg: string;
     }
   | {
       readonly type: "memory_table_name_too_long";
       readonly param: { readonly maxLength: number };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_field_key_required";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_field_key_too_long";
+      readonly param: { readonly maxLength: number };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_field_key_conflict";
       readonly humanMsg: string;
     }
   | {

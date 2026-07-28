@@ -6,6 +6,7 @@ import {
   type MemorySpaceRepository,
   type MemoryTable,
   type MemoryTableId,
+  type MemoryTableKey,
   type MemoryTableRepository,
 } from "../src/index.ts";
 import { describe, expect, it } from "vitest";
@@ -55,6 +56,12 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     return this.spaces.get(memorySpaceId);
   }
 
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined {
+    return [...this.tables.values()].find(
+      (table) => table.memorySpaceId === memorySpaceId && table.key === key,
+    );
+  }
+
   list(): MemorySpace[];
   list(memorySpaceId: MemorySpaceId): MemoryTable[];
   list(memorySpaceId?: MemorySpaceId): MemorySpace[] | MemoryTable[] {
@@ -93,7 +100,9 @@ describe("MemoryTableService", () => {
   it("creates an enabled empty custom table owned by its memory space", () => {
     const repository = new MemoryRepository();
 
-    const created = service(repository).createCustom(spaceId, {
+    const created = service(repository).create(spaceId, {
+      key: "clues",
+      kind: "custom",
       name: "  线索  ",
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",
@@ -102,8 +111,8 @@ describe("MemoryTableService", () => {
     expect(created).toEqual({
       id: tableId,
       memorySpaceId: spaceId,
+      key: "clues",
       kind: "custom",
-      systemKey: null,
       name: "线索",
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",
@@ -119,7 +128,9 @@ describe("MemoryTableService", () => {
     const repository = new MemoryRepository();
     const times = [now, "2026-07-28T01:00:00.000Z"];
     const tables = service(repository, () => times.shift()!);
-    const created = tables.createCustom(spaceId, {
+    const created = tables.create(spaceId, {
+      key: "clues",
+      kind: "custom",
       name: "线索",
       description: "旧描述",
       prompt: "旧 Prompt",
@@ -140,6 +151,28 @@ describe("MemoryTableService", () => {
       enabled: false,
       updatedAt: "2026-07-28T01:00:00.000Z",
     });
+  });
+
+  it("rejects duplicate table keys in the same memory space", () => {
+    const repository = new MemoryRepository();
+    const tables = service(repository);
+    tables.create(spaceId, {
+      key: "clues",
+      kind: "custom",
+      name: "线索",
+      description: "",
+      prompt: "",
+    });
+
+    expect(() =>
+      tables.create(spaceId, {
+        key: "clues",
+        kind: "custom",
+        name: "另一张表",
+        description: "",
+        prompt: "",
+      }),
+    ).toThrowError(expect.objectContaining({ type: "memory_table_key_conflict" }));
   });
 
   it("isolates same-named tables by memory space and physically deletes one table", () => {
@@ -165,8 +198,20 @@ describe("MemoryTableService", () => {
       () => ids.shift()!,
       () => now,
     );
-    tables.createCustom(spaceId, { name: "线索", description: "A", prompt: "" });
-    tables.createCustom(secondSpaceId, { name: "线索", description: "B", prompt: "" });
+    tables.create(spaceId, {
+      key: "clues",
+      kind: "custom",
+      name: "线索",
+      description: "A",
+      prompt: "",
+    });
+    tables.create(secondSpaceId, {
+      key: "clues",
+      kind: "custom",
+      name: "线索",
+      description: "B",
+      prompt: "",
+    });
 
     expect(tables.list(spaceId)).toMatchObject([{ id: tableId, description: "A" }]);
     expect(tables.list(secondSpaceId)).toMatchObject([{ id: secondTableId, description: "B" }]);

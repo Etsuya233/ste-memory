@@ -32,6 +32,7 @@ interface FieldDialogProps {
 }
 
 export function FieldDialog(props: FieldDialogProps) {
+  const [key, setKey] = useState(props.field?.key ?? "");
   const [name, setName] = useState(props.field?.name ?? "");
   const [type, setType] = useState<MemoryFieldType>(props.field?.type ?? "short_text");
   const [required, setRequired] = useState(props.field?.required ?? false);
@@ -52,7 +53,7 @@ export function FieldDialog(props: FieldDialogProps) {
     setBusy(true);
     setError(undefined);
     try {
-      const common = { name, required, enabled, prompt, position };
+      const common = { key, name, required, enabled, prompt, position };
       await props.onSubmit(
         props.field
           ? {
@@ -86,6 +87,15 @@ export function FieldDialog(props: FieldDialogProps) {
         </header>
         <form onSubmit={(event) => void submit(event)}>
           <div className="field-form-grid">
+            <label>
+              <span>字段 Key</span>
+              <input
+                required
+                maxLength={120}
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+              />
+            </label>
             <label>
               <span>字段名称</span>
               <input

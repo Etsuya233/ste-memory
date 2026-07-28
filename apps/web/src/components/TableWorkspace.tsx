@@ -26,6 +26,7 @@ export function TableWorkspace({
   recordRefreshVersion,
 }: TableWorkspaceProps) {
   const [tab, setTab] = useState<"data" | "fields">("data");
+  const [tableKey, setTableKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -34,6 +35,7 @@ export function TableWorkspace({
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    setTableKey(table?.key ?? "");
     setName(table?.name ?? "");
     setDescription(table?.description ?? "");
     setPrompt(table?.prompt ?? "");
@@ -47,7 +49,7 @@ export function TableWorkspace({
     setBusy(true);
     setError(undefined);
     try {
-      await onSave(table, { name, description, prompt, enabled });
+      await onSave(table, { key: tableKey, name, description, prompt, enabled });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法保存表格配置");
     } finally {
@@ -123,6 +125,15 @@ export function TableWorkspace({
                 <Save size={15} /> {busy ? "保存中..." : "保存"}
               </button>
             </div>
+            <label>
+              <span>表格 Key</span>
+              <input
+                required
+                maxLength={120}
+                value={tableKey}
+                onChange={(event) => setTableKey(event.target.value)}
+              />
+            </label>
             <label>
               <span>表格名称</span>
               <input

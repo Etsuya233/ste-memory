@@ -3,9 +3,8 @@ import type { MemorySpaceId } from "./memory-space.ts";
 import type { MemoryFieldId } from "./memory-field.ts";
 
 export type MemoryTableId = string & { readonly __brand: "MemoryTableId" };
+export type MemoryTableKey = string & { readonly __brand: "MemoryTableKey" };
 export type MemoryTableKind = "custom" | "system";
-export type SystemMemoryTableKey =
-  "characters" | "relationships" | "locations" | "items" | "plots" | "foreshadowing" | "todos";
 export type MemoryTableDisplayStrategy =
   | { readonly type: "field"; readonly fieldId: MemoryFieldId }
   | { readonly type: "template"; readonly template: string };
@@ -37,8 +36,8 @@ export function memoryTableDisplayFieldIds(
 export interface MemoryTable {
   readonly id: MemoryTableId;
   readonly memorySpaceId: MemorySpaceId;
+  readonly key: MemoryTableKey;
   readonly kind: MemoryTableKind;
-  readonly systemKey: SystemMemoryTableKey | null;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
@@ -46,6 +45,24 @@ export interface MemoryTable {
   readonly displayStrategy: MemoryTableDisplayStrategy | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export function memoryTableKey(value: string): MemoryTableKey {
+  const key = value.trim();
+  if (key.length === 0) {
+    throw new DomainError({
+      type: "memory_table_key_required",
+      humanMsg: "记忆表格 Key 不能为空",
+    });
+  }
+  if (key.length > 120) {
+    throw new DomainError({
+      type: "memory_table_key_too_long",
+      param: { maxLength: 120 },
+      humanMsg: "记忆表格 Key 不能超过 120 个字符",
+    });
+  }
+  return key as MemoryTableKey;
 }
 
 export function memoryTableName(value: string): string {

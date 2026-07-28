@@ -2,6 +2,7 @@ import {
   DomainError,
   derivedDisplayTemplate,
   memoryFieldConfiguration,
+  memoryFieldKey,
   memoryFieldName,
   memoryFieldPosition,
   memoryTableDisplayFieldIds,
@@ -17,6 +18,7 @@ import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 
 export interface CreateMemoryFieldInput {
+  readonly key: string;
   readonly name: string;
   readonly type: MemoryFieldType;
   readonly required: boolean;
@@ -28,6 +30,7 @@ export interface CreateMemoryFieldInput {
 }
 
 export interface UpdateMemoryFieldInput {
+  readonly key?: string;
   readonly type?: MemoryFieldType;
   readonly name?: string;
   readonly required?: boolean;
@@ -67,6 +70,13 @@ export class MemoryFieldService {
     input: CreateMemoryFieldInput,
   ): MemoryField | undefined {
     if (!this.tables.find(memorySpaceId, tableId)) return undefined;
+    const key = memoryFieldKey(input.key);
+    if (this.fields.findByKey(memorySpaceId, tableId, key)) {
+      throw new DomainError({
+        type: "memory_field_key_conflict",
+        humanMsg: "同一表格内的字段 Key 不能重复",
+      });
+    }
     const configuration = this.validatedConfiguration(
       memorySpaceId,
       input.type,
@@ -78,6 +88,7 @@ export class MemoryFieldService {
       id: this.createId(),
       memorySpaceId,
       tableId,
+      key,
       name: memoryFieldName(input.name),
       type: input.type,
       required: input.required,
@@ -159,6 +170,14 @@ export class MemoryFieldService {
   ): MemoryFieldUpdateResult | undefined {
     const field = this.fields.find(memorySpaceId, tableId, id);
     if (!field) return undefined;
+    const key = input.key === undefined ? field.key : memoryFieldKey(input.key);
+    const conflict = this.fields.findByKey(memorySpaceId, tableId, key);
+    if (conflict && conflict.id !== id) {
+      throw new DomainError({
+        type: "memory_field_key_conflict",
+        humanMsg: "同一表格内的字段 Key 不能重复",
+      });
+    }
     if (input.type !== undefined && input.type !== field.type) {
       throw new DomainError({
         type: "memory_field_type_immutable",
@@ -184,6 +203,7 @@ export class MemoryFieldService {
     }
     const updated: MemoryField = {
       ...field,
+      key,
       name: input.name === undefined ? field.name : memoryFieldName(input.name),
       required: input.required ?? field.required,
       prompt: input.prompt ?? field.prompt,

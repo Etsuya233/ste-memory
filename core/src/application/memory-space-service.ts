@@ -1,31 +1,14 @@
-import {
-  memorySpaceName,
-  type MemoryFieldId,
-  type MemorySpace,
-  type MemorySpaceId,
-  type MemoryTableId,
-} from "../domain/index.ts";
+import { memorySpaceName, type MemorySpace, type MemorySpaceId } from "../domain/index.ts";
 import type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
-import { createSystemMemoryDefinitions } from "./system-memory-table-definitions.ts";
 
 export class MemorySpaceService {
   private readonly repository: MemorySpaceRepository;
   private readonly createId: () => MemorySpaceId;
-  private readonly createTableId: () => MemoryTableId;
-  private readonly createFieldId: () => MemoryFieldId;
   private readonly now: () => string;
 
-  constructor(
-    repository: MemorySpaceRepository,
-    createId: () => MemorySpaceId,
-    createTableId: () => MemoryTableId,
-    createFieldId: () => MemoryFieldId,
-    now: () => string,
-  ) {
+  constructor(repository: MemorySpaceRepository, createId: () => MemorySpaceId, now: () => string) {
     this.repository = repository;
     this.createId = createId;
-    this.createTableId = createTableId;
-    this.createFieldId = createFieldId;
     this.now = now;
   }
 
@@ -37,13 +20,7 @@ export class MemorySpaceService {
       createdAt: now,
       updatedAt: now,
     };
-    const definitions = createSystemMemoryDefinitions(
-      memorySpace.id,
-      this.createTableId,
-      this.createFieldId,
-      now,
-    );
-    this.repository.create(memorySpace, definitions.tables, definitions.fields);
+    this.repository.create(memorySpace);
     return memorySpace;
   }
 

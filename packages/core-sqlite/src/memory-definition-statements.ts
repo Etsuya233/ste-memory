@@ -7,21 +7,21 @@ export class MemoryDefinitionStatements {
 
   constructor(database: DatabaseSync) {
     this.createTableStatement = database.prepare(`INSERT INTO memory_tables (
-      id, memory_space_id, kind, system_key, name, description, prompt, enabled,
+      id, memory_space_id, key, kind, name, description, prompt, enabled,
       display_strategy, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     this.createFieldStatement = database.prepare(`INSERT INTO memory_fields (
-      id, memory_space_id, table_id, name, type, required, prompt, enabled, position,
+      id, memory_space_id, table_id, key, name, type, required, prompt, enabled, position,
       options_json, reference_table_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   }
 
   createTable(table: MemoryTable): void {
     this.createTableStatement.run(
       table.id,
       table.memorySpaceId,
+      table.key,
       table.kind,
-      table.systemKey,
       table.name,
       table.description,
       table.prompt,
@@ -37,6 +37,7 @@ export class MemoryDefinitionStatements {
       field.id,
       field.memorySpaceId,
       field.tableId,
+      field.key,
       field.name,
       field.type,
       field.required ? 1 : 0,

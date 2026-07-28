@@ -14,6 +14,7 @@ describe("MemoryFieldService", () => {
     const repository = new FieldRepository();
 
     const created = fieldService(repository).create(memorySpaceId, tableId, {
+      key: "status",
       name: "状态",
       type: "single_select",
       required: true,
@@ -27,6 +28,7 @@ describe("MemoryFieldService", () => {
       id: fieldId,
       memorySpaceId,
       tableId,
+      key: "status",
       name: "状态",
       type: "single_select",
       required: true,
@@ -61,6 +63,7 @@ describe("MemoryFieldService", () => {
 
     expect(() =>
       fields.create(memorySpaceId, tableId, {
+        key: "related_characters",
         name: "相关人物",
         type: "multi_reference",
         required: false,
@@ -77,6 +80,7 @@ describe("MemoryFieldService", () => {
     );
 
     const created = fields.create(memorySpaceId, tableId, {
+      key: "related_characters",
       name: "相关人物",
       type: "multi_reference",
       required: false,
@@ -93,6 +97,7 @@ describe("MemoryFieldService", () => {
 
     expect(() =>
       fields.create(memorySpaceId, tableId, {
+        key: "status",
         name: "状态",
         type: "multi_select",
         required: false,
@@ -113,6 +118,7 @@ describe("MemoryFieldService", () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
     fields.create(memorySpaceId, tableId, {
+      key: "summary",
       name: "摘要",
       type: "short_text",
       required: false,
@@ -132,10 +138,37 @@ describe("MemoryFieldService", () => {
     expect(repository.fields.get(fieldId)?.type).toBe("short_text");
   });
 
+  it("rejects duplicate field keys in the same table", () => {
+    const repository = new FieldRepository();
+    const fields = fieldService(repository);
+    fields.create(memorySpaceId, tableId, {
+      key: "summary",
+      name: "摘要",
+      type: "short_text",
+      required: false,
+      prompt: "",
+      enabled: true,
+      position: 0,
+    });
+
+    expect(() =>
+      fields.create(memorySpaceId, tableId, {
+        key: "summary",
+        name: "另一字段",
+        type: "long_text",
+        required: false,
+        prompt: "",
+        enabled: true,
+        position: 1,
+      }),
+    ).toThrowError(expect.objectContaining({ type: "memory_field_key_conflict" }));
+  });
+
   it("updates field configuration and warns when a required field is disabled", () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
     fields.create(memorySpaceId, tableId, {
+      key: "status",
       name: "状态",
       type: "single_select",
       required: true,
@@ -172,6 +205,7 @@ describe("MemoryFieldService", () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
     fields.create(memorySpaceId, tableId, {
+      key: "summary",
       name: "摘要",
       type: "long_text",
       required: false,

@@ -26,8 +26,8 @@ function table(id: MemoryTableId): MemoryTable {
   return {
     id,
     memorySpaceId: spaceId,
+    key: id,
     kind: "custom",
-    systemKey: null,
     name: id,
     description: "",
     prompt: "",

@@ -12,6 +12,7 @@ describe("memory table display strategy", () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
     fields.create(memorySpaceId, tableId, {
+      key: "name",
       name: "名称",
       type: "short_text",
       required: true,
@@ -41,6 +42,7 @@ describe("memory table display strategy", () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
     fields.create(memorySpaceId, tableId, {
+      key: "name",
       name: "名称",
       type: "short_text",
       required: true,

@@ -27,6 +27,7 @@ import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
 import { buildServer } from "../src/server.ts";
 import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
 import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
+import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
 
 const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
@@ -44,26 +45,31 @@ async function testServer() {
   const spaces = new MemorySpaceService(
     spaceRepository,
     () => randomUUID() as MemorySpaceId,
+    () => "2026-07-28T00:00:00.000Z",
+  );
+  const tableService = new MemoryTableService(
+    spaceRepository,
+    tableRepository,
     () => randomUUID() as MemoryTableId,
+    () => "2026-07-28T00:00:00.000Z",
+  );
+  const fieldService = new MemoryFieldService(
+    tableRepository,
+    fieldRepository,
     () => randomUUID() as MemoryFieldId,
     () => "2026-07-28T00:00:00.000Z",
   );
+  const systemTables = new SystemMemoryTableInstaller(tableService, fieldService);
   const server = await buildServer({
     coreDatabase: healthCheck,
     sourceStoreDatabase: healthCheck,
-    memorySpaces: new DefaultMemorySpaceManager(spaces, new SqliteSourceChatRepository(sourceUrl)),
-    memoryTables: new MemoryTableService(
-      spaceRepository,
-      tableRepository,
-      () => randomUUID() as MemoryTableId,
-      () => "2026-07-28T00:00:00.000Z",
+    memorySpaces: new DefaultMemorySpaceManager(
+      spaces,
+      systemTables,
+      new SqliteSourceChatRepository(sourceUrl),
     ),
-    memoryFields: new MemoryFieldService(
-      tableRepository,
-      fieldRepository,
-      () => randomUUID() as MemoryFieldId,
-      () => "2026-07-28T00:00:00.000Z",
-    ),
+    memoryTables: tableService,
+    memoryFields: fieldService,
     memoryRecords: new MemoryRecordService(
       tableRepository,
       fieldRepository,
@@ -76,7 +82,8 @@ async function testServer() {
   });
   servers.push(server);
   const space = spaces.create("会话");
-  const table = tableRepository.list(space.id).find((item) => item.systemKey === "characters")!;
+  systemTables.install(space.id);
+  const table = tableRepository.list(space.id).find((item) => item.key === "characters")!;
   const fields = fieldRepository.list(space.id, table.id);
   return { server, space, table, fields, tableRepository, fieldRepository };
 }
@@ -242,7 +249,7 @@ describe("current memory record API", () => {
     const characterName = fields.find((field) => field.name === "名称")!;
     const locationTable = tableRepository
       .list(space.id)
-      .find((candidate) => candidate.systemKey === "locations")!;
+      .find((candidate) => candidate.key === "locations")!;
     const locationFields = fieldRepository.list(space.id, locationTable.id);
     const locationName = locationFields.find((field) => field.name === "名称")!;
     const relatedCharacters = locationFields.find((field) => field.name === "相关人物")!;

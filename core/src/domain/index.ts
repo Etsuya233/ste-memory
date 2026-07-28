@@ -1,15 +1,22 @@
 export { DomainError } from "./domain-error.ts";
 export type { DomainErrorData, DomainErrorType } from "./domain-error.ts";
-export { memoryFieldConfiguration, memoryFieldName, memoryFieldPosition } from "./memory-field.ts";
+export {
+  memoryFieldConfiguration,
+  memoryFieldKey,
+  memoryFieldName,
+  memoryFieldPosition,
+} from "./memory-field.ts";
 export type {
   MemoryField,
   MemoryFieldConfiguration,
   MemoryFieldId,
+  MemoryFieldKey,
   MemoryFieldType,
 } from "./memory-field.ts";
 export {
   derivedDisplayTemplate,
   memoryTableDisplayFieldIds,
+  memoryTableKey,
   memoryTableName,
 } from "./memory-table.ts";
 export type {
@@ -17,8 +24,8 @@ export type {
   MemoryTable,
   MemoryTableDisplayStrategy,
   MemoryTableId,
+  MemoryTableKey,
   MemoryTableKind,
-  SystemMemoryTableKey,
 } from "./memory-table.ts";
 export { memorySpaceName } from "./memory-space.ts";
 export type { MemorySpace, MemorySpaceId } from "./memory-space.ts";

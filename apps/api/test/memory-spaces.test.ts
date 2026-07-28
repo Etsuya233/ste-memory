@@ -27,6 +27,7 @@ import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
 import { buildServer } from "../src/server.ts";
 import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
 import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
+import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
 
 const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
@@ -42,9 +43,21 @@ async function testServer() {
     new MemorySpaceService(
       spacesRepository,
       () => randomUUID() as MemorySpaceId,
-      () => randomUUID() as MemoryTableId,
-      () => randomUUID() as MemoryFieldId,
       () => "2026-07-27T00:00:00.000Z",
+    ),
+    new SystemMemoryTableInstaller(
+      new MemoryTableService(
+        spacesRepository,
+        new SqliteMemoryTableRepository(coreUrl),
+        () => randomUUID() as MemoryTableId,
+        () => "2026-07-27T00:00:00.000Z",
+      ),
+      new MemoryFieldService(
+        new SqliteMemoryTableRepository(coreUrl),
+        new SqliteMemoryFieldRepository(coreUrl),
+        () => randomUUID() as MemoryFieldId,
+        () => "2026-07-27T00:00:00.000Z",
+      ),
     ),
     new SqliteSourceChatRepository(sourceUrl),
   );
@@ -166,8 +179,8 @@ describe("memory space API", () => {
       method: "GET",
       url: `/memory-spaces/${space.id}/tables`,
     });
-    expect(tables.json<{ systemKey: string }[]>()).toHaveLength(7);
-    expect(new Set(tables.json<{ systemKey: string }[]>().map((table) => table.systemKey))).toEqual(
+    expect(tables.json<{ key: string }[]>()).toHaveLength(7);
+    expect(new Set(tables.json<{ key: string }[]>().map((table) => table.key))).toEqual(
       new Set([
         "characters",
         "relationships",
@@ -179,8 +192,8 @@ describe("memory space API", () => {
       ]),
     );
     const characterTable = tables
-      .json<{ id: string; systemKey: string; prompt: string }[]>()
-      .find((table) => table.systemKey === "characters")!;
+      .json<{ id: string; key: string; prompt: string }[]>()
+      .find((table) => table.key === "characters")!;
     expect(characterTable.prompt.length).toBeGreaterThan(0);
     const disabled = await server.inject({
       method: "PATCH",
@@ -188,7 +201,7 @@ describe("memory space API", () => {
       payload: { enabled: false, prompt: "自定义人物填写规则" },
     });
     expect(disabled.json()).toMatchObject({
-      systemKey: "characters",
+      key: "characters",
       enabled: false,
       prompt: "自定义人物填写规则",
     });

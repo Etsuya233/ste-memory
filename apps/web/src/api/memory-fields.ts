@@ -18,6 +18,7 @@ export interface MemoryField {
   readonly id: string;
   readonly memorySpaceId: string;
   readonly tableId: string;
+  readonly key: string;
   readonly name: string;
   readonly type: MemoryFieldType;
   readonly required: boolean;
@@ -31,6 +32,7 @@ export interface MemoryField {
 }
 
 export interface MemoryFieldInput {
+  readonly key: string;
   readonly name: string;
   readonly type: MemoryFieldType;
   readonly required: boolean;
@@ -42,6 +44,7 @@ export interface MemoryFieldInput {
 }
 
 export interface MemoryFieldPatch {
+  readonly key?: string;
   readonly name?: string;
   readonly required?: boolean;
   readonly prompt?: string;

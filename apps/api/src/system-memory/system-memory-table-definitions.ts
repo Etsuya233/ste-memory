@@ -1,16 +1,16 @@
 import type {
-  MemoryField,
-  MemoryFieldId,
+  MemoryFieldService,
   MemoryFieldType,
   MemorySpaceId,
-  MemoryTable,
-  MemoryTableId,
-  SystemMemoryTableKey,
-} from "../domain/index.ts";
+  MemoryTableService,
+} from "@ste-memory/core";
 import {
   SYSTEM_FIELD_PROMPTS as FP,
   SYSTEM_TABLE_PROMPTS as TP,
 } from "./system-memory-table-prompts.ts";
+
+export type SystemMemoryTableKey =
+  "characters" | "relationships" | "locations" | "items" | "plots" | "foreshadowing" | "todos";
 
 interface FieldTemplate {
   readonly name: string;
@@ -242,58 +242,110 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   },
 ];
 
-export interface SystemMemoryDefinitions {
-  readonly tables: readonly MemoryTable[];
-  readonly fields: readonly MemoryField[];
-}
+const SYSTEM_FIELD_KEYS: Readonly<Record<SystemMemoryTableKey, readonly string[]>> = {
+  characters: [
+    "name",
+    "aliases",
+    "role",
+    "personality",
+    "appearance",
+    "background",
+    "current_status",
+    "notes",
+  ],
+  relationships: [
+    "character_a",
+    "character_b",
+    "description",
+    "current_status",
+    "key_facts",
+    "notes",
+  ],
+  locations: [
+    "name",
+    "type",
+    "details",
+    "current_status",
+    "related_characters",
+    "related_items",
+    "notes",
+  ],
+  items: ["name", "type", "owner", "current_location", "current_status", "key_attributes", "notes"],
+  plots: ["name", "details", "related_characters", "related_locations", "status", "notes"],
+  foreshadowing: [
+    "name",
+    "details",
+    "related_characters",
+    "related_locations",
+    "status",
+    "resolution_plan",
+    "notes",
+  ],
+  todos: [
+    "name",
+    "details",
+    "related_characters",
+    "related_locations",
+    "priority",
+    "status",
+    "due_date",
+    "notes",
+  ],
+};
 
-export function createSystemMemoryDefinitions(
-  memorySpaceId: MemorySpaceId,
-  createTableId: () => MemoryTableId,
-  createFieldId: () => MemoryFieldId,
-  now: string,
-): SystemMemoryDefinitions {
-  const tableIds = new Map(
-    SYSTEM_TABLE_TEMPLATES.map((template) => [template.key, createTableId()]),
-  );
-  const fieldsByTable = new Map<SystemMemoryTableKey, MemoryField[]>();
-  const fields = SYSTEM_TABLE_TEMPLATES.flatMap((table) => {
-    const tableFields = table.fields.map((field, position): MemoryField => ({
-      id: createFieldId(),
-      memorySpaceId,
-      tableId: tableIds.get(table.key)!,
-      name: field.name,
-      type: field.type,
-      required: field.required,
-      prompt: field.prompt,
-      enabled: true,
-      position,
-      options: field.options,
-      referenceTableId: field.referenceTableKey ? tableIds.get(field.referenceTableKey)! : null,
-      createdAt: now,
-      updatedAt: now,
-    }));
-    fieldsByTable.set(table.key, tableFields);
-    return tableFields;
-  });
-  const tables = SYSTEM_TABLE_TEMPLATES.map((template): MemoryTable => {
-    const tableFields = fieldsByTable.get(template.key)!;
-    return {
-      id: tableIds.get(template.key)!,
-      memorySpaceId,
-      kind: "system",
-      systemKey: template.key,
-      name: template.name,
-      description: template.description,
-      prompt: template.prompt,
-      enabled: true,
-      displayStrategy:
+export class SystemMemoryTableInstaller {
+  private readonly tables: MemoryTableService;
+  private readonly fields: MemoryFieldService;
+
+  constructor(tables: MemoryTableService, fields: MemoryFieldService) {
+    this.tables = tables;
+    this.fields = fields;
+  }
+
+  install(memorySpaceId: MemorySpaceId): void {
+    const tablesByKey = new Map(
+      SYSTEM_TABLE_TEMPLATES.map((template) => [
+        template.key,
+        this.tables.create(memorySpaceId, {
+          key: template.key,
+          kind: "system",
+          name: template.name,
+          description: template.description,
+          prompt: template.prompt,
+        })!,
+      ]),
+    );
+    const fieldsByTable = new Map(
+      SYSTEM_TABLE_TEMPLATES.map((table) => [
+        table.key,
+        table.fields.map((field, position) =>
+          this.fields.create(memorySpaceId, tablesByKey.get(table.key)!.id, {
+            key: SYSTEM_FIELD_KEYS[table.key][position]!,
+            name: field.name,
+            type: field.type,
+            required: field.required,
+            prompt: field.prompt,
+            enabled: true,
+            position,
+            options: field.options,
+            referenceTableId: field.referenceTableKey
+              ? tablesByKey.get(field.referenceTableKey)!.id
+              : null,
+          }),
+        ),
+      ]),
+    );
+
+    for (const template of SYSTEM_TABLE_TEMPLATES) {
+      const table = tablesByKey.get(template.key)!;
+      const fields = fieldsByTable.get(template.key)!;
+      this.fields.setDisplayStrategy(
+        memorySpaceId,
+        table.id,
         template.key === "relationships"
-          ? { type: "template", template: `{${tableFields[0]!.id}} <-> {${tableFields[1]!.id}}` }
-          : { type: "field", fieldId: tableFields[0]!.id },
-      createdAt: now,
-      updatedAt: now,
-    };
-  });
-  return { tables, fields };
+          ? { type: "template", template: `{${fields[0]!.id}} <-> {${fields[1]!.id}}` }
+          : { type: "field", fieldId: fields[0]!.id },
+      );
+    }
+  }
 }

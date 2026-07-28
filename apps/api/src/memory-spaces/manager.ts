@@ -4,13 +4,20 @@ import { parseSillyTavernJsonl } from "../source-store/jsonl-parser.ts";
 import type { SqliteSourceChatRepository } from "../source-store/repository.ts";
 import type { CreateMemorySpaceInput, MemorySpaceManager, MemorySpaceView } from "./types.ts";
 import { InvalidChatFileError } from "./types.ts";
+import type { SystemMemoryTableInstaller } from "../system-memory/system-memory-table-definitions.ts";
 
 export class DefaultMemorySpaceManager implements MemorySpaceManager {
   private readonly spaces: MemorySpaceService;
+  private readonly systemTables: SystemMemoryTableInstaller;
   private readonly sourceChats: SqliteSourceChatRepository;
 
-  constructor(spaces: MemorySpaceService, sourceChats: SqliteSourceChatRepository) {
+  constructor(
+    spaces: MemorySpaceService,
+    systemTables: SystemMemoryTableInstaller,
+    sourceChats: SqliteSourceChatRepository,
+  ) {
     this.spaces = spaces;
+    this.systemTables = systemTables;
     this.sourceChats = sourceChats;
   }
 
@@ -25,6 +32,7 @@ export class DefaultMemorySpaceManager implements MemorySpaceManager {
 
     const memorySpace = this.spaces.create(input.name);
     try {
+      this.systemTables.install(memorySpace.id);
       this.sourceChats.create(memorySpace.id, chat);
     } catch (error) {
       this.spaces.delete(memorySpace.id);

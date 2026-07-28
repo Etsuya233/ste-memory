@@ -1,11 +1,7 @@
-import type { MemoryField, MemorySpace, MemorySpaceId, MemoryTable } from "../../domain/index.ts";
+import type { MemorySpace, MemorySpaceId } from "../../domain/index.ts";
 
 export interface MemorySpaceRepository {
-  create(
-    memorySpace: MemorySpace,
-    systemTables: readonly MemoryTable[],
-    systemFields: readonly MemoryField[],
-  ): void;
+  create(memorySpace: MemorySpace): void;
   delete(id: MemorySpaceId): boolean;
   find(id: MemorySpaceId): MemorySpace | undefined;
   list(): MemorySpace[];

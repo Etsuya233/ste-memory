@@ -1,7 +1,9 @@
 import type { MemorySpaceId } from "./memory-space.ts";
 import type { MemoryTableId } from "./memory-table.ts";
+import { DomainError } from "./domain-error.ts";
 
 export type MemoryFieldId = string & { readonly __brand: "MemoryFieldId" };
+export type MemoryFieldKey = string & { readonly __brand: "MemoryFieldKey" };
 export type MemoryFieldType =
   | "short_text"
   | "long_text"
@@ -20,6 +22,7 @@ export interface MemoryField {
   readonly id: MemoryFieldId;
   readonly memorySpaceId: MemorySpaceId;
   readonly tableId: MemoryTableId;
+  readonly key: MemoryFieldKey;
   readonly name: string;
   readonly type: MemoryFieldType;
   readonly required: boolean;
@@ -30,6 +33,24 @@ export interface MemoryField {
   readonly referenceTableId: MemoryTableId | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export function memoryFieldKey(value: string): MemoryFieldKey {
+  const key = value.trim();
+  if (key.length === 0) {
+    throw new DomainError({
+      type: "memory_field_key_required",
+      humanMsg: "字段 Key 不能为空",
+    });
+  }
+  if (key.length > 120) {
+    throw new DomainError({
+      type: "memory_field_key_too_long",
+      param: { maxLength: 120 },
+      humanMsg: "字段 Key 不能超过 120 个字符",
+    });
+  }
+  return key as MemoryFieldKey;
 }
 
 export interface MemoryFieldConfiguration {
@@ -95,4 +116,3 @@ export function memoryFieldPosition(value: number): number {
   }
   return value;
 }
-import { DomainError } from "./domain-error.ts";

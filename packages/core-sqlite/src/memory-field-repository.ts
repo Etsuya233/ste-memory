@@ -1,6 +1,7 @@
 import type {
   MemoryField,
   MemoryFieldId,
+  MemoryFieldKey,
   MemoryFieldRepository,
   MemoryFieldType,
   MemorySpaceId,
@@ -13,6 +14,7 @@ interface MemoryFieldRow {
   readonly id: string;
   readonly memory_space_id: string;
   readonly table_id: string;
+  readonly key: string;
   readonly name: string;
   readonly type: string;
   readonly required: number;
@@ -30,6 +32,7 @@ function toMemoryField(row: MemoryFieldRow): MemoryField {
     id: row.id as MemoryFieldId,
     memorySpaceId: row.memory_space_id as MemorySpaceId,
     tableId: row.table_id as MemoryTableId,
+    key: row.key as MemoryFieldKey,
     name: row.name,
     type: row.type as MemoryFieldType,
     required: row.required === 1,
@@ -92,6 +95,24 @@ export class SqliteMemoryFieldRepository implements MemoryFieldRepository {
     }
   }
 
+  findByKey(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    key: MemoryFieldKey,
+  ): MemoryField | undefined {
+    const database = openSqliteDatabase(this.databaseUrl);
+    try {
+      const row = database
+        .prepare(
+          "SELECT * FROM memory_fields WHERE memory_space_id = ? AND table_id = ? AND key = ?",
+        )
+        .get(memorySpaceId, tableId, key);
+      return row ? toMemoryField(row as unknown as MemoryFieldRow) : undefined;
+    } finally {
+      database.close();
+    }
+  }
+
   list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[] {
     const database = openSqliteDatabase(this.databaseUrl);
     try {
@@ -113,11 +134,12 @@ export class SqliteMemoryFieldRepository implements MemoryFieldRepository {
         database
           .prepare(
             `UPDATE memory_fields
-             SET name = ?, required = ?, prompt = ?, enabled = ?, position = ?, options_json = ?,
+             SET key = ?, name = ?, required = ?, prompt = ?, enabled = ?, position = ?, options_json = ?,
                  reference_table_id = ?, updated_at = ?
              WHERE memory_space_id = ? AND table_id = ? AND id = ?`,
           )
           .run(
+            field.key,
             field.name,
             field.required ? 1 : 0,
             field.prompt,

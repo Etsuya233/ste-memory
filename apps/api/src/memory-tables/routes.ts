@@ -8,6 +8,7 @@ interface SpaceParams {
 }
 
 interface CreateBody {
+  readonly key?: unknown;
   readonly name?: unknown;
   readonly description?: unknown;
   readonly prompt?: unknown;
@@ -40,13 +41,18 @@ export function registerMemoryTableRoutes(
       if (typeof request.body?.name !== "string") {
         return reply.code(400).send({ message: "记忆表格名称不能为空" });
       }
+      if (typeof request.body.key !== "string") {
+        return reply.code(400).send({ message: "记忆表格 Key 不能为空" });
+      }
       if (request.body.description !== undefined && typeof request.body.description !== "string") {
         return reply.code(400).send({ message: "记忆表格描述必须是文本" });
       }
       if (request.body.prompt !== undefined && typeof request.body.prompt !== "string") {
         return reply.code(400).send({ message: "记忆表格 Prompt 必须是文本" });
       }
-      const created = memoryTables.createCustom(request.params.spaceId as MemorySpaceId, {
+      const created = memoryTables.create(request.params.spaceId as MemorySpaceId, {
+        key: request.body.key,
+        kind: "custom",
         name: request.body.name,
         description: request.body.description ?? "",
         prompt: request.body.prompt ?? "",
@@ -74,6 +80,9 @@ export function registerMemoryTableRoutes(
       if (request.body?.name !== undefined && typeof request.body.name !== "string") {
         return reply.code(400).send({ message: "记忆表格名称必须是文本" });
       }
+      if (request.body?.key !== undefined && typeof request.body.key !== "string") {
+        return reply.code(400).send({ message: "记忆表格 Key 必须是文本" });
+      }
       if (request.body?.description !== undefined && typeof request.body.description !== "string") {
         return reply.code(400).send({ message: "记忆表格描述必须是文本" });
       }
@@ -84,6 +93,7 @@ export function registerMemoryTableRoutes(
         return reply.code(400).send({ message: "记忆表格启用状态必须是布尔值" });
       }
       const input: UpdateMemoryTableInput = {
+        key: request.body?.key,
         name: request.body?.name,
         description: request.body?.description,
         prompt: request.body?.prompt,

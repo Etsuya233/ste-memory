@@ -28,6 +28,7 @@ import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
 import { buildServer } from "../src/server.ts";
 import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
 import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
+import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
 
 const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
@@ -42,8 +43,6 @@ async function testServer() {
   const spaces = new MemorySpaceService(
     spacesRepository,
     () => randomUUID() as MemorySpaceId,
-    () => randomUUID() as MemoryTableId,
-    () => randomUUID() as MemoryFieldId,
     () => "2026-07-28T00:00:00.000Z",
   );
   const tableRepository = new SqliteMemoryTableRepository(coreUrl);
@@ -62,7 +61,11 @@ async function testServer() {
   const server = await buildServer({
     coreDatabase: healthCheck,
     sourceStoreDatabase: healthCheck,
-    memorySpaces: new DefaultMemorySpaceManager(spaces, new SqliteSourceChatRepository(sourceUrl)),
+    memorySpaces: new DefaultMemorySpaceManager(
+      spaces,
+      new SystemMemoryTableInstaller(tables, fields),
+      new SqliteSourceChatRepository(sourceUrl),
+    ),
     memoryTables: tables,
     memoryFields: fields,
     memoryRecords: new MemoryRecordService(
@@ -92,6 +95,7 @@ describe("memory table API", () => {
       method: "POST",
       url: `/memory-spaces/${space.id}/tables`,
       payload: {
+        key: "clues",
         name: "线索",
         description: "值得追踪的线索",
         prompt: "只保留仍可能影响后续情节的内容。",
@@ -118,7 +122,7 @@ describe("memory table API", () => {
     const created = await server.inject({
       method: "POST",
       url: `/memory-spaces/${space.id}/tables`,
-      payload: { name: "线索" },
+      payload: { key: "clues", name: "线索" },
     });
     const table = created.json<{ id: string }>();
 
@@ -170,7 +174,7 @@ describe("memory table API", () => {
     const tableResponse = await server.inject({
       method: "POST",
       url: `/memory-spaces/${space.id}/tables`,
-      payload: { name: "人物" },
+      payload: { key: "people", name: "人物" },
     });
     const table = tableResponse.json<{ id: string }>();
     const types: MemoryFieldType[] = [
@@ -193,6 +197,7 @@ describe("memory table API", () => {
         method: "POST",
         url: `/memory-spaces/${space.id}/tables/${table.id}/fields`,
         payload: {
+          key: `field-${position + 1}`,
           name: `字段 ${position + 1}`,
           type,
           required: position === 0,
@@ -220,7 +225,7 @@ describe("memory table API", () => {
       await server.inject({
         method: "POST",
         url: `/memory-spaces/${space.id}/tables`,
-        payload: { name: "人物" },
+        payload: { key: "people", name: "人物" },
       })
     ).json<{ id: string }>();
     const field = (
@@ -228,6 +233,7 @@ describe("memory table API", () => {
         method: "POST",
         url: `/memory-spaces/${space.id}/tables/${table.id}/fields`,
         payload: {
+          key: "name",
           name: "名称",
           type: "short_text",
           required: true,

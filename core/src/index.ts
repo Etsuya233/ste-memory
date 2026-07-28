@@ -5,7 +5,7 @@ export {
   MemoryTableService,
 } from "./application/index.ts";
 export type {
-  CreateCustomMemoryTableInput,
+  CreateMemoryTableInput,
   CreateMemoryFieldInput,
   CreateMemoryRecordInput,
   MemoryRecordHistoryQuery,
@@ -26,14 +26,17 @@ export {
   DomainError,
   memoryFieldName,
   memoryFieldPosition,
+  memoryFieldKey,
   memorySpaceName,
   memoryTableName,
+  memoryTableKey,
 } from "./domain/index.ts";
 export type {
   DomainErrorData,
   DomainErrorType,
   MemoryField,
   MemoryFieldId,
+  MemoryFieldKey,
   MemoryFieldType,
   MemoryFieldValue,
   MemoryRecord,
@@ -49,6 +52,6 @@ export type {
   MemoryTable,
   MemoryTableDisplayStrategy,
   MemoryTableId,
+  MemoryTableKey,
   MemoryTableKind,
-  SystemMemoryTableKey,
 } from "./domain/index.ts";

@@ -20,8 +20,8 @@ const CREATE_MEMORY_TABLES_TABLE = `
   CREATE TABLE IF NOT EXISTS memory_tables (
     id TEXT PRIMARY KEY,
     memory_space_id TEXT NOT NULL,
+    key TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('custom', 'system')),
-    system_key TEXT,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     prompt TEXT NOT NULL,
@@ -29,12 +29,6 @@ const CREATE_MEMORY_TABLES_TABLE = `
     display_strategy TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    CHECK (
-      (kind = 'custom' AND system_key IS NULL) OR
-      (kind = 'system' AND system_key IS NOT NULL AND system_key IN (
-        'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
-      ))
-    ),
     FOREIGN KEY (memory_space_id) REFERENCES memory_spaces(id) ON DELETE CASCADE
   ) STRICT
 `;
@@ -44,6 +38,7 @@ const CREATE_MEMORY_FIELDS_TABLE = `
     id TEXT PRIMARY KEY,
     memory_space_id TEXT NOT NULL,
     table_id TEXT NOT NULL,
+    key TEXT NOT NULL,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     required INTEGER NOT NULL CHECK (required IN (0, 1)),
@@ -59,6 +54,16 @@ const CREATE_MEMORY_FIELDS_TABLE = `
     FOREIGN KEY (reference_table_id) REFERENCES memory_tables(id) ON DELETE RESTRICT
   ) STRICT
 `;
+
+const CREATE_MIGRATED_MEMORY_TABLES_TABLE = CREATE_MEMORY_TABLES_TABLE.replace(
+  "memory_tables (",
+  "memory_tables_migrated (",
+).replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE");
+
+const CREATE_MIGRATED_MEMORY_FIELDS_TABLE = CREATE_MEMORY_FIELDS_TABLE.replace(
+  "memory_fields (",
+  "memory_fields_migrated (",
+).replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE");
 
 const CREATE_MEMORY_RECORDS_TABLE = `
   CREATE TABLE IF NOT EXISTS memory_records (
@@ -104,52 +109,25 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     database.exec(CREATE_MIGRATIONS_TABLE);
     database.exec(CREATE_MEMORY_SPACES_TABLE);
     database.exec(CREATE_MEMORY_TABLES_TABLE);
-    const tableColumns = database.prepare("PRAGMA table_info(memory_tables)").all();
-    if (!tableColumns.some((column) => column.name === "display_strategy")) {
+    const existingTableColumns = database.prepare("PRAGMA table_info(memory_tables)").all();
+    if (!existingTableColumns.some((column) => column.name === "display_strategy")) {
       database.exec("ALTER TABLE memory_tables ADD COLUMN display_strategy TEXT");
     }
-    if (!tableColumns.some((column) => column.name === "system_key")) {
-      database.exec("ALTER TABLE memory_tables ADD COLUMN system_key TEXT");
-    }
-    database.exec(`
-      CREATE TRIGGER IF NOT EXISTS memory_tables_system_key_insert
-      BEFORE INSERT ON memory_tables
-      WHEN
-        (NEW.kind = 'custom' AND NEW.system_key IS NOT NULL) OR
-        (NEW.kind = 'system' AND (
-          NEW.system_key IS NULL OR NEW.system_key NOT IN (
-            'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
-          )
-        ))
-      BEGIN
-        SELECT RAISE(ABORT, 'memory table kind and system key do not match');
-      END
-    `);
-    database.exec(`
-      CREATE TRIGGER IF NOT EXISTS memory_tables_system_key_update
-      BEFORE UPDATE OF kind, system_key ON memory_tables
-      WHEN
-        (NEW.kind = 'custom' AND NEW.system_key IS NOT NULL) OR
-        (NEW.kind = 'system' AND (
-          NEW.system_key IS NULL OR NEW.system_key NOT IN (
-            'characters', 'relationships', 'locations', 'items', 'plots', 'foreshadowing', 'todos'
-          )
-        ))
-      BEGIN
-        SELECT RAISE(ABORT, 'memory table kind and system key do not match');
-      END
-    `);
     database.exec(CREATE_MEMORY_FIELDS_TABLE);
+    migrateDefinitionKeys(database);
     database.exec(CREATE_MEMORY_RECORDS_TABLE);
     database.exec(CREATE_MEMORY_RECORD_HISTORY_TABLE);
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_tables_space_id ON memory_tables(memory_space_id, id)",
     );
     database.exec(
-      "CREATE UNIQUE INDEX IF NOT EXISTS memory_tables_system_key ON memory_tables(memory_space_id, system_key) WHERE system_key IS NOT NULL",
+      "CREATE UNIQUE INDEX IF NOT EXISTS memory_tables_space_key ON memory_tables(memory_space_id, key)",
     );
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_fields_table_id ON memory_fields(memory_space_id, table_id, position, id)",
+    );
+    database.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS memory_fields_table_key ON memory_fields(memory_space_id, table_id, key)",
     );
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_records_table_id ON memory_records(memory_space_id, table_id, created_at, id)",
@@ -175,7 +153,56 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     database
       .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (6, ?)")
       .run(new Date().toISOString());
+    database
+      .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (7, ?)")
+      .run(new Date().toISOString());
   } finally {
     database.close();
+  }
+}
+
+function migrateDefinitionKeys(database: ReturnType<typeof openSqliteDatabase>): void {
+  const tableColumns = database.prepare("PRAGMA table_info(memory_tables)").all();
+  const fieldColumns = database.prepare("PRAGMA table_info(memory_fields)").all();
+  const tableHasKey = tableColumns.some((column) => column.name === "key");
+  const tableHasSystemKey = tableColumns.some((column) => column.name === "system_key");
+  const fieldHasKey = fieldColumns.some((column) => column.name === "key");
+  if (tableHasKey && !tableHasSystemKey && fieldHasKey) return;
+
+  const tableKeyExpression = tableHasKey
+    ? "key"
+    : tableHasSystemKey
+      ? "COALESCE(system_key, id)"
+      : "id";
+  const fieldKeyExpression = fieldHasKey ? "key" : "id";
+  database.exec("PRAGMA foreign_keys = OFF");
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.exec(CREATE_MIGRATED_MEMORY_TABLES_TABLE);
+    database.exec(CREATE_MIGRATED_MEMORY_FIELDS_TABLE);
+    database.exec(`INSERT INTO memory_tables_migrated (
+      id, memory_space_id, key, kind, name, description, prompt, enabled,
+      display_strategy, created_at, updated_at
+    ) SELECT
+      id, memory_space_id, ${tableKeyExpression}, kind, name, description, prompt, enabled,
+      display_strategy, created_at, updated_at
+    FROM memory_tables`);
+    database.exec(`INSERT INTO memory_fields_migrated (
+      id, memory_space_id, table_id, key, name, type, required, prompt, enabled, position,
+      options_json, reference_table_id, created_at, updated_at
+    ) SELECT
+      id, memory_space_id, table_id, ${fieldKeyExpression}, name, type, required, prompt, enabled,
+      position, options_json, reference_table_id, created_at, updated_at
+    FROM memory_fields`);
+    database.exec("DROP TABLE memory_fields");
+    database.exec("DROP TABLE memory_tables");
+    database.exec("ALTER TABLE memory_tables_migrated RENAME TO memory_tables");
+    database.exec("ALTER TABLE memory_fields_migrated RENAME TO memory_fields");
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
   }
 }
