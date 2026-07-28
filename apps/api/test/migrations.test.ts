@@ -30,6 +30,7 @@ describe("SQLite migrations", () => {
     expect(tablesAt(corePath)).toEqual([
       "core_migrations",
       "memory_fields",
+      "memory_record_history",
       "memory_records",
       "memory_spaces",
       "memory_tables",
@@ -52,6 +53,7 @@ describe("SQLite migrations", () => {
     expect(tablesAt(sharedPath)).toEqual([
       "core_migrations",
       "memory_fields",
+      "memory_record_history",
       "memory_records",
       "memory_spaces",
       "memory_tables",

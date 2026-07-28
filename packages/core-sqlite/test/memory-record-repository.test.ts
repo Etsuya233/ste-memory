@@ -5,6 +5,8 @@ import {
   MemorySpaceService,
   type MemoryFieldId,
   type MemoryRecord,
+  type MemoryRecordHistory,
+  type MemoryRecordHistoryId,
   type MemoryRecordId,
   type MemoryRevisionId,
   type MemorySpaceId,
@@ -64,4 +66,130 @@ describe("SqliteMemoryRecordRepository", () => {
     expect(repository.find(space.id, table.id, record.id)).toEqual(record);
     expect(repository.list(space.id, table.id)).toEqual([record]);
   });
+
+  it("commits updates and physical deletes atomically while preserving filterable history", () => {
+    const databaseUrl = `sqlite:${join(mkdtempSync(join(tmpdir(), "history-")), "core.sqlite")}`;
+    migrateCoreDatabase(databaseUrl);
+    const spaces = new MemorySpaceService(
+      new SqliteMemorySpaceRepository(databaseUrl),
+      () => "space-1" as MemorySpaceId,
+      (() => {
+        let count = 0;
+        return () => `table-${++count}` as MemoryTableId;
+      })(),
+      (() => {
+        let count = 0;
+        return () => `field-${++count}` as MemoryFieldId;
+      })(),
+      () => "2026-07-28T00:00:00.000Z",
+    );
+    const space = spaces.create("会话");
+    const tables = new SqliteMemoryTableRepository(databaseUrl).list(space.id);
+    const repository = new SqliteMemoryRecordRepository(databaseUrl);
+    const first = record(space.id, tables[0]!.id, "record-1", "revision-1", "林夏");
+    const second = record(space.id, tables[1]!.id, "record-2", "revision-2", "港口");
+    repository.create(first);
+    repository.create(second);
+    const updated = {
+      ...first,
+      payload: { name: "周遥" },
+      displayText: "周遥",
+      revisionId: "revision-batch" as MemoryRevisionId,
+      updatedAt: "2026-07-28T02:00:00.000Z",
+    };
+
+    expect(
+      repository.commit([
+        mutation(first, updated, "history-1"),
+        mutation(second, undefined, "history-2"),
+      ]),
+    ).toBe(true);
+    expect(repository.find(space.id, first.tableId, first.id)).toEqual(updated);
+    expect(repository.find(space.id, second.tableId, second.id)).toBeUndefined();
+    expect(
+      repository.listHistory({
+        memorySpaceId: space.id,
+        tableId: first.tableId,
+        recordId: first.id,
+        revisionId: "revision-batch" as MemoryRevisionId,
+        archivedFrom: "2026-07-28T01:00:00.000Z",
+        archivedTo: "2026-07-28T03:00:00.000Z",
+      }),
+    ).toEqual([expect.objectContaining({ id: "history-1", payload: { name: "林夏" } })]);
+  });
+
+  it("rolls back every history and current-row change when one revision is stale", () => {
+    const databaseUrl = `sqlite:${join(mkdtempSync(join(tmpdir(), "conflict-")), "core.sqlite")}`;
+    migrateCoreDatabase(databaseUrl);
+    const spaces = new MemorySpaceService(
+      new SqliteMemorySpaceRepository(databaseUrl),
+      () => "space-1" as MemorySpaceId,
+      (() => {
+        let count = 0;
+        return () => `table-${++count}` as MemoryTableId;
+      })(),
+      (() => {
+        let count = 0;
+        return () => `field-${++count}` as MemoryFieldId;
+      })(),
+      () => "2026-07-28T00:00:00.000Z",
+    );
+    const space = spaces.create("会话");
+    const table = new SqliteMemoryTableRepository(databaseUrl).list(space.id)[0]!;
+    const repository = new SqliteMemoryRecordRepository(databaseUrl);
+    const first = record(space.id, table.id, "record-1", "revision-1", "林夏");
+    const stale = record(space.id, table.id, "record-2", "stale", "周遥");
+    repository.create(first);
+    repository.create({ ...stale, revisionId: "actual" as MemoryRevisionId });
+
+    expect(
+      repository.commit([
+        mutation(first, { ...first, displayText: "changed" }, "history-1"),
+        mutation(stale, undefined, "history-2"),
+      ]),
+    ).toBe(false);
+    expect(repository.find(space.id, table.id, first.id)).toEqual(first);
+    expect(repository.listHistory({ memorySpaceId: space.id })).toEqual([]);
+  });
 });
+
+function record(
+  memorySpaceId: MemorySpaceId,
+  tableId: MemoryTableId,
+  id: string,
+  revisionId: string,
+  displayText: string,
+): MemoryRecord {
+  return {
+    id: id as MemoryRecordId,
+    memorySpaceId,
+    tableId,
+    payload: { name: displayText },
+    displayText,
+    source: { type: "manual" },
+    revisionId: revisionId as MemoryRevisionId,
+    revisionSource: "user",
+    createdAt: "2026-07-28T01:00:00.000Z",
+    updatedAt: "2026-07-28T01:00:00.000Z",
+  };
+}
+
+function mutation(previous: MemoryRecord, current: MemoryRecord | undefined, id: string) {
+  const history: MemoryRecordHistory = {
+    id: id as MemoryRecordHistoryId,
+    recordId: previous.id,
+    memorySpaceId: previous.memorySpaceId,
+    tableId: previous.tableId,
+    payload: previous.payload,
+    displayText: previous.displayText,
+    source: previous.source,
+    previousRevisionId: previous.revisionId,
+    previousRevisionSource: previous.revisionSource,
+    revisionId: "revision-batch" as MemoryRevisionId,
+    revisionSource: "agent",
+    createdAt: previous.createdAt,
+    updatedAt: previous.updatedAt,
+    archivedAt: "2026-07-28T02:00:00.000Z",
+  };
+  return { previous, current, history };
+}

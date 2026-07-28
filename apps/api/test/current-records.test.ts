@@ -9,6 +9,7 @@ import {
   MemoryTableService,
   type MemoryFieldId,
   type MemoryRecordId,
+  type MemoryRecordHistoryId,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
@@ -68,6 +69,7 @@ async function testServer() {
       fieldRepository,
       recordRepository,
       () => randomUUID() as MemoryRecordId,
+      () => randomUUID() as MemoryRecordHistoryId,
       () => randomUUID() as MemoryRevisionId,
       () => "2026-07-28T01:02:03.000Z",
     ),
@@ -155,5 +157,83 @@ describe("current memory record API", () => {
       type: "memory_record_field_value_invalid",
       param: { fieldId: name.id },
     });
+  });
+
+  it("patches fields, archives the old snapshot, and rejects stale revisions", async () => {
+    const { server, space, table, fields } = await testServer();
+    const name = fields.find((field) => field.name === "名称")!;
+    const identity = fields.find((field) => field.name === "身份/定位")!;
+    const created = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records`,
+      payload: { payload: { [name.id]: "林夏", [identity.id]: "调查员" } },
+    });
+    const record = created.json<{ id: string; revisionId: string }>();
+    const updated = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records/${record.id}`,
+      payload: { expectedRevisionId: record.revisionId, patch: { [identity.id]: null } },
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      displayText: "林夏",
+      payload: { [name.id]: "林夏", [identity.id]: null },
+      revisionSource: "user",
+    });
+    const conflict = await server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records/${record.id}`,
+      payload: { expectedRevisionId: record.revisionId, patch: { [name.id]: "周遥" } },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      type: "memory_record_revision_conflict",
+      param: { recordId: record.id },
+    });
+
+    const histories = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/record-history?tableId=${table.id}&recordId=${record.id}&revisionId=${updated.json<{ revisionId: string }>().revisionId}&archivedFrom=2026-07-28T09:00:00%2B08:00&archivedTo=2026-07-28T10:00:00%2B08:00`,
+    });
+    expect(histories.json()).toEqual([
+      expect.objectContaining({
+        recordId: record.id,
+        payload: { [name.id]: "林夏", [identity.id]: "调查员" },
+      }),
+    ]);
+  });
+
+  it("archives a complete snapshot before physically deleting a current record", async () => {
+    const { server, space, table, fields } = await testServer();
+    const name = fields.find((field) => field.name === "名称")!;
+    const created = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records`,
+      payload: { payload: { [name.id]: "林夏" } },
+    });
+    const record = created.json<{ id: string; revisionId: string }>();
+    const removed = await server.inject({
+      method: "DELETE",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records/${record.id}`,
+      payload: { expectedRevisionId: record.revisionId },
+    });
+
+    expect(removed.statusCode).toBe(204);
+    expect(
+      (
+        await server.inject({
+          method: "GET",
+          url: `/memory-spaces/${space.id}/tables/${table.id}/records/${record.id}`,
+        })
+      ).statusCode,
+    ).toBe(404);
+    const histories = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/record-history?recordId=${record.id}`,
+    });
+    expect(histories.json()).toEqual([
+      expect.objectContaining({ recordId: record.id, displayText: "林夏" }),
+    ]);
   });
 });

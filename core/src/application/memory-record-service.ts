@@ -3,22 +3,39 @@ import {
   DomainError,
   type MemoryField,
   type MemoryRecord,
+  type MemoryRecordHistory,
   type MemoryRecordId,
   type MemoryRecordPayload,
   type MemoryRecordSource,
   type MemoryRevisionId,
+  type MemoryRevisionSource,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
 } from "../domain/index.ts";
 import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
-import type { MemoryRecordRepository } from "./ports/memory-record-repository.ts";
+import type {
+  MemoryRecordHistoryQuery,
+  MemoryRecordRepository,
+} from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
+import {
+  commitMemoryRecordMutationBatch,
+  type MemoryRecordMutationBatchInput,
+  type MemoryRecordMutationResult,
+} from "./memory-record-mutations.ts";
+import type { MemoryRecordHistoryId } from "../domain/index.ts";
 
 export interface CreateMemoryRecordInput {
   readonly payload: Readonly<Record<string, unknown>>;
   readonly source?: MemoryRecordSource;
+}
+
+export interface UpdateMemoryRecordInput {
+  readonly expectedRevisionId: MemoryRevisionId;
+  readonly patch: Readonly<Record<string, unknown>>;
+  readonly revisionSource: MemoryRevisionSource;
 }
 
 export interface MemoryRecordPage {
@@ -34,6 +51,7 @@ export class MemoryRecordService {
   private readonly fields: MemoryFieldRepository;
   private readonly records: MemoryRecordRepository;
   private readonly createId: () => MemoryRecordId;
+  private readonly createHistoryId: () => MemoryRecordHistoryId;
   private readonly createRevisionId: () => MemoryRevisionId;
   private readonly now: () => string;
 
@@ -42,6 +60,7 @@ export class MemoryRecordService {
     fields: MemoryFieldRepository,
     records: MemoryRecordRepository,
     createId: () => MemoryRecordId,
+    createHistoryId: () => MemoryRecordHistoryId,
     createRevisionId: () => MemoryRevisionId,
     now: () => string,
   ) {
@@ -49,6 +68,7 @@ export class MemoryRecordService {
     this.fields = fields;
     this.records = records;
     this.createId = createId;
+    this.createHistoryId = createHistoryId;
     this.createRevisionId = createRevisionId;
     this.now = now;
   }
@@ -95,6 +115,71 @@ export class MemoryRecordService {
     const record = this.records.find(memorySpaceId, tableId, id);
     if (!record) return undefined;
     return this.validatedRecord(record);
+  }
+
+  update(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    id: MemoryRecordId,
+    input: UpdateMemoryRecordInput,
+  ): MemoryRecord | undefined {
+    if (!this.records.find(memorySpaceId, tableId, id)) return undefined;
+    this.mutate(memorySpaceId, {
+      revisionSource: input.revisionSource,
+      operations: [
+        {
+          type: "update",
+          tableId,
+          recordId: id,
+          expectedRevisionId: input.expectedRevisionId,
+          patch: input.patch,
+        },
+      ],
+    });
+    return this.find(memorySpaceId, tableId, id);
+  }
+
+  delete(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    id: MemoryRecordId,
+    expectedRevisionId: MemoryRevisionId,
+    revisionSource: MemoryRevisionSource,
+  ): boolean {
+    if (!this.records.find(memorySpaceId, tableId, id)) return false;
+    this.mutate(memorySpaceId, {
+      revisionSource,
+      operations: [{ type: "delete", tableId, recordId: id, expectedRevisionId }],
+    });
+    return true;
+  }
+
+  mutate(
+    memorySpaceId: MemorySpaceId,
+    input: MemoryRecordMutationBatchInput,
+  ): MemoryRecordMutationResult {
+    return commitMemoryRecordMutationBatch(
+      {
+        tables: this.tables,
+        fields: this.fields,
+        records: this.records,
+        createHistoryId: this.createHistoryId,
+        createRevisionId: this.createRevisionId,
+        now: this.now,
+        displayText: (table, fields, payload) => this.displayText(table, fields, payload),
+        validateReferences: (spaceId, fields, payload) =>
+          this.validateReferences(spaceId, fields, payload),
+      },
+      memorySpaceId,
+      input,
+    );
+  }
+
+  listHistory(
+    memorySpaceId: MemorySpaceId,
+    query: Omit<MemoryRecordHistoryQuery, "memorySpaceId">,
+  ): readonly MemoryRecordHistory[] {
+    return this.records.listHistory({ ...query, memorySpaceId });
   }
 
   list(

@@ -8,6 +8,10 @@ export type {
   CreateCustomMemoryTableInput,
   CreateMemoryFieldInput,
   CreateMemoryRecordInput,
+  MemoryRecordHistoryQuery,
+  MemoryRecordMutation,
+  MemoryRecordMutationBatchInput,
+  MemoryRecordMutationResult,
   MemoryFieldUpdateResult,
   MemoryFieldRepository,
   MemoryRecordPage,
@@ -15,6 +19,7 @@ export type {
   MemorySpaceRepository,
   MemoryTableRepository,
   UpdateMemoryFieldInput,
+  UpdateMemoryRecordInput,
   UpdateMemoryTableInput,
 } from "./application/index.ts";
 export {
@@ -32,6 +37,8 @@ export type {
   MemoryFieldType,
   MemoryFieldValue,
   MemoryRecord,
+  MemoryRecordHistory,
+  MemoryRecordHistoryId,
   MemoryRecordId,
   MemoryRecordPayload,
   MemoryRecordSource,

@@ -35,9 +35,11 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_table_display_strategy_invalid: "记忆表格显示策略无效",
   memory_field_used_by_display_strategy: "请先指定不使用该字段的其他显示策略，再删除或停用该字段",
   memory_record_display_strategy_missing: "创建记录前必须配置表格显示策略",
+  memory_record_not_found: "记忆记录不存在",
   memory_record_field_value_invalid: "记录字段值格式无效",
   memory_record_paging_invalid: "分页参数无效",
   memory_record_reference_invalid: "记录引用目标无效",
+  memory_record_revision_conflict: "记忆记录已更新，请刷新后重试",
   memory_record_required_field_missing: "记录缺少必填字段",
   memory_record_source_invalid: "记录来源格式无效",
   memory_record_unknown_field: "记录包含未知字段",
@@ -55,7 +57,13 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
 
   server.setErrorHandler((error: Error, _request, reply) => {
     if (error instanceof DomainError) {
-      return reply.code(400).send({
+      const statusCode =
+        error.type === "memory_record_revision_conflict"
+          ? 409
+          : error.type === "memory_record_not_found"
+            ? 404
+            : 400;
+      return reply.code(statusCode).send({
         type: error.type,
         param: error.param,
         message: domainErrorMessages[error.type],

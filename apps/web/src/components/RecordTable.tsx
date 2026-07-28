@@ -19,9 +19,10 @@ interface RecordTableProps {
   readonly memorySpaceId: string;
   readonly table: MemoryTable;
   readonly onSelect: (selection: RecordSelection | undefined) => void;
+  readonly refreshVersion: number;
 }
 
-export function RecordTable({ memorySpaceId, table, onSelect }: RecordTableProps) {
+export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: RecordTableProps) {
   const [fields, setFields] = useState<MemoryField[]>([]);
   const [result, setResult] = useState<MemoryRecordPage>();
   const [searchInput, setSearchInput] = useState("");
@@ -53,7 +54,7 @@ export function RecordTable({ memorySpaceId, table, onSelect }: RecordTableProps
   useEffect(() => {
     onSelect(undefined);
     load(page, search);
-  }, [memorySpaceId, table.id, page, search]);
+  }, [memorySpaceId, table.id, page, search, refreshVersion]);
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -183,7 +184,7 @@ export function RecordTable({ memorySpaceId, table, onSelect }: RecordTableProps
           tableId={table.id}
           fields={fields}
           onClose={() => setCreating(false)}
-          onCreated={(record) => {
+          onSaved={(record) => {
             setCreating(false);
             load(page, search);
             onSelect({ record, fields });

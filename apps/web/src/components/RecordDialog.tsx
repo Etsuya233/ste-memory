@@ -4,6 +4,7 @@ import type { MemoryField } from "../api/memory-fields.ts";
 import {
   createMemoryRecord,
   listMemoryRecords,
+  updateMemoryRecord,
   type MemoryFieldValue,
   type MemoryRecord,
 } from "../api/memory-records.ts";
@@ -13,12 +14,15 @@ interface RecordDialogProps {
   readonly memorySpaceId: string;
   readonly tableId: string;
   readonly fields: readonly MemoryField[];
+  readonly record?: MemoryRecord;
   readonly onClose: () => void;
-  readonly onCreated: (record: MemoryRecord) => void;
+  readonly onSaved: (record: MemoryRecord) => void;
 }
 
 export function RecordDialog(props: RecordDialogProps) {
-  const [payload, setPayload] = useState<Record<string, MemoryFieldValue>>({});
+  const [payload, setPayload] = useState<Record<string, MemoryFieldValue>>(() => ({
+    ...props.record?.payload,
+  }));
   const [references, setReferences] = useState<Record<string, readonly MemoryRecord[]>>({});
   const [sourceTime, setSourceTime] = useState("");
   const [sourceLocation, setSourceLocation] = useState("");
@@ -61,11 +65,34 @@ export function RecordDialog(props: RecordDialogProps) {
               sourceLocation: sourceLocation.trim() || null,
             }
           : undefined;
-      props.onCreated(
-        await createMemoryRecord(props.memorySpaceId, props.tableId, { payload, source }),
-      );
+      if (props.record) {
+        const patch = Object.fromEntries(
+          props.fields.flatMap((field) => {
+            const previous = props.record!.payload[field.id];
+            const current = payload[field.id];
+            if (JSON.stringify(previous) === JSON.stringify(current)) return [];
+            return [[field.id, current === undefined ? null : current]];
+          }),
+        );
+        props.onSaved(
+          await updateMemoryRecord(props.memorySpaceId, props.tableId, props.record.id, {
+            expectedRevisionId: props.record.revisionId,
+            patch,
+          }),
+        );
+      } else {
+        props.onSaved(
+          await createMemoryRecord(props.memorySpaceId, props.tableId, { payload, source }),
+        );
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法创建记忆记录");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : props.record
+            ? "无法更新记忆记录"
+            : "无法创建记忆记录",
+      );
     } finally {
       setBusy(false);
     }
@@ -81,8 +108,8 @@ export function RecordDialog(props: RecordDialogProps) {
       >
         <header>
           <div>
-            <h2>创建记忆记录</h2>
-            <p>填写结构化字段与可选来源。</p>
+            <h2>{props.record ? "编辑记忆记录" : "创建记忆记录"}</h2>
+            <p>{props.record ? "保存后会归档当前快照。" : "填写结构化字段与可选来源。"}</p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭" onClick={props.onClose}>
             <X size={18} />
@@ -109,35 +136,37 @@ export function RecordDialog(props: RecordDialogProps) {
               />
             ))}
           </div>
-          <fieldset className="record-source-fields">
-            <legend>来源信息</legend>
-            <label>
-              <span>来源时间</span>
-              <input
-                type="datetime-local"
-                value={sourceTime}
-                onChange={(event) => setSourceTime(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>来源定位</span>
-              <input
-                value={sourceLocation}
-                placeholder="例如：消息 42"
-                onChange={(event) => setSourceLocation(event.target.value)}
-              />
-            </label>
-            <p>
-              {sourceTime || sourceLocation ? "将保存来源信息" : "未填写来源，将标记为手动记录"}
-            </p>
-          </fieldset>
+          {!props.record ? (
+            <fieldset className="record-source-fields">
+              <legend>来源信息</legend>
+              <label>
+                <span>来源时间</span>
+                <input
+                  type="datetime-local"
+                  value={sourceTime}
+                  onChange={(event) => setSourceTime(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>来源定位</span>
+                <input
+                  value={sourceLocation}
+                  placeholder="例如：消息 42"
+                  onChange={(event) => setSourceLocation(event.target.value)}
+                />
+              </label>
+              <p>
+                {sourceTime || sourceLocation ? "将保存来源信息" : "未填写来源，将标记为手动记录"}
+              </p>
+            </fieldset>
+          ) : null}
           {error ? <p className="form-error">{error}</p> : null}
           <footer>
             <button type="button" className="secondary-button" onClick={props.onClose}>
               取消
             </button>
             <button type="submit" className="primary-button" disabled={busy}>
-              {busy ? "创建中..." : "创建记录"}
+              {busy ? "保存中..." : props.record ? "保存变更" : "创建记录"}
             </button>
           </footer>
         </form>

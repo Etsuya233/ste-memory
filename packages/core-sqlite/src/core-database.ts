@@ -77,6 +77,27 @@ const CREATE_MEMORY_RECORDS_TABLE = `
   ) STRICT
 `;
 
+const CREATE_MEMORY_RECORD_HISTORY_TABLE = `
+  CREATE TABLE IF NOT EXISTS memory_record_history (
+    id TEXT PRIMARY KEY,
+    record_id TEXT NOT NULL,
+    memory_space_id TEXT NOT NULL,
+    table_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    display_text TEXT NOT NULL,
+    source_json TEXT NOT NULL CHECK (json_valid(source_json)),
+    previous_revision_id TEXT NOT NULL,
+    previous_revision_source TEXT NOT NULL CHECK (previous_revision_source IN ('agent', 'user')),
+    revision_id TEXT NOT NULL,
+    revision_source TEXT NOT NULL CHECK (revision_source IN ('agent', 'user')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT NOT NULL,
+    FOREIGN KEY (memory_space_id) REFERENCES memory_spaces(id) ON DELETE CASCADE,
+    FOREIGN KEY (table_id) REFERENCES memory_tables(id) ON DELETE CASCADE
+  ) STRICT
+`;
+
 export function migrateCoreDatabase(databaseUrl: string): void {
   const database = openSqliteDatabase(databaseUrl);
   try {
@@ -120,6 +141,7 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     `);
     database.exec(CREATE_MEMORY_FIELDS_TABLE);
     database.exec(CREATE_MEMORY_RECORDS_TABLE);
+    database.exec(CREATE_MEMORY_RECORD_HISTORY_TABLE);
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_tables_space_id ON memory_tables(memory_space_id, id)",
     );
@@ -131,6 +153,9 @@ export function migrateCoreDatabase(databaseUrl: string): void {
     );
     database.exec(
       "CREATE INDEX IF NOT EXISTS memory_records_table_id ON memory_records(memory_space_id, table_id, created_at, id)",
+    );
+    database.exec(
+      "CREATE INDEX IF NOT EXISTS memory_record_history_filters ON memory_record_history(memory_space_id, table_id, record_id, revision_id, archived_at)",
     );
     database
       .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (1, ?)")
@@ -146,6 +171,9 @@ export function migrateCoreDatabase(databaseUrl: string): void {
       .run(new Date().toISOString());
     database
       .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (5, ?)")
+      .run(new Date().toISOString());
+    database
+      .prepare("INSERT OR IGNORE INTO core_migrations (version, applied_at) VALUES (6, ?)")
       .run(new Date().toISOString());
   } finally {
     database.close();

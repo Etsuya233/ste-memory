@@ -1,0 +1,88 @@
+.record-history-panel {
+  min-height: 0;
+}
+.record-history-list {
+  display: grid;
+  border-bottom: 1px solid #dfe3dc;
+}
+.record-history-list button {
+  min-width: 0;
+  padding: 11px 16px;
+  text-align: left;
+  color: #4d554b;
+  background: #f7f8f5;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid #e5e8e2;
+}
+.record-history-list button.active {
+  background: #eef3df;
+  border-left-color: #8eae35;
+}
+.record-history-list strong,
+.record-history-list span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.record-history-list strong {
+  font-size: 11px;
+}
+.record-history-list span {
+  margin-top: 4px;
+  color: #737b71;
+  font-size: 10px;
+}
+.history-snapshot {
+  padding: 18px;
+}
+.history-snapshot header span {
+  color: #607332;
+  font-size: 10px;
+  font-weight: 700;
+}
+.history-snapshot header h2 {
+  margin: 5px 0;
+  font-size: 15px;
+}
+.history-snapshot dl {
+  margin: 18px 0 0;
+}
+.history-snapshot dl div {
+  padding: 9px 0;
+  border-top: 1px solid #e7eae5;
+}
+.history-snapshot dt {
+  color: #70786e;
+  font-size: 10px;
+}
+.history-snapshot dd {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.history-archive-meta {
+  margin-top: 15px;
+  color: #687066;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.history-error {
+  margin: 16px;
+}
+.record-delete-dialog {
+  padding: 18px;
+}
+.record-delete-dialog > p {
+  color: #4b5249;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.record-delete-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}

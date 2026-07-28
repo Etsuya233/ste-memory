@@ -1,6 +1,7 @@
 import type {
   MemoryRecordId,
   MemoryRecordSource,
+  MemoryRevisionId,
   MemorySpaceId,
   MemoryTableId,
 } from "@ste-memory/core";
@@ -22,6 +23,23 @@ interface ListQuery {
 interface CreateBody {
   readonly payload?: unknown;
   readonly source?: unknown;
+}
+
+interface UpdateBody {
+  readonly expectedRevisionId?: unknown;
+  readonly patch?: unknown;
+}
+
+interface DeleteBody {
+  readonly expectedRevisionId?: unknown;
+}
+
+interface HistoryQuery {
+  readonly tableId?: string;
+  readonly recordId?: string;
+  readonly revisionId?: string;
+  readonly archivedFrom?: string;
+  readonly archivedTo?: string;
 }
 
 function recordSource(value: unknown): MemoryRecordSource | undefined {
@@ -101,6 +119,79 @@ export function registerMemoryRecordRoutes(
         request.params.recordId as MemoryRecordId,
       );
       return record ?? reply.code(404).send({ message: "记忆记录不存在" });
+    },
+  );
+
+  server.patch<{ Params: RecordParams; Body: UpdateBody }>(
+    "/memory-spaces/:spaceId/tables/:tableId/records/:recordId",
+    async (request, reply) => {
+      if (
+        typeof request.body?.expectedRevisionId !== "string" ||
+        request.body.expectedRevisionId.length === 0 ||
+        typeof request.body.patch !== "object" ||
+        request.body.patch === null ||
+        Array.isArray(request.body.patch)
+      ) {
+        return reply
+          .code(400)
+          .send({ message: "更新记录需要 expectedRevisionId 和对象形式的 patch" });
+      }
+      const updated = memoryRecords.update(
+        request.params.spaceId as MemorySpaceId,
+        request.params.tableId as MemoryTableId,
+        request.params.recordId as MemoryRecordId,
+        {
+          expectedRevisionId: request.body.expectedRevisionId as MemoryRevisionId,
+          patch: request.body.patch as Record<string, unknown>,
+          revisionSource: "user",
+        },
+      );
+      return updated ?? reply.code(404).send({ message: "记忆记录不存在" });
+    },
+  );
+
+  server.delete<{ Params: RecordParams; Body: DeleteBody }>(
+    "/memory-spaces/:spaceId/tables/:tableId/records/:recordId",
+    async (request, reply) => {
+      if (
+        typeof request.body?.expectedRevisionId !== "string" ||
+        request.body.expectedRevisionId.length === 0
+      ) {
+        return reply.code(400).send({ message: "删除记录需要 expectedRevisionId" });
+      }
+      const removed = memoryRecords.delete(
+        request.params.spaceId as MemorySpaceId,
+        request.params.tableId as MemoryTableId,
+        request.params.recordId as MemoryRecordId,
+        request.body.expectedRevisionId as MemoryRevisionId,
+        "user",
+      );
+      return removed ? reply.code(204).send() : reply.code(404).send({ message: "记忆记录不存在" });
+    },
+  );
+
+  server.get<{ Params: Pick<RecordParams, "spaceId">; Querystring: HistoryQuery }>(
+    "/memory-spaces/:spaceId/record-history",
+    async (request, reply) => {
+      const invalidTime = [request.query.archivedFrom, request.query.archivedTo].find(
+        (value) => value !== undefined && Number.isNaN(Date.parse(value)),
+      );
+      if (invalidTime !== undefined) {
+        return reply.code(400).send({ message: "历史时间筛选必须是有效的日期时间" });
+      }
+      return memoryRecords.listHistory(request.params.spaceId as MemorySpaceId, {
+        tableId: request.query.tableId as MemoryTableId | undefined,
+        recordId: request.query.recordId as MemoryRecordId | undefined,
+        revisionId: request.query.revisionId as MemoryRevisionId | undefined,
+        archivedFrom:
+          request.query.archivedFrom === undefined
+            ? undefined
+            : new Date(request.query.archivedFrom).toISOString(),
+        archivedTo:
+          request.query.archivedTo === undefined
+            ? undefined
+            : new Date(request.query.archivedTo).toISOString(),
+      });
     },
   );
 }

@@ -45,6 +45,9 @@ const memoryRecords: MemoryRecordManager = {
   create: () => undefined,
   find: () => undefined,
   list: () => undefined,
+  update: () => undefined,
+  delete: () => false,
+  listHistory: () => [],
 };
 
 describe("GET /health", () => {

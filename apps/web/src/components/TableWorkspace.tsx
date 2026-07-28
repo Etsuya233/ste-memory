@@ -12,6 +12,7 @@ interface TableWorkspaceProps {
   readonly onSave: (table: MemoryTable, patch: MemoryTablePatch) => Promise<void>;
   readonly onTableUpdated: (table: MemoryTable) => void;
   readonly onSelectRecord: (selection: RecordSelection | undefined) => void;
+  readonly recordRefreshVersion: number;
 }
 
 export function TableWorkspace({
@@ -22,6 +23,7 @@ export function TableWorkspace({
   onSave,
   onTableUpdated,
   onSelectRecord,
+  recordRefreshVersion,
 }: TableWorkspaceProps) {
   const [tab, setTab] = useState<"data" | "fields">("data");
   const [name, setName] = useState("");
@@ -106,6 +108,7 @@ export function TableWorkspace({
             memorySpaceId={memorySpaceId}
             table={table}
             onSelect={onSelectRecord}
+            refreshVersion={recordRefreshVersion}
           />
         ) : null
       ) : (

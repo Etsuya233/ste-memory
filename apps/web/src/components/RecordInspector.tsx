@@ -1,19 +1,25 @@
-import { Database, MessageSquareText } from "lucide-react";
+import { Database, History, MessageSquareText } from "lucide-react";
 import { useState } from "react";
+import type { MemoryRecord } from "../api/memory-records.ts";
 import type { SourceMessage, SourceParseError } from "../api/memory-spaces.ts";
 import { ChatViewer } from "./ChatViewer.tsx";
 import type { RecordSelection } from "./RecordTable.tsx";
 import { formatMemoryFieldValue } from "./memory-record-value.ts";
+import { RecordActions } from "./RecordActions.tsx";
+import { RecordHistoryPanel } from "./RecordHistoryPanel.tsx";
 
 interface RecordInspectorProps {
   readonly selection?: RecordSelection;
   readonly messages: readonly SourceMessage[];
   readonly errors: readonly SourceParseError[];
   readonly loading: boolean;
+  readonly memorySpaceId?: string;
+  readonly onRecordMutation: (record: MemoryRecord | undefined) => void;
 }
 
-export function RecordInspector({ selection, messages, errors, loading }: RecordInspectorProps) {
-  const [tab, setTab] = useState<"record" | "chat">("record");
+export function RecordInspector(props: RecordInspectorProps) {
+  const [tab, setTab] = useState<"record" | "history" | "chat">("record");
+  const selection = props.selection;
   return (
     <>
       <nav className="inspector-tabs" aria-label="检查器视图">
@@ -26,6 +32,14 @@ export function RecordInspector({ selection, messages, errors, loading }: Record
         </button>
         <button
           type="button"
+          className={tab === "history" ? "active" : ""}
+          disabled={!selection}
+          onClick={() => setTab("history")}
+        >
+          <History size={15} /> 修订历史
+        </button>
+        <button
+          type="button"
           className={tab === "chat" ? "active" : ""}
           onClick={() => setTab("chat")}
         >
@@ -33,11 +47,22 @@ export function RecordInspector({ selection, messages, errors, loading }: Record
         </button>
       </nav>
       {tab === "chat" ? (
-        <ChatViewer messages={messages} errors={errors} loading={loading} />
+        <ChatViewer messages={props.messages} errors={props.errors} loading={props.loading} />
+      ) : tab === "history" && selection && props.memorySpaceId ? (
+        <RecordHistoryPanel memorySpaceId={props.memorySpaceId} selection={selection} />
       ) : selection ? (
         <div className="record-inspector-content">
           <header>
-            <span>{selection.record.source.type === "manual" ? "手动记录" : "来源记录"}</span>
+            <div className="record-inspector-heading">
+              <span>{selection.record.source.type === "manual" ? "手动记录" : "来源记录"}</span>
+              {props.memorySpaceId ? (
+                <RecordActions
+                  memorySpaceId={props.memorySpaceId}
+                  selection={selection}
+                  onMutation={props.onRecordMutation}
+                />
+              ) : null}
+            </div>
             <h2>{selection.record.displayText || "未命名记录"}</h2>
             <code>{selection.record.id}</code>
           </header>

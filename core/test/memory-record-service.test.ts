@@ -4,6 +4,7 @@ import {
   type MemoryFieldId,
   type MemoryFieldRepository,
   type MemoryRecord,
+  type MemoryRecordHistoryId,
   type MemoryRecordId,
   type MemoryRecordRepository,
   type MemoryRevisionId,
@@ -81,6 +82,12 @@ class Records implements MemoryRecordRepository {
       (record) => record.memorySpaceId === memorySpaceId && record.tableId === tableId,
     );
   }
+  commit(): boolean {
+    return true;
+  }
+  listHistory() {
+    return [];
+  }
 }
 
 function createService() {
@@ -123,6 +130,7 @@ function createService() {
       fieldRepository,
       records,
       () => `record-${records.values.length + 1}` as MemoryRecordId,
+      () => "history-1" as MemoryRecordHistoryId,
       () => `revision-${records.values.length + 1}` as MemoryRevisionId,
       () => "2026-07-28T01:02:03.000Z",
     ),

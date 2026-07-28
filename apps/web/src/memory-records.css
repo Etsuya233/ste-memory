@@ -84,8 +84,25 @@
 .inspector-tabs {
   height: 50px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid #dfe3dc;
+}
+.inspector-tabs button:disabled {
+  cursor: default;
+}
+.record-inspector-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.record-inspector-heading > div {
+  display: flex;
+  gap: 5px;
+}
+.record-inspector-heading .icon-button {
+  width: 30px;
+  height: 30px;
 }
 .inspector-tabs button {
   display: flex;
@@ -251,7 +268,6 @@
   gap: 8px;
   margin-top: 18px;
 }
-
 @media (max-width: 720px) {
   .record-toolbar {
     align-items: stretch;

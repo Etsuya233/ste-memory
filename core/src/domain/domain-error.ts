@@ -53,8 +53,14 @@ export type DomainErrorData =
   | {
       readonly type:
         | "memory_record_display_strategy_missing"
+        | "memory_record_not_found"
         | "memory_record_paging_invalid"
         | "memory_record_source_invalid";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_record_revision_conflict";
+      readonly param: { readonly recordId: string };
       readonly humanMsg: string;
     }
   | {

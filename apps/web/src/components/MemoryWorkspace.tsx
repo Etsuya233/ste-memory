@@ -42,6 +42,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [updatingId, setUpdatingId] = useState<string>();
   const [recordSelection, setRecordSelection] = useState<RecordSelection>();
+  const [recordRefreshVersion, setRecordRefreshVersion] = useState(0);
   const [dialog, setDialog] = useState<
     { mode: "create" } | { mode: "delete"; table: MemoryTable }
   >();
@@ -182,6 +183,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
         onTableUpdated={replaceTable}
         onDelete={(table) => setDialog({ mode: "delete", table })}
         onSelectRecord={setRecordSelection}
+        recordRefreshVersion={recordRefreshVersion}
       />
       <aside className="chat-inspector">
         <RecordInspector
@@ -189,6 +191,13 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
           messages={messages}
           errors={parseErrors}
           loading={loadingContent}
+          memorySpaceId={props.selectedSpaceId}
+          onRecordMutation={(record) => {
+            setRecordSelection(
+              record && recordSelection ? { record, fields: recordSelection.fields } : undefined,
+            );
+            setRecordRefreshVersion((value) => value + 1);
+          }}
         />
       </aside>
       {dialog?.mode === "create" ? (

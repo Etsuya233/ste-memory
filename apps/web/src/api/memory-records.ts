@@ -30,6 +30,23 @@ export interface MemoryRecordPage {
   readonly totalPages: number;
 }
 
+export interface MemoryRecordHistory {
+  readonly id: string;
+  readonly recordId: string;
+  readonly memorySpaceId: string;
+  readonly tableId: string;
+  readonly payload: Readonly<Record<string, MemoryFieldValue>>;
+  readonly displayText: string;
+  readonly source: MemoryRecordSource;
+  readonly previousRevisionId: string;
+  readonly previousRevisionSource: "agent" | "user";
+  readonly revisionId: string;
+  readonly revisionSource: "agent" | "user";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly archivedAt: string;
+}
+
 export async function listMemoryRecords(
   memorySpaceId: string,
   tableId: string,
@@ -56,5 +73,58 @@ export async function createMemoryRecord(
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }),
+  );
+}
+
+export async function updateMemoryRecord(
+  memorySpaceId: string,
+  tableId: string,
+  recordId: string,
+  input: {
+    readonly expectedRevisionId: string;
+    readonly patch: Readonly<Record<string, MemoryFieldValue>>;
+  },
+): Promise<MemoryRecord> {
+  return responseJson(
+    await fetch(`${API_URL}/memory-spaces/${memorySpaceId}/tables/${tableId}/records/${recordId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function deleteMemoryRecord(
+  memorySpaceId: string,
+  tableId: string,
+  recordId: string,
+  expectedRevisionId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/memory-spaces/${memorySpaceId}/tables/${tableId}/records/${recordId}`,
+    {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevisionId }),
+    },
+  );
+  if (!response.ok) await responseJson(response);
+}
+
+export async function listMemoryRecordHistory(
+  memorySpaceId: string,
+  query: {
+    readonly tableId?: string;
+    readonly recordId?: string;
+    readonly revisionId?: string;
+    readonly archivedFrom?: string;
+    readonly archivedTo?: string;
+  },
+): Promise<readonly MemoryRecordHistory[]> {
+  const parameters = new URLSearchParams(
+    Object.entries(query).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
+  );
+  return responseJson(
+    await fetch(`${API_URL}/memory-spaces/${memorySpaceId}/record-history?${parameters}`),
   );
 }
