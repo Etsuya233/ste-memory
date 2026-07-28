@@ -46,9 +46,6 @@ export function registerMemorySpaceRoutes(
       if (error instanceof InvalidChatFileError) {
         return reply.code(422).send({ message: error.message, errors: error.errors });
       }
-      if (error instanceof Error && error.message.startsWith("Memory space name")) {
-        return reply.code(400).send({ message: error.message });
-      }
       throw error;
     }
   });
@@ -59,15 +56,8 @@ export function registerMemorySpaceRoutes(
       if (typeof request.body?.name !== "string") {
         return reply.code(400).send({ message: "记忆空间名称不能为空" });
       }
-      try {
-        const result = memorySpaces.rename(request.params.id as MemorySpaceId, request.body.name);
-        return result ?? reply.code(404).send({ message: "记忆空间不存在" });
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("Memory space name")) {
-          return reply.code(400).send({ message: error.message });
-        }
-        throw error;
-      }
+      const result = memorySpaces.rename(request.params.id as MemorySpaceId, request.body.name);
+      return result ?? reply.code(404).send({ message: "记忆空间不存在" });
     },
   );
 

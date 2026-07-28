@@ -84,6 +84,22 @@ describe("memory space API", () => {
     expect((await server.inject({ method: "GET", url: "/memory-spaces" })).json()).toEqual([]);
   });
 
+  it("translates core domain errors by their stable type", async () => {
+    const server = await testServer();
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/memory-spaces/example",
+      payload: { name: "a".repeat(121) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      type: "memory_space_name_too_long",
+      param: { maxLength: 120 },
+      message: "记忆空间名称不能超过 120 个字符",
+    });
+  });
+
   it("stores valid messages and exposes parse errors", async () => {
     const server = await testServer();
     const boundary = "valid-chat";
