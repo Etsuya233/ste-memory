@@ -59,6 +59,7 @@ export function RecordActions({ memorySpaceId, selection, onMutation }: RecordAc
           memorySpaceId={memorySpaceId}
           tableId={selection.record.tableId}
           fields={selection.fields}
+          referenceRecords={selection.referenceRecords}
           record={selection.record}
           onClose={() => setMode(undefined)}
           onSaved={(record) => {

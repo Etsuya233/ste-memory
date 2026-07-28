@@ -39,6 +39,7 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_record_field_value_invalid: "记录字段值格式无效",
   memory_record_paging_invalid: "分页参数无效",
   memory_record_reference_invalid: "记录引用目标无效",
+  memory_record_referenced: "记忆记录仍被当前记录引用，请先解除或转移引用",
   memory_record_revision_conflict: "记忆记录已更新，请刷新后重试",
   memory_record_required_field_missing: "记录缺少必填字段",
   memory_record_source_invalid: "记录来源格式无效",
@@ -58,7 +59,8 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   server.setErrorHandler((error: Error, _request, reply) => {
     if (error instanceof DomainError) {
       const statusCode =
-        error.type === "memory_record_revision_conflict"
+        error.type === "memory_record_revision_conflict" ||
+        error.type === "memory_record_referenced"
           ? 409
           : error.type === "memory_record_not_found"
             ? 404

@@ -18,6 +18,10 @@ import type {
   MemoryRecordRepository,
 } from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
+import {
+  findMemoryRecordReferenceLocations,
+  validateMemoryRecordReferences,
+} from "./memory-record-reference-validation.ts";
 import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
 
 export type MemoryRecordMutationOperation =
@@ -57,11 +61,6 @@ interface MemoryRecordMutationContext {
     fields: readonly MemoryField[],
     payload: MemoryRecordPayload,
   ) => string;
-  readonly validateReferences: (
-    memorySpaceId: MemorySpaceId,
-    fields: readonly MemoryField[],
-    payload: MemoryRecordPayload,
-  ) => void;
 }
 
 export function commitMemoryRecordMutationBatch(
@@ -88,7 +87,9 @@ export function commitMemoryRecordMutationBatch(
         ...previous.payload,
         ...operation.patch,
       });
-      context.validateReferences(memorySpaceId, fields, payload);
+      validateMemoryRecordReferences(fields, payload, (tableId, recordId) =>
+        context.records.find(memorySpaceId, tableId, recordId),
+      );
       const table = context.tables.find(memorySpaceId, operation.tableId)!;
       const displayText = context.displayText(table, fields, payload);
       if (JSON.stringify(payload) === JSON.stringify(previous.payload)) continue;
@@ -113,10 +114,65 @@ export function commitMemoryRecordMutationBatch(
       ),
     });
   }
+  validateFinalReferences(context, memorySpaceId, mutations);
   if (mutations.length > 0 && !context.records.commit(mutations)) {
     revisionConflict(mutations[0]!.previous.id);
   }
   return { revisionId, changed: mutations.length };
+}
+
+function validateFinalReferences(
+  context: MemoryRecordMutationContext,
+  memorySpaceId: MemorySpaceId,
+  mutations: readonly MemoryRecordMutation[],
+): void {
+  const tables = context.tables.list(memorySpaceId);
+  const fieldsByTable = new Map(
+    tables.map((table) => [table.id, context.fields.list(memorySpaceId, table.id)]),
+  );
+  const finalRecords = new Map(
+    tables.map(
+      (table) =>
+        [
+          table.id,
+          new Map(
+            context.records
+              .list(memorySpaceId, table.id)
+              .map((record) => [record.id, record] as const),
+          ),
+        ] as const,
+    ),
+  );
+  for (const mutation of mutations) {
+    const records = finalRecords.get(mutation.previous.tableId)!;
+    if (mutation.current) records.set(mutation.previous.id, mutation.current);
+    else records.delete(mutation.previous.id);
+  }
+  const records = [...finalRecords.values()].flatMap((recordsById) => [...recordsById.values()]);
+  for (const mutation of mutations) {
+    if (mutation.current) continue;
+    const references = findMemoryRecordReferenceLocations(
+      records,
+      fieldsByTable,
+      mutation.previous.tableId,
+      mutation.previous.id,
+    );
+    if (references.length > 0) {
+      throw new DomainError({
+        type: "memory_record_referenced",
+        param: { recordId: mutation.previous.id, references },
+        humanMsg: "记忆记录仍被当前记录引用，请先解除或转移引用",
+      });
+    }
+  }
+  for (const mutation of mutations) {
+    if (!mutation.current) continue;
+    validateMemoryRecordReferences(
+      fieldsByTable.get(mutation.current.tableId)!,
+      mutation.current.payload,
+      (tableId, recordId) => finalRecords.get(tableId)!.get(recordId),
+    );
+  }
 }
 
 function historySnapshot(

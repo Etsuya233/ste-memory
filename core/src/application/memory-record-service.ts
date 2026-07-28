@@ -20,6 +20,7 @@ import type {
 } from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
+import { validateMemoryRecordReferences } from "./memory-record-reference-validation.ts";
 import {
   commitMemoryRecordMutationBatch,
   type MemoryRecordMutationBatchInput,
@@ -82,7 +83,9 @@ export class MemoryRecordService {
     if (!table) return undefined;
     const fields = this.fields.list(memorySpaceId, tableId);
     const payload = validatedMemoryRecordPayload(fields, input.payload);
-    this.validateReferences(memorySpaceId, fields, payload);
+    validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
+      this.records.find(memorySpaceId, targetTableId, recordId),
+    );
     const source = input.source ?? { type: "manual" };
     if (
       source.type === "source" &&
@@ -167,8 +170,6 @@ export class MemoryRecordService {
         createRevisionId: this.createRevisionId,
         now: this.now,
         displayText: (table, fields, payload) => this.displayText(table, fields, payload),
-        validateReferences: (spaceId, fields, payload) =>
-          this.validateReferences(spaceId, fields, payload),
       },
       memorySpaceId,
       input,
@@ -220,37 +221,10 @@ export class MemoryRecordService {
   private validatedRecord(record: MemoryRecord): MemoryRecord {
     const fields = this.fields.list(record.memorySpaceId, record.tableId);
     const payload = validatedMemoryRecordPayload(fields, record.payload);
-    this.validateReferences(record.memorySpaceId, fields, payload);
+    validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
+      this.records.find(record.memorySpaceId, targetTableId, recordId),
+    );
     return { ...record, payload };
-  }
-
-  private validateReferences(
-    memorySpaceId: MemorySpaceId,
-    fields: readonly MemoryField[],
-    payload: MemoryRecordPayload,
-  ): void {
-    for (const field of fields) {
-      if (!field.referenceTableId) continue;
-      const value = payload[field.id];
-      const ids = Array.isArray(value)
-        ? value
-        : value === null || value === undefined
-          ? []
-          : [value];
-      if (
-        ids.some(
-          (id) =>
-            typeof id !== "string" ||
-            !this.records.find(memorySpaceId, field.referenceTableId!, id as MemoryRecordId),
-        )
-      ) {
-        throw new DomainError({
-          type: "memory_record_reference_invalid",
-          param: { fieldId: field.id },
-          humanMsg: `字段“${field.name}”引用的记录不存在于目标表格`,
-        });
-      }
-    }
   }
 
   private displayText(

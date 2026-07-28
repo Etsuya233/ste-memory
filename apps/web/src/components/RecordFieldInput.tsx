@@ -99,39 +99,37 @@ export function RecordFieldInput({
     );
   } else if (field.type === "single_reference") {
     control = (
-      <>
-        <input
-          id={id}
-          list={`${id}-options`}
-          required={field.required}
-          value={typeof value === "string" ? value : ""}
-          placeholder="输入或选择记录 ID"
-          onChange={(event) => onChange(event.target.value || undefined)}
-        />
-        <datalist id={`${id}-options`}>
-          {referenceRecords.map((record) => (
-            <option key={record.id} value={record.id}>
-              {record.displayText}
-            </option>
-          ))}
-        </datalist>
-      </>
+      <select
+        id={id}
+        required={field.required}
+        value={typeof value === "string" ? value : ""}
+        onChange={(event) => onChange(event.target.value || undefined)}
+      >
+        <option value="">未填写</option>
+        {referenceRecords.map((record) => (
+          <option key={record.id} value={record.id}>
+            {record.displayText || "未命名记录"} · {record.id}
+          </option>
+        ))}
+      </select>
     );
   } else if (field.type === "multi_reference") {
     control = (
-      <input
+      <select
         id={id}
+        multiple
         required={field.required}
-        value={Array.isArray(value) ? value.join(", ") : ""}
-        placeholder="使用逗号分隔记录 ID"
+        value={Array.isArray(value) ? [...value] : []}
         onChange={(event) =>
-          onChange(
-            event.target.value.trim()
-              ? event.target.value.split(",").map((item) => item.trim())
-              : undefined,
-          )
+          onChange([...event.target.selectedOptions].map((option) => option.value))
         }
-      />
+      >
+        {referenceRecords.map((record) => (
+          <option key={record.id} value={record.id}>
+            {record.displayText || "未命名记录"} · {record.id}
+          </option>
+        ))}
+      </select>
     );
   } else {
     control = (

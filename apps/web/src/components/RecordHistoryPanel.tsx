@@ -76,7 +76,15 @@ export function RecordHistoryPanel({ memorySpaceId, selection }: RecordHistoryPa
             {selection.fields.map((field) => (
               <div key={field.id}>
                 <dt>{field.name}</dt>
-                <dd>{formatMemoryFieldValue(snapshot.payload[field.id], "未填写")}</dd>
+                <dd>
+                  {formatMemoryFieldValue(
+                    snapshot.payload[field.id],
+                    "未填写",
+                    field.referenceTableId
+                      ? selection.referenceRecords[field.referenceTableId]
+                      : undefined,
+                  )}
+                </dd>
               </div>
             ))}
           </dl>

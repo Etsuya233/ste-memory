@@ -73,7 +73,15 @@ export function RecordInspector(props: RecordInspectorProps) {
                   {field.name}
                   {!field.enabled ? <em>已停用</em> : null}
                 </dt>
-                <dd>{formatMemoryFieldValue(selection.record.payload[field.id], "未填写")}</dd>
+                <dd>
+                  {formatMemoryFieldValue(
+                    selection.record.payload[field.id],
+                    "未填写",
+                    field.referenceTableId
+                      ? selection.referenceRecords[field.referenceTableId]
+                      : undefined,
+                  )}
+                </dd>
               </div>
             ))}
           </dl>

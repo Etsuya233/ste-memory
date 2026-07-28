@@ -1,12 +1,12 @@
 import { X } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { MemoryField } from "../api/memory-fields.ts";
 import {
   createMemoryRecord,
-  listMemoryRecords,
   updateMemoryRecord,
   type MemoryFieldValue,
   type MemoryRecord,
+  type MemoryRecordsByTable,
 } from "../api/memory-records.ts";
 import { RecordFieldInput } from "./RecordFieldInput.tsx";
 
@@ -14,6 +14,7 @@ interface RecordDialogProps {
   readonly memorySpaceId: string;
   readonly tableId: string;
   readonly fields: readonly MemoryField[];
+  readonly referenceRecords: MemoryRecordsByTable;
   readonly record?: MemoryRecord;
   readonly onClose: () => void;
   readonly onSaved: (record: MemoryRecord) => void;
@@ -23,34 +24,10 @@ export function RecordDialog(props: RecordDialogProps) {
   const [payload, setPayload] = useState<Record<string, MemoryFieldValue>>(() => ({
     ...props.record?.payload,
   }));
-  const [references, setReferences] = useState<Record<string, readonly MemoryRecord[]>>({});
   const [sourceTime, setSourceTime] = useState("");
   const [sourceLocation, setSourceLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const tableIds = [
-      ...new Set(
-        props.fields.flatMap((field) => (field.referenceTableId ? [field.referenceTableId] : [])),
-      ),
-    ];
-    void Promise.all(
-      tableIds.map(
-        async (tableId) =>
-          [
-            tableId,
-            (
-              await listMemoryRecords(props.memorySpaceId, tableId, {
-                page: 1,
-                pageSize: 100,
-                search: "",
-              })
-            ).records,
-          ] as const,
-      ),
-    ).then((entries) => setReferences(Object.fromEntries(entries)));
-  }, [props.fields, props.memorySpaceId]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -123,7 +100,9 @@ export function RecordDialog(props: RecordDialogProps) {
                 field={field}
                 value={payload[field.id]}
                 referenceRecords={
-                  field.referenceTableId ? (references[field.referenceTableId] ?? []) : []
+                  field.referenceTableId
+                    ? (props.referenceRecords[field.referenceTableId] ?? [])
+                    : []
                 }
                 onChange={(value) =>
                   setPayload((current) => {

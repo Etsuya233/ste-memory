@@ -78,7 +78,7 @@ async function testServer() {
   const space = spaces.create("会话");
   const table = tableRepository.list(space.id).find((item) => item.systemKey === "characters")!;
   const fields = fieldRepository.list(space.id, table.id);
-  return { server, space, table, fields };
+  return { server, space, table, fields, tableRepository, fieldRepository };
 }
 
 afterEach(async () => {
@@ -235,5 +235,53 @@ describe("current memory record API", () => {
     expect(histories.json()).toEqual([
       expect.objectContaining({ recordId: record.id, displayText: "林夏" }),
     ]);
+  });
+
+  it("returns reference locations and preserves a target when deletion is blocked", async () => {
+    const { server, space, table, fields, tableRepository, fieldRepository } = await testServer();
+    const characterName = fields.find((field) => field.name === "名称")!;
+    const locationTable = tableRepository
+      .list(space.id)
+      .find((candidate) => candidate.systemKey === "locations")!;
+    const locationFields = fieldRepository.list(space.id, locationTable.id);
+    const locationName = locationFields.find((field) => field.name === "名称")!;
+    const relatedCharacters = locationFields.find((field) => field.name === "相关人物")!;
+    const character = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records`,
+      payload: { payload: { [characterName.id]: "林夏" } },
+    });
+    const target = character.json<{ id: string; revisionId: string }>();
+    const location = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${locationTable.id}/records`,
+      payload: { payload: { [locationName.id]: "港口", [relatedCharacters.id]: [target.id] } },
+    });
+    const source = location.json<{ id: string }>();
+
+    const blocked = await server.inject({
+      method: "DELETE",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records/${target.id}`,
+      payload: { expectedRevisionId: target.revisionId },
+    });
+
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toMatchObject({
+      type: "memory_record_referenced",
+      param: {
+        recordId: target.id,
+        references: [
+          { tableId: locationTable.id, recordId: source.id, fieldId: relatedCharacters.id },
+        ],
+      },
+    });
+    expect(
+      (
+        await server.inject({
+          method: "GET",
+          url: `/memory-spaces/${space.id}/tables/${table.id}/records/${target.id}`,
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 });

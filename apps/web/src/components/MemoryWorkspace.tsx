@@ -194,7 +194,13 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
           memorySpaceId={props.selectedSpaceId}
           onRecordMutation={(record) => {
             setRecordSelection(
-              record && recordSelection ? { record, fields: recordSelection.fields } : undefined,
+              record && recordSelection
+                ? {
+                    record,
+                    fields: recordSelection.fields,
+                    referenceRecords: recordSelection.referenceRecords,
+                  }
+                : undefined,
             );
             setRecordRefreshVersion((value) => value + 1);
           }}

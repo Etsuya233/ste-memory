@@ -2,9 +2,11 @@ import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { listMemoryFields, type MemoryField } from "../api/memory-fields.ts";
 import {
+  listAllMemoryRecords,
   listMemoryRecords,
   type MemoryRecord,
   type MemoryRecordPage,
+  type MemoryRecordsByTable,
 } from "../api/memory-records.ts";
 import type { MemoryTable } from "../api/memory-tables.ts";
 import { RecordDialog } from "./RecordDialog.tsx";
@@ -13,6 +15,7 @@ import { formatMemoryFieldValue } from "./memory-record-value.ts";
 export interface RecordSelection {
   readonly record: MemoryRecord;
   readonly fields: readonly MemoryField[];
+  readonly referenceRecords: MemoryRecordsByTable;
 }
 
 interface RecordTableProps {
@@ -25,6 +28,7 @@ interface RecordTableProps {
 export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: RecordTableProps) {
   const [fields, setFields] = useState<MemoryField[]>([]);
   const [result, setResult] = useState<MemoryRecordPage>();
+  const [referenceRecords, setReferenceRecords] = useState<MemoryRecordsByTable>({});
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -43,9 +47,21 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
         search: nextSearch,
       }),
     ])
-      .then(([nextFields, nextResult]) => {
+      .then(async ([nextFields, nextResult]) => {
+        const referenceTableIds = [
+          ...new Set(
+            nextFields.flatMap((field) => (field.referenceTableId ? [field.referenceTableId] : [])),
+          ),
+        ];
+        const referenceEntries = await Promise.all(
+          referenceTableIds.map(
+            async (tableId) =>
+              [tableId, await listAllMemoryRecords(memorySpaceId, tableId)] as const,
+          ),
+        );
         setFields(nextFields);
         setResult(nextResult);
+        setReferenceRecords(Object.fromEntries(referenceEntries));
       })
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "无法读取记录"))
       .finally(() => setLoading(false));
@@ -125,9 +141,9 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                   <tr
                     key={record.id}
                     tabIndex={0}
-                    onClick={() => onSelect({ record, fields })}
+                    onClick={() => onSelect({ record, fields, referenceRecords })}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") onSelect({ record, fields });
+                      if (event.key === "Enter") onSelect({ record, fields, referenceRecords });
                     }}
                   >
                     <td>
@@ -135,7 +151,13 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                     </td>
                     {keyFields.map((field) => (
                       <td key={field.id}>
-                        {formatMemoryFieldValue(record.payload[field.id], "—")}
+                        {formatMemoryFieldValue(
+                          record.payload[field.id],
+                          "—",
+                          field.referenceTableId
+                            ? referenceRecords[field.referenceTableId]
+                            : undefined,
+                        )}
                       </td>
                     ))}
                     <td>
@@ -183,11 +205,12 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
           memorySpaceId={memorySpaceId}
           tableId={table.id}
           fields={fields}
+          referenceRecords={referenceRecords}
           onClose={() => setCreating(false)}
           onSaved={(record) => {
             setCreating(false);
             load(page, search);
-            onSelect({ record, fields });
+            onSelect({ record, fields, referenceRecords });
           }}
         />
       ) : null}

@@ -64,6 +64,18 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_record_referenced";
+      readonly param: {
+        readonly recordId: string;
+        readonly references: readonly {
+          readonly tableId: string;
+          readonly recordId: string;
+          readonly fieldId: string;
+        }[];
+      };
+      readonly humanMsg: string;
+    }
+  | {
       readonly type:
         | "memory_record_field_value_invalid"
         | "memory_record_reference_invalid"

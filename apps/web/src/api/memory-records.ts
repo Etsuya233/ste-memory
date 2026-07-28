@@ -30,6 +30,8 @@ export interface MemoryRecordPage {
   readonly totalPages: number;
 }
 
+export type MemoryRecordsByTable = Readonly<Record<string, readonly MemoryRecord[]>>;
+
 export interface MemoryRecordHistory {
   readonly id: string;
   readonly recordId: string;
@@ -57,6 +59,28 @@ export async function listMemoryRecords(
   return responseJson(
     await fetch(`${API_URL}/memory-spaces/${memorySpaceId}/tables/${tableId}/records?${query}`),
   );
+}
+
+export async function listAllMemoryRecords(
+  memorySpaceId: string,
+  tableId: string,
+): Promise<readonly MemoryRecord[]> {
+  const firstPage = await listMemoryRecords(memorySpaceId, tableId, {
+    page: 1,
+    pageSize: 100,
+    search: "",
+  });
+  if (firstPage.totalPages <= 1) return firstPage.records;
+  const remainingPages = await Promise.all(
+    Array.from({ length: firstPage.totalPages - 1 }, (_, index) =>
+      listMemoryRecords(memorySpaceId, tableId, {
+        page: index + 2,
+        pageSize: 100,
+        search: "",
+      }),
+    ),
+  );
+  return [firstPage, ...remainingPages].flatMap((page) => page.records);
 }
 
 export async function createMemoryRecord(
