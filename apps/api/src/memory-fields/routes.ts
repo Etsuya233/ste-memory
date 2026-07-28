@@ -64,7 +64,7 @@ export function registerMemoryFieldRoutes(
     async (request, reply) => {
       const memorySpaceId = request.params.spaceId as MemorySpaceId;
       const tableId = request.params.tableId as MemoryTableId;
-      if (!memoryTables.find(memorySpaceId, tableId)) {
+      if (!(await memoryTables.find(memorySpaceId, tableId))) {
         return reply.code(404).send({ message: "记忆表格不存在" });
       }
       return memoryFields.list(memorySpaceId, tableId);
@@ -113,7 +113,7 @@ export function registerMemoryFieldRoutes(
         options: body.options as string[] | undefined,
         referenceTableId: body.referenceTableId as MemoryTableId | undefined,
       };
-      const created = memoryFields.create(
+      const created = await memoryFields.create(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         input,
@@ -127,7 +127,7 @@ export function registerMemoryFieldRoutes(
   server.get<{ Params: FieldParams }>(
     "/memory-spaces/:spaceId/tables/:tableId/fields/:fieldId",
     async (request, reply) => {
-      const field = memoryFields.find(
+      const field = await memoryFields.find(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.fieldId as MemoryFieldId,
@@ -177,7 +177,7 @@ export function registerMemoryFieldRoutes(
       ) {
         return reply.code(400).send({ message: "引用目标表 ID 必须是文本" });
       }
-      const updated = memoryFields.update(
+      const updated = await memoryFields.update(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.fieldId as MemoryFieldId,
@@ -200,7 +200,7 @@ export function registerMemoryFieldRoutes(
   server.delete<{ Params: FieldParams }>(
     "/memory-spaces/:spaceId/tables/:tableId/fields/:fieldId",
     async (request, reply) => {
-      const deleted = memoryFields.delete(
+      const deleted = await memoryFields.delete(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.fieldId as MemoryFieldId,
@@ -221,7 +221,7 @@ export function registerMemoryFieldRoutes(
       } else {
         return reply.code(400).send({ message: "显示策略配置无效" });
       }
-      const updated = memoryFields.setDisplayStrategy(
+      const updated = await memoryFields.setDisplayStrategy(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         strategy,

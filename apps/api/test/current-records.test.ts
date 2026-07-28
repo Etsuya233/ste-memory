@@ -1,90 +1,17 @@
-import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  MemoryFieldService,
-  MemoryRecordService,
-  MemorySpaceService,
-  MemoryTableService,
-  type MemoryFieldId,
-  type MemoryRecordId,
-  type MemoryRecordHistoryId,
-  type MemoryRevisionId,
-  type MemorySpaceId,
-  type MemoryTableId,
-} from "@ste-memory/core";
-import {
-  migrateCoreDatabase,
-  SqliteMemoryFieldRepository,
-  SqliteMemoryRecordRepository,
-  SqliteMemorySpaceRepository,
-  SqliteMemoryTableRepository,
-} from "@ste-memory/core-sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "../src/health/types.ts";
-import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
-import { buildServer } from "../src/server.ts";
-import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
-import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
+import type { buildServer } from "../src/server.ts";
+import { createTestApplication } from "./test-application.ts";
 
-const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
 
 async function testServer() {
-  const directory = mkdtempSync(join(tmpdir(), "ste-current-records-"));
-  const coreUrl = `sqlite:${join(directory, "core.sqlite")}`;
-  const sourceUrl = `sqlite:${join(directory, "source.sqlite")}`;
-  migrateCoreDatabase(coreUrl);
-  migrateSourceStoreDatabase(sourceUrl);
-  const spaceRepository = new SqliteMemorySpaceRepository(coreUrl);
-  const tableRepository = new SqliteMemoryTableRepository(coreUrl);
-  const fieldRepository = new SqliteMemoryFieldRepository(coreUrl);
-  const recordRepository = new SqliteMemoryRecordRepository(coreUrl);
-  const spaces = new MemorySpaceService(
-    spaceRepository,
-    () => randomUUID() as MemorySpaceId,
-    () => "2026-07-28T00:00:00.000Z",
-  );
-  const tableService = new MemoryTableService(
-    spaceRepository,
-    tableRepository,
-    () => randomUUID() as MemoryTableId,
-    () => "2026-07-28T00:00:00.000Z",
-  );
-  const fieldService = new MemoryFieldService(
-    tableRepository,
-    fieldRepository,
-    () => randomUUID() as MemoryFieldId,
-    () => "2026-07-28T00:00:00.000Z",
-  );
-  const systemTables = new SystemMemoryTableInstaller(tableService, fieldService);
-  const server = await buildServer({
-    coreDatabase: healthCheck,
-    sourceStoreDatabase: healthCheck,
-    memorySpaces: new DefaultMemorySpaceManager(
-      spaces,
-      systemTables,
-      new SqliteSourceChatRepository(sourceUrl),
-    ),
-    memoryTables: tableService,
-    memoryFields: fieldService,
-    memoryRecords: new MemoryRecordService(
-      tableRepository,
-      fieldRepository,
-      recordRepository,
-      () => randomUUID() as MemoryRecordId,
-      () => randomUUID() as MemoryRecordHistoryId,
-      () => randomUUID() as MemoryRevisionId,
-      () => "2026-07-28T01:02:03.000Z",
-    ),
-  });
+  const { server, spaces, systemTables, tableRepository, fieldRepository } =
+    await createTestApplication("ste-current-records-", "2026-07-28T01:02:03.000Z");
   servers.push(server);
-  const space = spaces.create("会话");
-  systemTables.install(space.id);
-  const table = tableRepository.list(space.id).find((item) => item.key === "characters")!;
-  const fields = fieldRepository.list(space.id, table.id);
+  const space = await spaces.create("会话");
+  await systemTables.install(space.id);
+  const table = (await tableRepository.list(space.id)).find((item) => item.key === "characters")!;
+  const fields = await fieldRepository.list(space.id, table.id);
   return { server, space, table, fields, tableRepository, fieldRepository };
 }
 
@@ -247,10 +174,10 @@ describe("current memory record API", () => {
   it("returns reference locations and preserves a target when deletion is blocked", async () => {
     const { server, space, table, fields, tableRepository, fieldRepository } = await testServer();
     const characterName = fields.find((field) => field.name === "名称")!;
-    const locationTable = tableRepository
-      .list(space.id)
-      .find((candidate) => candidate.key === "locations")!;
-    const locationFields = fieldRepository.list(space.id, locationTable.id);
+    const locationTable = (await tableRepository.list(space.id)).find(
+      (candidate) => candidate.key === "locations",
+    )!;
+    const locationFields = await fieldRepository.list(space.id, locationTable.id);
     const locationName = locationFields.find((field) => field.name === "名称")!;
     const relatedCharacters = locationFields.find((field) => field.name === "相关人物")!;
     const character = await server.inject({

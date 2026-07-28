@@ -1,14 +1,17 @@
-import { migrateCoreDatabase } from "@ste-memory/core-sqlite";
 import { loadConfig } from "./config.ts";
-import { migrateSourceStoreDatabase } from "./source-store/migrate.ts";
+import { createDatabase } from "./database/database.ts";
+import { migrateDatabase } from "./database/migrate.ts";
 
-export function migrateDatabases(environment: NodeJS.ProcessEnv): void {
-  const config = loadConfig(environment);
-  migrateCoreDatabase(config.coreDatabaseUrl);
-  migrateSourceStoreDatabase(config.sourceStoreDatabaseUrl);
+export async function migrateDatabases(environment: NodeJS.ProcessEnv): Promise<void> {
+  const database = createDatabase(loadConfig(environment).databaseUrl);
+  try {
+    await migrateDatabase(database);
+  } finally {
+    await database.destroy();
+  }
 }
 
 if (import.meta.main) {
-  migrateDatabases(process.env);
-  console.log("Core and Source Store migrations completed");
+  await migrateDatabases(process.env);
+  console.log("Database migrations completed");
 }

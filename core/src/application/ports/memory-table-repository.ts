@@ -6,10 +6,10 @@ import type {
 } from "../../domain/index.ts";
 
 export interface MemoryTableRepository {
-  create(memoryTable: MemoryTable): void;
-  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
-  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined;
-  list(memorySpaceId: MemorySpaceId): MemoryTable[];
-  update(memoryTable: MemoryTable): boolean;
+  create(memoryTable: MemoryTable): Promise<void>;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined>;
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): Promise<MemoryTable | undefined>;
+  list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
+  update(memoryTable: MemoryTable): Promise<boolean>;
 }

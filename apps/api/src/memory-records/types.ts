@@ -17,32 +17,32 @@ export interface MemoryRecordManager {
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     input: CreateMemoryRecordInput,
-  ): MemoryRecord | undefined;
+  ): Promise<MemoryRecord | undefined>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
-  ): MemoryRecord | undefined;
+  ): Promise<MemoryRecord | undefined>;
   list(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     query: { readonly page: number; readonly pageSize: number; readonly search?: string },
-  ): MemoryRecordPage | undefined;
+  ): Promise<MemoryRecordPage | undefined>;
   update(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
     input: UpdateMemoryRecordInput,
-  ): MemoryRecord | undefined;
+  ): Promise<MemoryRecord | undefined>;
   delete(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
     expectedRevisionId: MemoryRevisionId,
     revisionSource: MemoryRevisionSource,
-  ): boolean;
+  ): Promise<boolean>;
   listHistory(
     memorySpaceId: MemorySpaceId,
     query: Omit<MemoryRecordHistoryQuery, "memorySpaceId">,
-  ): readonly MemoryRecordHistory[];
+  ): Promise<readonly MemoryRecordHistory[]>;
 }

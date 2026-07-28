@@ -60,19 +60,23 @@ interface MemoryRecordMutationContext {
     table: MemoryTable,
     fields: readonly MemoryField[],
     payload: MemoryRecordPayload,
-  ) => string;
+  ) => Promise<string>;
 }
 
-export function commitMemoryRecordMutationBatch(
+export async function commitMemoryRecordMutationBatch(
   context: MemoryRecordMutationContext,
   memorySpaceId: MemorySpaceId,
   input: MemoryRecordMutationBatchInput,
-): MemoryRecordMutationResult {
+): Promise<MemoryRecordMutationResult> {
   const revisionId = context.createRevisionId();
   const archivedAt = context.now();
   const mutations: MemoryRecordMutation[] = [];
   for (const operation of input.operations) {
-    const previous = context.records.find(memorySpaceId, operation.tableId, operation.recordId);
+    const previous = await context.records.find(
+      memorySpaceId,
+      operation.tableId,
+      operation.recordId,
+    );
     if (!previous) {
       throw new DomainError({
         type: "memory_record_not_found",
@@ -82,16 +86,16 @@ export function commitMemoryRecordMutationBatch(
     if (previous.revisionId !== operation.expectedRevisionId) revisionConflict(previous.id);
     let current: MemoryRecord | undefined;
     if (operation.type === "update") {
-      const fields = context.fields.list(memorySpaceId, operation.tableId);
+      const fields = await context.fields.list(memorySpaceId, operation.tableId);
       const payload = validatedMemoryRecordPayload(fields, {
         ...previous.payload,
         ...operation.patch,
       });
-      validateMemoryRecordReferences(fields, payload, (tableId, recordId) =>
+      await validateMemoryRecordReferences(fields, payload, (tableId, recordId) =>
         context.records.find(memorySpaceId, tableId, recordId),
       );
-      const table = context.tables.find(memorySpaceId, operation.tableId)!;
-      const displayText = context.displayText(table, fields, payload);
+      const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
+      const displayText = await context.displayText(table, fields, payload);
       if (JSON.stringify(payload) === JSON.stringify(previous.payload)) continue;
       current = {
         ...previous,
@@ -114,33 +118,34 @@ export function commitMemoryRecordMutationBatch(
       ),
     });
   }
-  validateFinalReferences(context, memorySpaceId, mutations);
-  if (mutations.length > 0 && !context.records.commit(mutations)) {
+  await validateFinalReferences(context, memorySpaceId, mutations);
+  if (mutations.length > 0 && !(await context.records.commit(mutations))) {
     revisionConflict(mutations[0]!.previous.id);
   }
   return { revisionId, changed: mutations.length };
 }
 
-function validateFinalReferences(
+async function validateFinalReferences(
   context: MemoryRecordMutationContext,
   memorySpaceId: MemorySpaceId,
   mutations: readonly MemoryRecordMutation[],
-): void {
-  const tables = context.tables.list(memorySpaceId);
-  const fieldsByTable = new Map(
-    tables.map((table) => [table.id, context.fields.list(memorySpaceId, table.id)]),
+): Promise<void> {
+  const tables = await context.tables.list(memorySpaceId);
+  const fieldEntries = await Promise.all(
+    tables.map(
+      async (table) => [table.id, await context.fields.list(memorySpaceId, table.id)] as const,
+    ),
+  );
+  const fieldsByTable = new Map(fieldEntries);
+  const recordEntries = await Promise.all(
+    tables.map(
+      async (table) => [table.id, await context.records.list(memorySpaceId, table.id)] as const,
+    ),
   );
   const finalRecords = new Map(
-    tables.map(
-      (table) =>
-        [
-          table.id,
-          new Map(
-            context.records
-              .list(memorySpaceId, table.id)
-              .map((record) => [record.id, record] as const),
-          ),
-        ] as const,
+    recordEntries.map(
+      ([tableId, records]) =>
+        [tableId, new Map(records.map((record) => [record.id, record] as const))] as const,
     ),
   );
   for (const mutation of mutations) {
@@ -167,10 +172,10 @@ function validateFinalReferences(
   }
   for (const mutation of mutations) {
     if (!mutation.current) continue;
-    validateMemoryRecordReferences(
+    await validateMemoryRecordReferences(
       fieldsByTable.get(mutation.current.tableId)!,
       mutation.current.payload,
-      (tableId, recordId) => finalRecords.get(tableId)!.get(recordId),
+      async (tableId, recordId) => finalRecords.get(tableId)!.get(recordId),
     );
   }
 }

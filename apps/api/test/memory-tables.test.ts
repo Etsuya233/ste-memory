@@ -1,83 +1,15 @@
-import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  MemorySpaceService,
-  MemoryFieldService,
-  MemoryRecordService,
-  type MemoryFieldId,
-  type MemoryRecordId,
-  type MemoryRecordHistoryId,
-  type MemoryRevisionId,
-  type MemoryFieldType,
-  MemoryTableService,
-  type MemorySpaceId,
-  type MemoryTableId,
-} from "@ste-memory/core";
-import {
-  migrateCoreDatabase,
-  SqliteMemoryFieldRepository,
-  SqliteMemoryRecordRepository,
-  SqliteMemorySpaceRepository,
-  SqliteMemoryTableRepository,
-} from "@ste-memory/core-sqlite";
+import type { MemoryFieldType } from "@ste-memory/core";
 import { afterEach, describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "../src/health/types.ts";
-import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
-import { buildServer } from "../src/server.ts";
-import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
-import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
+import type { buildServer } from "../src/server.ts";
+import { createTestApplication } from "./test-application.ts";
 
-const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
 
 async function testServer() {
-  const directory = mkdtempSync(join(tmpdir(), "ste-memory-tables-"));
-  const coreUrl = `sqlite:${join(directory, "core.sqlite")}`;
-  const sourceUrl = `sqlite:${join(directory, "source.sqlite")}`;
-  migrateCoreDatabase(coreUrl);
-  migrateSourceStoreDatabase(sourceUrl);
-  const spacesRepository = new SqliteMemorySpaceRepository(coreUrl);
-  const spaces = new MemorySpaceService(
-    spacesRepository,
-    () => randomUUID() as MemorySpaceId,
-    () => "2026-07-28T00:00:00.000Z",
+  const { server, spaces } = await createTestApplication(
+    "ste-memory-tables-",
+    "2026-07-28T00:00:00.000Z",
   );
-  const tableRepository = new SqliteMemoryTableRepository(coreUrl);
-  const tables = new MemoryTableService(
-    spacesRepository,
-    tableRepository,
-    () => randomUUID() as MemoryTableId,
-    () => "2026-07-28T00:00:00.000Z",
-  );
-  const fields = new MemoryFieldService(
-    tableRepository,
-    new SqliteMemoryFieldRepository(coreUrl),
-    () => randomUUID() as MemoryFieldId,
-    () => "2026-07-28T00:00:00.000Z",
-  );
-  const server = await buildServer({
-    coreDatabase: healthCheck,
-    sourceStoreDatabase: healthCheck,
-    memorySpaces: new DefaultMemorySpaceManager(
-      spaces,
-      new SystemMemoryTableInstaller(tables, fields),
-      new SqliteSourceChatRepository(sourceUrl),
-    ),
-    memoryTables: tables,
-    memoryFields: fields,
-    memoryRecords: new MemoryRecordService(
-      tableRepository,
-      new SqliteMemoryFieldRepository(coreUrl),
-      new SqliteMemoryRecordRepository(coreUrl),
-      () => randomUUID() as MemoryRecordId,
-      () => randomUUID() as MemoryRecordHistoryId,
-      () => randomUUID() as MemoryRevisionId,
-      () => "2026-07-28T00:00:00.000Z",
-    ),
-  });
   servers.push(server);
   return { server, spaces };
 }
@@ -89,7 +21,7 @@ afterEach(async () => {
 describe("memory table API", () => {
   it("creates and lists an empty custom table in its memory space", async () => {
     const { server, spaces } = await testServer();
-    const space = spaces.create("会话");
+    const space = await spaces.create("会话");
 
     const response = await server.inject({
       method: "POST",
@@ -118,7 +50,7 @@ describe("memory table API", () => {
 
   it("updates, disables, reads, and physically deletes a table", async () => {
     const { server, spaces } = await testServer();
-    const space = spaces.create("会话");
+    const space = await spaces.create("会话");
     const created = await server.inject({
       method: "POST",
       url: `/memory-spaces/${space.id}/tables`,
@@ -170,7 +102,7 @@ describe("memory table API", () => {
 
   it("creates and lists every v1 field type with its type-specific configuration", async () => {
     const { server, spaces } = await testServer();
-    const space = spaces.create("会话");
+    const space = await spaces.create("会话");
     const tableResponse = await server.inject({
       method: "POST",
       url: `/memory-spaces/${space.id}/tables`,
@@ -220,7 +152,7 @@ describe("memory table API", () => {
 
   it("updates and deletes fields while enforcing display strategy and immutable types", async () => {
     const { server, spaces } = await testServer();
-    const space = spaces.create("会话");
+    const space = await spaces.create("会话");
     const table = (
       await server.inject({
         method: "POST",

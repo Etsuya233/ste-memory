@@ -83,7 +83,7 @@ export function registerMemoryRecordRoutes(
       } catch (error) {
         return reply.code(400).send({ message: (error as Error).message });
       }
-      const created = memoryRecords.create(
+      const created = await memoryRecords.create(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         { payload: request.body.payload as Record<string, unknown>, source },
@@ -97,7 +97,7 @@ export function registerMemoryRecordRoutes(
   server.get<{ Params: Omit<RecordParams, "recordId">; Querystring: ListQuery }>(
     "/memory-spaces/:spaceId/tables/:tableId/records",
     async (request, reply) => {
-      const result = memoryRecords.list(
+      const result = await memoryRecords.list(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         {
@@ -113,7 +113,7 @@ export function registerMemoryRecordRoutes(
   server.get<{ Params: RecordParams }>(
     "/memory-spaces/:spaceId/tables/:tableId/records/:recordId",
     async (request, reply) => {
-      const record = memoryRecords.find(
+      const record = await memoryRecords.find(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.recordId as MemoryRecordId,
@@ -136,7 +136,7 @@ export function registerMemoryRecordRoutes(
           .code(400)
           .send({ message: "更新记录需要 expectedRevisionId 和对象形式的 patch" });
       }
-      const updated = memoryRecords.update(
+      const updated = await memoryRecords.update(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.recordId as MemoryRecordId,
@@ -159,7 +159,7 @@ export function registerMemoryRecordRoutes(
       ) {
         return reply.code(400).send({ message: "删除记录需要 expectedRevisionId" });
       }
-      const removed = memoryRecords.delete(
+      const removed = await memoryRecords.delete(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         request.params.recordId as MemoryRecordId,

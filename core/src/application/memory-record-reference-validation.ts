@@ -14,11 +14,14 @@ export interface MemoryRecordReferenceLocation {
   readonly fieldId: MemoryFieldId;
 }
 
-export function validateMemoryRecordReferences(
+export async function validateMemoryRecordReferences(
   fields: readonly MemoryField[],
   payload: MemoryRecordPayload,
-  findTarget: (tableId: MemoryTableId, recordId: MemoryRecordId) => MemoryRecord | undefined,
-): void {
+  findTarget: (
+    tableId: MemoryTableId,
+    recordId: MemoryRecordId,
+  ) => Promise<MemoryRecord | undefined>,
+): Promise<void> {
   for (const field of fields) {
     if (!field.referenceTableId) continue;
     const value = payload[field.id];
@@ -27,13 +30,14 @@ export function validateMemoryRecordReferences(
       : value === null || value === undefined
         ? []
         : [value];
-    if (
-      recordIds.some(
-        (recordId) =>
-          typeof recordId !== "string" ||
-          !findTarget(field.referenceTableId!, recordId as MemoryRecordId),
-      )
-    ) {
+    const targets = await Promise.all(
+      recordIds.map((recordId) =>
+        typeof recordId === "string"
+          ? findTarget(field.referenceTableId!, recordId as MemoryRecordId)
+          : undefined,
+      ),
+    );
+    if (targets.some((target) => !target)) {
       throw new DomainError({
         type: "memory_record_reference_invalid",
         param: { fieldId: field.id },

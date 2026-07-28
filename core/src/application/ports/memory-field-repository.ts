@@ -7,18 +7,18 @@ import type {
 } from "../../domain/index.ts";
 
 export interface MemoryFieldRepository {
-  create(field: MemoryField): void;
-  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean;
+  create(field: MemoryField): Promise<void>;
+  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): Promise<boolean>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
-  ): MemoryField | undefined;
+  ): Promise<MemoryField | undefined>;
   findByKey(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     key: MemoryFieldKey,
-  ): MemoryField | undefined;
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[];
-  update(field: MemoryField): boolean;
+  ): Promise<MemoryField | undefined>;
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryField[]>;
+  update(field: MemoryField): Promise<boolean>;
 }

@@ -1,7 +1,8 @@
 import type { MemorySpaceId } from "@ste-memory/core";
 import type { MemorySpaceService } from "@ste-memory/core";
+import type { UnitOfWork } from "@ste-memory/tools";
 import { parseSillyTavernJsonl } from "../source-store/jsonl-parser.ts";
-import type { SqliteSourceChatRepository } from "../source-store/repository.ts";
+import type { SourceChatRepository } from "../source-store/types.ts";
 import type { CreateMemorySpaceInput, MemorySpaceManager, MemorySpaceView } from "./types.ts";
 import { InvalidChatFileError } from "./types.ts";
 import type { SystemMemoryTableInstaller } from "../system-memory/system-memory-table-definitions.ts";
@@ -9,19 +10,22 @@ import type { SystemMemoryTableInstaller } from "../system-memory/system-memory-
 export class DefaultMemorySpaceManager implements MemorySpaceManager {
   private readonly spaces: MemorySpaceService;
   private readonly systemTables: SystemMemoryTableInstaller;
-  private readonly sourceChats: SqliteSourceChatRepository;
+  private readonly sourceChats: SourceChatRepository;
+  private readonly unitOfWork: UnitOfWork;
 
   constructor(
     spaces: MemorySpaceService,
     systemTables: SystemMemoryTableInstaller,
-    sourceChats: SqliteSourceChatRepository,
+    sourceChats: SourceChatRepository,
+    unitOfWork: UnitOfWork,
   ) {
     this.spaces = spaces;
     this.systemTables = systemTables;
     this.sourceChats = sourceChats;
+    this.unitOfWork = unitOfWork;
   }
 
-  create(input: CreateMemorySpaceInput): MemorySpaceView {
+  async create(input: CreateMemorySpaceInput): Promise<MemorySpaceView> {
     if (!input.filename.toLowerCase().endsWith(".jsonl")) {
       throw new InvalidChatFileError("必须上传 .jsonl 文件");
     }
@@ -30,43 +34,42 @@ export class DefaultMemorySpaceManager implements MemorySpaceManager {
       throw new InvalidChatFileError("文件中没有可导入的聊天消息", chat.errors);
     }
 
-    const memorySpace = this.spaces.create(input.name);
-    try {
-      this.systemTables.install(memorySpace.id);
-      this.sourceChats.create(memorySpace.id, chat);
-    } catch (error) {
-      this.spaces.delete(memorySpace.id);
-      throw error;
-    }
-    return { ...memorySpace, messageCount: chat.messages.length, errorCount: chat.errors.length };
+    return this.unitOfWork.run(async () => {
+      const memorySpace = await this.spaces.create(input.name);
+      await this.systemTables.install(memorySpace.id);
+      await this.sourceChats.create(memorySpace.id, chat);
+      return { ...memorySpace, messageCount: chat.messages.length, errorCount: chat.errors.length };
+    });
   }
 
-  delete(id: MemorySpaceId): boolean {
-    if (!this.spaces.find(id)) return false;
-    this.sourceChats.delete(id);
+  async delete(id: MemorySpaceId): Promise<boolean> {
+    if (!(await this.spaces.find(id))) return false;
     return this.spaces.delete(id);
   }
 
-  errors(id: MemorySpaceId) {
-    if (!this.spaces.find(id)) return undefined;
+  async errors(id: MemorySpaceId) {
+    if (!(await this.spaces.find(id))) return undefined;
     return this.sourceChats.errors(id);
   }
 
-  exists(id: MemorySpaceId): boolean {
-    return this.spaces.find(id) !== undefined;
+  async exists(id: MemorySpaceId): Promise<boolean> {
+    return (await this.spaces.find(id)) !== undefined;
   }
 
-  list(): MemorySpaceView[] {
-    return this.spaces.list().map((space) => ({ ...space, ...this.sourceChats.summary(space.id) }));
+  async list(): Promise<MemorySpaceView[]> {
+    const spaces = await this.spaces.list();
+    return Promise.all(
+      spaces.map(async (space) => ({ ...space, ...(await this.sourceChats.summary(space.id)) })),
+    );
   }
 
-  messages(id: MemorySpaceId) {
-    if (!this.spaces.find(id)) return undefined;
+  async messages(id: MemorySpaceId) {
+    if (!(await this.spaces.find(id))) return undefined;
     return this.sourceChats.messages(id);
   }
 
-  rename(id: MemorySpaceId, name: string): MemorySpaceView | undefined {
-    const memorySpace = this.spaces.rename(id, name);
-    return memorySpace ? { ...memorySpace, ...this.sourceChats.summary(id) } : undefined;
+  async rename(id: MemorySpaceId, name: string): Promise<MemorySpaceView | undefined> {
+    const memorySpace = await this.spaces.rename(id, name);
+    return memorySpace ? { ...memorySpace, ...(await this.sourceChats.summary(id)) } : undefined;
   }
 }

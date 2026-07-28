@@ -24,30 +24,30 @@ class MemoryRepository
   tables: MemoryTable[] = [];
   fields: MemoryField[] = [];
 
-  create(value: MemorySpace): void;
-  create(value: MemoryTable): void;
-  create(value: MemoryField): void;
-  create(value: MemorySpace | MemoryTable | MemoryField): void {
+  create(value: MemorySpace): Promise<void>;
+  create(value: MemoryTable): Promise<void>;
+  create(value: MemoryField): Promise<void>;
+  async create(value: MemorySpace | MemoryTable | MemoryField): Promise<void> {
     if ("tableId" in value) this.fields.push(value);
     else if ("memorySpaceId" in value) this.tables.push(value);
     else this.space = value;
   }
 
-  delete(id: MemorySpaceId): boolean;
-  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
-  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean;
-  delete(): boolean {
+  delete(id: MemorySpaceId): Promise<boolean>;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
+  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): Promise<boolean>;
+  async delete(): Promise<boolean> {
     return false;
   }
 
-  find(id: MemorySpaceId): MemorySpace | undefined;
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
+  find(id: MemorySpaceId): Promise<MemorySpace | undefined>;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
-  ): MemoryField | undefined;
-  find(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId, fieldId?: MemoryFieldId) {
+  ): Promise<MemoryField | undefined>;
+  async find(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId, fieldId?: MemoryFieldId) {
     if (fieldId) {
       return this.fields.find(
         (field) =>
@@ -64,13 +64,13 @@ class MemoryRepository
     return this.space?.id === memorySpaceId ? this.space : undefined;
   }
 
-  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined;
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): Promise<MemoryTable | undefined>;
   findByKey(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     key: MemoryFieldKey,
-  ): MemoryField | undefined;
-  findByKey(
+  ): Promise<MemoryField | undefined>;
+  async findByKey(
     memorySpaceId: MemorySpaceId,
     tableIdOrKey: MemoryTableId | MemoryTableKey,
     fieldKey?: MemoryFieldKey,
@@ -88,10 +88,10 @@ class MemoryRepository
     );
   }
 
-  list(): MemorySpace[];
-  list(memorySpaceId: MemorySpaceId): MemoryTable[];
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[];
-  list(memorySpaceId?: MemorySpaceId, tableId?: MemoryTableId) {
+  list(): Promise<MemorySpace[]>;
+  list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryField[]>;
+  async list(memorySpaceId?: MemorySpaceId, tableId?: MemoryTableId) {
     if (tableId) {
       return this.fields.filter(
         (field) => field.memorySpaceId === memorySpaceId && field.tableId === tableId,
@@ -103,13 +103,13 @@ class MemoryRepository
     return this.space ? [this.space] : [];
   }
 
-  rename(): MemorySpace | undefined {
+  async rename(): Promise<MemorySpace | undefined> {
     return undefined;
   }
 
-  update(value: MemoryTable): boolean;
-  update(value: MemoryField): boolean;
-  update(value: MemoryTable | MemoryField): boolean {
+  update(value: MemoryTable): Promise<boolean>;
+  update(value: MemoryField): Promise<boolean>;
+  async update(value: MemoryTable | MemoryField): Promise<boolean> {
     const collection = "tableId" in value ? this.fields : this.tables;
     const index = collection.findIndex((item) => item.id === value.id);
     if (index < 0) return false;
@@ -123,15 +123,15 @@ const tableIds = Array.from({ length: 7 }, (_, index) => `table-${index + 1}` as
 const now = "2026-07-28T00:00:00.000Z";
 
 describe("system memory table initialization", () => {
-  it("creates one editable definition for every system table in a new memory space", () => {
+  it("creates one editable definition for every system table in a new memory space", async () => {
     const repository = new MemoryRepository();
     const ids = [...tableIds];
-    const space = new MemorySpaceService(
+    const space = await new MemorySpaceService(
       repository,
       () => spaceId,
       () => now,
     ).create("会话");
-    new SystemMemoryTableInstaller(
+    await new SystemMemoryTableInstaller(
       new MemoryTableService(
         repository,
         repository,
@@ -163,15 +163,15 @@ describe("system memory table initialization", () => {
     expect(repository.tables.every((table) => table.prompt.length > 0)).toBe(true);
   });
 
-  it("uses the issue field lists, references and display strategies", () => {
+  it("uses the issue field lists, references and display strategies", async () => {
     const repository = new MemoryRepository();
     const ids = [...tableIds];
-    const space = new MemorySpaceService(
+    const space = await new MemorySpaceService(
       repository,
       () => spaceId,
       () => now,
     ).create("会话");
-    new SystemMemoryTableInstaller(
+    await new SystemMemoryTableInstaller(
       new MemoryTableService(
         repository,
         repository,

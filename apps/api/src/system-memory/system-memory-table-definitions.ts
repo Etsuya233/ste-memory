@@ -1,7 +1,9 @@
 import type {
   MemoryFieldService,
   MemoryFieldType,
+  MemoryField,
   MemorySpaceId,
+  MemoryTable,
   MemoryTableService,
 } from "@ste-memory/core";
 import {
@@ -302,24 +304,26 @@ export class SystemMemoryTableInstaller {
     this.fields = fields;
   }
 
-  install(memorySpaceId: MemorySpaceId): void {
-    const tablesByKey = new Map(
-      SYSTEM_TABLE_TEMPLATES.map((template) => [
+  async install(memorySpaceId: MemorySpaceId): Promise<void> {
+    const tablesByKey = new Map<SystemMemoryTableKey, MemoryTable>();
+    for (const template of SYSTEM_TABLE_TEMPLATES) {
+      tablesByKey.set(
         template.key,
-        this.tables.create(memorySpaceId, {
+        (await this.tables.create(memorySpaceId, {
           key: template.key,
           kind: "system",
           name: template.name,
           description: template.description,
           prompt: template.prompt,
-        })!,
-      ]),
-    );
-    const fieldsByTable = new Map(
-      SYSTEM_TABLE_TEMPLATES.map((table) => [
-        table.key,
-        table.fields.map((field, position) =>
-          this.fields.create(memorySpaceId, tablesByKey.get(table.key)!.id, {
+        }))!,
+      );
+    }
+    const fieldsByTable = new Map<SystemMemoryTableKey, MemoryField[]>();
+    for (const table of SYSTEM_TABLE_TEMPLATES) {
+      const fields: MemoryField[] = [];
+      for (const [position, field] of table.fields.entries()) {
+        fields.push(
+          (await this.fields.create(memorySpaceId, tablesByKey.get(table.key)!.id, {
             key: SYSTEM_FIELD_KEYS[table.key][position]!,
             name: field.name,
             type: field.type,
@@ -331,15 +335,16 @@ export class SystemMemoryTableInstaller {
             referenceTableId: field.referenceTableKey
               ? tablesByKey.get(field.referenceTableKey)!.id
               : null,
-          }),
-        ),
-      ]),
-    );
+          }))!,
+        );
+      }
+      fieldsByTable.set(table.key, fields);
+    }
 
     for (const template of SYSTEM_TABLE_TEMPLATES) {
       const table = tablesByKey.get(template.key)!;
       const fields = fieldsByTable.get(template.key)!;
-      this.fields.setDisplayStrategy(
+      await this.fields.setDisplayStrategy(
         memorySpaceId,
         table.id,
         template.key === "relationships"

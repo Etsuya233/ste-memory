@@ -1,3 +1,5 @@
+import type { MemorySpaceId } from "@ste-memory/core";
+
 export const SILLY_TAVERN_SOURCE_TYPE = "sillytavern_jsonl" as const;
 
 export interface SourceMessage {
@@ -22,4 +24,11 @@ export interface ParsedChat {
 export interface SourceChatSummary {
   readonly messageCount: number;
   readonly errorCount: number;
+}
+
+export interface SourceChatRepository {
+  create(memorySpaceId: MemorySpaceId, chat: ParsedChat): Promise<void>;
+  messages(memorySpaceId: MemorySpaceId): Promise<SourceMessage[]>;
+  errors(memorySpaceId: MemorySpaceId): Promise<SourceParseError[]>;
+  summary(memorySpaceId: MemorySpaceId): Promise<SourceChatSummary>;
 }

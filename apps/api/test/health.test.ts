@@ -8,7 +8,8 @@ import { buildServer } from "../src/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
   return {
-    check: () => (connected ? { connected: true } : { connected: false, error: "unavailable" }),
+    check: async () =>
+      connected ? { connected: true } : { connected: false, error: "unavailable" },
   };
 }
 
@@ -16,45 +17,44 @@ const memorySpaces: MemorySpaceManager = {
   create: () => {
     throw new Error("not used");
   },
-  delete: () => false,
-  errors: () => undefined,
-  exists: () => false,
-  list: () => [],
-  messages: () => undefined,
-  rename: () => undefined,
+  delete: async () => false,
+  errors: async () => undefined,
+  exists: async () => false,
+  list: async () => [],
+  messages: async () => undefined,
+  rename: async () => undefined,
 };
 
 const memoryTables: MemoryTableManager = {
-  create: () => undefined,
-  delete: () => false,
-  find: () => undefined,
-  list: () => [],
-  update: () => undefined,
+  create: async () => undefined,
+  delete: async () => false,
+  find: async () => undefined,
+  list: async () => [],
+  update: async () => undefined,
 };
 
 const memoryFields: MemoryFieldManager = {
-  create: () => undefined,
-  delete: () => false,
-  find: () => undefined,
-  list: () => [],
-  setDisplayStrategy: () => undefined,
-  update: () => undefined,
+  create: async () => undefined,
+  delete: async () => false,
+  find: async () => undefined,
+  list: async () => [],
+  setDisplayStrategy: async () => undefined,
+  update: async () => undefined,
 };
 
 const memoryRecords: MemoryRecordManager = {
-  create: () => undefined,
-  find: () => undefined,
-  list: () => undefined,
-  update: () => undefined,
-  delete: () => false,
-  listHistory: () => [],
+  create: async () => undefined,
+  find: async () => undefined,
+  list: async () => undefined,
+  update: async () => undefined,
+  delete: async () => false,
+  listHistory: async () => [],
 };
 
 describe("GET /health", () => {
   it("reports API and database connection status", async () => {
     const server = await buildServer({
-      coreDatabase: healthCheck(true),
-      sourceStoreDatabase: healthCheck(false),
+      database: healthCheck(false),
       memorySpaces,
       memoryTables,
       memoryFields,
@@ -66,10 +66,7 @@ describe("GET /health", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       api: "ok",
-      databases: {
-        core: { connected: true },
-        sourceStore: { connected: false, error: "unavailable" },
-      },
+      database: { connected: false, error: "unavailable" },
     });
     await server.close();
   });

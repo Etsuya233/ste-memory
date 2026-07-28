@@ -15,23 +15,23 @@ export interface MemoryFieldManager {
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     input: CreateMemoryFieldInput,
-  ): MemoryField | undefined;
-  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean;
+  ): Promise<MemoryField | undefined>;
+  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): Promise<boolean>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
-  ): MemoryField | undefined;
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[];
+  ): Promise<MemoryField | undefined>;
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryField[]>;
   setDisplayStrategy(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     strategy: MemoryTableDisplayStrategy,
-  ): MemoryTable | undefined;
+  ): Promise<MemoryTable | undefined>;
   update(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
     input: UpdateMemoryFieldInput,
-  ): MemoryFieldUpdateResult | undefined;
+  ): Promise<MemoryFieldUpdateResult | undefined>;
 }

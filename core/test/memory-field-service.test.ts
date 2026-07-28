@@ -10,10 +10,10 @@ import {
 } from "./memory-field-test-support.ts";
 
 describe("MemoryFieldService", () => {
-  it("creates a select field with fixed options", () => {
+  it("creates a select field with fixed options", async () => {
     const repository = new FieldRepository();
 
-    const created = fieldService(repository).create(memorySpaceId, tableId, {
+    const created = await fieldService(repository).create(memorySpaceId, tableId, {
       key: "status",
       name: "状态",
       type: "single_select",
@@ -43,7 +43,7 @@ describe("MemoryFieldService", () => {
     expect(repository.fields.get(fieldId)).toEqual(created);
   });
 
-  it("allows reference fields to target only a table in the same memory space", () => {
+  it("allows reference fields to target only a table in the same memory space", async () => {
     const repository = new FieldRepository();
     const targetTableId = "table-2" as MemoryTableId;
     const foreignTableId = "table-3" as MemoryTableId;
@@ -61,7 +61,7 @@ describe("MemoryFieldService", () => {
       name: "另一空间的人物",
     });
 
-    expect(() =>
+    await expect(
       fields.create(memorySpaceId, tableId, {
         key: "related_characters",
         name: "相关人物",
@@ -72,14 +72,14 @@ describe("MemoryFieldService", () => {
         position: 0,
         referenceTableId: foreignTableId,
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_field_reference_table_invalid",
         humanMsg: "引用字段的目标表必须属于当前记忆空间",
       }),
     );
 
-    const created = fields.create(memorySpaceId, tableId, {
+    const created = await fields.create(memorySpaceId, tableId, {
       key: "related_characters",
       name: "相关人物",
       type: "multi_reference",
@@ -92,10 +92,10 @@ describe("MemoryFieldService", () => {
     expect(created?.referenceTableId).toBe(targetTableId);
   });
 
-  it("rejects a select field without distinct fixed options", () => {
+  it("rejects a select field without distinct fixed options", async () => {
     const fields = fieldService(new FieldRepository());
 
-    expect(() =>
+    await expect(
       fields.create(memorySpaceId, tableId, {
         key: "status",
         name: "状态",
@@ -106,7 +106,7 @@ describe("MemoryFieldService", () => {
         position: 0,
         options: ["进行中", " 进行中 "],
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_field_options_invalid",
         humanMsg: "单选和多选字段需要互不重复的非空固定选项",
@@ -114,10 +114,10 @@ describe("MemoryFieldService", () => {
     );
   });
 
-  it("does not allow changing a field type after creation", () => {
+  it("does not allow changing a field type after creation", async () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
-    fields.create(memorySpaceId, tableId, {
+    await fields.create(memorySpaceId, tableId, {
       key: "summary",
       name: "摘要",
       type: "short_text",
@@ -127,9 +127,9 @@ describe("MemoryFieldService", () => {
       position: 0,
     });
 
-    expect(() =>
+    await expect(
       fields.update(memorySpaceId, tableId, fieldId, { type: "long_text" }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_field_type_immutable",
         humanMsg: "字段创建后不能修改类型",
@@ -138,10 +138,10 @@ describe("MemoryFieldService", () => {
     expect(repository.fields.get(fieldId)?.type).toBe("short_text");
   });
 
-  it("rejects duplicate field keys in the same table", () => {
+  it("rejects duplicate field keys in the same table", async () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
-    fields.create(memorySpaceId, tableId, {
+    await fields.create(memorySpaceId, tableId, {
       key: "summary",
       name: "摘要",
       type: "short_text",
@@ -151,7 +151,7 @@ describe("MemoryFieldService", () => {
       position: 0,
     });
 
-    expect(() =>
+    await expect(
       fields.create(memorySpaceId, tableId, {
         key: "summary",
         name: "另一字段",
@@ -161,13 +161,13 @@ describe("MemoryFieldService", () => {
         enabled: true,
         position: 1,
       }),
-    ).toThrowError(expect.objectContaining({ type: "memory_field_key_conflict" }));
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_field_key_conflict" }));
   });
 
-  it("updates field configuration and warns when a required field is disabled", () => {
+  it("updates field configuration and warns when a required field is disabled", async () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
-    fields.create(memorySpaceId, tableId, {
+    await fields.create(memorySpaceId, tableId, {
       key: "status",
       name: "状态",
       type: "single_select",
@@ -178,7 +178,7 @@ describe("MemoryFieldService", () => {
       options: ["进行中", "已解决"],
     });
 
-    const result = fields.update(memorySpaceId, tableId, fieldId, {
+    const result = await fields.update(memorySpaceId, tableId, fieldId, {
       name: "剧情状态",
       required: true,
       prompt: "使用最新状态。",
@@ -201,10 +201,10 @@ describe("MemoryFieldService", () => {
     expect(repository.fields.get(fieldId)).toEqual(result?.field);
   });
 
-  it("lists fields in display order and physically deletes a field", () => {
+  it("lists fields in display order and physically deletes a field", async () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);
-    fields.create(memorySpaceId, tableId, {
+    await fields.create(memorySpaceId, tableId, {
       key: "summary",
       name: "摘要",
       type: "long_text",
@@ -214,10 +214,10 @@ describe("MemoryFieldService", () => {
       position: 3,
     });
 
-    expect(fields.list(memorySpaceId, tableId)).toMatchObject([
+    expect(await fields.list(memorySpaceId, tableId)).toMatchObject([
       { id: fieldId, name: "摘要", position: 3 },
     ]);
-    expect(fields.delete(memorySpaceId, tableId, fieldId)).toBe(true);
-    expect(fields.find(memorySpaceId, tableId, fieldId)).toBeUndefined();
+    expect(await fields.delete(memorySpaceId, tableId, fieldId)).toBe(true);
+    expect(await fields.find(memorySpaceId, tableId, fieldId)).toBeUndefined();
   });
 });

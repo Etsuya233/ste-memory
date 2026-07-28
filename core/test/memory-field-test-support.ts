@@ -15,42 +15,54 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
   readonly fields = new Map<MemoryFieldId, MemoryField>();
   readonly tables = new Map<MemoryTableId, MemoryTable>();
 
-  create(value: MemoryField | MemoryTable): void {
+  async create(value: MemoryField | MemoryTable): Promise<void> {
     if ("tableId" in value) this.fields.set(value.id, value);
     else this.tables.set(value.id, value);
   }
 
-  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean {
-    const field = this.find(memorySpaceId, tableId, id);
-    return field ? this.fields.delete(field.id) : false;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
+  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): Promise<boolean>;
+  async delete(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    id?: MemoryFieldId,
+  ): Promise<boolean> {
+    if (!id) {
+      const table = this.tables.get(tableId);
+      return table?.memorySpaceId === memorySpaceId ? this.tables.delete(tableId) : false;
+    }
+    const field = this.fields.get(id);
+    return field?.memorySpaceId === memorySpaceId && field.tableId === tableId
+      ? this.fields.delete(id)
+      : false;
   }
 
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
-  ): MemoryField | undefined;
-  find(
+  ): Promise<MemoryField | undefined>;
+  async find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     fieldId?: MemoryFieldId,
-  ): MemoryField | MemoryTable | undefined {
+  ): Promise<MemoryField | MemoryTable | undefined> {
     const value = fieldId ? this.fields.get(fieldId) : this.tables.get(tableId);
     return value?.memorySpaceId === memorySpaceId ? value : undefined;
   }
 
-  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined;
+  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): Promise<MemoryTable | undefined>;
   findByKey(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     key: MemoryFieldKey,
-  ): MemoryField | undefined;
-  findByKey(
+  ): Promise<MemoryField | undefined>;
+  async findByKey(
     memorySpaceId: MemorySpaceId,
     tableIdOrKey: MemoryTableId | MemoryTableKey,
     fieldKey?: MemoryFieldKey,
-  ): MemoryField | MemoryTable | undefined {
+  ): Promise<MemoryField | MemoryTable | undefined> {
     if (fieldKey !== undefined) {
       return [...this.fields.values()].find(
         (field) =>
@@ -64,7 +76,9 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
     );
   }
 
-  list(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId) {
+  list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryField[]>;
+  async list(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId) {
     if (tableId) {
       return [...this.fields.values()].filter(
         (field) => field.memorySpaceId === memorySpaceId && field.tableId === tableId,
@@ -73,7 +87,7 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
     return [...this.tables.values()].filter((table) => table.memorySpaceId === memorySpaceId);
   }
 
-  update(field: MemoryField | MemoryTable): boolean {
+  async update(field: MemoryField | MemoryTable): Promise<boolean> {
     if ("tableId" in field) {
       if (!this.fields.has(field.id)) return false;
       this.fields.set(field.id, field);

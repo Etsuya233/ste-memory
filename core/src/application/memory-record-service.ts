@@ -74,16 +74,16 @@ export class MemoryRecordService {
     this.now = now;
   }
 
-  create(
+  async create(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     input: CreateMemoryRecordInput,
-  ): MemoryRecord | undefined {
-    const table = this.tables.find(memorySpaceId, tableId);
+  ): Promise<MemoryRecord | undefined> {
+    const table = await this.tables.find(memorySpaceId, tableId);
     if (!table) return undefined;
-    const fields = this.fields.list(memorySpaceId, tableId);
+    const fields = await this.fields.list(memorySpaceId, tableId);
     const payload = validatedMemoryRecordPayload(fields, input.payload);
-    validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
+    await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
       this.records.find(memorySpaceId, targetTableId, recordId),
     );
     const source = input.source ?? { type: "manual" };
@@ -103,31 +103,31 @@ export class MemoryRecordService {
       memorySpaceId,
       tableId,
       payload,
-      displayText: this.displayText(table, fields, payload),
+      displayText: await this.displayText(table, fields, payload),
       source,
       revisionId: this.createRevisionId(),
       revisionSource: "user",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    this.records.create(record);
+    await this.records.create(record);
     return record;
   }
 
-  find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
-    const record = this.records.find(memorySpaceId, tableId, id);
+  async find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
+    const record = await this.records.find(memorySpaceId, tableId, id);
     if (!record) return undefined;
     return this.validatedRecord(record);
   }
 
-  update(
+  async update(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
     input: UpdateMemoryRecordInput,
-  ): MemoryRecord | undefined {
-    if (!this.records.find(memorySpaceId, tableId, id)) return undefined;
-    this.mutate(memorySpaceId, {
+  ): Promise<MemoryRecord | undefined> {
+    if (!(await this.records.find(memorySpaceId, tableId, id))) return undefined;
+    await this.mutate(memorySpaceId, {
       revisionSource: input.revisionSource,
       operations: [
         {
@@ -142,15 +142,15 @@ export class MemoryRecordService {
     return this.find(memorySpaceId, tableId, id);
   }
 
-  delete(
+  async delete(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
     expectedRevisionId: MemoryRevisionId,
     revisionSource: MemoryRevisionSource,
-  ): boolean {
-    if (!this.records.find(memorySpaceId, tableId, id)) return false;
-    this.mutate(memorySpaceId, {
+  ): Promise<boolean> {
+    if (!(await this.records.find(memorySpaceId, tableId, id))) return false;
+    await this.mutate(memorySpaceId, {
       revisionSource,
       operations: [{ type: "delete", tableId, recordId: id, expectedRevisionId }],
     });
@@ -160,7 +160,7 @@ export class MemoryRecordService {
   mutate(
     memorySpaceId: MemorySpaceId,
     input: MemoryRecordMutationBatchInput,
-  ): MemoryRecordMutationResult {
+  ): Promise<MemoryRecordMutationResult> {
     return commitMemoryRecordMutationBatch(
       {
         tables: this.tables,
@@ -176,19 +176,19 @@ export class MemoryRecordService {
     );
   }
 
-  listHistory(
+  async listHistory(
     memorySpaceId: MemorySpaceId,
     query: Omit<MemoryRecordHistoryQuery, "memorySpaceId">,
-  ): readonly MemoryRecordHistory[] {
+  ): Promise<readonly MemoryRecordHistory[]> {
     return this.records.listHistory({ ...query, memorySpaceId });
   }
 
-  list(
+  async list(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     query: { readonly page: number; readonly pageSize: number; readonly search?: string },
-  ): MemoryRecordPage | undefined {
-    if (!this.tables.find(memorySpaceId, tableId)) return undefined;
+  ): Promise<MemoryRecordPage | undefined> {
+    if (!(await this.tables.find(memorySpaceId, tableId))) return undefined;
     if (
       !Number.isInteger(query.page) ||
       query.page < 1 ||
@@ -199,15 +199,15 @@ export class MemoryRecordService {
       throw new DomainError({ type: "memory_record_paging_invalid", humanMsg: "分页参数无效" });
     }
     const search = query.search?.trim().toLocaleLowerCase();
-    const matches = this.records
-      .list(memorySpaceId, tableId)
-      .map((record) => this.validatedRecord(record))
-      .filter((record) => {
-        if (!search) return true;
-        return [record.id, record.displayText, ...Object.values(record.payload)]
-          .flatMap((value) => (Array.isArray(value) ? value : [value]))
-          .some((value) => String(value).toLocaleLowerCase().includes(search));
-      });
+    const records = await this.records.list(memorySpaceId, tableId);
+    const matches = (
+      await Promise.all(records.map((record) => this.validatedRecord(record)))
+    ).filter((record) => {
+      if (!search) return true;
+      return [record.id, record.displayText, ...Object.values(record.payload)]
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+        .some((value) => String(value).toLocaleLowerCase().includes(search));
+    });
     const offset = (query.page - 1) * query.pageSize;
     return {
       records: matches.slice(offset, offset + query.pageSize),
@@ -218,20 +218,20 @@ export class MemoryRecordService {
     };
   }
 
-  private validatedRecord(record: MemoryRecord): MemoryRecord {
-    const fields = this.fields.list(record.memorySpaceId, record.tableId);
+  private async validatedRecord(record: MemoryRecord): Promise<MemoryRecord> {
+    const fields = await this.fields.list(record.memorySpaceId, record.tableId);
     const payload = validatedMemoryRecordPayload(fields, record.payload);
-    validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
+    await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
       this.records.find(record.memorySpaceId, targetTableId, recordId),
     );
     return { ...record, payload };
   }
 
-  private displayText(
+  private async displayText(
     table: MemoryTable,
     fields: readonly MemoryField[],
     payload: MemoryRecordPayload,
-  ): string {
+  ): Promise<string> {
     if (!table.displayStrategy) {
       throw new DomainError({
         type: "memory_record_display_strategy_missing",
@@ -242,7 +242,8 @@ export class MemoryRecordService {
       return String(payload[table.displayStrategy.fieldId] ?? "");
     }
     const template = derivedDisplayTemplate(table.displayStrategy.template);
-    return template.fieldIds.reduce((text, fieldId) => {
+    let text = template.template;
+    for (const fieldId of template.fieldIds) {
       const field = fields.find((item) => item.id === fieldId)!;
       const value = payload[fieldId];
       const values = Array.isArray(value)
@@ -251,18 +252,22 @@ export class MemoryRecordService {
           ? []
           : [value];
       const rendered = field.referenceTableId
-        ? values
-            .map(
-              (id) =>
+        ? (
+            await Promise.all(
+              values.map((id) =>
                 this.records.find(
                   table.memorySpaceId,
                   field.referenceTableId!,
                   id as MemoryRecordId,
-                )!.displayText,
+                ),
+              ),
             )
+          )
+            .map((record) => record!.displayText)
             .join(", ")
         : values.join(", ");
-      return text.replaceAll(`{${fieldId}}`, rendered);
-    }, template.template);
+      text = text.replaceAll(`{${fieldId}}`, rendered);
+    }
+    return text;
   }
 }

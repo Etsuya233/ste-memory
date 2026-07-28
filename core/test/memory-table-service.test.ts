@@ -1,6 +1,5 @@
 import {
   MemoryTableService,
-  type MemoryField,
   type MemorySpace,
   type MemorySpaceId,
   type MemorySpaceRepository,
@@ -15,40 +14,30 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
   readonly spaces = new Map<MemorySpaceId, MemorySpace>();
   readonly tables = new Map<MemoryTableId, MemoryTable>();
 
-  create(
-    memorySpace: MemorySpace,
-    systemTables: readonly MemoryTable[],
-    systemFields: readonly MemoryField[],
-  ): void;
-  create(memoryTable: MemoryTable): void;
-  create(
-    value: MemorySpace | MemoryTable,
-    systemTables?: readonly MemoryTable[],
-    _systemFields?: readonly MemoryField[],
-  ): void {
+  create(memorySpace: MemorySpace): Promise<void>;
+  create(memoryTable: MemoryTable): Promise<void>;
+  async create(value: MemorySpace | MemoryTable): Promise<void> {
     if ("memorySpaceId" in value) this.tables.set(value.id, value);
-    else {
-      this.spaces.set(value.id, value);
-      for (const table of systemTables!) this.tables.set(table.id, table);
-    }
+    else this.spaces.set(value.id, value);
   }
 
-  delete(id: MemorySpaceId): boolean;
-  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
-  delete(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId): boolean {
+  delete(id: MemorySpaceId): Promise<boolean>;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
+  async delete(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId): Promise<boolean> {
     if (tableId) {
-      const table = this.find(memorySpaceId, tableId);
+      const table = this.tables.get(tableId);
+      if (table?.memorySpaceId !== memorySpaceId) return false;
       return table ? this.tables.delete(table.id) : false;
     }
     return this.spaces.delete(memorySpaceId);
   }
 
-  find(id: MemorySpaceId): MemorySpace | undefined;
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
-  find(
+  find(id: MemorySpaceId): Promise<MemorySpace | undefined>;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined>;
+  async find(
     memorySpaceId: MemorySpaceId,
     tableId?: MemoryTableId,
-  ): MemorySpace | MemoryTable | undefined {
+  ): Promise<MemorySpace | MemoryTable | undefined> {
     if (tableId) {
       const table = this.tables.get(tableId);
       return table?.memorySpaceId === memorySpaceId ? table : undefined;
@@ -56,20 +45,27 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     return this.spaces.get(memorySpaceId);
   }
 
-  findByKey(memorySpaceId: MemorySpaceId, key: MemoryTableKey): MemoryTable | undefined {
+  async findByKey(
+    memorySpaceId: MemorySpaceId,
+    key: MemoryTableKey,
+  ): Promise<MemoryTable | undefined> {
     return [...this.tables.values()].find(
       (table) => table.memorySpaceId === memorySpaceId && table.key === key,
     );
   }
 
-  list(): MemorySpace[];
-  list(memorySpaceId: MemorySpaceId): MemoryTable[];
-  list(memorySpaceId?: MemorySpaceId): MemorySpace[] | MemoryTable[] {
+  list(): Promise<MemorySpace[]>;
+  list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
+  async list(memorySpaceId?: MemorySpaceId): Promise<MemorySpace[] | MemoryTable[]> {
     if (!memorySpaceId) return [...this.spaces.values()];
     return [...this.tables.values()].filter((table) => table.memorySpaceId === memorySpaceId);
   }
 
-  rename(id: MemorySpaceId, name: string, updatedAt: string): MemorySpace | undefined {
+  async rename(
+    id: MemorySpaceId,
+    name: string,
+    updatedAt: string,
+  ): Promise<MemorySpace | undefined> {
     const space = this.spaces.get(id);
     if (!space) return undefined;
     const renamed = { ...space, name, updatedAt };
@@ -77,8 +73,9 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     return renamed;
   }
 
-  update(memoryTable: MemoryTable): boolean {
-    if (!this.find(memoryTable.memorySpaceId, memoryTable.id)) return false;
+  async update(memoryTable: MemoryTable): Promise<boolean> {
+    const current = this.tables.get(memoryTable.id);
+    if (current?.memorySpaceId !== memoryTable.memorySpaceId) return false;
     this.tables.set(memoryTable.id, memoryTable);
     return true;
   }
@@ -97,10 +94,10 @@ function service(
 }
 
 describe("MemoryTableService", () => {
-  it("creates an enabled empty custom table owned by its memory space", () => {
+  it("creates an enabled empty custom table owned by its memory space", async () => {
     const repository = new MemoryRepository();
 
-    const created = service(repository).create(spaceId, {
+    const created = await service(repository).create(spaceId, {
       key: "clues",
       kind: "custom",
       name: "  线索  ",
@@ -124,11 +121,11 @@ describe("MemoryTableService", () => {
     expect(repository.tables.get(tableId)).toEqual(created);
   });
 
-  it("updates table configuration without changing its identity or ownership", () => {
+  it("updates table configuration without changing its identity or ownership", async () => {
     const repository = new MemoryRepository();
     const times = [now, "2026-07-28T01:00:00.000Z"];
     const tables = service(repository, () => times.shift()!);
-    const created = tables.create(spaceId, {
+    const created = await tables.create(spaceId, {
       key: "clues",
       kind: "custom",
       name: "线索",
@@ -136,7 +133,7 @@ describe("MemoryTableService", () => {
       prompt: "旧 Prompt",
     });
 
-    const updated = tables.update(spaceId, tableId, {
+    const updated = await tables.update(spaceId, tableId, {
       name: "  关键线索  ",
       description: "新描述",
       prompt: "新 Prompt\n保留换行。",
@@ -153,10 +150,10 @@ describe("MemoryTableService", () => {
     });
   });
 
-  it("rejects duplicate table keys in the same memory space", () => {
+  it("rejects duplicate table keys in the same memory space", async () => {
     const repository = new MemoryRepository();
     const tables = service(repository);
-    tables.create(spaceId, {
+    await tables.create(spaceId, {
       key: "clues",
       kind: "custom",
       name: "线索",
@@ -164,7 +161,7 @@ describe("MemoryTableService", () => {
       prompt: "",
     });
 
-    expect(() =>
+    await expect(
       tables.create(spaceId, {
         key: "clues",
         kind: "custom",
@@ -172,10 +169,10 @@ describe("MemoryTableService", () => {
         description: "",
         prompt: "",
       }),
-    ).toThrowError(expect.objectContaining({ type: "memory_table_key_conflict" }));
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_table_key_conflict" }));
   });
 
-  it("isolates same-named tables by memory space and physically deletes one table", () => {
+  it("isolates same-named tables by memory space and physically deletes one table", async () => {
     const repository = new MemoryRepository();
     const secondSpaceId = "space-2" as MemorySpaceId;
     const secondTableId = "table-2" as MemoryTableId;
@@ -198,14 +195,14 @@ describe("MemoryTableService", () => {
       () => ids.shift()!,
       () => now,
     );
-    tables.create(spaceId, {
+    await tables.create(spaceId, {
       key: "clues",
       kind: "custom",
       name: "线索",
       description: "A",
       prompt: "",
     });
-    tables.create(secondSpaceId, {
+    await tables.create(secondSpaceId, {
       key: "clues",
       kind: "custom",
       name: "线索",
@@ -213,11 +210,15 @@ describe("MemoryTableService", () => {
       prompt: "",
     });
 
-    expect(tables.list(spaceId)).toMatchObject([{ id: tableId, description: "A" }]);
-    expect(tables.list(secondSpaceId)).toMatchObject([{ id: secondTableId, description: "B" }]);
+    expect(await tables.list(spaceId)).toMatchObject([{ id: tableId, description: "A" }]);
+    expect(await tables.list(secondSpaceId)).toMatchObject([
+      { id: secondTableId, description: "B" },
+    ]);
 
-    expect(tables.delete(spaceId, tableId)).toBe(true);
-    expect(tables.find(spaceId, tableId)).toBeUndefined();
-    expect(tables.list(secondSpaceId)).toMatchObject([{ id: secondTableId, description: "B" }]);
+    expect(await tables.delete(spaceId, tableId)).toBe(true);
+    expect(await tables.find(spaceId, tableId)).toBeUndefined();
+    expect(await tables.list(secondSpaceId)).toMatchObject([
+      { id: secondTableId, description: "B" },
+    ]);
   });
 });

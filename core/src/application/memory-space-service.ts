@@ -12,7 +12,7 @@ export class MemorySpaceService {
     this.now = now;
   }
 
-  create(name: string): MemorySpace {
+  async create(name: string): Promise<MemorySpace> {
     const now = this.now();
     const memorySpace: MemorySpace = {
       id: this.createId(),
@@ -20,23 +20,23 @@ export class MemorySpaceService {
       createdAt: now,
       updatedAt: now,
     };
-    this.repository.create(memorySpace);
+    await this.repository.create(memorySpace);
     return memorySpace;
   }
 
-  delete(id: MemorySpaceId): boolean {
+  async delete(id: MemorySpaceId): Promise<boolean> {
     return this.repository.delete(id);
   }
 
-  find(id: MemorySpaceId): MemorySpace | undefined {
+  async find(id: MemorySpaceId): Promise<MemorySpace | undefined> {
     return this.repository.find(id);
   }
 
-  list(): MemorySpace[] {
+  async list(): Promise<MemorySpace[]> {
     return this.repository.list();
   }
 
-  rename(id: MemorySpaceId, name: string): MemorySpace | undefined {
+  async rename(id: MemorySpaceId, name: string): Promise<MemorySpace | undefined> {
     return this.repository.rename(id, memorySpaceName(name), this.now());
   }
 }

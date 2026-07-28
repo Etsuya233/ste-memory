@@ -7,13 +7,16 @@ import type {
 } from "@ste-memory/core";
 
 export interface MemoryTableManager {
-  create(memorySpaceId: MemorySpaceId, input: CreateMemoryTableInput): MemoryTable | undefined;
-  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean;
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined;
-  list(memorySpaceId: MemorySpaceId): MemoryTable[];
+  create(
+    memorySpaceId: MemorySpaceId,
+    input: CreateMemoryTableInput,
+  ): Promise<MemoryTable | undefined>;
+  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
+  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined>;
+  list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
   update(
     memorySpaceId: MemorySpaceId,
     id: MemoryTableId,
     input: UpdateMemoryTableInput,
-  ): MemoryTable | undefined;
+  ): Promise<MemoryTable | undefined>;
 }

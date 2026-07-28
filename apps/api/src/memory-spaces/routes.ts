@@ -41,7 +41,7 @@ export function registerMemorySpaceRoutes(
     if (!file) return reply.code(400).send({ message: "创建记忆空间必须上传 JSONL 文件" });
     if (!name?.trim()) return reply.code(400).send({ message: "记忆空间名称不能为空" });
     try {
-      return reply.code(201).send(memorySpaces.create({ name, ...file }));
+      return reply.code(201).send(await memorySpaces.create({ name, ...file }));
     } catch (error) {
       if (error instanceof InvalidChatFileError) {
         return reply.code(422).send({ message: error.message, errors: error.errors });
@@ -56,25 +56,28 @@ export function registerMemorySpaceRoutes(
       if (typeof request.body?.name !== "string") {
         return reply.code(400).send({ message: "记忆空间名称不能为空" });
       }
-      const result = memorySpaces.rename(request.params.id as MemorySpaceId, request.body.name);
+      const result = await memorySpaces.rename(
+        request.params.id as MemorySpaceId,
+        request.body.name,
+      );
       return result ?? reply.code(404).send({ message: "记忆空间不存在" });
     },
   );
 
   server.delete<{ Params: IdParams }>("/memory-spaces/:id", async (request, reply) => {
-    if (!memorySpaces.delete(request.params.id as MemorySpaceId)) {
+    if (!(await memorySpaces.delete(request.params.id as MemorySpaceId))) {
       return reply.code(404).send({ message: "记忆空间不存在" });
     }
     return reply.code(204).send();
   });
 
   server.get<{ Params: IdParams }>("/memory-spaces/:id/messages", async (request, reply) => {
-    const messages = memorySpaces.messages(request.params.id as MemorySpaceId);
+    const messages = await memorySpaces.messages(request.params.id as MemorySpaceId);
     return messages ?? reply.code(404).send({ message: "记忆空间不存在" });
   });
 
   server.get<{ Params: IdParams }>("/memory-spaces/:id/parse-errors", async (request, reply) => {
-    const errors = memorySpaces.errors(request.params.id as MemorySpaceId);
+    const errors = await memorySpaces.errors(request.params.id as MemorySpaceId);
     return errors ?? reply.code(404).send({ message: "记忆空间不存在" });
   });
 }

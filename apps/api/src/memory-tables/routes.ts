@@ -29,7 +29,7 @@ export function registerMemoryTableRoutes(
 ): void {
   server.get<{ Params: SpaceParams }>("/memory-spaces/:spaceId/tables", async (request, reply) => {
     const memorySpaceId = request.params.spaceId as MemorySpaceId;
-    if (!memorySpaces.exists(memorySpaceId)) {
+    if (!(await memorySpaces.exists(memorySpaceId))) {
       return reply.code(404).send({ message: "记忆空间不存在" });
     }
     return memoryTables.list(memorySpaceId);
@@ -50,7 +50,7 @@ export function registerMemoryTableRoutes(
       if (request.body.prompt !== undefined && typeof request.body.prompt !== "string") {
         return reply.code(400).send({ message: "记忆表格 Prompt 必须是文本" });
       }
-      const created = memoryTables.create(request.params.spaceId as MemorySpaceId, {
+      const created = await memoryTables.create(request.params.spaceId as MemorySpaceId, {
         key: request.body.key,
         kind: "custom",
         name: request.body.name,
@@ -66,7 +66,7 @@ export function registerMemoryTableRoutes(
   server.get<{ Params: TableParams }>(
     "/memory-spaces/:spaceId/tables/:tableId",
     async (request, reply) => {
-      const table = memoryTables.find(
+      const table = await memoryTables.find(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
       );
@@ -99,7 +99,7 @@ export function registerMemoryTableRoutes(
         prompt: request.body?.prompt,
         enabled: request.body?.enabled,
       };
-      const updated = memoryTables.update(
+      const updated = await memoryTables.update(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
         input,
@@ -111,7 +111,7 @@ export function registerMemoryTableRoutes(
   server.delete<{ Params: TableParams }>(
     "/memory-spaces/:spaceId/tables/:tableId",
     async (request, reply) => {
-      const deleted = memoryTables.delete(
+      const deleted = await memoryTables.delete(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
       );

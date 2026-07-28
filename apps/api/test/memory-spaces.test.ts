@@ -1,93 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  MemorySpaceService,
-  MemoryFieldService,
-  MemoryRecordService,
-  type MemoryFieldId,
-  type MemoryRecordId,
-  type MemoryRecordHistoryId,
-  type MemoryRevisionId,
-  MemoryTableService,
-  type MemorySpaceId,
-  type MemoryTableId,
-} from "@ste-memory/core";
-import {
-  migrateCoreDatabase,
-  SqliteMemoryFieldRepository,
-  SqliteMemoryRecordRepository,
-  SqliteMemorySpaceRepository,
-  SqliteMemoryTableRepository,
-} from "@ste-memory/core-sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "../src/health/types.ts";
-import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
-import { buildServer } from "../src/server.ts";
-import { migrateSourceStoreDatabase } from "../src/source-store/migrate.ts";
-import { SqliteSourceChatRepository } from "../src/source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
+import type { buildServer } from "../src/server.ts";
+import { createTestApplication } from "./test-application.ts";
 
-const healthCheck: DatabaseHealthCheck = { check: () => ({ connected: true }) };
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
 
 async function testServer() {
-  const directory = mkdtempSync(join(tmpdir(), "ste-memory-spaces-"));
-  const coreUrl = `sqlite:${join(directory, "core.sqlite")}`;
-  const sourceUrl = `sqlite:${join(directory, "source.sqlite")}`;
-  migrateCoreDatabase(coreUrl);
-  migrateSourceStoreDatabase(sourceUrl);
-  const spacesRepository = new SqliteMemorySpaceRepository(coreUrl);
-  const manager = new DefaultMemorySpaceManager(
-    new MemorySpaceService(
-      spacesRepository,
-      () => randomUUID() as MemorySpaceId,
-      () => "2026-07-27T00:00:00.000Z",
-    ),
-    new SystemMemoryTableInstaller(
-      new MemoryTableService(
-        spacesRepository,
-        new SqliteMemoryTableRepository(coreUrl),
-        () => randomUUID() as MemoryTableId,
-        () => "2026-07-27T00:00:00.000Z",
-      ),
-      new MemoryFieldService(
-        new SqliteMemoryTableRepository(coreUrl),
-        new SqliteMemoryFieldRepository(coreUrl),
-        () => randomUUID() as MemoryFieldId,
-        () => "2026-07-27T00:00:00.000Z",
-      ),
-    ),
-    new SqliteSourceChatRepository(sourceUrl),
-  );
-  const tableRepository = new SqliteMemoryTableRepository(coreUrl);
-  const server = await buildServer({
-    coreDatabase: healthCheck,
-    sourceStoreDatabase: healthCheck,
-    memorySpaces: manager,
-    memoryTables: new MemoryTableService(
-      spacesRepository,
-      tableRepository,
-      () => randomUUID() as MemoryTableId,
-      () => "2026-07-27T00:00:00.000Z",
-    ),
-    memoryFields: new MemoryFieldService(
-      tableRepository,
-      new SqliteMemoryFieldRepository(coreUrl),
-      () => randomUUID() as MemoryFieldId,
-      () => "2026-07-27T00:00:00.000Z",
-    ),
-    memoryRecords: new MemoryRecordService(
-      tableRepository,
-      new SqliteMemoryFieldRepository(coreUrl),
-      new SqliteMemoryRecordRepository(coreUrl),
-      () => randomUUID() as MemoryRecordId,
-      () => randomUUID() as MemoryRecordHistoryId,
-      () => randomUUID() as MemoryRevisionId,
-      () => "2026-07-27T00:00:00.000Z",
-    ),
-  });
+  const { server } = await createTestApplication("ste-memory-spaces-", "2026-07-27T00:00:00.000Z");
   servers.push(server);
   return server;
 }

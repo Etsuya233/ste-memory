@@ -1,13 +1,10 @@
 {
-  "name": "@ste-memory/core-sqlite",
+  "name": "@ste-memory/tools",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./database": "./src/database.ts"
-  },
-  "dependencies": {
-    "@ste-memory/core": "workspace:*"
+    "./unit-of-work": "./src/unit-of-work.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

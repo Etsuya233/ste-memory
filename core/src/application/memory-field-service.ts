@@ -11,6 +11,7 @@ import {
   type MemoryFieldId,
   type MemoryFieldType,
   type MemorySpaceId,
+  type MemoryTable,
   type MemoryTableId,
   type MemoryTableDisplayStrategy,
 } from "../domain/index.ts";
@@ -64,20 +65,20 @@ export class MemoryFieldService {
     this.now = now;
   }
 
-  create(
+  async create(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     input: CreateMemoryFieldInput,
-  ): MemoryField | undefined {
-    if (!this.tables.find(memorySpaceId, tableId)) return undefined;
+  ): Promise<MemoryField | undefined> {
+    if (!(await this.tables.find(memorySpaceId, tableId))) return undefined;
     const key = memoryFieldKey(input.key);
-    if (this.fields.findByKey(memorySpaceId, tableId, key)) {
+    if (await this.fields.findByKey(memorySpaceId, tableId, key)) {
       throw new DomainError({
         type: "memory_field_key_conflict",
         humanMsg: "同一表格内的字段 Key 不能重复",
       });
     }
-    const configuration = this.validatedConfiguration(
+    const configuration = await this.validatedConfiguration(
       memorySpaceId,
       input.type,
       input.options ?? [],
@@ -100,12 +101,16 @@ export class MemoryFieldService {
       createdAt: now,
       updatedAt: now,
     };
-    this.fields.create(field);
+    await this.fields.create(field);
     return field;
   }
 
-  delete(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryFieldId): boolean {
-    const table = this.tables.find(memorySpaceId, tableId);
+  async delete(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    id: MemoryFieldId,
+  ): Promise<boolean> {
+    const table = await this.tables.find(memorySpaceId, tableId);
     if (table?.displayStrategy && memoryTableDisplayFieldIds(table.displayStrategy).includes(id)) {
       throw new DomainError({
         type: "memory_field_used_by_display_strategy",
@@ -115,29 +120,29 @@ export class MemoryFieldService {
     return this.fields.delete(memorySpaceId, tableId, id);
   }
 
-  find(
+  async find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
-  ): MemoryField | undefined {
+  ): Promise<MemoryField | undefined> {
     return this.fields.find(memorySpaceId, tableId, id);
   }
 
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryField[] {
-    return this.fields
-      .list(memorySpaceId, tableId)
-      .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+  async list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryField[]> {
+    return (await this.fields.list(memorySpaceId, tableId)).sort(
+      (left, right) => left.position - right.position || left.id.localeCompare(right.id),
+    );
   }
 
-  setDisplayStrategy(
+  async setDisplayStrategy(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     strategy: MemoryTableDisplayStrategy,
-  ) {
-    const table = this.tables.find(memorySpaceId, tableId);
+  ): Promise<MemoryTable | undefined> {
+    const table = await this.tables.find(memorySpaceId, tableId);
     if (!table) return undefined;
     if (strategy.type === "field") {
-      const field = this.fields.find(memorySpaceId, tableId, strategy.fieldId);
+      const field = await this.fields.find(memorySpaceId, tableId, strategy.fieldId);
       if (!field || field.type !== "short_text" || !field.enabled) {
         throw new DomainError({
           type: "memory_table_display_strategy_invalid",
@@ -146,11 +151,10 @@ export class MemoryFieldService {
       }
     } else {
       const template = derivedDisplayTemplate(strategy.template);
-      if (
-        template.fieldIds.some(
-          (fieldId) => !this.fields.find(memorySpaceId, tableId, fieldId)?.enabled,
-        )
-      ) {
+      const referencedFields = await Promise.all(
+        template.fieldIds.map((fieldId) => this.fields.find(memorySpaceId, tableId, fieldId)),
+      );
+      if (referencedFields.some((field) => !field?.enabled)) {
         throw new DomainError({
           type: "memory_table_display_strategy_invalid",
           humanMsg: "显示模板只能引用当前表中的字段",
@@ -158,20 +162,20 @@ export class MemoryFieldService {
       }
     }
     const updated = { ...table, displayStrategy: strategy, updatedAt: this.now() };
-    this.tables.update(updated);
+    await this.tables.update(updated);
     return updated;
   }
 
-  update(
+  async update(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryFieldId,
     input: UpdateMemoryFieldInput,
-  ): MemoryFieldUpdateResult | undefined {
-    const field = this.fields.find(memorySpaceId, tableId, id);
+  ): Promise<MemoryFieldUpdateResult | undefined> {
+    const field = await this.fields.find(memorySpaceId, tableId, id);
     if (!field) return undefined;
     const key = input.key === undefined ? field.key : memoryFieldKey(input.key);
-    const conflict = this.fields.findByKey(memorySpaceId, tableId, key);
+    const conflict = await this.fields.findByKey(memorySpaceId, tableId, key);
     if (conflict && conflict.id !== id) {
       throw new DomainError({
         type: "memory_field_key_conflict",
@@ -184,13 +188,13 @@ export class MemoryFieldService {
         humanMsg: "字段创建后不能修改类型",
       });
     }
-    const configuration = this.validatedConfiguration(
+    const configuration = await this.validatedConfiguration(
       memorySpaceId,
       field.type,
       input.options ?? field.options,
       input.referenceTableId ?? field.referenceTableId,
     );
-    const table = this.tables.find(memorySpaceId, tableId);
+    const table = await this.tables.find(memorySpaceId, tableId);
     if (
       input.enabled === false &&
       table?.displayStrategy &&
@@ -213,7 +217,7 @@ export class MemoryFieldService {
       referenceTableId: configuration.referenceTableId,
       updatedAt: this.now(),
     };
-    this.fields.update(updated);
+    await this.fields.update(updated);
     return {
       field: updated,
       warnings:
@@ -221,16 +225,16 @@ export class MemoryFieldService {
     };
   }
 
-  private validatedConfiguration(
+  private async validatedConfiguration(
     memorySpaceId: MemorySpaceId,
     type: MemoryFieldType,
     options: readonly string[],
     referenceTableId: MemoryTableId | null,
-  ): MemoryFieldConfiguration {
+  ): Promise<MemoryFieldConfiguration> {
     const configuration = memoryFieldConfiguration(type, options, referenceTableId);
     if (
       configuration.referenceTableId &&
-      !this.tables.find(memorySpaceId, configuration.referenceTableId)
+      !(await this.tables.find(memorySpaceId, configuration.referenceTableId))
     ) {
       throw new DomainError({
         type: "memory_field_reference_table_invalid",

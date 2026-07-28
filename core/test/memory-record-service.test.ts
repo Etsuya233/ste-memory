@@ -68,24 +68,24 @@ function field(
 
 class Records implements MemoryRecordRepository {
   readonly values: MemoryRecord[] = [];
-  create(record: MemoryRecord): void {
+  async create(record: MemoryRecord): Promise<void> {
     this.values.push(record);
   }
-  find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
+  async find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
     return this.values.find(
       (record) =>
         record.memorySpaceId === memorySpaceId && record.tableId === tableId && record.id === id,
     );
   }
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
+  async list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
     return this.values.filter(
       (record) => record.memorySpaceId === memorySpaceId && record.tableId === tableId,
     );
   }
-  commit(): boolean {
+  async commit(): Promise<boolean> {
     return true;
   }
-  listHistory() {
+  async listHistory() {
     return [];
   }
 }
@@ -103,24 +103,32 @@ function createService() {
   ];
   const records = new Records();
   const tableRepository: MemoryTableRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, id) =>
       tables.find((item) => item.memorySpaceId === candidateSpaceId && item.id === id),
-    list: (candidateSpaceId) => tables.filter((item) => item.memorySpaceId === candidateSpaceId),
-    update: () => false,
+    findByKey: async (candidateSpaceId, key) =>
+      tables.find((item) => item.memorySpaceId === candidateSpaceId && item.key === key),
+    list: async (candidateSpaceId) =>
+      tables.filter((item) => item.memorySpaceId === candidateSpaceId),
+    update: async () => false,
   };
   const fieldRepository: MemoryFieldRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, tableId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, tableId, id) =>
       fields.find(
         (item) =>
           item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.id === id,
       ),
-    list: (candidateSpaceId, tableId) =>
+    findByKey: async (candidateSpaceId, tableId, key) =>
+      fields.find(
+        (item) =>
+          item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.key === key,
+      ),
+    list: async (candidateSpaceId, tableId) =>
       fields.filter((item) => item.memorySpaceId === candidateSpaceId && item.tableId === tableId),
-    update: () => false,
+    update: async () => false,
   };
   return {
     fields,
@@ -138,11 +146,13 @@ function createService() {
 }
 
 describe("MemoryRecordService", () => {
-  it("creates a typed current record with stable identity, display text, and source details", () => {
+  it("creates a typed current record with stable identity, display text, and source details", async () => {
     const { service } = createService();
-    const location = service.create(spaceId, locationTableId, { payload: { [nameId]: "港口" } });
+    const location = await service.create(spaceId, locationTableId, {
+      payload: { [nameId]: "港口" },
+    });
 
-    const created = service.create(spaceId, characterTableId, {
+    const created = await service.create(spaceId, characterTableId, {
       payload: {
         [nameId]: "林夏",
         [ageId]: 27,
@@ -189,42 +199,42 @@ describe("MemoryRecordService", () => {
     [{ [nameId]: "林夏", [birthdayId]: "2026-02-30" }, "birthday"],
     [{ [nameId]: "林夏", [roleId]: "反派" }, "role"],
     [{ [nameId]: "林夏", [locationId]: "missing" }, "location"],
-  ])("rejects invalid typed field values and references", (payload, fieldId) => {
+  ])("rejects invalid typed field values and references", async (payload, fieldId) => {
     const { service } = createService();
 
-    expect(() => service.create(spaceId, characterTableId, { payload })).toThrowError(
+    await expect(service.create(spaceId, characterTableId, { payload })).rejects.toThrowError(
       expect.objectContaining({ param: { fieldId } }),
     );
   });
 
-  it("requires configured fields and marks source-free creation as manual", () => {
+  it("requires configured fields and marks source-free creation as manual", async () => {
     const { service } = createService();
 
-    expect(() => service.create(spaceId, characterTableId, { payload: {} })).toThrowError(
+    await expect(service.create(spaceId, characterTableId, { payload: {} })).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_required_field_missing",
         param: { fieldId: nameId },
       }),
     );
     expect(
-      service.create(spaceId, characterTableId, { payload: { [nameId]: "林夏" } }),
+      await service.create(spaceId, characterTableId, { payload: { [nameId]: "林夏" } }),
     ).toMatchObject({ source: { type: "manual" } });
   });
 
-  it("searches display text and field values with stable pagination", () => {
+  it("searches display text and field values with stable pagination", async () => {
     const { service } = createService();
-    service.create(spaceId, characterTableId, {
+    await service.create(spaceId, characterTableId, {
       payload: { [nameId]: "林夏", [roleId]: "主角" },
     });
-    service.create(spaceId, characterTableId, {
+    await service.create(spaceId, characterTableId, {
       payload: { [nameId]: "周遥", [roleId]: "配角" },
     });
-    service.create(spaceId, characterTableId, {
+    await service.create(spaceId, characterTableId, {
       payload: { [nameId]: "顾川", [roleId]: "主角" },
     });
 
     expect(
-      service.list(spaceId, characterTableId, { page: 2, pageSize: 1, search: "主角" }),
+      await service.list(spaceId, characterTableId, { page: 2, pageSize: 1, search: "主角" }),
     ).toMatchObject({
       page: 2,
       pageSize: 1,
@@ -234,7 +244,7 @@ describe("MemoryRecordService", () => {
     });
   });
 
-  it("validates persisted payload values when records are read", () => {
+  it("validates persisted payload values when records are read", async () => {
     const { records, service } = createService();
     records.values.push({
       id: "record-1" as MemoryRecordId,
@@ -249,9 +259,9 @@ describe("MemoryRecordService", () => {
       updatedAt: "2026-07-28T01:02:03.000Z",
     });
 
-    expect(() =>
+    await expect(
       service.find(spaceId, characterTableId, "record-1" as MemoryRecordId),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_field_value_invalid",
         param: { fieldId: ageId },
@@ -259,7 +269,7 @@ describe("MemoryRecordService", () => {
     );
   });
 
-  it("rejects empty required collections and invalid calendar datetimes", () => {
+  it("rejects empty required collections and invalid calendar datetimes", async () => {
     const setup = createService();
     const roleIndex = setup.fields.findIndex((item) => item.id === roleId);
     setup.fields[roleIndex] = {
@@ -267,19 +277,19 @@ describe("MemoryRecordService", () => {
       type: "multi_select",
       required: true,
     };
-    expect(() =>
+    await expect(
       setup.service.create(spaceId, characterTableId, {
         payload: { [nameId]: "林夏", [roleId]: [] },
       }),
-    ).toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
 
     setup.fields[roleIndex] = { ...setup.fields[roleIndex]!, required: false };
     const birthdayIndex = setup.fields.findIndex((item) => item.id === birthdayId);
     setup.fields[birthdayIndex] = { ...setup.fields[birthdayIndex]!, type: "datetime" };
-    expect(() =>
+    await expect(
       setup.service.create(spaceId, characterTableId, {
         payload: { [nameId]: "林夏", [birthdayId]: "2026-02-30T10:00:00" },
       }),
-    ).toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
   });
 });

@@ -68,24 +68,24 @@ class Records implements MemoryRecordRepository {
   readonly values: MemoryRecord[] = [];
   readonly history: MemoryRecordHistory[] = [];
 
-  create(record: MemoryRecord): void {
+  async create(record: MemoryRecord): Promise<void> {
     this.values.push(record);
   }
 
-  find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
+  async find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
     return this.values.find(
       (record) =>
         record.memorySpaceId === memorySpaceId && record.tableId === tableId && record.id === id,
     );
   }
 
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
+  async list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
     return this.values.filter(
       (record) => record.memorySpaceId === memorySpaceId && record.tableId === tableId,
     );
   }
 
-  commit(mutations: readonly MemoryRecordMutation[]): boolean {
+  async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
     for (const mutation of mutations) {
       const index = this.values.findIndex((record) => record.id === mutation.previous.id);
       this.history.push(mutation.history);
@@ -95,7 +95,7 @@ class Records implements MemoryRecordRepository {
     return true;
   }
 
-  listHistory() {
+  async listHistory() {
     return this.history;
   }
 }
@@ -113,24 +113,32 @@ function setup() {
   let recordNumber = 0;
   let historyNumber = 0;
   const tableRepository: MemoryTableRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, id) =>
       tables.find((item) => item.memorySpaceId === candidateSpaceId && item.id === id),
-    list: (candidateSpaceId) => tables.filter((item) => item.memorySpaceId === candidateSpaceId),
-    update: () => false,
+    findByKey: async (candidateSpaceId, key) =>
+      tables.find((item) => item.memorySpaceId === candidateSpaceId && item.key === key),
+    list: async (candidateSpaceId) =>
+      tables.filter((item) => item.memorySpaceId === candidateSpaceId),
+    update: async () => false,
   };
   const fieldRepository: MemoryFieldRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, tableId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, tableId, id) =>
       fields.find(
         (item) =>
           item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.id === id,
       ),
-    list: (candidateSpaceId, tableId) =>
+    findByKey: async (candidateSpaceId, tableId, key) =>
+      fields.find(
+        (item) =>
+          item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.key === key,
+      ),
+    list: async (candidateSpaceId, tableId) =>
       fields.filter((item) => item.memorySpaceId === candidateSpaceId && item.tableId === tableId),
-    update: () => false,
+    update: async () => false,
   };
   return {
     records,
@@ -147,23 +155,23 @@ function setup() {
 }
 
 describe("memory record reference safety", () => {
-  it("accepts stable IDs for single and multi references in their configured target tables", () => {
+  it("accepts stable IDs for single and multi references in their configured target tables", async () => {
     const { service } = setup();
-    const place = service.create(spaceId, placesId, { payload: { [nameId]: "港口" } })!;
-    const person = service.create(spaceId, peopleId, {
+    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
+    const person = (await service.create(spaceId, peopleId, {
       payload: { [nameId]: "林夏", [locationId]: place.id },
-    })!;
-    const plot = service.create(spaceId, plotsId, {
+    }))!;
+    const plot = (await service.create(spaceId, plotsId, {
       payload: { [nameId]: "追踪", [relatedPeopleId]: [person.id] },
-    })!;
+    }))!;
 
     expect(person.payload[locationId]).toBe(place.id);
     expect(plot.payload[relatedPeopleId]).toEqual([person.id]);
   });
 
-  it("rejects references to another table or memory space", () => {
+  it("rejects references to another table or memory space", async () => {
     const { records, service } = setup();
-    const person = service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } })!;
+    const person = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
     records.values.push({
       ...person,
       id: "foreign-place" as MemoryRecordId,
@@ -172,18 +180,18 @@ describe("memory record reference safety", () => {
     });
 
     for (const targetId of [person.id, "foreign-place"]) {
-      expect(() =>
+      await expect(
         service.create(spaceId, peopleId, {
           payload: { [nameId]: "周遥", [locationId]: targetId },
         }),
-      ).toThrowError(
+      ).rejects.toThrowError(
         expect.objectContaining({
           type: "memory_record_reference_invalid",
           param: { fieldId: locationId },
         }),
       );
     }
-    expect(() =>
+    await expect(
       service.mutate(spaceId, {
         revisionSource: "agent",
         operations: [
@@ -196,7 +204,7 @@ describe("memory record reference safety", () => {
           },
         ],
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_reference_invalid",
         param: { fieldId: locationId },
@@ -204,19 +212,19 @@ describe("memory record reference safety", () => {
     );
   });
 
-  it("blocks user and agent deletion with every current reference location", () => {
+  it("blocks user and agent deletion with every current reference location", async () => {
     const { service } = setup();
-    const place = service.create(spaceId, placesId, { payload: { [nameId]: "港口" } })!;
-    const person = service.create(spaceId, peopleId, {
+    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
+    const person = (await service.create(spaceId, peopleId, {
       payload: { [nameId]: "林夏", [locationId]: place.id },
-    })!;
-    const plot = service.create(spaceId, plotsId, {
+    }))!;
+    const plot = (await service.create(spaceId, plotsId, {
       payload: { [nameId]: "追踪", [relatedPeopleId]: [person.id] },
-    })!;
+    }))!;
 
-    expect(() =>
+    await expect(
       service.delete(spaceId, placesId, place.id, place.revisionId, "user"),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_referenced",
         param: {
@@ -225,7 +233,7 @@ describe("memory record reference safety", () => {
         },
       }),
     );
-    expect(() =>
+    await expect(
       service.mutate(spaceId, {
         revisionSource: "agent",
         operations: [
@@ -237,7 +245,7 @@ describe("memory record reference safety", () => {
           },
         ],
       }),
-    ).toThrowError(
+    ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_referenced",
         param: {
@@ -248,16 +256,16 @@ describe("memory record reference safety", () => {
     );
   });
 
-  it("transfers a reference and deletes its old target in one atomic batch", () => {
+  it("transfers a reference and deletes its old target in one atomic batch", async () => {
     const { records, service } = setup();
-    const oldPlace = service.create(spaceId, placesId, { payload: { [nameId]: "旧港" } })!;
-    const newPlace = service.create(spaceId, placesId, { payload: { [nameId]: "新港" } })!;
-    const person = service.create(spaceId, peopleId, {
+    const oldPlace = (await service.create(spaceId, placesId, { payload: { [nameId]: "旧港" } }))!;
+    const newPlace = (await service.create(spaceId, placesId, { payload: { [nameId]: "新港" } }))!;
+    const person = (await service.create(spaceId, peopleId, {
       payload: { [nameId]: "林夏", [locationId]: oldPlace.id },
-    })!;
+    }))!;
 
     expect(
-      service.mutate(spaceId, {
+      await service.mutate(spaceId, {
         revisionSource: "agent",
         operations: [
           {
@@ -276,8 +284,10 @@ describe("memory record reference safety", () => {
         ],
       }),
     ).toMatchObject({ changed: 2 });
-    expect(records.find(spaceId, peopleId, person.id)?.payload[locationId]).toBe(newPlace.id);
-    expect(records.find(spaceId, placesId, oldPlace.id)).toBeUndefined();
+    expect((await records.find(spaceId, peopleId, person.id))?.payload[locationId]).toBe(
+      newPlace.id,
+    );
+    expect(await records.find(spaceId, placesId, oldPlace.id)).toBeUndefined();
     expect(records.history[0]?.payload[locationId]).toBe(oldPlace.id);
   });
 });

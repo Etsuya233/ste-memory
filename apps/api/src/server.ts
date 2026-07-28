@@ -13,8 +13,7 @@ import { registerMemoryRecordRoutes } from "./memory-records/routes.ts";
 import type { MemoryRecordManager } from "./memory-records/types.ts";
 
 export interface ServerDependencies {
-  readonly coreDatabase: DatabaseHealthCheck;
-  readonly sourceStoreDatabase: DatabaseHealthCheck;
+  readonly database: DatabaseHealthCheck;
   readonly memorySpaces: MemorySpaceManager;
   readonly memoryTables: MemoryTableManager;
   readonly memoryFields: MemoryFieldManager;
@@ -82,10 +81,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
 
   server.get("/health", async (): Promise<SystemHealth> => ({
     api: "ok",
-    databases: {
-      core: dependencies.coreDatabase.check(),
-      sourceStore: dependencies.sourceStoreDatabase.check(),
-    },
+    database: await dependencies.database.check(),
   }));
   registerMemorySpaceRoutes(server, dependencies.memorySpaces);
   registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);

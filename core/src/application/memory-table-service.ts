@@ -44,10 +44,13 @@ export class MemoryTableService {
     this.now = now;
   }
 
-  create(memorySpaceId: MemorySpaceId, input: CreateMemoryTableInput): MemoryTable | undefined {
-    if (!this.spaces.find(memorySpaceId)) return undefined;
+  async create(
+    memorySpaceId: MemorySpaceId,
+    input: CreateMemoryTableInput,
+  ): Promise<MemoryTable | undefined> {
+    if (!(await this.spaces.find(memorySpaceId))) return undefined;
     const key = memoryTableKey(input.key);
-    if (this.tables.findByKey(memorySpaceId, key)) {
+    if (await this.tables.findByKey(memorySpaceId, key)) {
       throw new DomainError({
         type: "memory_table_key_conflict",
         humanMsg: "同一记忆空间内的表格 Key 不能重复",
@@ -67,31 +70,31 @@ export class MemoryTableService {
       createdAt: now,
       updatedAt: now,
     };
-    this.tables.create(memoryTable);
+    await this.tables.create(memoryTable);
     return memoryTable;
   }
 
-  delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): boolean {
+  async delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean> {
     return this.tables.delete(memorySpaceId, id);
   }
 
-  find(memorySpaceId: MemorySpaceId, id: MemoryTableId): MemoryTable | undefined {
+  async find(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<MemoryTable | undefined> {
     return this.tables.find(memorySpaceId, id);
   }
 
-  list(memorySpaceId: MemorySpaceId): MemoryTable[] {
+  async list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]> {
     return this.tables.list(memorySpaceId);
   }
 
-  update(
+  async update(
     memorySpaceId: MemorySpaceId,
     id: MemoryTableId,
     input: UpdateMemoryTableInput,
-  ): MemoryTable | undefined {
-    const current = this.tables.find(memorySpaceId, id);
+  ): Promise<MemoryTable | undefined> {
+    const current = await this.tables.find(memorySpaceId, id);
     if (!current) return undefined;
     const key = input.key === undefined ? current.key : memoryTableKey(input.key);
-    const conflict = this.tables.findByKey(memorySpaceId, key);
+    const conflict = await this.tables.findByKey(memorySpaceId, key);
     if (conflict && conflict.id !== id) {
       throw new DomainError({
         type: "memory_table_key_conflict",
@@ -107,7 +110,7 @@ export class MemoryTableService {
       enabled: input.enabled ?? current.enabled,
       updatedAt: this.now(),
     };
-    this.tables.update(updated);
+    await this.tables.update(updated);
     return updated;
   }
 }

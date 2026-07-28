@@ -23,13 +23,13 @@ export interface MemoryRecordHistoryQuery {
 }
 
 export interface MemoryRecordRepository {
-  create(record: MemoryRecord): void;
+  create(record: MemoryRecord): Promise<void>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
-  ): MemoryRecord | undefined;
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): MemoryRecord[];
-  commit(mutations: readonly MemoryRecordMutation[]): boolean;
-  listHistory(query: MemoryRecordHistoryQuery): MemoryRecordHistory[];
+  ): Promise<MemoryRecord | undefined>;
+  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryRecord[]>;
+  commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean>;
+  listHistory(query: MemoryRecordHistoryQuery): Promise<MemoryRecordHistory[]>;
 }

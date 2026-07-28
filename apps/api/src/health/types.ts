@@ -5,12 +5,9 @@ export interface DatabaseStatus {
 
 export interface SystemHealth {
   readonly api: "ok";
-  readonly databases: {
-    readonly core: DatabaseStatus;
-    readonly sourceStore: DatabaseStatus;
-  };
+  readonly database: DatabaseStatus;
 }
 
 export interface DatabaseHealthCheck {
-  check(): DatabaseStatus;
+  check(): Promise<DatabaseStatus>;
 }

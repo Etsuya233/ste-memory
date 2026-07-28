@@ -1,132 +1,110 @@
 import type { MemorySpaceId } from "@ste-memory/core";
-import { openSqliteDatabase } from "@ste-memory/core-sqlite/database";
+import type { UnitOfWork } from "@ste-memory/tools";
+import type { DatabaseContext } from "../database/database-context.ts";
 import { SILLY_TAVERN_SOURCE_TYPE } from "./types.ts";
-import type { ParsedChat, SourceChatSummary, SourceMessage, SourceParseError } from "./types.ts";
+import type {
+  ParsedChat,
+  SourceChatRepository,
+  SourceChatSummary,
+  SourceMessage,
+  SourceParseError,
+} from "./types.ts";
 
-interface MessageRow {
-  readonly source_id: number;
-  readonly content: string;
-  readonly extra_props_json: string;
-}
+const INSERT_BATCH_SIZE = 500;
 
-interface ErrorRow {
-  readonly line_number: number;
-  readonly raw_line: string;
-  readonly message: string;
-}
+export class KyselySourceChatRepository implements SourceChatRepository {
+  readonly #context: DatabaseContext;
+  readonly #unitOfWork: UnitOfWork;
 
-export class SqliteSourceChatRepository {
-  private readonly databaseUrl: string;
-
-  constructor(databaseUrl: string) {
-    this.databaseUrl = databaseUrl;
+  constructor(context: DatabaseContext, unitOfWork: UnitOfWork) {
+    this.#context = context;
+    this.#unitOfWork = unitOfWork;
   }
 
-  create(memorySpaceId: MemorySpaceId, chat: ParsedChat): void {
-    const database = openSqliteDatabase(this.databaseUrl);
-    database.exec("PRAGMA foreign_keys = ON");
-    try {
-      database.exec("BEGIN IMMEDIATE");
-      database
-        .prepare(
-          "INSERT INTO source_store_chats (memory_space_id, source_type, metadata_json, created_at) VALUES (?, ?, ?, ?)",
-        )
-        .run(
-          memorySpaceId,
-          SILLY_TAVERN_SOURCE_TYPE,
-          JSON.stringify(chat.metadata),
-          new Date().toISOString(),
-        );
-      const insertMessage = database.prepare(
-        "INSERT INTO source_store_messages (memory_space_id, source_id, content, extra_props_json) VALUES (?, ?, ?, ?)",
-      );
-      for (const message of chat.messages) {
-        insertMessage.run(
-          memorySpaceId,
-          message.source_id,
-          message.content,
-          JSON.stringify(message.extraProps),
-        );
+  async create(memorySpaceId: MemorySpaceId, chat: ParsedChat): Promise<void> {
+    await this.#unitOfWork.run(async () => {
+      await this.#context.database
+        .insertInto("source_store_chats")
+        .values({
+          memory_space_id: memorySpaceId,
+          source_type: SILLY_TAVERN_SOURCE_TYPE,
+          metadata_json: JSON.stringify(chat.metadata),
+          created_at: new Date().toISOString(),
+        })
+        .execute();
+      for (let offset = 0; offset < chat.messages.length; offset += INSERT_BATCH_SIZE) {
+        const messages = chat.messages.slice(offset, offset + INSERT_BATCH_SIZE);
+        await this.#context.database
+          .insertInto("source_store_messages")
+          .values(
+            messages.map((message) => ({
+              memory_space_id: memorySpaceId,
+              source_id: message.source_id,
+              content: message.content,
+              extra_props_json: JSON.stringify(message.extraProps),
+            })),
+          )
+          .execute();
       }
-      const insertError = database.prepare(
-        "INSERT INTO source_store_parse_errors (memory_space_id, line_number, raw_line, message) VALUES (?, ?, ?, ?)",
-      );
-      for (const error of chat.errors) {
-        insertError.run(memorySpaceId, error.lineNumber, error.rawLine, error.message);
+      for (let offset = 0; offset < chat.errors.length; offset += INSERT_BATCH_SIZE) {
+        const errors = chat.errors.slice(offset, offset + INSERT_BATCH_SIZE);
+        await this.#context.database
+          .insertInto("source_store_parse_errors")
+          .values(
+            errors.map((error) => ({
+              memory_space_id: memorySpaceId,
+              line_number: error.lineNumber,
+              raw_line: error.rawLine,
+              message: error.message,
+            })),
+          )
+          .execute();
       }
-      database.exec("COMMIT");
-    } catch (error) {
-      if (database.isTransaction) database.exec("ROLLBACK");
-      throw error;
-    } finally {
-      database.close();
-    }
+    });
   }
 
-  delete(memorySpaceId: MemorySpaceId): void {
-    const database = openSqliteDatabase(this.databaseUrl);
-    database.exec("PRAGMA foreign_keys = ON");
-    try {
-      database
-        .prepare("DELETE FROM source_store_chats WHERE memory_space_id = ?")
-        .run(memorySpaceId);
-    } finally {
-      database.close();
-    }
+  async messages(memorySpaceId: MemorySpaceId): Promise<SourceMessage[]> {
+    const rows = await this.#context.database
+      .selectFrom("source_store_messages")
+      .select(["source_id", "content", "extra_props_json"])
+      .where("memory_space_id", "=", memorySpaceId)
+      .orderBy("source_id")
+      .execute();
+    return rows.map((message) => ({
+      source_type: SILLY_TAVERN_SOURCE_TYPE,
+      source_id: message.source_id,
+      content: message.content,
+      extraProps: JSON.parse(message.extra_props_json) as Record<string, unknown>,
+    }));
   }
 
-  messages(memorySpaceId: MemorySpaceId): SourceMessage[] {
-    const database = openSqliteDatabase(this.databaseUrl);
-    try {
-      return database
-        .prepare(
-          "SELECT source_id, content, extra_props_json FROM source_store_messages WHERE memory_space_id = ? ORDER BY source_id",
-        )
-        .all(memorySpaceId)
-        .map((row) => {
-          const message = row as unknown as MessageRow;
-          return {
-            source_type: SILLY_TAVERN_SOURCE_TYPE,
-            source_id: message.source_id,
-            content: message.content,
-            extraProps: JSON.parse(message.extra_props_json) as Record<string, unknown>,
-          };
-        });
-    } finally {
-      database.close();
-    }
+  async errors(memorySpaceId: MemorySpaceId): Promise<SourceParseError[]> {
+    const rows = await this.#context.database
+      .selectFrom("source_store_parse_errors")
+      .select(["line_number", "raw_line", "message"])
+      .where("memory_space_id", "=", memorySpaceId)
+      .orderBy("line_number")
+      .execute();
+    return rows.map((error) => ({
+      lineNumber: error.line_number,
+      rawLine: error.raw_line,
+      message: error.message,
+    }));
   }
 
-  errors(memorySpaceId: MemorySpaceId): SourceParseError[] {
-    const database = openSqliteDatabase(this.databaseUrl);
-    try {
-      return database
-        .prepare(
-          "SELECT line_number, raw_line, message FROM source_store_parse_errors WHERE memory_space_id = ? ORDER BY line_number",
-        )
-        .all(memorySpaceId)
-        .map((row) => {
-          const error = row as unknown as ErrorRow;
-          return { lineNumber: error.line_number, rawLine: error.raw_line, message: error.message };
-        });
-    } finally {
-      database.close();
-    }
-  }
-
-  summary(memorySpaceId: MemorySpaceId): SourceChatSummary {
-    const database = openSqliteDatabase(this.databaseUrl);
-    try {
-      const row = database
-        .prepare(
-          `SELECT
-             (SELECT COUNT(*) FROM source_store_messages WHERE memory_space_id = ?) AS message_count,
-             (SELECT COUNT(*) FROM source_store_parse_errors WHERE memory_space_id = ?) AS error_count`,
-        )
-        .get(memorySpaceId, memorySpaceId) as { message_count: number; error_count: number };
-      return { messageCount: row.message_count, errorCount: row.error_count };
-    } finally {
-      database.close();
-    }
+  async summary(memorySpaceId: MemorySpaceId): Promise<SourceChatSummary> {
+    const [messages, errors] = await Promise.all([
+      this.#context.database
+        .selectFrom("source_store_messages")
+        .select(({ fn }) => fn.countAll<number>().as("count"))
+        .where("memory_space_id", "=", memorySpaceId)
+        .executeTakeFirstOrThrow(),
+      this.#context.database
+        .selectFrom("source_store_parse_errors")
+        .select(({ fn }) => fn.countAll<number>().as("count"))
+        .where("memory_space_id", "=", memorySpaceId)
+        .executeTakeFirstOrThrow(),
+    ]);
+    return { messageCount: messages.count, errorCount: errors.count };
   }
 }

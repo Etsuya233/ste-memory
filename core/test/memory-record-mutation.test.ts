@@ -60,31 +60,32 @@ class Records implements MemoryRecordRepository {
   readonly values: MemoryRecord[] = [];
   readonly history: MemoryRecordHistory[] = [];
 
-  create(record: MemoryRecord): void {
+  async create(record: MemoryRecord): Promise<void> {
     this.values.push(record);
   }
 
-  find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
+  async find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
     return this.values.find(
       (record) =>
         record.memorySpaceId === memorySpaceId && record.tableId === tableId && record.id === id,
     );
   }
 
-  list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
+  async list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
     return this.values.filter(
       (record) => record.memorySpaceId === memorySpaceId && record.tableId === tableId,
     );
   }
 
-  commit(mutations: readonly MemoryRecordMutation[]): boolean {
+  async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
     if (
       mutations.some(
         (mutation) =>
-          this.find(
-            mutation.previous.memorySpaceId,
-            mutation.previous.tableId,
-            mutation.previous.id,
+          this.values.find(
+            (record) =>
+              record.memorySpaceId === mutation.previous.memorySpaceId &&
+              record.tableId === mutation.previous.tableId &&
+              record.id === mutation.previous.id,
           )?.revisionId !== mutation.previous.revisionId,
       )
     ) {
@@ -99,7 +100,7 @@ class Records implements MemoryRecordRepository {
     return true;
   }
 
-  listHistory(query: Parameters<MemoryRecordRepository["listHistory"]>[0]) {
+  async listHistory(query: Parameters<MemoryRecordRepository["listHistory"]>[0]) {
     return this.history.filter(
       (item) =>
         item.memorySpaceId === query.memorySpaceId &&
@@ -123,24 +124,32 @@ function setup() {
   let recordNumber = 0;
   let historyNumber = 0;
   const tableRepository: MemoryTableRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, id) =>
       tables.find((item) => item.memorySpaceId === candidateSpaceId && item.id === id),
-    list: (candidateSpaceId) => tables.filter((item) => item.memorySpaceId === candidateSpaceId),
-    update: () => false,
+    findByKey: async (candidateSpaceId, key) =>
+      tables.find((item) => item.memorySpaceId === candidateSpaceId && item.key === key),
+    list: async (candidateSpaceId) =>
+      tables.filter((item) => item.memorySpaceId === candidateSpaceId),
+    update: async () => false,
   };
   const fieldRepository: MemoryFieldRepository = {
-    create() {},
-    delete: () => false,
-    find: (candidateSpaceId, tableId, id) =>
+    async create() {},
+    delete: async () => false,
+    find: async (candidateSpaceId, tableId, id) =>
       fields.find(
         (item) =>
           item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.id === id,
       ),
-    list: (candidateSpaceId, tableId) =>
+    findByKey: async (candidateSpaceId, tableId, key) =>
+      fields.find(
+        (item) =>
+          item.memorySpaceId === candidateSpaceId && item.tableId === tableId && item.key === key,
+      ),
+    list: async (candidateSpaceId, tableId) =>
       fields.filter((item) => item.memorySpaceId === candidateSpaceId && item.tableId === tableId),
-    update: () => false,
+    update: async () => false,
   };
   return {
     records,
@@ -157,14 +166,14 @@ function setup() {
 }
 
 describe("MemoryRecordService mutations", () => {
-  it("patches and deletes records atomically with one revision and complete snapshots", () => {
+  it("patches and deletes records atomically with one revision and complete snapshots", async () => {
     const { records, service } = setup();
-    const person = service.create(spaceId, peopleId, {
+    const person = await service.create(spaceId, peopleId, {
       payload: { [nameId]: "林夏", [noteId]: "旧备注" },
     })!;
-    const place = service.create(spaceId, placesId, { payload: { [nameId]: "港口" } })!;
+    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
 
-    const result = service.mutate(spaceId, {
+    const result = await service.mutate(spaceId, {
       revisionSource: "agent",
       operations: [
         {
@@ -184,14 +193,14 @@ describe("MemoryRecordService mutations", () => {
     });
 
     expect(result).toMatchObject({ revisionId: "revision-batch", changed: 2 });
-    expect(records.find(spaceId, peopleId, person.id)).toMatchObject({
+    expect(await records.find(spaceId, peopleId, person.id)).toMatchObject({
       payload: { [nameId]: "林夏", [noteId]: null },
       revisionId: "revision-batch",
       revisionSource: "agent",
       createdAt: person.createdAt,
       updatedAt: "2026-07-28T02:00:00.000Z",
     });
-    expect(records.find(spaceId, placesId, place.id)).toBeUndefined();
+    expect(await records.find(spaceId, placesId, place.id)).toBeUndefined();
     expect(records.history).toEqual([
       expect.objectContaining({
         id: "history-1",
@@ -211,12 +220,12 @@ describe("MemoryRecordService mutations", () => {
     ]);
   });
 
-  it("rejects a stale expected revision without applying any operation", () => {
+  it("rejects a stale expected revision without applying any operation", async () => {
     const { records, service } = setup();
-    const person = service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } })!;
-    const place = service.create(spaceId, placesId, { payload: { [nameId]: "港口" } })!;
+    const person = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
+    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
 
-    expect(() =>
+    await expect(
       service.mutate(spaceId, {
         revisionSource: "user",
         operations: [
@@ -235,22 +244,22 @@ describe("MemoryRecordService mutations", () => {
           },
         ],
       }),
-    ).toThrowError(expect.objectContaining({ type: "memory_record_revision_conflict" }));
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_revision_conflict" }));
     expect(records.values).toHaveLength(2);
     expect(records.history).toHaveLength(0);
   });
 
-  it("lists immutable history by record, revision, and archive time", () => {
+  it("lists immutable history by record, revision, and archive time", async () => {
     const { service } = setup();
-    const person = service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } })!;
-    service.update(spaceId, peopleId, person.id, {
+    const person = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
+    await service.update(spaceId, peopleId, person.id, {
       expectedRevisionId: person.revisionId,
       patch: { [nameId]: "林夏（化名）" },
       revisionSource: "user",
     });
 
     expect(
-      service.listHistory(spaceId, {
+      await service.listHistory(spaceId, {
         tableId: peopleId,
         recordId: person.id,
         revisionId: "revision-batch" as MemoryRevisionId,
