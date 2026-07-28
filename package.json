@@ -5,11 +5,11 @@
   "packageManager": "pnpm@11.17.0",
   "scripts": {
     "build": "pnpm -r --if-present run build",
-    "dev": "concurrently --kill-others --names api,web \"pnpm --filter @ste-memory/api dev\" \"pnpm --filter @ste-memory/web dev\"",
+    "web:dev": "concurrently --kill-others --names api,web \"pnpm --filter @ste-memory/api dev\" \"pnpm --filter @ste-memory/web dev\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "migrate": "pnpm --filter @ste-memory/api migrate",
+    "web:migrate": "pnpm --filter @ste-memory/api migrate",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present run typecheck"
   },
