@@ -1,6 +1,7 @@
 import {
   DomainError,
   type MemoryField,
+  type MemoryEvidence,
   type MemoryFieldEvidence,
   type MemoryRecord,
   type MemoryRecordHistory,
@@ -69,6 +70,7 @@ export async function commitMemoryRecordMutationBatch(
   context: MemoryRecordMutationContext,
   memorySpaceId: MemorySpaceId,
   input: MemoryRecordMutationBatchInput,
+  evidence: readonly MemoryEvidence[],
 ): Promise<MemoryRecordMutationResult> {
   const revisionId = context.createRevisionId();
   const archivedAt = context.now();
@@ -100,14 +102,14 @@ export async function commitMemoryRecordMutationBatch(
       const displayText = await context.displayText(table, fields, payload);
       if (
         JSON.stringify(payload) === JSON.stringify(previous.payload) &&
-        JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence ?? {}) ===
-          JSON.stringify(previous.fieldEvidence ?? {})
+        JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence) ===
+          JSON.stringify(previous.fieldEvidence)
       )
         continue;
       current = {
         ...previous,
         payload,
-        fieldEvidence: operation.fieldEvidence ?? previous.fieldEvidence ?? {},
+        fieldEvidence: operation.fieldEvidence ?? previous.fieldEvidence,
         displayText,
         revisionId,
         revisionSource: input.revisionSource,
@@ -127,7 +129,7 @@ export async function commitMemoryRecordMutationBatch(
     });
   }
   await validateFinalReferences(context, memorySpaceId, mutations);
-  if (mutations.length > 0 && !(await context.records.commit(mutations))) {
+  if (mutations.length > 0 && !(await context.records.commit(mutations, evidence))) {
     revisionConflict(mutations[0]!.previous.id);
   }
   return { revisionId, changed: mutations.length };
@@ -201,7 +203,7 @@ function historySnapshot(
     memorySpaceId: record.memorySpaceId,
     tableId: record.tableId,
     payload: record.payload,
-    fieldEvidence: record.fieldEvidence ?? {},
+    fieldEvidence: record.fieldEvidence,
     displayText: record.displayText,
     source: record.source,
     previousRevisionId: record.revisionId,

@@ -9,14 +9,28 @@ export type MemoryRecordSource =
       readonly sourceLocation: string | null;
     };
 
-export interface MemoryEvidence {
-  readonly evidence_id: string;
-  readonly source_type: string;
-  readonly source_id: string | number;
-  readonly storage_mode: "snapshot" | "reference";
-  readonly content?: string;
-  readonly extraProps: Readonly<Record<string, unknown>>;
-}
+export type MemoryEvidence =
+  | {
+      readonly evidence_id: string;
+      readonly source_type: string;
+      readonly source_id: string | number;
+      readonly storage_mode: "snapshot";
+      readonly content: string;
+      readonly extraProps: Readonly<Record<string, unknown>>;
+    }
+  | {
+      readonly evidence_id: string;
+      readonly source_type: string;
+      readonly source_id: string | number;
+      readonly storage_mode: "reference";
+      readonly extraProps: Readonly<Record<string, unknown>>;
+    };
+
+export type MemoryEvidenceInput = MemoryEvidence extends infer Evidence
+  ? Evidence extends MemoryEvidence
+    ? Omit<Evidence, "evidence_id">
+    : never
+  : never;
 
 export interface MemoryRecord {
   readonly id: string;
@@ -111,9 +125,7 @@ export async function createMemoryRecord(
   input: {
     readonly payload: Readonly<Record<string, MemoryFieldValue>>;
     readonly source?: MemoryRecordSource;
-    readonly fieldEvidence?: Readonly<
-      Record<string, readonly Omit<MemoryEvidence, "evidence_id">[]>
-    >;
+    readonly fieldEvidence?: Readonly<Record<string, readonly MemoryEvidenceInput[]>>;
   },
 ): Promise<MemoryRecord> {
   return responseJson(
@@ -132,9 +144,7 @@ export async function updateMemoryRecord(
   input: {
     readonly expectedRevisionId: string;
     readonly patch: Readonly<Record<string, MemoryFieldValue>>;
-    readonly fieldEvidence?: Readonly<
-      Record<string, readonly Omit<MemoryEvidence, "evidence_id">[]>
-    >;
+    readonly fieldEvidence?: Readonly<Record<string, readonly MemoryEvidenceInput[]>>;
   },
 ): Promise<MemoryRecord> {
   return responseJson(

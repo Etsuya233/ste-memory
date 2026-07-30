@@ -103,6 +103,11 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_evidence_storage_mode_conflict";
+      readonly param: { readonly sourceType: string; readonly sourceId: string | number };
+      readonly humanMsg: string;
+    }
+  | {
       readonly type: "memory_record_referenced";
       readonly param: {
         readonly recordId: string;

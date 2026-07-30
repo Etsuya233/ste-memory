@@ -2,9 +2,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
+import { Migrator } from "kysely/migration";
 import { describe, expect, it } from "vitest";
 import { createDatabase } from "../src/adapters/outbound/sqlite/database/database.ts";
 import { migrateDatabase } from "../src/adapters/outbound/sqlite/database/migrate.ts";
+import { initialMigration } from "../src/adapters/outbound/sqlite/database/migrations/0001-initial.ts";
 
 describe("application database migrations", () => {
   it("creates the complete schema in one database and remains idempotent", async () => {
@@ -97,6 +99,69 @@ describe("application database migrations", () => {
           .values({ id: "field-2", ...field })
           .execute(),
       ).rejects.toThrow("UNIQUE constraint failed");
+    } finally {
+      await database.destroy();
+    }
+  });
+
+  it("upgrades an existing database and backfills empty field evidence", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ste-memory-evidence-upgrade-"));
+    const database = createDatabase(`sqlite:${join(directory, "application.sqlite")}`);
+    try {
+      const initialResult = await new Migrator({
+        db: database,
+        provider: {
+          async getMigrations() {
+            return { "0001-initial": initialMigration };
+          },
+        },
+      }).migrateToLatest();
+      expect(initialResult.error).toBeUndefined();
+      await sql
+        .raw(
+          `
+        INSERT INTO memory_spaces (id, name, created_at, updated_at)
+        VALUES ('space-1', '会话', '2026-07-28T00:00:00.000Z', '2026-07-28T00:00:00.000Z')
+      `,
+        )
+        .execute(database);
+      await sql
+        .raw(
+          `
+        INSERT INTO memory_tables (
+          id, memory_space_id, key, kind, name, description, prompt, enabled,
+          display_strategy, created_at, updated_at
+        ) VALUES (
+          'table-1', 'space-1', 'people', 'custom', '人物', '', '', 1,
+          NULL, '2026-07-28T00:00:00.000Z', '2026-07-28T00:00:00.000Z'
+        )
+      `,
+        )
+        .execute(database);
+      await sql
+        .raw(
+          `
+        INSERT INTO memory_records (
+          id, memory_space_id, table_id, payload_json, display_text, source_json,
+          revision_id, revision_source, created_at, updated_at
+        ) VALUES (
+          'record-1', 'space-1', 'table-1', '{}', '林夏', '{"type":"manual"}',
+          'revision-1', 'user', '2026-07-28T00:00:00.000Z', '2026-07-28T00:00:00.000Z'
+        )
+      `,
+        )
+        .execute(database);
+
+      await migrateDatabase(database);
+
+      const records = await sql<{ field_evidence_json: string }>`
+        SELECT field_evidence_json FROM memory_records WHERE id = 'record-1'
+      `.execute(database);
+      expect(records.rows[0]?.field_evidence_json).toBe("{}");
+      const evidenceTables = await sql<{ name: string }>`
+        SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'memory_evidence'
+      `.execute(database);
+      expect(evidenceTables.rows[0]?.name).toBe("memory_evidence");
     } finally {
       await database.destroy();
     }

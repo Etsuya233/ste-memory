@@ -175,24 +175,28 @@ describe("MemoryRecordService mutations", () => {
     })!;
     const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
 
-    const result = await service.mutate(spaceId, {
-      revisionSource: "agent",
-      operations: [
-        {
-          type: "update",
-          tableId: peopleId,
-          recordId: person.id,
-          expectedRevisionId: person.revisionId,
-          patch: { [noteId]: null },
-        },
-        {
-          type: "delete",
-          tableId: placesId,
-          recordId: place.id,
-          expectedRevisionId: place.revisionId,
-        },
-      ],
-    });
+    const result = await service.mutate(
+      spaceId,
+      {
+        revisionSource: "agent",
+        operations: [
+          {
+            type: "update",
+            tableId: peopleId,
+            recordId: person.id,
+            expectedRevisionId: person.revisionId,
+            patch: { [noteId]: null },
+          },
+          {
+            type: "delete",
+            tableId: placesId,
+            recordId: place.id,
+            expectedRevisionId: place.revisionId,
+          },
+        ],
+      },
+      [],
+    );
 
     expect(result).toMatchObject({ revisionId: "revision-batch", changed: 2 });
     expect(await records.find(spaceId, peopleId, person.id)).toMatchObject({
@@ -228,24 +232,28 @@ describe("MemoryRecordService mutations", () => {
     const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
 
     await expect(
-      service.mutate(spaceId, {
-        revisionSource: "user",
-        operations: [
-          {
-            type: "update",
-            tableId: peopleId,
-            recordId: person.id,
-            expectedRevisionId: "stale" as MemoryRevisionId,
-            patch: { [nameId]: "周遥" },
-          },
-          {
-            type: "delete",
-            tableId: placesId,
-            recordId: place.id,
-            expectedRevisionId: place.revisionId,
-          },
-        ],
-      }),
+      service.mutate(
+        spaceId,
+        {
+          revisionSource: "user",
+          operations: [
+            {
+              type: "update",
+              tableId: peopleId,
+              recordId: person.id,
+              expectedRevisionId: "stale" as MemoryRevisionId,
+              patch: { [nameId]: "周遥" },
+            },
+            {
+              type: "delete",
+              tableId: placesId,
+              recordId: place.id,
+              expectedRevisionId: place.revisionId,
+            },
+          ],
+        },
+        [],
+      ),
     ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_revision_conflict" }));
     expect(records.values).toHaveLength(2);
     expect(records.history).toHaveLength(0);

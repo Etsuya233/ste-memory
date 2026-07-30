@@ -16,9 +16,12 @@ interface RecordInspectorProps {
   readonly loading: boolean;
   readonly memorySpaceId?: string;
   readonly onRecordMutation: (record: MemoryRecord | undefined) => void;
-  readonly onEvidenceSelect?: (sourceIds: readonly number[], missingIds: readonly number[]) => void;
+  readonly onEvidenceSelect?: (
+    sourceIds: readonly number[],
+    missingIds: readonly (string | number)[],
+  ) => void;
   readonly highlightedSourceIds?: readonly number[];
-  readonly missingSourceIds?: readonly number[];
+  readonly missingSourceIds?: readonly (string | number)[];
 }
 
 export function RecordInspector(props: RecordInspectorProps) {
@@ -96,7 +99,7 @@ export function RecordInspector(props: RecordInspectorProps) {
                       : undefined,
                   )}
                   <FieldEvidenceList
-                    evidence={selection.record.fieldEvidence?.[field.id] ?? []}
+                    evidence={selection.record.fieldEvidence[field.id] ?? []}
                     messages={props.messages}
                     onSelect={(sourceIds, missingIds) => {
                       setTab("chat");
@@ -140,17 +143,24 @@ function FieldEvidenceList({
 }: {
   readonly evidence: readonly MemoryEvidence[];
   readonly messages: readonly { readonly source_id: number }[];
-  readonly onSelect?: (sourceIds: readonly number[], missingIds: readonly number[]) => void;
+  readonly onSelect?: (
+    sourceIds: readonly number[],
+    missingIds: readonly (string | number)[],
+  ) => void;
 }) {
   if (evidence.length === 0)
     return <span className="field-evidence empty">无证据（手动填写）</span>;
   return (
     <div className="field-evidence-list">
       {evidence.map((item) => {
-        const sourceId =
-          typeof item.source_id === "number" ? item.source_id : Number(item.source_id);
-        const exists = messages.some((message) => message.source_id === sourceId);
-        const select = () => onSelect?.(exists ? [sourceId] : [], exists ? [] : [sourceId]);
+        const sourceId = typeof item.source_id === "number" ? item.source_id : undefined;
+        const exists =
+          sourceId !== undefined && messages.some((message) => message.source_id === sourceId);
+        const select = () =>
+          onSelect?.(
+            exists && sourceId !== undefined ? [sourceId] : [],
+            exists ? [] : [item.source_id],
+          );
         return (
           <button className="field-evidence" type="button" key={item.evidence_id} onClick={select}>
             <strong>

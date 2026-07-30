@@ -64,6 +64,7 @@ function record(id: string, name: string, age: number, active: boolean): MemoryR
     memorySpaceId: spaceId,
     tableId,
     payload: { [nameId]: name, [ageId]: age, [activeId]: active },
+    fieldEvidence: {},
     displayText: name,
     source: { type: "manual" },
     revisionId: `revision-${id}` as MemoryRevisionId,

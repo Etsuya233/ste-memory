@@ -1,11 +1,15 @@
 import type { Kysely } from "kysely";
 import { Migrator, type MigrationProvider } from "kysely/migration";
 import { initialMigration } from "./migrations/0001-initial.ts";
+import { fieldEvidenceMigration } from "./migrations/0002-field-evidence.ts";
 import type { DatabaseSchema } from "./schema/database.ts";
 
 const migrations: MigrationProvider = {
   async getMigrations() {
-    return { "0001-initial": initialMigration };
+    return {
+      "0001-initial": initialMigration,
+      "0002-field-evidence": fieldEvidenceMigration,
+    };
   },
 };
 

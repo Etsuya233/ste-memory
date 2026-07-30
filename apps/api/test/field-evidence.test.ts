@@ -33,7 +33,6 @@ describe("field evidence API", () => {
     const reference = {
       source_type: "sillytavern_jsonl",
       source_id: 8,
-      content: "这段正文只在 Source Store 中保留。",
       storage_mode: "reference",
       extraProps: { lineNumber: 9 },
     } as const;
@@ -77,6 +76,70 @@ describe("field evidence API", () => {
     expect(duplicate.json().fieldEvidence[name.id][0].evidence_id).toBe(
       record.fieldEvidence[name.id]![0]!.evidence_id,
     );
+
+    const conflictingMode = await application.server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records`,
+      payload: {
+        payload: { [name.id]: "冲突模式" },
+        fieldEvidence: {
+          [name.id]: [
+            {
+              source_type: snapshot.source_type,
+              source_id: snapshot.source_id,
+              storage_mode: "reference",
+            },
+          ],
+        },
+      },
+    });
+    expect(conflictingMode.statusCode).toBe(409);
+    expect(conflictingMode.json().type).toBe("memory_evidence_storage_mode_conflict");
+
+    const stringReference = await application.server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records`,
+      payload: {
+        payload: { [name.id]: "编号来源" },
+        fieldEvidence: {
+          [name.id]: [
+            {
+              source_type: "external",
+              source_id: "008",
+              storage_mode: "reference",
+              extraProps: { path: "messages/008" },
+            },
+          ],
+        },
+      },
+    });
+    expect(stringReference.json().fieldEvidence[name.id][0].source_id).toBe("008");
+
+    const stale = await application.server.inject({
+      method: "PATCH",
+      url: `/memory-spaces/${space.id}/tables/${table.id}/records/${record.id}`,
+      payload: {
+        expectedRevisionId: "stale-revision",
+        patch: { [name.id]: "不应保存" },
+        fieldEvidence: {
+          [name.id]: [
+            {
+              source_type: "sillytavern_jsonl",
+              source_id: 9,
+              storage_mode: "snapshot",
+              content: "冲突请求中的证据",
+            },
+          ],
+        },
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+    const orphanedEvidence = await application.database
+      .selectFrom("memory_evidence")
+      .select("evidence_id")
+      .where("source_id_json", "=", "9")
+      .execute();
+    expect(orphanedEvidence).toEqual([]);
 
     const updated = await application.server.inject({
       method: "PATCH",

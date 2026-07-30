@@ -99,7 +99,8 @@ export class MemoryRecordService {
     await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
       this.records.find(memorySpaceId, targetTableId, recordId),
     );
-    const fieldEvidence = await this.resolveFieldEvidence(memorySpaceId, input.fieldEvidence);
+    const resolvedEvidence = await this.resolveFieldEvidence(memorySpaceId, input.fieldEvidence);
+    const fieldEvidence = resolvedEvidence.fieldEvidence;
     const source =
       input.source ??
       (Object.keys(fieldEvidence).length > 0
@@ -129,7 +130,7 @@ export class MemoryRecordService {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    await this.records.create(record);
+    await this.records.create(record, resolvedEvidence.createdEvidence);
     return record;
   }
 
@@ -147,26 +148,31 @@ export class MemoryRecordService {
   ): Promise<MemoryRecord | undefined> {
     const previous = await this.records.find(memorySpaceId, tableId, id);
     if (!previous) return undefined;
-    const submittedEvidence = await this.resolveFieldEvidence(memorySpaceId, input.fieldEvidence);
+    const resolvedEvidence = await this.resolveFieldEvidence(memorySpaceId, input.fieldEvidence);
+    const submittedEvidence = resolvedEvidence.fieldEvidence;
     const fieldEvidence: Record<string, readonly MemoryEvidence[]> = {
-      ...(previous.fieldEvidence ?? {}),
+      ...previous.fieldEvidence,
     };
     for (const fieldId of Object.keys(input.patch)) {
       fieldEvidence[fieldId] = submittedEvidence[fieldId] ?? [];
     }
-    await this.mutate(memorySpaceId, {
-      revisionSource: input.revisionSource,
-      operations: [
-        {
-          type: "update",
-          tableId,
-          recordId: id,
-          expectedRevisionId: input.expectedRevisionId,
-          patch: input.patch,
-          fieldEvidence,
-        },
-      ],
-    });
+    await this.mutate(
+      memorySpaceId,
+      {
+        revisionSource: input.revisionSource,
+        operations: [
+          {
+            type: "update",
+            tableId,
+            recordId: id,
+            expectedRevisionId: input.expectedRevisionId,
+            patch: input.patch,
+            fieldEvidence,
+          },
+        ],
+      },
+      resolvedEvidence.createdEvidence,
+    );
     return this.find(memorySpaceId, tableId, id);
   }
 
@@ -178,16 +184,21 @@ export class MemoryRecordService {
     revisionSource: MemoryRevisionSource,
   ): Promise<boolean> {
     if (!(await this.records.find(memorySpaceId, tableId, id))) return false;
-    await this.mutate(memorySpaceId, {
-      revisionSource,
-      operations: [{ type: "delete", tableId, recordId: id, expectedRevisionId }],
-    });
+    await this.mutate(
+      memorySpaceId,
+      {
+        revisionSource,
+        operations: [{ type: "delete", tableId, recordId: id, expectedRevisionId }],
+      },
+      [],
+    );
     return true;
   }
 
   mutate(
     memorySpaceId: MemorySpaceId,
     input: MemoryRecordMutationBatchInput,
+    evidence: readonly MemoryEvidence[],
   ): Promise<MemoryRecordMutationResult> {
     return commitMemoryRecordMutationBatch(
       {
@@ -201,6 +212,7 @@ export class MemoryRecordService {
       },
       memorySpaceId,
       input,
+      evidence,
     );
   }
 
@@ -252,24 +264,35 @@ export class MemoryRecordService {
     await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
       this.records.find(record.memorySpaceId, targetTableId, recordId),
     );
-    return { ...record, payload, fieldEvidence: record.fieldEvidence ?? {} };
+    return { ...record, payload };
   }
 
   private async resolveFieldEvidence(
     memorySpaceId: MemorySpaceId,
     input: Readonly<Record<string, readonly MemoryEvidenceInput[]>> | undefined,
-  ): Promise<MemoryFieldEvidence> {
-    if (!input) return {};
+  ): Promise<{
+    readonly fieldEvidence: MemoryFieldEvidence;
+    readonly createdEvidence: readonly MemoryEvidence[];
+  }> {
+    if (!input) return { fieldEvidence: {}, createdEvidence: [] };
     if (!this.evidence || !this.createEvidenceId) throw new Error("字段证据需要配置证据存储");
     const result: Record<string, MemoryEvidence[]> = {};
+    const createdEvidence: MemoryEvidence[] = [];
+    const createdBySource = new Map<string, MemoryEvidence>();
     for (const [fieldId, entries] of Object.entries(input)) {
       result[fieldId] = [];
       for (const entry of entries) {
-        const existing = await this.evidence.findEvidence(
-          memorySpaceId,
-          entry.source_type,
-          entry.source_id,
-        );
+        const sourceKey = JSON.stringify([entry.source_type, entry.source_id]);
+        const existing =
+          createdBySource.get(sourceKey) ??
+          (await this.evidence.findEvidence(memorySpaceId, entry.source_type, entry.source_id));
+        if (existing && existing.storage_mode !== entry.storage_mode) {
+          throw new DomainError({
+            type: "memory_evidence_storage_mode_conflict",
+            param: { sourceType: entry.source_type, sourceId: entry.source_id },
+            humanMsg: "同一来源不能使用不同的证据存储模式",
+          });
+        }
         const evidence: MemoryEvidence =
           existing ??
           (entry.storage_mode === "snapshot"
@@ -288,11 +311,14 @@ export class MemoryRecordService {
                 storage_mode: "reference",
                 extraProps: entry.extraProps ?? {},
               });
-        if (!existing) await this.evidence.createEvidence(memorySpaceId, evidence);
+        if (!existing) {
+          createdBySource.set(sourceKey, evidence);
+          createdEvidence.push(evidence);
+        }
         result[fieldId]!.push(evidence);
       }
     }
-    return result;
+    return { fieldEvidence: result, createdEvidence };
   }
 
   private async displayText(

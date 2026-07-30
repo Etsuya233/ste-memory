@@ -194,18 +194,22 @@ describe("memory record reference safety", () => {
       );
     }
     await expect(
-      service.mutate(spaceId, {
-        revisionSource: "agent",
-        operations: [
-          {
-            type: "update",
-            tableId: peopleId,
-            recordId: person.id,
-            expectedRevisionId: person.revisionId,
-            patch: { [locationId]: person.id },
-          },
-        ],
-      }),
+      service.mutate(
+        spaceId,
+        {
+          revisionSource: "agent",
+          operations: [
+            {
+              type: "update",
+              tableId: peopleId,
+              recordId: person.id,
+              expectedRevisionId: person.revisionId,
+              patch: { [locationId]: person.id },
+            },
+          ],
+        },
+        [],
+      ),
     ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_reference_invalid",
@@ -236,17 +240,21 @@ describe("memory record reference safety", () => {
       }),
     );
     await expect(
-      service.mutate(spaceId, {
-        revisionSource: "agent",
-        operations: [
-          {
-            type: "delete",
-            tableId: peopleId,
-            recordId: person.id,
-            expectedRevisionId: person.revisionId,
-          },
-        ],
-      }),
+      service.mutate(
+        spaceId,
+        {
+          revisionSource: "agent",
+          operations: [
+            {
+              type: "delete",
+              tableId: peopleId,
+              recordId: person.id,
+              expectedRevisionId: person.revisionId,
+            },
+          ],
+        },
+        [],
+      ),
     ).rejects.toThrowError(
       expect.objectContaining({
         type: "memory_record_referenced",
@@ -267,24 +275,28 @@ describe("memory record reference safety", () => {
     }))!;
 
     expect(
-      await service.mutate(spaceId, {
-        revisionSource: "agent",
-        operations: [
-          {
-            type: "update",
-            tableId: peopleId,
-            recordId: person.id,
-            expectedRevisionId: person.revisionId,
-            patch: { [locationId]: newPlace.id },
-          },
-          {
-            type: "delete",
-            tableId: placesId,
-            recordId: oldPlace.id,
-            expectedRevisionId: oldPlace.revisionId,
-          },
-        ],
-      }),
+      await service.mutate(
+        spaceId,
+        {
+          revisionSource: "agent",
+          operations: [
+            {
+              type: "update",
+              tableId: peopleId,
+              recordId: person.id,
+              expectedRevisionId: person.revisionId,
+              patch: { [locationId]: newPlace.id },
+            },
+            {
+              type: "delete",
+              tableId: placesId,
+              recordId: oldPlace.id,
+              expectedRevisionId: oldPlace.revisionId,
+            },
+          ],
+        },
+        [],
+      ),
     ).toMatchObject({ changed: 2 });
     expect((await records.find(spaceId, peopleId, person.id))?.payload[locationId]).toBe(
       newPlace.id,

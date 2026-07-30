@@ -44,7 +44,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
   const [recordSelection, setRecordSelection] = useState<RecordSelection>();
   const [recordRefreshVersion, setRecordRefreshVersion] = useState(0);
   const [highlightedSourceIds, setHighlightedSourceIds] = useState<readonly number[]>([]);
-  const [missingSourceIds, setMissingSourceIds] = useState<readonly number[]>([]);
+  const [missingSourceIds, setMissingSourceIds] = useState<readonly (string | number)[]>([]);
   const [dialog, setDialog] = useState<
     { mode: "create" } | { mode: "delete"; table: MemoryTable }
   >();

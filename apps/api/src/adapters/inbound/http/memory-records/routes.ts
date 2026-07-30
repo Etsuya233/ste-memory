@@ -51,7 +51,6 @@ function fieldEvidence(
       if (
         typeof candidate.source_type !== "string" ||
         (typeof candidate.source_id !== "string" && typeof candidate.source_id !== "number") ||
-        typeof candidate.content !== "string" ||
         (candidate.storage_mode !== "snapshot" && candidate.storage_mode !== "reference") ||
         (candidate.extraProps !== undefined &&
           (typeof candidate.extraProps !== "object" ||
@@ -59,11 +58,20 @@ function fieldEvidence(
             Array.isArray(candidate.extraProps)))
       )
         throw new Error("字段证据格式无效");
+      if (candidate.storage_mode === "snapshot") {
+        if (typeof candidate.content !== "string") throw new Error("字段证据格式无效");
+        return {
+          source_type: candidate.source_type,
+          source_id: candidate.source_id,
+          content: candidate.content,
+          storage_mode: "snapshot",
+          extraProps: (candidate.extraProps ?? {}) as Record<string, unknown>,
+        };
+      }
       return {
         source_type: candidate.source_type,
         source_id: candidate.source_id,
-        content: candidate.content,
-        storage_mode: candidate.storage_mode,
+        storage_mode: "reference",
         extraProps: (candidate.extraProps ?? {}) as Record<string, unknown>,
       };
     });

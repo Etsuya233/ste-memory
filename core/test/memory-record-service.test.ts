@@ -253,6 +253,7 @@ describe("MemoryRecordService", () => {
       memorySpaceId: spaceId,
       tableId: characterTableId,
       payload: { [nameId]: "林夏", [ageId]: 27.5 },
+      fieldEvidence: {},
       displayText: "林夏",
       source: { type: "manual" },
       revisionId: "revision-1" as MemoryRevisionId,

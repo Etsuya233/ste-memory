@@ -71,23 +71,26 @@ export class KyselyMemoryRecordRepository
     this.#unitOfWork = unitOfWork;
   }
 
-  async create(record: MemoryRecord): Promise<void> {
-    await this.#context.database
-      .insertInto("memory_records")
-      .values({
-        id: record.id,
-        memory_space_id: record.memorySpaceId,
-        table_id: record.tableId,
-        payload_json: JSON.stringify(record.payload),
-        field_evidence_json: JSON.stringify(record.fieldEvidence ?? {}),
-        display_text: record.displayText,
-        source_json: JSON.stringify(record.source),
-        revision_id: record.revisionId,
-        revision_source: record.revisionSource,
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      })
-      .execute();
+  async create(record: MemoryRecord, evidence: readonly MemoryEvidence[]): Promise<void> {
+    await this.#unitOfWork.run(async () => {
+      await this.#saveEvidence(record.memorySpaceId, evidence);
+      await this.#context.database
+        .insertInto("memory_records")
+        .values({
+          id: record.id,
+          memory_space_id: record.memorySpaceId,
+          table_id: record.tableId,
+          payload_json: JSON.stringify(record.payload),
+          field_evidence_json: JSON.stringify(record.fieldEvidence),
+          display_text: record.displayText,
+          source_json: JSON.stringify(record.source),
+          revision_id: record.revisionId,
+          revision_source: record.revisionSource,
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        })
+        .execute();
+    });
   }
 
   async find(
@@ -117,9 +120,13 @@ export class KyselyMemoryRecordRepository
     return rows.map(toMemoryRecord);
   }
 
-  async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
+  async commit(
+    mutations: readonly MemoryRecordMutation[],
+    evidence: readonly MemoryEvidence[],
+  ): Promise<boolean> {
     try {
       await this.#unitOfWork.run(async () => {
+        await this.#saveEvidence(mutations[0]!.previous.memorySpaceId, evidence);
         for (const mutation of mutations) {
           const history = mutation.history;
           await this.#context.database
@@ -130,7 +137,7 @@ export class KyselyMemoryRecordRepository
               memory_space_id: history.memorySpaceId,
               table_id: history.tableId,
               payload_json: JSON.stringify(history.payload),
-              field_evidence_json: JSON.stringify(history.fieldEvidence ?? {}),
+              field_evidence_json: JSON.stringify(history.fieldEvidence),
               display_text: history.displayText,
               source_json: JSON.stringify(history.source),
               previous_revision_id: history.previousRevisionId,
@@ -147,7 +154,7 @@ export class KyselyMemoryRecordRepository
                 .updateTable("memory_records")
                 .set({
                   payload_json: JSON.stringify(mutation.current.payload),
-                  field_evidence_json: JSON.stringify(mutation.current.fieldEvidence ?? {}),
+                  field_evidence_json: JSON.stringify(mutation.current.fieldEvidence),
                   display_text: mutation.current.displayText,
                   source_json: JSON.stringify(mutation.current.source),
                   revision_id: mutation.current.revisionId,
@@ -206,40 +213,47 @@ export class KyselyMemoryRecordRepository
       .selectAll()
       .where("memory_space_id", "=", memorySpaceId)
       .where("source_type", "=", sourceType)
-      .where("source_id", "=", String(sourceId))
+      .where("source_id_json", "=", JSON.stringify(sourceId))
       .executeTakeFirst();
     if (!row) return undefined;
-    const sourceIdValue = /^\d+$/.test(row.source_id) ? Number(row.source_id) : row.source_id;
-    return row.storage_mode === "snapshot"
-      ? {
-          evidence_id: row.evidence_id as MemoryEvidenceId,
-          source_type: row.source_type,
-          source_id: sourceIdValue,
-          storage_mode: "snapshot",
-          content: row.content ?? "",
-          extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
-        }
-      : {
-          evidence_id: row.evidence_id as MemoryEvidenceId,
-          source_type: row.source_type,
-          source_id: sourceIdValue,
-          storage_mode: "reference",
-          extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
-        };
+    const sourceIdValue = JSON.parse(row.source_id_json) as string | number;
+    if (row.storage_mode === "snapshot") {
+      if (row.content === null) throw new Error("快照证据缺少正文");
+      return {
+        evidence_id: row.evidence_id as MemoryEvidenceId,
+        source_type: row.source_type,
+        source_id: sourceIdValue,
+        storage_mode: "snapshot",
+        content: row.content,
+        extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
+      };
+    }
+    return {
+      evidence_id: row.evidence_id as MemoryEvidenceId,
+      source_type: row.source_type,
+      source_id: sourceIdValue,
+      storage_mode: "reference",
+      extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
+    };
   }
 
-  async createEvidence(memorySpaceId: MemorySpaceId, evidence: MemoryEvidence): Promise<void> {
-    await this.#context.database
-      .insertInto("memory_evidence")
-      .values({
-        memory_space_id: memorySpaceId,
-        evidence_id: evidence.evidence_id,
-        source_type: evidence.source_type,
-        source_id: String(evidence.source_id),
-        storage_mode: evidence.storage_mode,
-        content: evidence.storage_mode === "snapshot" ? evidence.content : null,
-        extra_props_json: JSON.stringify(evidence.extraProps),
-      })
-      .execute();
+  async #saveEvidence(
+    memorySpaceId: MemorySpaceId,
+    evidenceEntries: readonly MemoryEvidence[],
+  ): Promise<void> {
+    for (const evidence of evidenceEntries) {
+      await this.#context.database
+        .insertInto("memory_evidence")
+        .values({
+          memory_space_id: memorySpaceId,
+          evidence_id: evidence.evidence_id,
+          source_type: evidence.source_type,
+          source_id_json: JSON.stringify(evidence.source_id),
+          storage_mode: evidence.storage_mode,
+          content: evidence.storage_mode === "snapshot" ? evidence.content : null,
+          extra_props_json: JSON.stringify(evidence.extraProps),
+        })
+        .execute();
+    }
   }
 }

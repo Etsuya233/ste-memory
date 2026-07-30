@@ -52,6 +52,7 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_record_source_invalid: "记录来源格式无效",
   memory_record_query_invalid: "记录查询参数无效",
   memory_record_unknown_field: "记录包含未知字段",
+  memory_evidence_storage_mode_conflict: "同一来源不能使用不同的证据存储模式",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
@@ -68,7 +69,8 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
     if (error instanceof DomainError) {
       const statusCode =
         error.type === "memory_record_revision_conflict" ||
-        error.type === "memory_record_referenced"
+        error.type === "memory_record_referenced" ||
+        error.type === "memory_evidence_storage_mode_conflict"
           ? 409
           : error.type === "memory_record_not_found"
             ? 404

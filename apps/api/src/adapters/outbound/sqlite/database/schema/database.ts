@@ -72,7 +72,7 @@ export interface MemoryEvidenceTable {
   memory_space_id: string;
   evidence_id: string;
   source_type: string;
-  source_id: string;
+  source_id_json: string;
   storage_mode: "snapshot" | "reference";
   content: string | null;
   extra_props_json: string;

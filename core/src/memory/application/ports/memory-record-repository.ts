@@ -14,7 +14,6 @@ export interface MemoryEvidenceRepository {
     sourceType: string,
     sourceId: string | number,
   ): Promise<MemoryEvidence | undefined>;
-  createEvidence(memorySpaceId: MemorySpaceId, evidence: MemoryEvidence): Promise<void>;
 }
 
 export interface MemoryRecordMutation {
@@ -33,13 +32,16 @@ export interface MemoryRecordHistoryQuery {
 }
 
 export interface MemoryRecordRepository {
-  create(record: MemoryRecord): Promise<void>;
+  create(record: MemoryRecord, evidence: readonly MemoryEvidence[]): Promise<void>;
   find(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
     id: MemoryRecordId,
   ): Promise<MemoryRecord | undefined>;
   list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<MemoryRecord[]>;
-  commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean>;
+  commit(
+    mutations: readonly MemoryRecordMutation[],
+    evidence: readonly MemoryEvidence[],
+  ): Promise<boolean>;
   listHistory(query: MemoryRecordHistoryQuery): Promise<MemoryRecordHistory[]>;
 }

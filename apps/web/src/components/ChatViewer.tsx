@@ -7,7 +7,7 @@ interface ChatViewerProps {
   readonly errors: readonly SourceParseError[];
   readonly loading: boolean;
   readonly highlightedSourceIds?: readonly number[];
-  readonly missingSourceIds?: readonly number[];
+  readonly missingSourceIds?: readonly (string | number)[];
 }
 
 function speaker(message: SourceMessage): string {
