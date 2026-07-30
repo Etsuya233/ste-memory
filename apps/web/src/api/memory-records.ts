@@ -54,10 +54,21 @@ export async function listMemoryRecords(
   tableId: string,
   input: { readonly page: number; readonly pageSize: number; readonly search: string },
 ): Promise<MemoryRecordPage> {
-  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
-  if (input.search.trim()) query.set("search", input.search.trim());
+  const search = input.search.trim();
+  const conditions = search
+    ? [{ fieldId: "$display_text", operator: "contains", value: search }]
+    : [];
   return responseJson(
-    await fetch(`${API_URL}/memory-spaces/${memorySpaceId}/tables/${tableId}/records?${query}`),
+    await fetch(`${API_URL}/memory-spaces/${memorySpaceId}/query-records`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tableId,
+        conditions,
+        paging: { page: input.page, pageSize: input.pageSize },
+        order: { fieldId: "$created_at", direction: "asc" },
+      }),
+    }),
   );
 }
 

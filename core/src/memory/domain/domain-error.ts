@@ -85,6 +85,19 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_record_query_invalid";
+      readonly param: {
+        readonly tableId: unknown;
+        readonly fieldId?: unknown;
+        readonly fieldIds: unknown;
+        readonly conditions: unknown;
+        readonly paging: unknown;
+        readonly order: unknown;
+        readonly reason: string;
+      };
+      readonly humanMsg: string;
+    }
+  | {
       readonly type: "memory_record_revision_conflict";
       readonly param: { readonly recordId: string };
       readonly humanMsg: string;

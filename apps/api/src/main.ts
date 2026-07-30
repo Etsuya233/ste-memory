@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   MemoryFieldService,
+  MemoryRecordQueryService,
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
@@ -35,6 +36,11 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
     const memoryTableRepository = new KyselyMemoryTableRepository(context);
     const memoryFieldRepository = new KyselyMemoryFieldRepository(context);
     const memoryRecordRepository = new KyselyMemoryRecordRepository(context, unitOfWork);
+    const memoryRecordQueries = new MemoryRecordQueryService(
+      memoryTableRepository,
+      memoryFieldRepository,
+      memoryRecordRepository,
+    );
     const memoryTableService = new MemoryTableService(
       memorySpaceRepository,
       memoryTableRepository,
@@ -71,6 +77,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         () => randomUUID() as MemoryRevisionId,
         () => new Date().toISOString(),
       ),
+      memoryRecordQueries,
     });
     server.addHook("onClose", async () => database.destroy());
     await server.listen({ host: config.host, port: config.port });

@@ -8,6 +8,7 @@ import type {
   MemoryRecordPage,
   UpdateMemoryRecordInput,
 } from "../memory-record-service.ts";
+import type { QueryRecordsInput, QueryRecordsPage } from "../memory-record-query-service.ts";
 import type { MemoryRecordHistoryQuery } from "./memory-record-repository.ts";
 import type { MemoryField, MemoryFieldId } from "../../domain/memory-field.ts";
 import type {
@@ -99,6 +100,10 @@ export interface MemoryRecordUseCases {
     memorySpaceId: MemorySpaceId,
     query: Omit<MemoryRecordHistoryQuery, "memorySpaceId">,
   ): Promise<readonly MemoryRecordHistory[]>;
+}
+
+export interface MemoryRecordQueryUseCases {
+  query(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage>;
 }
 
 export interface MemorySpaceUseCases {

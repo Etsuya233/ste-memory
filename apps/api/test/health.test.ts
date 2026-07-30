@@ -4,6 +4,7 @@ import type { MemorySpaceManager } from "../src/application/ports/memory-space.t
 import type { MemoryTableManager } from "../src/application/ports/memory-table.ts";
 import type { MemoryFieldManager } from "../src/application/ports/memory-field.ts";
 import type { MemoryRecordManager } from "../src/application/ports/memory-record.ts";
+import type { MemoryRecordQueryManager } from "../src/application/ports/memory-record-query.ts";
 import { buildServer } from "../src/adapters/inbound/http/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
@@ -51,6 +52,10 @@ const memoryRecords: MemoryRecordManager = {
   listHistory: async () => [],
 };
 
+const memoryRecordQueries: MemoryRecordQueryManager = {
+  query: async () => ({ records: [], page: 1, pageSize: 1, total: 0, totalPages: 0 }),
+};
+
 describe("GET /health", () => {
   it("reports API and database connection status", async () => {
     const server = await buildServer({
@@ -59,6 +64,7 @@ describe("GET /health", () => {
       memoryTables,
       memoryFields,
       memoryRecords,
+      memoryRecordQueries,
     });
 
     const response = await server.inject({ method: "GET", url: "/health" });

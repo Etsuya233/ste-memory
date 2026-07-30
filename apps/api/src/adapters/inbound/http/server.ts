@@ -11,6 +11,7 @@ import { registerMemorySpaceRoutes } from "./memory-spaces/routes.ts";
 import type { MemorySpaceManager } from "../../../application/ports/memory-space.ts";
 import { registerMemoryRecordRoutes } from "./memory-records/routes.ts";
 import type { MemoryRecordManager } from "../../../application/ports/memory-record.ts";
+import type { MemoryRecordQueryManager } from "../../../application/ports/memory-record-query.ts";
 
 export interface ServerDependencies {
   readonly database: DatabaseHealthCheck;
@@ -18,6 +19,7 @@ export interface ServerDependencies {
   readonly memoryTables: MemoryTableManager;
   readonly memoryFields: MemoryFieldManager;
   readonly memoryRecords: MemoryRecordManager;
+  readonly memoryRecordQueries: MemoryRecordQueryManager;
 }
 
 const domainErrorMessages: Record<DomainErrorType, string> = {
@@ -48,6 +50,7 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_record_revision_conflict: "记忆记录已更新，请刷新后重试",
   memory_record_required_field_missing: "记录缺少必填字段",
   memory_record_source_invalid: "记录来源格式无效",
+  memory_record_query_invalid: "记录查询参数无效",
   memory_record_unknown_field: "记录包含未知字段",
 };
 
@@ -86,7 +89,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemorySpaceRoutes(server, dependencies.memorySpaces);
   registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);
   registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
-  registerMemoryRecordRoutes(server, dependencies.memoryRecords);
+  registerMemoryRecordRoutes(server, dependencies.memoryRecords, dependencies.memoryRecordQueries);
 
   return server;
 }

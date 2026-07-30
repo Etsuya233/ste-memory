@@ -4,9 +4,11 @@ import type {
   MemoryRevisionId,
   MemorySpaceId,
   MemoryTableId,
+  QueryRecordsInput,
 } from "@ste-memory/core/memory";
 import type { FastifyInstance } from "fastify";
 import type { MemoryRecordManager } from "../../../../application/ports/memory-record.ts";
+import type { MemoryRecordQueryManager } from "../../../../application/ports/memory-record-query.ts";
 
 interface RecordParams {
   readonly spaceId: string;
@@ -66,7 +68,13 @@ function recordSource(value: unknown): MemoryRecordSource | undefined {
 export function registerMemoryRecordRoutes(
   server: FastifyInstance,
   memoryRecords: MemoryRecordManager,
+  memoryRecordQueries: MemoryRecordQueryManager,
 ): void {
+  server.post<{ Params: Pick<RecordParams, "spaceId">; Body: QueryRecordsInput }>(
+    "/memory-spaces/:spaceId/query-records",
+    async (request) =>
+      memoryRecordQueries.query(request.params.spaceId as MemorySpaceId, request.body),
+  );
   server.post<{ Params: Omit<RecordParams, "recordId">; Body: CreateBody }>(
     "/memory-spaces/:spaceId/tables/:tableId/records",
     async (request, reply) => {

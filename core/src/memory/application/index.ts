@@ -11,6 +11,15 @@ export type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 export type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 export type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 export { MemoryRecordService } from "./memory-record-service.ts";
+export { MemoryRecordQueryService } from "./memory-record-query-service.ts";
+export type {
+  QueryRecordFieldId,
+  QueryRecordOperator,
+  QueryRecordSystemFieldId,
+  QueryRecordsCondition,
+  QueryRecordsInput,
+  QueryRecordsPage,
+} from "./memory-record-query-service.ts";
 export type {
   CreateMemoryRecordInput,
   MemoryRecordPage,
@@ -29,6 +38,7 @@ export type {
 export type {
   MemoryFieldUseCases,
   MemoryRecordUseCases,
+  MemoryRecordQueryUseCases,
   MemorySpaceUseCases,
   MemoryTableUseCases,
 } from "./ports/inbound.ts";

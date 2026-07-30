@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MemoryFieldService,
+  MemoryRecordQueryService,
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
@@ -38,6 +39,11 @@ export async function createTestApplication(prefix: string, timestamp: string) {
   const tableRepository = new KyselyMemoryTableRepository(context);
   const fieldRepository = new KyselyMemoryFieldRepository(context);
   const recordRepository = new KyselyMemoryRecordRepository(context, unitOfWork);
+  const memoryRecordQueries = new MemoryRecordQueryService(
+    tableRepository,
+    fieldRepository,
+    recordRepository,
+  );
   const spaces = new MemorySpaceService(
     spaceRepository,
     () => randomUUID() as MemorySpaceId,
@@ -76,6 +82,7 @@ export async function createTestApplication(prefix: string, timestamp: string) {
       () => randomUUID() as MemoryRevisionId,
       () => timestamp,
     ),
+    memoryRecordQueries,
   });
   server.addHook("onClose", async () => database.destroy());
   return {
