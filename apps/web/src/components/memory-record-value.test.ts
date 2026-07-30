@@ -8,9 +8,9 @@ const reference = {
 } as MemoryRecord;
 
 describe("formatMemoryFieldValue", () => {
-  it("renders reference display text while preserving its stable ID", () => {
-    expect(formatMemoryFieldValue("record-1", "未填写", [reference])).toBe("港口 · record-1");
-    expect(formatMemoryFieldValue(["record-1"], "未填写", [reference])).toBe("港口 · record-1");
+  it("renders the display text of a current reference", () => {
+    expect(formatMemoryFieldValue("record-1", "未填写", [reference])).toBe("港口");
+    expect(formatMemoryFieldValue(["record-1"], "未填写", [reference])).toBe("港口");
   });
 
   it("keeps a historical reference ID visible when its current target is gone", () => {

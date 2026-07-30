@@ -35,9 +35,10 @@ p {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .topbar {
   height: 64px;
@@ -136,9 +137,11 @@ button:disabled {
 }
 
 .workspace {
-  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
+  min-height: 0;
   display: grid;
   grid-template-columns: 310px minmax(0, 1fr);
+  overflow: hidden;
 }
 .sidebar {
   min-height: 0;

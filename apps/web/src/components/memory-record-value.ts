@@ -13,7 +13,7 @@ export function formatMemoryFieldValue(
       recordIds
         .map((recordId) => {
           const target = recordsById.get(recordId);
-          return target ? `${target.displayText || "未命名记录"} · ${recordId}` : recordId;
+          return target ? target.displayText || "未命名记录" : recordId;
         })
         .join(", ") || emptyText
     );

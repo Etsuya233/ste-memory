@@ -1,16 +1,37 @@
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  LoaderCircle,
+  Plus,
+  Search,
+} from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { listMemoryFields, type MemoryField } from "../api/memory-fields.ts";
 import {
+  createMemoryRecord,
   listAllMemoryRecords,
   listMemoryRecords,
+  updateMemoryRecord,
+  type MemoryFieldValue,
   type MemoryRecord,
   type MemoryRecordPage,
   type MemoryRecordsByTable,
 } from "../api/memory-records.ts";
 import type { MemoryTable } from "../api/memory-tables.ts";
-import { RecordDialog } from "./RecordDialog.tsx";
-import { formatMemoryFieldValue } from "./memory-record-value.ts";
+import { RecordCell } from "./RecordCell.tsx";
 
 export interface RecordSelection {
   readonly record: MemoryRecord;
@@ -25,6 +46,303 @@ interface RecordTableProps {
   readonly refreshVersion: number;
 }
 
+type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+
+const saveStateContent = {
+  idle: { icon: Circle, label: "无修改" },
+  dirty: { icon: Circle, label: "待保存" },
+  saving: { icon: LoaderCircle, label: "保存中" },
+  saved: { icon: Check, label: "已保存" },
+  error: { icon: AlertCircle, label: "保存失败" },
+} as const;
+
+function SaveIndicator({
+  state,
+  message,
+}: {
+  readonly state: SaveState;
+  readonly message?: string;
+}) {
+  const content = saveStateContent[state];
+  const Icon = content.icon;
+  return (
+    <span className={`record-save-state ${state}`} title={message || content.label}>
+      <Icon size={14} className={state === "saving" ? "spinning" : ""} />
+      {message || content.label}
+    </span>
+  );
+}
+
+interface ResizeHandleProps {
+  readonly axis: "column" | "row";
+  readonly size: number;
+  readonly minSize: number;
+  readonly label: string;
+  readonly onResize: (size: number) => void;
+}
+
+function ResizeHandle({ axis, size, minSize, label, onResize }: ResizeHandleProps) {
+  function startResize(event: ReactPointerEvent<HTMLSpanElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const startPosition = axis === "column" ? event.clientX : event.clientY;
+    const resize = (moveEvent: PointerEvent) => {
+      const position = axis === "column" ? moveEvent.clientX : moveEvent.clientY;
+      onResize(Math.max(minSize, size + position - startPosition));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  }
+
+  function resizeWithKeyboard(event: KeyboardEvent<HTMLSpanElement>) {
+    const decrease = axis === "column" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
+    const increase = axis === "column" ? event.key === "ArrowRight" : event.key === "ArrowDown";
+    if (!decrease && !increase) return;
+    event.preventDefault();
+    onResize(Math.max(minSize, size + (increase ? 12 : -12)));
+  }
+
+  return (
+    <span
+      className={`record-${axis}-resize-handle`}
+      role="separator"
+      aria-label={label}
+      aria-orientation={axis === "column" ? "vertical" : "horizontal"}
+      tabIndex={0}
+      onKeyDown={resizeWithKeyboard}
+      onPointerDown={startResize}
+    />
+  );
+}
+
+interface RecordColumn {
+  readonly key: string;
+  readonly label: ReactNode;
+  readonly resizeLabel: string;
+  readonly defaultWidth: number;
+  readonly className?: string;
+}
+
+interface EditableRecordRowProps {
+  readonly memorySpaceId: string;
+  readonly tableId: string;
+  readonly record: MemoryRecord;
+  readonly fields: readonly MemoryField[];
+  readonly referenceRecords: MemoryRecordsByTable;
+  readonly onSaved: (record: MemoryRecord) => void;
+  readonly onSelect: (record: MemoryRecord) => void;
+}
+
+function EditableRecordRow(props: EditableRecordRowProps) {
+  const [payload, setPayload] = useState<Record<string, MemoryFieldValue>>(() => ({
+    ...props.record.payload,
+  }));
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveMessage, setSaveMessage] = useState<string>();
+  const recordRef = useRef(props.record);
+  const saveQueueRef = useRef(Promise.resolve());
+  const fieldVersionsRef = useRef<Record<string, number>>({});
+  const [rowHeight, setRowHeight] = useState(54);
+
+  useEffect(() => {
+    if (recordRef.current.revisionId === props.record.revisionId) return;
+    recordRef.current = props.record;
+    setPayload({ ...props.record.payload });
+  }, [props.record]);
+
+  function change(fieldId: string, value: MemoryFieldValue | undefined) {
+    fieldVersionsRef.current[fieldId] = (fieldVersionsRef.current[fieldId] ?? 0) + 1;
+    setPayload((current) => {
+      const next = { ...current };
+      if (value === undefined) delete next[fieldId];
+      else next[fieldId] = value;
+      return next;
+    });
+    setSaveState("dirty");
+    setSaveMessage(undefined);
+  }
+
+  function save(fieldId: string) {
+    const value = payload[fieldId];
+    const fieldVersion = fieldVersionsRef.current[fieldId] ?? 0;
+    if (JSON.stringify(recordRef.current.payload[fieldId]) === JSON.stringify(value)) return;
+    setSaveState("saving");
+    setSaveMessage(undefined);
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      try {
+        const updated = await updateMemoryRecord(
+          props.memorySpaceId,
+          props.tableId,
+          recordRef.current.id,
+          {
+            expectedRevisionId: recordRef.current.revisionId,
+            patch: { [fieldId]: value === undefined ? null : value },
+          },
+        );
+        recordRef.current = updated;
+        if ((fieldVersionsRef.current[fieldId] ?? 0) === fieldVersion) {
+          setPayload((current) => {
+            const next = { ...current };
+            const savedValue = updated.payload[fieldId];
+            if (savedValue === undefined) delete next[fieldId];
+            else next[fieldId] = savedValue;
+            return next;
+          });
+        }
+        setSaveState("saved");
+        props.onSaved(updated);
+      } catch (cause) {
+        setSaveState("error");
+        setSaveMessage(cause instanceof Error ? cause.message : "无法保存记录");
+      }
+    });
+  }
+
+  return (
+    <tr
+      style={{ height: rowHeight }}
+      onClick={() => props.onSelect(recordRef.current)}
+      onFocus={() => props.onSelect(recordRef.current)}
+    >
+      <td className="record-status-cell">
+        <SaveIndicator state={saveState} message={saveMessage} />
+        <ResizeHandle
+          axis="row"
+          size={rowHeight}
+          minSize={42}
+          label="调整记录行高"
+          onResize={setRowHeight}
+        />
+      </td>
+      <td className="record-display-cell">
+        <strong>{recordRef.current.displayText || "未命名记录"}</strong>
+      </td>
+      {props.fields.map((field) => (
+        <td key={field.id} className={!field.enabled ? "disabled-record-cell" : undefined}>
+          <RecordCell
+            field={field}
+            value={payload[field.id]}
+            referenceRecords={
+              field.referenceTableId ? (props.referenceRecords[field.referenceTableId] ?? []) : []
+            }
+            onBlur={() => save(field.id)}
+            onChange={(value) => change(field.id, value)}
+          />
+        </td>
+      ))}
+      <td className="record-id-cell">
+        <code>{recordRef.current.id}</code>
+      </td>
+      <td>{recordRef.current.source.type === "manual" ? "手动" : "来源"}</td>
+    </tr>
+  );
+}
+
+interface NewRecordRowProps {
+  readonly memorySpaceId: string;
+  readonly table: MemoryTable;
+  readonly fields: readonly MemoryField[];
+  readonly referenceRecords: MemoryRecordsByTable;
+  readonly onSaved: (record: MemoryRecord) => void;
+}
+
+function NewRecordRow(props: NewRecordRowProps) {
+  const [payload, setPayload] = useState<Record<string, MemoryFieldValue>>({});
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveMessage, setSaveMessage] = useState<string>();
+  const [rowHeight, setRowHeight] = useState(54);
+
+  function change(fieldId: string, value: MemoryFieldValue | undefined) {
+    setPayload((current) => {
+      const next = { ...current };
+      if (value === undefined) delete next[fieldId];
+      else next[fieldId] = value;
+      return next;
+    });
+    setSaveState("dirty");
+    setSaveMessage(undefined);
+  }
+
+  async function save(event: FocusEvent<HTMLTableRowElement>) {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    if (Object.keys(payload).length === 0 || saveState === "saving") return;
+    const missingField = props.fields.find((field) => {
+      const value = payload[field.id];
+      return (
+        field.required &&
+        (value === undefined ||
+          value === null ||
+          value === "" ||
+          (Array.isArray(value) && value.length === 0))
+      );
+    });
+    if (missingField) {
+      setSaveState("error");
+      setSaveMessage(`请填写 ${missingField.name}`);
+      return;
+    }
+    setSaveState("saving");
+    setSaveMessage(undefined);
+    try {
+      const created = await createMemoryRecord(props.memorySpaceId, props.table.id, { payload });
+      setPayload({});
+      setSaveState("saved");
+      props.onSaved(created);
+    } catch (cause) {
+      setSaveState("error");
+      setSaveMessage(cause instanceof Error ? cause.message : "无法创建记录");
+    }
+  }
+
+  const disabled = !props.table.displayStrategy || saveState === "saving";
+  return (
+    <tr
+      className="new-record-row"
+      style={{ height: rowHeight }}
+      onBlur={(event) => void save(event)}
+    >
+      <td className="record-status-cell">
+        <span className="new-record-label">
+          <Plus size={14} /> 新记录
+        </span>
+        <SaveIndicator
+          state={saveState}
+          message={!props.table.displayStrategy ? "请先配置显示策略" : saveMessage}
+        />
+        <ResizeHandle
+          axis="row"
+          size={rowHeight}
+          minSize={42}
+          label="调整新增行高"
+          onResize={setRowHeight}
+        />
+      </td>
+      <td className="record-display-cell">保存后生成</td>
+      {props.fields.map((field) => (
+        <td key={field.id} className={!field.enabled ? "disabled-record-cell" : undefined}>
+          <RecordCell
+            field={field}
+            value={payload[field.id]}
+            referenceRecords={
+              field.referenceTableId ? (props.referenceRecords[field.referenceTableId] ?? []) : []
+            }
+            disabled={disabled}
+            onChange={(value) => change(field.id, value)}
+          />
+        </td>
+      ))}
+      <td className="record-id-cell">自动生成</td>
+      <td>手动</td>
+    </tr>
+  );
+}
+
 export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: RecordTableProps) {
   const [fields, setFields] = useState<MemoryField[]>([]);
   const [result, setResult] = useState<MemoryRecordPage>();
@@ -34,7 +352,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [creating, setCreating] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
 
   function load(nextPage: number, nextSearch: string) {
     setLoading(true);
@@ -78,16 +396,51 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
     setSearch(searchInput);
   }
 
-  const displayFieldIds = new Set(
-    table.displayStrategy?.type === "field"
-      ? [table.displayStrategy.fieldId]
-      : [...(table.displayStrategy?.template.matchAll(/\{([^{}]+)\}/g) ?? [])].map(
-          (match) => match[1],
-        ),
+  function updateVisibleRecord(record: MemoryRecord) {
+    setResult((current) =>
+      current
+        ? {
+            ...current,
+            records: current.records.map((item) => (item.id === record.id ? record : item)),
+          }
+        : current,
+    );
+    onSelect({ record, fields, referenceRecords });
+  }
+
+  const columns: readonly RecordColumn[] = [
+    {
+      key: "status",
+      label: "保存状态",
+      resizeLabel: "调整保存状态列宽",
+      defaultWidth: 128,
+      className: "record-status-cell",
+    },
+    {
+      key: "display",
+      label: "显示文本",
+      resizeLabel: "调整显示文本列宽",
+      defaultWidth: 180,
+    },
+    ...fields.map((field) => ({
+      key: `field-${field.id}`,
+      label: (
+        <>
+          {field.name}
+          {field.required ? <strong> *</strong> : null}
+        </>
+      ),
+      resizeLabel: `调整${field.name}列宽`,
+      defaultWidth: 180,
+      className: !field.enabled ? "disabled-record-cell" : undefined,
+    })),
+    { key: "id", label: "记录 ID", resizeLabel: "调整记录 ID 列宽", defaultWidth: 180 },
+    { key: "source", label: "来源", resizeLabel: "调整来源列宽", defaultWidth: 100 },
+  ];
+  const tableWidth = columns.reduce(
+    (total, column) => total + (columnWidths[column.key] ?? column.defaultWidth),
+    0,
   );
-  const keyFields = fields
-    .filter((field) => field.enabled && !displayFieldIds.has(field.id))
-    .slice(0, 3);
 
   return (
     <div className="record-table-workspace">
@@ -101,81 +454,88 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
             onChange={(event) => setSearchInput(event.target.value)}
           />
         </form>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={!table.displayStrategy}
-          onClick={() => setCreating(true)}
-        >
-          <Plus size={16} /> 创建记录
-        </button>
       </div>
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? <p className="form-error record-table-error">{error}</p> : null}
       {loading && !result ? (
         <div className="table-empty-state">
           <p>正在读取记录...</p>
         </div>
       ) : null}
-      {!loading && result?.total === 0 ? (
-        <div className="table-empty-state">
-          <h3>{search ? "没有匹配记录" : "表中暂无记录"}</h3>
-          <p>{search ? "调整搜索关键词后重试。" : "创建第一条当前记忆记录。"}</p>
-        </div>
-      ) : null}
-      {result && result.total > 0 ? (
+      {result ? (
         <>
           <div className="record-table-scroll">
-            <table className="record-table">
+            <table
+              className="record-table"
+              style={
+                { width: tableWidth, "--record-table-width": `${tableWidth}px` } as CSSProperties
+              }
+            >
+              <colgroup>
+                {columns.map((column) => (
+                  <col
+                    key={column.key}
+                    style={{ width: columnWidths[column.key] ?? column.defaultWidth }}
+                  />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th>显示文本</th>
-                  {keyFields.map((field) => (
-                    <th key={field.id}>{field.name}</th>
-                  ))}
-                  <th>记录 ID</th>
-                  <th>来源</th>
+                  {columns.map((column) => {
+                    const width = columnWidths[column.key] ?? column.defaultWidth;
+                    return (
+                      <th key={column.key} className={column.className}>
+                        {column.label}
+                        <ResizeHandle
+                          axis="column"
+                          size={width}
+                          minSize={88}
+                          label={column.resizeLabel}
+                          onResize={(nextWidth) =>
+                            setColumnWidths((current) => ({
+                              ...current,
+                              [column.key]: nextWidth,
+                            }))
+                          }
+                        />
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {result.records.map((record) => (
-                  <tr
+                  <EditableRecordRow
                     key={record.id}
-                    tabIndex={0}
-                    onClick={() => onSelect({ record, fields, referenceRecords })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") onSelect({ record, fields, referenceRecords });
-                    }}
-                  >
-                    <td>
-                      <strong>{record.displayText || "未命名记录"}</strong>
-                    </td>
-                    {keyFields.map((field) => (
-                      <td key={field.id}>
-                        {formatMemoryFieldValue(
-                          record.payload[field.id],
-                          "—",
-                          field.referenceTableId
-                            ? referenceRecords[field.referenceTableId]
-                            : undefined,
-                        )}
-                      </td>
-                    ))}
-                    <td>
-                      <code>{record.id}</code>
-                    </td>
-                    <td>
-                      {record.source.type === "manual"
-                        ? "手动"
-                        : record.source.sourceLocation || "有来源"}
-                    </td>
-                  </tr>
+                    memorySpaceId={memorySpaceId}
+                    tableId={table.id}
+                    record={record}
+                    fields={fields}
+                    referenceRecords={referenceRecords}
+                    onSaved={updateVisibleRecord}
+                    onSelect={(selected) =>
+                      onSelect({ record: selected, fields, referenceRecords })
+                    }
+                  />
                 ))}
+                <NewRecordRow
+                  memorySpaceId={memorySpaceId}
+                  table={table}
+                  fields={fields}
+                  referenceRecords={referenceRecords}
+                  onSaved={(record) => {
+                    onSelect({ record, fields, referenceRecords });
+                    load(page, search);
+                  }}
+                />
               </tbody>
             </table>
           </div>
+          {result.total === 0 && search ? (
+            <p className="record-search-empty">当前没有匹配记录，可直接在表尾新增。</p>
+          ) : null}
           <footer className="record-pagination">
             <span>
-              共 {result.total} 条 · 第 {result.page}/{result.totalPages} 页
+              共 {result.total} 条 · 第 {result.page}/{Math.max(1, result.totalPages)} 页
             </span>
             <div>
               <button
@@ -199,20 +559,6 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
             </div>
           </footer>
         </>
-      ) : null}
-      {creating ? (
-        <RecordDialog
-          memorySpaceId={memorySpaceId}
-          tableId={table.id}
-          fields={fields}
-          referenceRecords={referenceRecords}
-          onClose={() => setCreating(false)}
-          onSaved={(record) => {
-            setCreating(false);
-            load(page, search);
-            onSelect({ record, fields, referenceRecords });
-          }}
-        />
       ) : null}
     </div>
   );
