@@ -11,6 +11,7 @@ import {
   type MemoryFieldId,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
+  type MemoryEvidenceId,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
@@ -81,6 +82,8 @@ export async function createTestApplication(prefix: string, timestamp: string) {
       () => randomUUID() as MemoryRecordHistoryId,
       () => randomUUID() as MemoryRevisionId,
       () => timestamp,
+      recordRepository,
+      () => randomUUID() as MemoryEvidenceId,
     ),
     memoryRecordQueries,
   });

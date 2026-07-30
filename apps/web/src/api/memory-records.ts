@@ -9,11 +9,21 @@ export type MemoryRecordSource =
       readonly sourceLocation: string | null;
     };
 
+export interface MemoryEvidence {
+  readonly evidence_id: string;
+  readonly source_type: string;
+  readonly source_id: string | number;
+  readonly storage_mode: "snapshot" | "reference";
+  readonly content?: string;
+  readonly extraProps: Readonly<Record<string, unknown>>;
+}
+
 export interface MemoryRecord {
   readonly id: string;
   readonly memorySpaceId: string;
   readonly tableId: string;
   readonly payload: Readonly<Record<string, MemoryFieldValue>>;
+  readonly fieldEvidence: Readonly<Record<string, readonly MemoryEvidence[]>>;
   readonly displayText: string;
   readonly source: MemoryRecordSource;
   readonly revisionId: string;
@@ -38,6 +48,7 @@ export interface MemoryRecordHistory {
   readonly memorySpaceId: string;
   readonly tableId: string;
   readonly payload: Readonly<Record<string, MemoryFieldValue>>;
+  readonly fieldEvidence: Readonly<Record<string, readonly MemoryEvidence[]>>;
   readonly displayText: string;
   readonly source: MemoryRecordSource;
   readonly previousRevisionId: string;
@@ -100,6 +111,9 @@ export async function createMemoryRecord(
   input: {
     readonly payload: Readonly<Record<string, MemoryFieldValue>>;
     readonly source?: MemoryRecordSource;
+    readonly fieldEvidence?: Readonly<
+      Record<string, readonly Omit<MemoryEvidence, "evidence_id">[]>
+    >;
   },
 ): Promise<MemoryRecord> {
   return responseJson(
@@ -118,6 +132,9 @@ export async function updateMemoryRecord(
   input: {
     readonly expectedRevisionId: string;
     readonly patch: Readonly<Record<string, MemoryFieldValue>>;
+    readonly fieldEvidence?: Readonly<
+      Record<string, readonly Omit<MemoryEvidence, "evidence_id">[]>
+    >;
   },
 ): Promise<MemoryRecord> {
   return responseJson(

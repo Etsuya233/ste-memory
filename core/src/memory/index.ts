@@ -29,6 +29,7 @@ export type {
   UpdateMemoryFieldInput,
   UpdateMemoryRecordInput,
   UpdateMemoryTableInput,
+  MemoryEvidenceRepository,
 } from "./application/index.ts";
 export {
   DomainError,
@@ -47,6 +48,13 @@ export type {
   MemoryFieldKey,
   MemoryFieldType,
   MemoryFieldValue,
+  MemoryEvidence,
+  MemoryEvidenceId,
+  MemoryEvidenceInput,
+  MemoryEvidenceReference,
+  MemoryEvidenceSnapshot,
+  MemoryEvidenceSourceId,
+  MemoryFieldEvidence,
   MemoryRecord,
   MemoryRecordHistory,
   MemoryRecordHistoryId,

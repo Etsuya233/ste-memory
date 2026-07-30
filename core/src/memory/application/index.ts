@@ -31,6 +31,7 @@ export type {
   MemoryRecordMutationResult,
 } from "./memory-record-mutations.ts";
 export type {
+  MemoryEvidenceRepository,
   MemoryRecordHistoryQuery,
   MemoryRecordMutation,
   MemoryRecordRepository,

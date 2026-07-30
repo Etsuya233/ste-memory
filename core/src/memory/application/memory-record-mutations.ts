@@ -1,6 +1,7 @@
 import {
   DomainError,
   type MemoryField,
+  type MemoryFieldEvidence,
   type MemoryRecord,
   type MemoryRecordHistory,
   type MemoryRecordHistoryId,
@@ -31,6 +32,7 @@ export type MemoryRecordMutationOperation =
       readonly recordId: MemoryRecordId;
       readonly expectedRevisionId: MemoryRevisionId;
       readonly patch: Readonly<Record<string, unknown>>;
+      readonly fieldEvidence?: MemoryFieldEvidence;
     }
   | {
       readonly type: "delete";
@@ -96,10 +98,16 @@ export async function commitMemoryRecordMutationBatch(
       );
       const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
       const displayText = await context.displayText(table, fields, payload);
-      if (JSON.stringify(payload) === JSON.stringify(previous.payload)) continue;
+      if (
+        JSON.stringify(payload) === JSON.stringify(previous.payload) &&
+        JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence ?? {}) ===
+          JSON.stringify(previous.fieldEvidence ?? {})
+      )
+        continue;
       current = {
         ...previous,
         payload,
+        fieldEvidence: operation.fieldEvidence ?? previous.fieldEvidence ?? {},
         displayText,
         revisionId,
         revisionSource: input.revisionSource,
@@ -193,6 +201,7 @@ function historySnapshot(
     memorySpaceId: record.memorySpaceId,
     tableId: record.tableId,
     payload: record.payload,
+    fieldEvidence: record.fieldEvidence ?? {},
     displayText: record.displayText,
     source: record.source,
     previousRevisionId: record.revisionId,

@@ -63,6 +63,7 @@ export const initialMigration: Migration = {
       memory_space_id TEXT NOT NULL,
       table_id TEXT NOT NULL,
       payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+      field_evidence_json TEXT NOT NULL CHECK (json_valid(field_evidence_json)),
       display_text TEXT NOT NULL,
       source_json TEXT NOT NULL CHECK (json_valid(source_json)),
       revision_id TEXT NOT NULL,
@@ -82,6 +83,7 @@ export const initialMigration: Migration = {
       memory_space_id TEXT NOT NULL,
       table_id TEXT NOT NULL,
       payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+      field_evidence_json TEXT NOT NULL CHECK (json_valid(field_evidence_json)),
       display_text TEXT NOT NULL,
       source_json TEXT NOT NULL CHECK (json_valid(source_json)),
       previous_revision_id TEXT NOT NULL,
@@ -93,6 +95,21 @@ export const initialMigration: Migration = {
       archived_at TEXT NOT NULL,
       FOREIGN KEY (memory_space_id) REFERENCES memory_spaces(id) ON DELETE CASCADE,
       FOREIGN KEY (table_id) REFERENCES memory_tables(id) ON DELETE CASCADE
+    ) STRICT`,
+      )
+      .execute(database);
+    await sql
+      .raw(
+        `CREATE TABLE memory_evidence (
+      memory_space_id TEXT NOT NULL,
+      evidence_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      storage_mode TEXT NOT NULL CHECK (storage_mode IN ('snapshot', 'reference')),
+      content TEXT,
+      extra_props_json TEXT NOT NULL CHECK (json_valid(extra_props_json)),
+      FOREIGN KEY (memory_space_id) REFERENCES memory_spaces(id) ON DELETE CASCADE,
+      UNIQUE (memory_space_id, source_type, source_id)
     ) STRICT`,
       )
       .execute(database);
@@ -156,6 +173,7 @@ export const initialMigration: Migration = {
       "source_store_messages",
       "source_store_chats",
       "memory_record_history",
+      "memory_evidence",
       "memory_records",
       "memory_fields",
       "memory_tables",

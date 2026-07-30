@@ -63,6 +63,12 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.history-evidence-count {
+  display: block;
+  margin-top: 5px;
+  color: #64753d;
+  font-size: 10px;
+}
 .history-archive-meta {
   margin-top: 15px;
   color: #687066;

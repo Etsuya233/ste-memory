@@ -6,6 +6,8 @@ interface ChatViewerProps {
   readonly messages: readonly SourceMessage[];
   readonly errors: readonly SourceParseError[];
   readonly loading: boolean;
+  readonly highlightedSourceIds?: readonly number[];
+  readonly missingSourceIds?: readonly number[];
 }
 
 function speaker(message: SourceMessage): string {
@@ -13,7 +15,13 @@ function speaker(message: SourceMessage): string {
   return typeof name === "string" && name.length > 0 ? name : "未知发送者";
 }
 
-export function ChatViewer({ messages, errors, loading }: ChatViewerProps) {
+export function ChatViewer({
+  messages,
+  errors,
+  loading,
+  highlightedSourceIds = [],
+  missingSourceIds = [],
+}: ChatViewerProps) {
   const [target, setTarget] = useState("");
   const [highlighted, setHighlighted] = useState<number>();
 
@@ -21,6 +29,14 @@ export function ChatViewer({ messages, errors, loading }: ChatViewerProps) {
     setTarget("");
     setHighlighted(undefined);
   }, [messages]);
+
+  useEffect(() => {
+    const sourceId = highlightedSourceIds[0];
+    if (sourceId === undefined) return;
+    document
+      .getElementById(`source-${sourceId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedSourceIds]);
 
   function locate(event: FormEvent) {
     event.preventDefault();
@@ -43,7 +59,11 @@ export function ChatViewer({ messages, errors, loading }: ChatViewerProps) {
     return (
       <div className="viewer-state">
         <MessageSquareText size={28} />
-        <p>选择一个记忆空间查看原始聊天</p>
+        <p>
+          {missingSourceIds.length > 0
+            ? `来源消息 #${missingSourceIds.join(", #")} 不存在`
+            : "选择一个记忆空间查看原始聊天"}
+        </p>
       </div>
     );
   }
@@ -88,7 +108,7 @@ export function ChatViewer({ messages, errors, loading }: ChatViewerProps) {
         {messages.map((message) => (
           <article
             id={`source-${message.source_id}`}
-            className={`message-row ${highlighted === message.source_id ? "highlighted" : ""}`}
+            className={`message-row ${highlighted === message.source_id || highlightedSourceIds.includes(message.source_id) ? "highlighted" : ""}`}
             key={message.source_id}
           >
             <span className="source-id">#{message.source_id}</span>
@@ -97,6 +117,11 @@ export function ChatViewer({ messages, errors, loading }: ChatViewerProps) {
               <p>{message.content}</p>
             </div>
           </article>
+        ))}
+        {missingSourceIds.map((sourceId) => (
+          <p className="evidence-missing" key={`missing-${sourceId}`}>
+            来源消息 #{sourceId} 不存在
+          </p>
         ))}
       </div>
     </>

@@ -1,6 +1,7 @@
 import type {
   MemoryRecordId,
   MemoryRecordSource,
+  MemoryEvidenceInput,
   MemoryRevisionId,
   MemorySpaceId,
   MemoryTableId,
@@ -25,11 +26,49 @@ interface ListQuery {
 interface CreateBody {
   readonly payload?: unknown;
   readonly source?: unknown;
+  readonly fieldEvidence?: unknown;
 }
 
 interface UpdateBody {
   readonly expectedRevisionId?: unknown;
   readonly patch?: unknown;
+  readonly fieldEvidence?: unknown;
+}
+
+function fieldEvidence(
+  value: unknown,
+): Readonly<Record<string, readonly MemoryEvidenceInput[]>> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("字段证据格式无效");
+  const result: Record<string, MemoryEvidenceInput[]> = {};
+  for (const [fieldId, entries] of Object.entries(value)) {
+    if (!Array.isArray(entries)) throw new Error("字段证据格式无效");
+    result[fieldId] = entries.map((entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+        throw new Error("字段证据格式无效");
+      const candidate = entry as Record<string, unknown>;
+      if (
+        typeof candidate.source_type !== "string" ||
+        (typeof candidate.source_id !== "string" && typeof candidate.source_id !== "number") ||
+        typeof candidate.content !== "string" ||
+        (candidate.storage_mode !== "snapshot" && candidate.storage_mode !== "reference") ||
+        (candidate.extraProps !== undefined &&
+          (typeof candidate.extraProps !== "object" ||
+            candidate.extraProps === null ||
+            Array.isArray(candidate.extraProps)))
+      )
+        throw new Error("字段证据格式无效");
+      return {
+        source_type: candidate.source_type,
+        source_id: candidate.source_id,
+        content: candidate.content,
+        storage_mode: candidate.storage_mode,
+        extraProps: (candidate.extraProps ?? {}) as Record<string, unknown>,
+      };
+    });
+  }
+  return result;
 }
 
 interface DeleteBody {
@@ -86,15 +125,21 @@ export function registerMemoryRecordRoutes(
         return reply.code(400).send({ message: "记录 payload 必须是对象" });
       }
       let source: MemoryRecordSource | undefined;
+      let evidence: Readonly<Record<string, readonly MemoryEvidenceInput[]>> | undefined;
       try {
         source = recordSource(request.body.source);
+        evidence = fieldEvidence(request.body.fieldEvidence);
       } catch (error) {
         return reply.code(400).send({ message: (error as Error).message });
       }
       const created = await memoryRecords.create(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
-        { payload: request.body.payload as Record<string, unknown>, source },
+        {
+          payload: request.body.payload as Record<string, unknown>,
+          source,
+          fieldEvidence: evidence,
+        },
       );
       return created
         ? reply.code(201).send(created)
@@ -144,6 +189,12 @@ export function registerMemoryRecordRoutes(
           .code(400)
           .send({ message: "更新记录需要 expectedRevisionId 和对象形式的 patch" });
       }
+      let evidence: Readonly<Record<string, readonly MemoryEvidenceInput[]>> | undefined;
+      try {
+        evidence = fieldEvidence(request.body.fieldEvidence);
+      } catch (error) {
+        return reply.code(400).send({ message: (error as Error).message });
+      }
       const updated = await memoryRecords.update(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
@@ -152,6 +203,7 @@ export function registerMemoryRecordRoutes(
           expectedRevisionId: request.body.expectedRevisionId as MemoryRevisionId,
           patch: request.body.patch as Record<string, unknown>,
           revisionSource: "user",
+          fieldEvidence: evidence,
         },
       );
       return updated ?? reply.code(404).send({ message: "记忆记录不存在" });

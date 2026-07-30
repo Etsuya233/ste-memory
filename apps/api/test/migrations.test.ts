@@ -21,6 +21,7 @@ describe("application database migrations", () => {
       expect(tables.rows.map((row) => row.name)).toEqual([
         "kysely_migration",
         "kysely_migration_lock",
+        "memory_evidence",
         "memory_fields",
         "memory_record_history",
         "memory_records",

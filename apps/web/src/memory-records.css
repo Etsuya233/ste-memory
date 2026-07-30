@@ -302,6 +302,12 @@
   margin: 5px 0;
   font-size: 17px;
 }
+.record-revision-meta {
+  margin-top: 6px;
+  color: #737b71;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
 .record-inspector-content dl {
   margin: 20px 0 0;
 }
@@ -326,6 +332,36 @@
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+.field-evidence-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+.field-evidence {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 8px;
+  color: #53604e;
+  background: #f5f8ef;
+  border: 1px solid #d9e2c5;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 10px;
+}
+.field-evidence:hover {
+  border-color: #98b84a;
+}
+.field-evidence strong {
+  color: #4d6529;
+  font-size: 10px;
+}
+.field-evidence.empty {
+  display: block;
+  margin-top: 8px;
+  color: #8a6a38;
+  font-size: 10px;
 }
 .disabled-field-value {
   padding-left: 9px !important;

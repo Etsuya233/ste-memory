@@ -3,6 +3,7 @@ export type {
   MemoryRecordHistoryQuery,
   MemoryRecordMutation,
   MemoryRecordRepository,
+  MemoryEvidenceRepository,
   MemorySpaceRepository,
   MemoryTableRepository,
 } from "./application/index.ts";

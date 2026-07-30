@@ -1,5 +1,7 @@
 import type {
   MemoryRecord,
+  MemoryEvidence,
+  MemoryEvidenceId,
   MemoryRecordHistory,
   MemoryRecordHistoryId,
   MemoryRecordId,
@@ -15,6 +17,7 @@ import type {
   MemoryRecordMutation,
   MemoryRecordRepository,
 } from "@ste-memory/core/memory/adapter";
+import type { MemoryEvidenceRepository } from "@ste-memory/core/memory";
 import type { UnitOfWork } from "@ste-memory/tools";
 import type { DatabaseContext } from "../database/database-context.ts";
 import type { MemoryRecordHistoryTable, MemoryRecordsTable } from "../database/schema/database.ts";
@@ -27,6 +30,7 @@ function toMemoryRecord(row: MemoryRecordsTable): MemoryRecord {
     memorySpaceId: row.memory_space_id as MemorySpaceId,
     tableId: row.table_id as MemoryTableId,
     payload: JSON.parse(row.payload_json) as MemoryRecordPayload,
+    fieldEvidence: JSON.parse(row.field_evidence_json) as MemoryRecord["fieldEvidence"],
     displayText: row.display_text,
     source: JSON.parse(row.source_json) as MemoryRecordSource,
     revisionId: row.revision_id as MemoryRevisionId,
@@ -43,6 +47,7 @@ function toMemoryRecordHistory(row: MemoryRecordHistoryTable): MemoryRecordHisto
     memorySpaceId: row.memory_space_id as MemorySpaceId,
     tableId: row.table_id as MemoryTableId,
     payload: JSON.parse(row.payload_json) as MemoryRecordPayload,
+    fieldEvidence: JSON.parse(row.field_evidence_json) as MemoryRecordHistory["fieldEvidence"],
     displayText: row.display_text,
     source: JSON.parse(row.source_json) as MemoryRecordSource,
     previousRevisionId: row.previous_revision_id as MemoryRevisionId,
@@ -55,7 +60,9 @@ function toMemoryRecordHistory(row: MemoryRecordHistoryTable): MemoryRecordHisto
   };
 }
 
-export class KyselyMemoryRecordRepository implements MemoryRecordRepository {
+export class KyselyMemoryRecordRepository
+  implements MemoryRecordRepository, MemoryEvidenceRepository
+{
   readonly #context: DatabaseContext;
   readonly #unitOfWork: UnitOfWork;
 
@@ -72,6 +79,7 @@ export class KyselyMemoryRecordRepository implements MemoryRecordRepository {
         memory_space_id: record.memorySpaceId,
         table_id: record.tableId,
         payload_json: JSON.stringify(record.payload),
+        field_evidence_json: JSON.stringify(record.fieldEvidence ?? {}),
         display_text: record.displayText,
         source_json: JSON.stringify(record.source),
         revision_id: record.revisionId,
@@ -122,6 +130,7 @@ export class KyselyMemoryRecordRepository implements MemoryRecordRepository {
               memory_space_id: history.memorySpaceId,
               table_id: history.tableId,
               payload_json: JSON.stringify(history.payload),
+              field_evidence_json: JSON.stringify(history.fieldEvidence ?? {}),
               display_text: history.displayText,
               source_json: JSON.stringify(history.source),
               previous_revision_id: history.previousRevisionId,
@@ -138,6 +147,7 @@ export class KyselyMemoryRecordRepository implements MemoryRecordRepository {
                 .updateTable("memory_records")
                 .set({
                   payload_json: JSON.stringify(mutation.current.payload),
+                  field_evidence_json: JSON.stringify(mutation.current.fieldEvidence ?? {}),
                   display_text: mutation.current.displayText,
                   source_json: JSON.stringify(mutation.current.source),
                   revision_id: mutation.current.revisionId,
@@ -184,5 +194,52 @@ export class KyselyMemoryRecordRepository implements MemoryRecordRepository {
       selection = selection.where("archived_at", "<=", query.archivedTo);
     const rows = await selection.orderBy("archived_at", "desc").orderBy("id").execute();
     return rows.map(toMemoryRecordHistory);
+  }
+
+  async findEvidence(
+    memorySpaceId: MemorySpaceId,
+    sourceType: string,
+    sourceId: string | number,
+  ): Promise<MemoryEvidence | undefined> {
+    const row = await this.#context.database
+      .selectFrom("memory_evidence")
+      .selectAll()
+      .where("memory_space_id", "=", memorySpaceId)
+      .where("source_type", "=", sourceType)
+      .where("source_id", "=", String(sourceId))
+      .executeTakeFirst();
+    if (!row) return undefined;
+    const sourceIdValue = /^\d+$/.test(row.source_id) ? Number(row.source_id) : row.source_id;
+    return row.storage_mode === "snapshot"
+      ? {
+          evidence_id: row.evidence_id as MemoryEvidenceId,
+          source_type: row.source_type,
+          source_id: sourceIdValue,
+          storage_mode: "snapshot",
+          content: row.content ?? "",
+          extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
+        }
+      : {
+          evidence_id: row.evidence_id as MemoryEvidenceId,
+          source_type: row.source_type,
+          source_id: sourceIdValue,
+          storage_mode: "reference",
+          extraProps: JSON.parse(row.extra_props_json) as Record<string, unknown>,
+        };
+  }
+
+  async createEvidence(memorySpaceId: MemorySpaceId, evidence: MemoryEvidence): Promise<void> {
+    await this.#context.database
+      .insertInto("memory_evidence")
+      .values({
+        memory_space_id: memorySpaceId,
+        evidence_id: evidence.evidence_id,
+        source_type: evidence.source_type,
+        source_id: String(evidence.source_id),
+        storage_mode: evidence.storage_mode,
+        content: evidence.storage_mode === "snapshot" ? evidence.content : null,
+        extra_props_json: JSON.stringify(evidence.extraProps),
+      })
+      .execute();
   }
 }

@@ -1,6 +1,7 @@
 import { Database, History, MessageSquareText } from "lucide-react";
 import { useState } from "react";
 import type { MemoryRecord } from "../api/memory-records.ts";
+import type { MemoryEvidence } from "../api/memory-records.ts";
 import type { SourceMessage, SourceParseError } from "../api/memory-spaces.ts";
 import { ChatViewer } from "./ChatViewer.tsx";
 import type { RecordSelection } from "./RecordTable.tsx";
@@ -15,6 +16,9 @@ interface RecordInspectorProps {
   readonly loading: boolean;
   readonly memorySpaceId?: string;
   readonly onRecordMutation: (record: MemoryRecord | undefined) => void;
+  readonly onEvidenceSelect?: (sourceIds: readonly number[], missingIds: readonly number[]) => void;
+  readonly highlightedSourceIds?: readonly number[];
+  readonly missingSourceIds?: readonly number[];
 }
 
 export function RecordInspector(props: RecordInspectorProps) {
@@ -47,7 +51,13 @@ export function RecordInspector(props: RecordInspectorProps) {
         </button>
       </nav>
       {tab === "chat" ? (
-        <ChatViewer messages={props.messages} errors={props.errors} loading={props.loading} />
+        <ChatViewer
+          messages={props.messages}
+          errors={props.errors}
+          loading={props.loading}
+          highlightedSourceIds={props.highlightedSourceIds}
+          missingSourceIds={props.missingSourceIds}
+        />
       ) : tab === "history" && selection && props.memorySpaceId ? (
         <RecordHistoryPanel memorySpaceId={props.memorySpaceId} selection={selection} />
       ) : selection ? (
@@ -65,6 +75,10 @@ export function RecordInspector(props: RecordInspectorProps) {
             </div>
             <h2>{selection.record.displayText || "未命名记录"}</h2>
             <code>{selection.record.id}</code>
+            <p className="record-revision-meta">
+              {selection.record.revisionSource === "user" ? "用户修订" : "Agent 修订"} ·{" "}
+              {selection.record.revisionId}
+            </p>
           </header>
           <dl>
             {selection.fields.map((field) => (
@@ -81,6 +95,14 @@ export function RecordInspector(props: RecordInspectorProps) {
                       ? selection.referenceRecords[field.referenceTableId]
                       : undefined,
                   )}
+                  <FieldEvidenceList
+                    evidence={selection.record.fieldEvidence?.[field.id] ?? []}
+                    messages={props.messages}
+                    onSelect={(sourceIds, missingIds) => {
+                      setTab("chat");
+                      props.onEvidenceSelect?.(sourceIds, missingIds);
+                    }}
+                  />
                 </dd>
               </div>
             ))}
@@ -108,5 +130,43 @@ export function RecordInspector(props: RecordInspectorProps) {
         </div>
       )}
     </>
+  );
+}
+
+function FieldEvidenceList({
+  evidence,
+  messages,
+  onSelect,
+}: {
+  readonly evidence: readonly MemoryEvidence[];
+  readonly messages: readonly { readonly source_id: number }[];
+  readonly onSelect?: (sourceIds: readonly number[], missingIds: readonly number[]) => void;
+}) {
+  if (evidence.length === 0)
+    return <span className="field-evidence empty">无证据（手动填写）</span>;
+  return (
+    <div className="field-evidence-list">
+      {evidence.map((item) => {
+        const sourceId =
+          typeof item.source_id === "number" ? item.source_id : Number(item.source_id);
+        const exists = messages.some((message) => message.source_id === sourceId);
+        const select = () => onSelect?.(exists ? [sourceId] : [], exists ? [] : [sourceId]);
+        return (
+          <button className="field-evidence" type="button" key={item.evidence_id} onClick={select}>
+            <strong>
+              {item.storage_mode === "snapshot" ? "快照" : "引用"} · {item.source_type}:
+              {item.source_id}
+            </strong>
+            <span>
+              {item.storage_mode === "snapshot"
+                ? item.content
+                : exists
+                  ? "点击查看原始消息"
+                  : "来源消息不存在"}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

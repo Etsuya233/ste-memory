@@ -1,4 +1,5 @@
 import type {
+  MemoryEvidence,
   MemoryRecord,
   MemoryRecordHistory,
   MemoryRecordId,
@@ -6,6 +7,15 @@ import type {
   MemoryTableId,
   MemoryRevisionId,
 } from "../../domain/index.ts";
+
+export interface MemoryEvidenceRepository {
+  findEvidence(
+    memorySpaceId: MemorySpaceId,
+    sourceType: string,
+    sourceId: string | number,
+  ): Promise<MemoryEvidence | undefined>;
+  createEvidence(memorySpaceId: MemorySpaceId, evidence: MemoryEvidence): Promise<void>;
+}
 
 export interface MemoryRecordMutation {
   readonly previous: MemoryRecord;

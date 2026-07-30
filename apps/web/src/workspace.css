@@ -99,6 +99,15 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.evidence-missing {
+  margin: 12px 24px;
+  padding: 10px;
+  color: #8f332b;
+  background: #f8e8e5;
+  border: 1px solid #eccbc6;
+  border-radius: 5px;
+  font-size: 11px;
+}
 .viewer-state {
   min-height: calc(100vh - 64px);
   display: grid;

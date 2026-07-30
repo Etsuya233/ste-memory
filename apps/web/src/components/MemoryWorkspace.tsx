@@ -43,6 +43,8 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
   const [updatingId, setUpdatingId] = useState<string>();
   const [recordSelection, setRecordSelection] = useState<RecordSelection>();
   const [recordRefreshVersion, setRecordRefreshVersion] = useState(0);
+  const [highlightedSourceIds, setHighlightedSourceIds] = useState<readonly number[]>([]);
+  const [missingSourceIds, setMissingSourceIds] = useState<readonly number[]>([]);
   const [dialog, setDialog] = useState<
     { mode: "create" } | { mode: "delete"; table: MemoryTable }
   >();
@@ -56,6 +58,8 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
     setWorkspaceError(undefined);
     setLoadingContent(false);
     setRecordSelection(undefined);
+    setHighlightedSourceIds([]);
+    setMissingSourceIds([]);
     if (!props.selectedSpaceId) return;
 
     setLoadingContent(true);
@@ -204,6 +208,12 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
             );
             setRecordRefreshVersion((value) => value + 1);
           }}
+          onEvidenceSelect={(sourceIds, missingIds) => {
+            setHighlightedSourceIds(sourceIds);
+            setMissingSourceIds(missingIds);
+          }}
+          highlightedSourceIds={highlightedSourceIds}
+          missingSourceIds={missingSourceIds}
         />
       </aside>
       {dialog?.mode === "create" ? (

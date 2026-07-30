@@ -8,6 +8,7 @@ import {
   type MemoryFieldId,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
+  type MemoryEvidenceId,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
@@ -76,6 +77,8 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         () => randomUUID() as MemoryRecordHistoryId,
         () => randomUUID() as MemoryRevisionId,
         () => new Date().toISOString(),
+        memoryRecordRepository,
+        () => randomUUID() as MemoryEvidenceId,
       ),
       memoryRecordQueries,
     });

@@ -41,6 +41,7 @@ export interface MemoryRecordsTable {
   memory_space_id: string;
   table_id: string;
   payload_json: string;
+  field_evidence_json: string;
   display_text: string;
   source_json: string;
   revision_id: string;
@@ -55,6 +56,7 @@ export interface MemoryRecordHistoryTable {
   memory_space_id: string;
   table_id: string;
   payload_json: string;
+  field_evidence_json: string;
   display_text: string;
   source_json: string;
   previous_revision_id: string;
@@ -64,6 +66,16 @@ export interface MemoryRecordHistoryTable {
   created_at: string;
   updated_at: string;
   archived_at: string;
+}
+
+export interface MemoryEvidenceTable {
+  memory_space_id: string;
+  evidence_id: string;
+  source_type: string;
+  source_id: string;
+  storage_mode: "snapshot" | "reference";
+  content: string | null;
+  extra_props_json: string;
 }
 
 export interface SourceStoreChatsTable {
@@ -93,6 +105,7 @@ export interface DatabaseSchema {
   memory_fields: MemoryFieldsTable;
   memory_records: MemoryRecordsTable;
   memory_record_history: MemoryRecordHistoryTable;
+  memory_evidence: MemoryEvidenceTable;
   source_store_chats: SourceStoreChatsTable;
   source_store_messages: SourceStoreMessagesTable;
   source_store_parse_errors: SourceStoreParseErrorsTable;

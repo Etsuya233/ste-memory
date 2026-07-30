@@ -30,6 +30,13 @@ export type {
 export { memorySpaceName } from "./memory-space.ts";
 export type { MemorySpace, MemorySpaceId } from "./memory-space.ts";
 export type {
+  MemoryEvidence,
+  MemoryEvidenceId,
+  MemoryEvidenceInput,
+  MemoryEvidenceReference,
+  MemoryEvidenceSnapshot,
+  MemoryEvidenceSourceId,
+  MemoryFieldEvidence,
   MemoryFieldValue,
   MemoryRecord,
   MemoryRecordHistory,

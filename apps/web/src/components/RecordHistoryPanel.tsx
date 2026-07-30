@@ -84,6 +84,11 @@ export function RecordHistoryPanel({ memorySpaceId, selection }: RecordHistoryPa
                       ? selection.referenceRecords[field.referenceTableId]
                       : undefined,
                   )}
+                  <span className="history-evidence-count">
+                    {(snapshot.fieldEvidence?.[field.id]?.length ?? 0) > 0
+                      ? `${snapshot.fieldEvidence![field.id]!.length} 条证据`
+                      : "无证据"}
+                  </span>
                 </dd>
               </div>
             ))}
