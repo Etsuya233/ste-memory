@@ -1,4 +1,4 @@
-import type { MemorySpaceId, MemoryTableId } from "../src/index.ts";
+import type { MemorySpaceId, MemoryTableId } from "../src/memory/index.ts";
 import { describe, expect, it } from "vitest";
 import {
   fieldId,

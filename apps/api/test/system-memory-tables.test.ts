@@ -7,15 +7,17 @@ import {
   type MemoryFieldKey,
   type MemorySpace,
   type MemorySpaceId,
-  type MemorySpaceRepository,
-  type MemoryFieldRepository,
   type MemoryTable,
   type MemoryTableId,
   type MemoryTableKey,
-  type MemoryTableRepository,
-} from "@ste-memory/core";
+} from "@ste-memory/core/memory";
+import type {
+  MemoryFieldRepository,
+  MemorySpaceRepository,
+  MemoryTableRepository,
+} from "@ste-memory/core/memory/adapter";
 import { describe, expect, it } from "vitest";
-import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
+import { SystemMemoryTableInstaller } from "../src/application/system-memory/system-memory-table-definitions.ts";
 
 class MemoryRepository
   implements MemorySpaceRepository, MemoryTableRepository, MemoryFieldRepository

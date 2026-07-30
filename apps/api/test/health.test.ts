@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { DatabaseHealthCheck } from "../src/health/types.ts";
-import type { MemorySpaceManager } from "../src/memory-spaces/types.ts";
-import type { MemoryTableManager } from "../src/memory-tables/types.ts";
-import type { MemoryFieldManager } from "../src/memory-fields/types.ts";
-import type { MemoryRecordManager } from "../src/memory-records/types.ts";
-import { buildServer } from "../src/server.ts";
+import type { DatabaseHealthCheck } from "../src/application/ports/health.ts";
+import type { MemorySpaceManager } from "../src/application/ports/memory-space.ts";
+import type { MemoryTableManager } from "../src/application/ports/memory-table.ts";
+import type { MemoryFieldManager } from "../src/application/ports/memory-field.ts";
+import type { MemoryRecordManager } from "../src/application/ports/memory-record.ts";
+import { buildServer } from "../src/adapters/inbound/http/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
   return {

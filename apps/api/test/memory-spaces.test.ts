@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { buildServer } from "../src/server.ts";
+import type { buildServer } from "../src/adapters/inbound/http/server.ts";
 import { createTestApplication } from "./test-application.ts";
 
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];

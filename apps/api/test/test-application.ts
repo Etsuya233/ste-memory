@@ -13,20 +13,20 @@ import {
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
-} from "@ste-memory/core";
-import { DatabaseContext } from "../src/database/database-context.ts";
-import { createDatabase } from "../src/database/database.ts";
-import { KyselyUnitOfWork } from "../src/database/kysely-unit-of-work.ts";
-import { migrateDatabase } from "../src/database/migrate.ts";
-import { KyselyDatabaseHealthCheck } from "../src/health/database-health-check.ts";
-import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
-import { KyselyMemoryFieldRepository } from "../src/persistence/memory-field-repository.ts";
-import { KyselyMemoryRecordRepository } from "../src/persistence/memory-record-repository.ts";
-import { KyselyMemorySpaceRepository } from "../src/persistence/memory-space-repository.ts";
-import { KyselyMemoryTableRepository } from "../src/persistence/memory-table-repository.ts";
-import { buildServer } from "../src/server.ts";
-import { KyselySourceChatRepository } from "../src/source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "../src/system-memory/system-memory-table-definitions.ts";
+} from "@ste-memory/core/memory";
+import { DatabaseContext } from "../src/adapters/outbound/sqlite/database/database-context.ts";
+import { createDatabase } from "../src/adapters/outbound/sqlite/database/database.ts";
+import { KyselyUnitOfWork } from "../src/adapters/outbound/sqlite/database/kysely-unit-of-work.ts";
+import { migrateDatabase } from "../src/adapters/outbound/sqlite/database/migrate.ts";
+import { KyselyDatabaseHealthCheck } from "../src/adapters/outbound/sqlite/database/database-health-check.ts";
+import { DefaultMemorySpaceManager } from "../src/application/memory-spaces/manager.ts";
+import { KyselyMemoryFieldRepository } from "../src/adapters/outbound/sqlite/memory/memory-field-repository.ts";
+import { KyselyMemoryRecordRepository } from "../src/adapters/outbound/sqlite/memory/memory-record-repository.ts";
+import { KyselyMemorySpaceRepository } from "../src/adapters/outbound/sqlite/memory/memory-space-repository.ts";
+import { KyselyMemoryTableRepository } from "../src/adapters/outbound/sqlite/memory/memory-table-repository.ts";
+import { buildServer } from "../src/adapters/inbound/http/server.ts";
+import { KyselySourceChatRepository } from "../src/adapters/outbound/sqlite/source-store/repository.ts";
+import { SystemMemoryTableInstaller } from "../src/application/system-memory/system-memory-table-definitions.ts";
 
 export async function createTestApplication(prefix: string, timestamp: string) {
   const directory = mkdtempSync(join(tmpdir(), prefix));

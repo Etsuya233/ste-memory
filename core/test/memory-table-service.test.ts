@@ -2,12 +2,11 @@ import {
   MemoryTableService,
   type MemorySpace,
   type MemorySpaceId,
-  type MemorySpaceRepository,
   type MemoryTable,
   type MemoryTableId,
   type MemoryTableKey,
-  type MemoryTableRepository,
-} from "../src/index.ts";
+} from "../src/memory/index.ts";
+import type { MemorySpaceRepository, MemoryTableRepository } from "../src/memory/adapter.ts";
 import { describe, expect, it } from "vitest";
 
 class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {

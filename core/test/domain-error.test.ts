@@ -1,4 +1,4 @@
-import { DomainError, memorySpaceName } from "../src/index.ts";
+import { DomainError, memorySpaceName } from "../src/memory/index.ts";
 import { describe, expect, it } from "vitest";
 
 describe("domain errors", () => {

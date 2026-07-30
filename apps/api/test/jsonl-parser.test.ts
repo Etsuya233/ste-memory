@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSillyTavernJsonl } from "../src/source-store/jsonl-parser.ts";
+import { parseSillyTavernJsonl } from "../src/adapters/inbound/sillytavern-jsonl/parser.ts";
 
 describe("parseSillyTavernJsonl", () => {
   it("preserves metadata, content, stable source identity, and extra properties", () => {

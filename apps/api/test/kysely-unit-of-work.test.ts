@@ -1,16 +1,17 @@
-import type { MemorySpaceId } from "@ste-memory/core";
+import type { MemorySpaceId } from "@ste-memory/core/memory";
 import { describe, expect, it } from "vitest";
-import type { DatabaseContext } from "../src/database/database-context.ts";
-import { DefaultMemorySpaceManager } from "../src/memory-spaces/manager.ts";
-import { KyselySourceChatRepository } from "../src/source-store/repository.ts";
-import { SILLY_TAVERN_SOURCE_TYPE } from "../src/source-store/types.ts";
+import type { DatabaseContext } from "../src/adapters/outbound/sqlite/database/database-context.ts";
+import { parseSillyTavernJsonl } from "../src/adapters/inbound/sillytavern-jsonl/parser.ts";
+import { DefaultMemorySpaceManager } from "../src/application/memory-spaces/manager.ts";
+import { KyselySourceChatRepository } from "../src/adapters/outbound/sqlite/source-store/repository.ts";
+import { SILLY_TAVERN_SOURCE_TYPE } from "../src/application/ports/source-chat.ts";
 import type {
   ParsedChat,
   SourceChatRepository,
   SourceChatSummary,
   SourceMessage,
   SourceParseError,
-} from "../src/source-store/types.ts";
+} from "../src/application/ports/source-chat.ts";
 import { createTestApplication } from "./test-application.ts";
 
 const now = "2026-07-28T00:00:00.000Z";
@@ -118,11 +119,12 @@ describe("KyselyUnitOfWork", () => {
       await expect(
         manager.create({
           name: "会话",
-          filename: "chat.jsonl",
-          content: [
-            '{"name":"Alice","is_user":true,"send_date":"2026-07-28T00:00:00.000Z","mes":"hello"}',
-            "invalid json",
-          ].join("\n"),
+          chat: parseSillyTavernJsonl(
+            [
+              '{"name":"Alice","is_user":true,"send_date":"2026-07-28T00:00:00.000Z","mes":"hello"}',
+              "invalid json",
+            ].join("\n"),
+          ),
         }),
       ).rejects.toThrow("source import failed");
       for (const table of [

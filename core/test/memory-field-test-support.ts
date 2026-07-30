@@ -3,13 +3,12 @@ import {
   type MemoryField,
   type MemoryFieldId,
   type MemoryFieldKey,
-  type MemoryFieldRepository,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
   type MemoryTableKey,
-  type MemoryTableRepository,
-} from "../src/index.ts";
+} from "../src/memory/index.ts";
+import type { MemoryFieldRepository, MemoryTableRepository } from "../src/memory/adapter.ts";
 
 export class FieldRepository implements MemoryFieldRepository, MemoryTableRepository {
   readonly fields = new Map<MemoryFieldId, MemoryField>();

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
-import { createDatabase } from "../src/database/database.ts";
-import { migrateDatabase } from "../src/database/migrate.ts";
+import { createDatabase } from "../src/adapters/outbound/sqlite/database/database.ts";
+import { migrateDatabase } from "../src/adapters/outbound/sqlite/database/migrate.ts";
 
 describe("application database migrations", () => {
   it("creates the complete schema in one database and remains idempotent", async () => {

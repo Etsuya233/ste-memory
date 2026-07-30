@@ -10,20 +10,20 @@ import {
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
-} from "@ste-memory/core";
+} from "@ste-memory/core/memory";
 import { loadConfig } from "./config.ts";
-import { DatabaseContext } from "./database/database-context.ts";
-import { createDatabase } from "./database/database.ts";
-import { KyselyUnitOfWork } from "./database/kysely-unit-of-work.ts";
-import { KyselyDatabaseHealthCheck } from "./health/database-health-check.ts";
-import { DefaultMemorySpaceManager } from "./memory-spaces/manager.ts";
-import { KyselyMemoryFieldRepository } from "./persistence/memory-field-repository.ts";
-import { KyselyMemoryRecordRepository } from "./persistence/memory-record-repository.ts";
-import { KyselyMemorySpaceRepository } from "./persistence/memory-space-repository.ts";
-import { KyselyMemoryTableRepository } from "./persistence/memory-table-repository.ts";
-import { buildServer } from "./server.ts";
-import { KyselySourceChatRepository } from "./source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "./system-memory/system-memory-table-definitions.ts";
+import { DatabaseContext } from "./adapters/outbound/sqlite/database/database-context.ts";
+import { createDatabase } from "./adapters/outbound/sqlite/database/database.ts";
+import { KyselyUnitOfWork } from "./adapters/outbound/sqlite/database/kysely-unit-of-work.ts";
+import { KyselyDatabaseHealthCheck } from "./adapters/outbound/sqlite/database/database-health-check.ts";
+import { DefaultMemorySpaceManager } from "./application/memory-spaces/manager.ts";
+import { KyselyMemoryFieldRepository } from "./adapters/outbound/sqlite/memory/memory-field-repository.ts";
+import { KyselyMemoryRecordRepository } from "./adapters/outbound/sqlite/memory/memory-record-repository.ts";
+import { KyselyMemorySpaceRepository } from "./adapters/outbound/sqlite/memory/memory-space-repository.ts";
+import { KyselyMemoryTableRepository } from "./adapters/outbound/sqlite/memory/memory-table-repository.ts";
+import { buildServer } from "./adapters/inbound/http/server.ts";
+import { KyselySourceChatRepository } from "./adapters/outbound/sqlite/source-store/repository.ts";
+import { SystemMemoryTableInstaller } from "./application/system-memory/system-memory-table-definitions.ts";
 
 export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
   const config = loadConfig(environment);

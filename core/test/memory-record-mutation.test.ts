@@ -2,18 +2,20 @@ import {
   MemoryRecordService,
   type MemoryField,
   type MemoryFieldId,
-  type MemoryFieldRepository,
   type MemoryRecord,
   type MemoryRecordHistory,
   type MemoryRecordId,
-  type MemoryRecordMutation,
-  type MemoryRecordRepository,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
-  type MemoryTableRepository,
-} from "../src/index.ts";
+} from "../src/memory/index.ts";
+import type {
+  MemoryFieldRepository,
+  MemoryRecordMutation,
+  MemoryRecordRepository,
+  MemoryTableRepository,
+} from "../src/memory/adapter.ts";
 import { describe, expect, it } from "vitest";
 
 const spaceId = "space-1" as MemorySpaceId;
