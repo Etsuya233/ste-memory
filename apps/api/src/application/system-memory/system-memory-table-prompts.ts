@@ -26,6 +26,8 @@ export const SYSTEM_FIELD_PROMPTS = {
   holder: "引用证据明确指向的持有者或所属人物，不作所有权推断。",
   currentLocation: "引用能够明确识别的地点，不为模糊位置创建记录。",
   plotStatus: "根据证据选择进行中、暂停、已解决或已放弃，不自行预测。",
+  plotStartTime: "只记录证据明确给出的开始时间，不推测。",
+  plotEndTime: "只记录证据明确给出的结束时间；剧情仍在进行时不填写。",
   foreshadowingStatus: "根据证据选择埋设中、已触发、已回收或已放弃。",
   todoStatus: "根据证据选择待处理、进行中、已完成或已放弃。",
   deadline: "只记录证据明确给出的日期。",

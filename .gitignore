@@ -31,6 +31,7 @@ test-results/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.sqlite.bak-*
 apps/api/prisma/dev.db
 apps/api/prisma/test-*.db
 

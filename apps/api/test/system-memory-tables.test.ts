@@ -239,6 +239,8 @@ describe("system memory table initialization", () => {
       ["related_characters", "相关人物"],
       ["related_locations", "相关地点"],
       ["status", "状态"],
+      ["start_time", "开始时间"],
+      ["end_time", "结束时间"],
       ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("foreshadowing")!].map(({ key, name }) => [key, name])).toEqual([
@@ -286,6 +288,10 @@ describe("system memory table initialization", () => {
       { type: "multi_reference", referenceTableId: characters.id },
       { type: "multi_reference", referenceTableId: locations.id },
       { type: "single_select", options: ["进行中", "暂停", "已解决", "已放弃"] },
+    ]);
+    expect(fieldsByTable.get("plots")!.slice(5, 7)).toMatchObject([
+      { type: "date", required: false },
+      { type: "date", required: false },
     ]);
     expect(fieldsByTable.get("foreshadowing")![4]).toMatchObject({
       type: "single_select",

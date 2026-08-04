@@ -10,6 +10,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "web:migrate": "pnpm --filter @ste-memory/api migrate",
+    "web:migrate:plots-fields": "pnpm --filter @ste-memory/api migrate:plots-fields",
     "seed:jp": "node scripts/seed/seed-jp.mjs",
     "seed:zh": "node scripts/seed/seed-zh.mjs",
     "seed": "pnpm seed:jp && pnpm seed:zh",

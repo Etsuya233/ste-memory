@@ -40,7 +40,7 @@ const FIELD_DEFAULTS = {
   referenceTableKey: null,
 } as const;
 
-const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
+export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   {
     key: "characters",
     name: "人物",
@@ -206,6 +206,20 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
         type: "single_select",
         prompt: FP.plotStatus,
         options: ["进行中", "暂停", "已解决", "已放弃"],
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "start_time",
+        name: "开始时间",
+        type: "date",
+        prompt: FP.plotStartTime,
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "end_time",
+        name: "结束时间",
+        type: "date",
+        prompt: FP.plotEndTime,
       },
       { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
     ],
