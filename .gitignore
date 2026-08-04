@@ -69,3 +69,5 @@ build/
 
 ### Superpowers ###
 .superpowers/
+### pi-subagents artifacts ###
+.pi-subagents/

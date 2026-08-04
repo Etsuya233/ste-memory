@@ -6,7 +6,7 @@
 
 **Blocked by:** 10 — 保存字段级证据并支持原始聊天对比
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `core/src/agent` 模块直接使用 pi-agent-core 类型（`Agent`/`AgentTool`/`AgentMessage`/`Model`/`StreamFn`），不包壳；`core/src/memory` 保持零 pi 依赖（ADR-0018）。
 - [ ] 定义 LLM 端口 = `{ streamFn, Model, getApiKey }`（pi 类型，见设计文档）；具体 provider/配置构造由 11.5 的 api 实现，本票不做。
@@ -36,3 +36,7 @@
 
 - SSE 流式端点与 LLM 配置接入（env 读取、provider 构造、配置合并）从本票移出归入 11.5（api）；Web 聊天界面、LLM 配置表单与 Token 浏览器保存约束归 11.5（web）。
 - 提案生成相关（submit_proposal、提案 DSL、消息范围处理、提案端点、提案提示词）归 12；原提案 Web 界面内容（范围选择、提案面板、确认提交）随提案流顺延到 12 相关票。
+
+## Answer
+
+已实现并提交（commit 见 git log）。core 引入 `@earendil-works/pi-agent-core@0.83.0` + `@earendil-works/pi-ai@0.83.0` + `typebox@1.3.x`，新增 `core/src/agent` 模块（llm-port / memory-space-reader / digest / prompt-composer / query-records-tool / query-agent），导出 `./agent` 子路径；`core/src/memory` 零 pi 依赖未改动（ADR-0018）。LLM 端口 = `{ streamFn, model, getApiKey }`（pi 类型，provider 构造归 11.5）；`query_records` 为唯一只读工具（TypeBox schema、digest 校验 + key↔id 映射、错误带可用 key 列表、结果剥噪音、引用 v1 裸 id）；QueryAgent 每请求一个实例、digest 每次 run 构建一次、5 分钟超时（agent.abort()，stopReason aborted 收尾）。测试：core/test/agent 27 个用例，脚本化假 streamFn 跑通整循环（工具调用→查询→回答、报错回喂自愈、超时/取消），全仓 97 测试通过，typecheck/lint/prettier 干净。
