@@ -141,9 +141,18 @@ export function runSeed(data) {
   i = 0;
   for (const arc of data.PLOT_ARCS) {
     let k = 0;
+    // 弧线时间窗：按条数均分，首尾相接（start 为第 k 条起始，end 为下一条起始 / 弧线末尾）
+    const DAY_MS = 86400000;
+    const fromMs = Date.parse(`${arc.from}T00:00:00Z`);
+    const toMs = Date.parse(`${arc.to}T00:00:00Z`);
+    const stepDays = Math.max((toMs - fromMs) / DAY_MS, arc.list.length) / arc.list.length;
+    const dayString = (ms) => new Date(ms).toISOString().slice(0, 10);
     for (const [name, status, chars, locs, details, notes] of arc.list) {
       i += 1;
       k += 1;
+      const start = dayString(fromMs + (k - 1) * stepDays * DAY_MS);
+      let end = k < arc.list.length ? dayString(fromMs + k * stepDays * DAY_MS) : dayString(toMs);
+      if (end <= start) end = dayString(Date.parse(`${start}T00:00:00Z`) + DAY_MS); // 至少持续一天
       records.push({
         tableKey: "plots",
         id: randomUUID(),
@@ -153,6 +162,9 @@ export function runSeed(data) {
           [fk("plots", "related_characters")]: chars.map(charId),
           [fk("plots", "related_locations")]: locs.map(locId),
           [fk("plots", "status")]: status,
+          [fk("plots", "start_time")]: start,
+          // 剧情仍在进行中时不填结束时间（与字段填写意图一致）
+          [fk("plots", "end_time")]: status === "进行中" ? null : end,
           [fk("plots", "notes")]: notes,
         },
         displayText: name,
@@ -334,11 +346,47 @@ export function runSeed(data) {
       "SELECT COUNT(*) AS n FROM memory_records WHERE memory_space_id = ? AND table_id = ?",
     );
     const expected = data.EXPECTED;
-    for (const [key, want] of Object.entries(expected)) {
+    const tableKeys = [
+      "characters",
+      "relationships",
+      "locations",
+      "items",
+      "plots",
+      "foreshadowing",
+      "todos",
+    ];
+    for (const key of tableKeys) {
+      const want = expected[key];
       const got = countStmt.get(spaceId, tableIdByKey[key]).n;
       if (got !== want) errors.push(`${key}: 期望 ${want} 条，实际 ${got} 条`);
     }
     if (countStmt.get(spaceId, tableIdByKey.plots).n < 100) errors.push("剧情纪要不足 100 条");
+    // plots 表字段数须与模板一致（name/details/相关人物/相关地点/status/start_time/end_time/notes）
+    const plotsFieldCount = db
+      .prepare("SELECT COUNT(*) AS n FROM memory_fields WHERE memory_space_id = ? AND table_id = ?")
+      .get(spaceId, tableIdByKey.plots).n;
+    if (plotsFieldCount !== data.EXPECTED.plotsFields) {
+      errors.push(`plots 字段数：期望 ${data.EXPECTED.plotsFields}，实际 ${plotsFieldCount}`);
+    }
+    // date 字段值必须为 YYYY-MM-DD
+    const dateFields = db
+      .prepare(
+        "SELECT id, key, table_id FROM memory_fields WHERE memory_space_id = ? AND type = 'date'",
+      )
+      .all(spaceId);
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    for (const f of dateFields) {
+      for (const r of db
+        .prepare(
+          "SELECT id, payload_json FROM memory_records WHERE memory_space_id = ? AND table_id = ?",
+        )
+        .all(spaceId, f.table_id)) {
+        const v = JSON.parse(r.payload_json)[f.id];
+        if (v !== undefined && v !== null && !datePattern.test(v)) {
+          errors.push(`${f.key}/${r.id}: date 值 "${v}" 格式非法`);
+        }
+      }
+    }
     // 引用字段的值必须指向目标表存在的记录
     const refFields = db
       .prepare(

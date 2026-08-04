@@ -8,6 +8,7 @@ export const EXPECTED = {
   plots: 114,
   foreshadowing: 19,
   todos: 15,
+  plotsFields: 8,
 };
 // ---------- 系统表模板（与 SystemMemoryTableInstaller 一致） ----------
 export const TPL = [
@@ -197,6 +198,16 @@ export const TPL = [
         0,
         "根据证据选择进行中、暂停、已解决或已放弃，不自行预测。",
         ["进行中", "暂停", "已解决", "已放弃"],
+        null,
+      ],
+      ["start_time", "开始时间", "date", 0, "只记录证据明确给出的开始时间，不推测。", [], null],
+      [
+        "end_time",
+        "结束时间",
+        "date",
+        0,
+        "只记录证据明确给出的结束时间；剧情仍在进行时不填写。",
+        [],
         null,
       ],
       ["notes", "备注", "long_text", 0, "", [], null],
@@ -883,6 +894,8 @@ export const PLOT_ARCS = [
   {
     arc: "春・始まり",
     base: "2025-04-05",
+    from: "2025-04-05",
+    to: "2025-04-30",
     list: [
       [
         "入学式の朝、桜の下で",
@@ -1001,6 +1014,8 @@ export const PLOT_ARCS = [
   {
     arc: "図書室戦線",
     base: "2025-05-01",
+    from: "2025-05-01",
+    to: "2025-06-15",
     list: [
       [
         "鍵のキーホルダー",
@@ -1167,6 +1182,8 @@ export const PLOT_ARCS = [
   {
     arc: "夏",
     base: "2025-06-25",
+    from: "2025-06-25",
+    to: "2025-08-31",
     list: [
       [
         "期末試験前の図書室",
@@ -1317,6 +1334,8 @@ export const PLOT_ARCS = [
   {
     arc: "文化祭",
     base: "2025-09-01",
+    from: "2025-09-01",
+    to: "2025-10-15",
     list: [
       [
         "二学期始業式",
@@ -1515,6 +1534,8 @@ export const PLOT_ARCS = [
   {
     arc: "秋・修学旅行と藤堂凛",
     base: "2025-10-20",
+    from: "2025-10-20",
+    to: "2025-11-30",
     list: [
       [
         "修学旅行・京都",
@@ -1665,6 +1686,8 @@ export const PLOT_ARCS = [
   {
     arc: "冬",
     base: "2025-12-01",
+    from: "2025-12-01",
+    to: "2026-01-05",
     list: [
       [
         "初雪の日",
@@ -1767,6 +1790,8 @@ export const PLOT_ARCS = [
   {
     arc: "卒業・春",
     base: "2026-02-01",
+    from: "2026-02-01",
+    to: "2026-03-20",
     list: [
       [
         "バレンタイン",
