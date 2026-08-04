@@ -32,6 +32,24 @@ API 默认运行在 `http://127.0.0.1:3000`，Web 默认运行在 `http://127.0.
 
 `DATABASE_URL` 指向唯一的应用数据库文件。Schema、Kysely 迁移、连接生命周期和 SQLite Adapter 均由 API 宿主管理；Memory 业务模块只保留领域模型、应用用例及其 Ports。迁移通过 `pnpm web:migrate` 显式执行。
 
+## Seed Demo Data
+
+内置两套演示种子数据（同一故事、日文版与中文版，剧情纪要 114 条，其余系统表依据纪要内容推导）：
+
+```bash
+pnpm seed:jp    # 日文版「藤ノ森学園の放課後」
+pnpm seed:zh    # 中文版「藤ノ森学园放学后」
+pnpm seed       # 两版都写入
+```
+
+默认写入应用数据库 `data/ste-memory.sqlite`；也可通过 `--db` 指定目标 SQLite 文件（支持 `sqlite:` 前缀，相对路径基于仓库根目录）：
+
+```bash
+pnpm run seed:jp -- --db /path/to/other.db
+```
+
+脚本幂等：同名记忆空间会先被删除（外键级联）再重建，其他空间不受影响。种子数据源位于 `scripts/seed/`，由 `seed-lib.mjs`（入库机制）与 `seed-data-jp.mjs` / `seed-data-zh.mjs`（故事数据）组成。
+
 ## Verification
 
 ```bash

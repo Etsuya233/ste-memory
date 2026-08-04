@@ -10,6 +10,9 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "web:migrate": "pnpm --filter @ste-memory/api migrate",
+    "seed:jp": "node scripts/seed/seed-jp.mjs",
+    "seed:zh": "node scripts/seed/seed-zh.mjs",
+    "seed": "pnpm seed:jp && pnpm seed:zh",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present run typecheck"
   },
