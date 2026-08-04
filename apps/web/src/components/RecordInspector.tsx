@@ -1,4 +1,4 @@
-import { Database, History, MessageSquareText } from "lucide-react";
+import { Bot, Database, History, MessageSquareText } from "lucide-react";
 import { useState } from "react";
 import type { MemoryRecord } from "../api/memory-records.ts";
 import type { MemoryEvidence } from "../api/memory-records.ts";
@@ -6,6 +6,7 @@ import type { SourceMessage, SourceParseError } from "../api/memory-spaces.ts";
 import { ChatViewer } from "./ChatViewer.tsx";
 import type { RecordSelection } from "./RecordTable.tsx";
 import { formatMemoryFieldValue } from "./memory-record-value.ts";
+import { QueryChatPanel } from "./QueryChatPanel.tsx";
 import { RecordActions } from "./RecordActions.tsx";
 import { RecordHistoryPanel } from "./RecordHistoryPanel.tsx";
 
@@ -25,7 +26,7 @@ interface RecordInspectorProps {
 }
 
 export function RecordInspector(props: RecordInspectorProps) {
-  const [tab, setTab] = useState<"record" | "history" | "chat">("record");
+  const [tab, setTab] = useState<"record" | "history" | "chat" | "agent">("record");
   const selection = props.selection;
   return (
     <>
@@ -52,7 +53,18 @@ export function RecordInspector(props: RecordInspectorProps) {
         >
           <MessageSquareText size={15} /> 原始聊天
         </button>
+        <button
+          type="button"
+          className={tab === "agent" ? "active" : ""}
+          onClick={() => setTab("agent")}
+        >
+          <Bot size={15} /> Agent 聊天
+        </button>
       </nav>
+      {/* Agent 聊天面板保持挂载（隐藏而非卸载）：消息历史保留在页面内，切换标签不中断流 */}
+      <div className={tab === "agent" ? "" : "inspector-panel-hidden"}>
+        <QueryChatPanel memorySpaceId={props.memorySpaceId} />
+      </div>
       {tab === "chat" ? (
         <ChatViewer
           messages={props.messages}

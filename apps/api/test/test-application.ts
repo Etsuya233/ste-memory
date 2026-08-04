@@ -29,8 +29,22 @@ import { KyselyMemoryTableRepository } from "../src/adapters/outbound/sqlite/mem
 import { buildServer } from "../src/adapters/inbound/http/server.ts";
 import { KyselySourceChatRepository } from "../src/adapters/outbound/sqlite/source-store/repository.ts";
 import { SystemMemoryTableInstaller } from "../src/application/system-memory/system-memory-table-definitions.ts";
+import { DefaultChatManager } from "../src/application/chat/chat-manager.ts";
+import { loadLlmEnvConfig } from "../src/application/chat/llm-config.ts";
+import { UseCaseMemorySpaceReader } from "../src/adapters/outbound/memory/memory-space-reader.ts";
+import type { ChatManagerOptions } from "../src/application/chat/chat-manager.ts";
 
-export async function createTestApplication(prefix: string, timestamp: string) {
+export interface TestChatOptions {
+  readonly envConfig?: ChatManagerOptions["envConfig"];
+  readonly buildLlmPort?: ChatManagerOptions["buildLlmPort"];
+  readonly timeoutMs?: number;
+}
+
+export async function createTestApplication(
+  prefix: string,
+  timestamp: string,
+  chatOptions: TestChatOptions = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   const database = createDatabase(`sqlite:${join(directory, "application.sqlite")}`);
   await migrateDatabase(database);
@@ -86,6 +100,18 @@ export async function createTestApplication(prefix: string, timestamp: string) {
       () => randomUUID() as MemoryEvidenceId,
     ),
     memoryRecordQueries,
+    chat: new DefaultChatManager({
+      envConfig: chatOptions.envConfig ?? loadLlmEnvConfig({}),
+      spaces: memorySpaces,
+      reader: new UseCaseMemorySpaceReader(tables, fields, memoryRecordQueries),
+      // 默认不接真实 LLM：用到流式对话的测试必须显式注入假 provider。
+      buildLlmPort:
+        chatOptions.buildLlmPort ??
+        (() => {
+          throw new Error("测试未注入 LLM provider");
+        }),
+      timeoutMs: chatOptions.timeoutMs,
+    }),
   });
   server.addHook("onClose", async () => database.destroy());
   return {

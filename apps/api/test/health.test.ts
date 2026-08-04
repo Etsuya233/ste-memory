@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { buildServer } from "../src/adapters/inbound/http/server.ts";
+import { DefaultChatManager } from "../src/application/chat/chat-manager.ts";
+import { loadLlmEnvConfig } from "../src/application/chat/llm-config.ts";
 import type { DatabaseHealthCheck } from "../src/application/ports/health.ts";
 import type { MemorySpaceManager } from "../src/application/ports/memory-space.ts";
 import type { MemoryTableManager } from "../src/application/ports/memory-table.ts";
 import type { MemoryFieldManager } from "../src/application/ports/memory-field.ts";
 import type { MemoryRecordManager } from "../src/application/ports/memory-record.ts";
 import type { MemoryRecordQueryManager } from "../src/application/ports/memory-record-query.ts";
-import { buildServer } from "../src/adapters/inbound/http/server.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
   return {
@@ -65,6 +67,24 @@ describe("GET /health", () => {
       memoryFields,
       memoryRecords,
       memoryRecordQueries,
+      chat: new DefaultChatManager({
+        envConfig: loadLlmEnvConfig({}),
+        spaces: memorySpaces,
+        reader: {
+          listTables: async () => [],
+          listFields: async () => [],
+          queryRecords: async () => ({
+            records: [],
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          }),
+        },
+        buildLlmPort: () => {
+          throw new Error("health test 不访问 chat");
+        },
+      }),
     });
 
     const response = await server.inject({ method: "GET", url: "/health" });

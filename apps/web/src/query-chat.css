@@ -1,0 +1,366 @@
+/* ---------------------------------------------------------------------------
+ * QueryAgent 调试聊天面板（ticket 11.5）
+ * --------------------------------------------------------------------------- */
+
+.inspector-panel-hidden {
+  display: none;
+}
+
+.query-chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+}
+
+/* ---------- LLM 配置表单 ---------- */
+
+.llm-config {
+  border-bottom: 1px solid #dfe3dc;
+  background: #f7f8f5;
+}
+
+.llm-config summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  color: #34411e;
+  user-select: none;
+}
+
+.config-summary-hint {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 400;
+  color: #7a8278;
+}
+
+.llm-config-body {
+  display: grid;
+  gap: 9px;
+  padding: 4px 12px 12px;
+}
+
+.config-field {
+  display: grid;
+  gap: 4px;
+}
+
+.config-field > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #607332;
+}
+
+.config-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dfe3dc;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 11px;
+  background: #fff;
+  color: #30352f;
+}
+
+.config-field input:focus {
+  outline: none;
+  border-color: #779526;
+}
+
+.config-badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  background: #e9eee1;
+  color: #687066;
+}
+
+.config-badge[data-source="web"] {
+  background: #f0f5e2;
+  color: #4d6d20;
+}
+
+.config-badge[data-source="env"] {
+  background: #fff8eb;
+  color: #96711f;
+}
+
+.config-badge[data-source="missing"] {
+  background: #f8e8e5;
+  color: #963d34;
+}
+
+.config-key-row {
+  display: flex;
+  gap: 5px;
+}
+
+.config-key-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-notes {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #7a8278;
+}
+
+.config-notes svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.config-notes-warn {
+  color: #963d34;
+}
+
+/* ---------- 消息列表 ---------- */
+
+.query-chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.query-chat-empty {
+  margin: auto;
+  display: grid;
+  place-items: center;
+  justify-items: center;
+  gap: 8px;
+  color: #8a9087;
+  font-size: 11px;
+  text-align: center;
+  padding: 18px;
+}
+
+.chat-bubble-user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: #779526;
+  color: #fff;
+  padding: 7px 10px;
+  border-radius: 10px 10px 2px 10px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-assistant {
+  align-self: flex-start;
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.chat-assistant > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #607332;
+}
+
+.chat-assistant > header em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  color: #8a9087;
+}
+
+.chat-assistant-error > header em {
+  color: #963d34;
+}
+
+/* ---------- 思考过程 ---------- */
+
+.thinking-block {
+  border-left: 3px solid #d8e3c2;
+  background: #f8faf4;
+  border-radius: 4px;
+}
+
+.thinking-block summary {
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  color: #687066;
+  user-select: none;
+}
+
+.thinking-block p {
+  margin: 0;
+  padding: 2px 8px 7px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #788076;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- 工具调用卡片 ---------- */
+
+.tool-card {
+  border: 1px solid #dfe3dc;
+  border-left: 3px solid #8eae35;
+  border-radius: 4px;
+  background: #fbfcf9;
+  overflow: hidden;
+}
+
+.tool-card-error {
+  border-left-color: #b5544a;
+}
+
+.tool-card > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: #f0f5e2;
+  font-size: 10px;
+  color: #4d6d20;
+}
+
+.tool-card-error > header {
+  background: #f8e8e5;
+  color: #963d34;
+}
+
+.tool-card code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.tool-card header em {
+  margin-left: auto;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.tool-card-args,
+.tool-card-result pre {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: #4c524b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tool-card-args {
+  border-top: 1px dashed #e2e7da;
+}
+
+.tool-card-result {
+  border-top: 1px solid #e2e7da;
+}
+
+.tool-card-result summary {
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  color: #607332;
+  user-select: none;
+}
+
+.tool-card-result pre {
+  border-top: 1px dashed #e2e7da;
+  background: #f8faf4;
+}
+
+/* ---------- 回答与错误 ---------- */
+
+.chat-assistant-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #30352f;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-assistant-error {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #f8e8e5;
+  color: #963d34;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* ---------- 输入行 ---------- */
+
+.query-chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 9px 12px;
+  border-top: 1px solid #dfe3dc;
+  background: #f7f8f5;
+}
+
+.query-chat-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #dfe3dc;
+  border-radius: 4px;
+  padding: 6px 9px;
+  font-size: 11px;
+  background: #fff;
+  color: #30352f;
+}
+
+.query-chat-input-row input:focus {
+  outline: none;
+  border-color: #779526;
+}
+
+.query-chat-input-row input:disabled {
+  background: #f0f2ed;
+  color: #8a9087;
+}
+
+.query-chat-input-row .primary-button {
+  padding: 0 10px;
+}
+
+.spinning {
+  animation: query-chat-spin 1s linear infinite;
+}
+
+@keyframes query-chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

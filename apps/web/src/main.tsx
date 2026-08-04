@@ -8,6 +8,7 @@ import "./memory-table-workspace.css";
 import "./field-editor.css";
 import "./memory-records.css";
 import "./record-history.css";
+import "./query-chat.css";
 
 const root = document.getElementById("root");
 if (!root) {

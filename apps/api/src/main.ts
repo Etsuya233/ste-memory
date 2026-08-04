@@ -14,6 +14,10 @@ import {
   type MemoryTableId,
 } from "@ste-memory/core/memory";
 import { loadConfig } from "./config.ts";
+import { buildOpenAiCompatibleLlmPort } from "./adapters/outbound/llm/openai-compatible-llm.ts";
+import { UseCaseMemorySpaceReader } from "./adapters/outbound/memory/memory-space-reader.ts";
+import { DefaultChatManager } from "./application/chat/chat-manager.ts";
+import { loadLlmEnvConfig } from "./application/chat/llm-config.ts";
 import { DatabaseContext } from "./adapters/outbound/sqlite/database/database-context.ts";
 import { createDatabase } from "./adapters/outbound/sqlite/database/database.ts";
 import { KyselyUnitOfWork } from "./adapters/outbound/sqlite/database/kysely-unit-of-work.ts";
@@ -54,16 +58,32 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       () => randomUUID() as MemoryFieldId,
       () => new Date().toISOString(),
     );
+    const memorySpaceService = new MemorySpaceService(
+      memorySpaceRepository,
+      () => randomUUID() as MemorySpaceId,
+      () => new Date().toISOString(),
+    );
     const memorySpaces = new DefaultMemorySpaceManager(
-      new MemorySpaceService(
-        memorySpaceRepository,
-        () => randomUUID() as MemorySpaceId,
-        () => new Date().toISOString(),
-      ),
+      memorySpaceService,
       new SystemMemoryTableInstaller(memoryTableService, memoryFieldService),
       new KyselySourceChatRepository(context, unitOfWork),
       unitOfWork,
     );
+    const chat = new DefaultChatManager({
+      envConfig: loadLlmEnvConfig(environment),
+      spaces: memorySpaces,
+      reader: new UseCaseMemorySpaceReader(
+        memoryTableService,
+        memoryFieldService,
+        memoryRecordQueries,
+      ),
+      buildLlmPort: (config) =>
+        buildOpenAiCompatibleLlmPort({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.model,
+        }),
+    });
     const server = await buildServer({
       database: new KyselyDatabaseHealthCheck(context),
       memorySpaces,
@@ -81,6 +101,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         () => randomUUID() as MemoryEvidenceId,
       ),
       memoryRecordQueries,
+      chat,
     });
     server.addHook("onClose", async () => database.destroy());
     await server.listen({ host: config.host, port: config.port });

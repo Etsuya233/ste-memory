@@ -12,6 +12,8 @@ import type { MemorySpaceManager } from "../../../application/ports/memory-space
 import { registerMemoryRecordRoutes } from "./memory-records/routes.ts";
 import type { MemoryRecordManager } from "../../../application/ports/memory-record.ts";
 import type { MemoryRecordQueryManager } from "../../../application/ports/memory-record-query.ts";
+import { registerChatRoutes } from "./chat/routes.ts";
+import type { ChatManager } from "../../../application/ports/chat.ts";
 
 export interface ServerDependencies {
   readonly database: DatabaseHealthCheck;
@@ -20,6 +22,7 @@ export interface ServerDependencies {
   readonly memoryFields: MemoryFieldManager;
   readonly memoryRecords: MemoryRecordManager;
   readonly memoryRecordQueries: MemoryRecordQueryManager;
+  readonly chat: ChatManager;
 }
 
 const domainErrorMessages: Record<DomainErrorType, string> = {
@@ -92,6 +95,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemoryTableRoutes(server, dependencies.memorySpaces, dependencies.memoryTables);
   registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
   registerMemoryRecordRoutes(server, dependencies.memoryRecords, dependencies.memoryRecordQueries);
+  registerChatRoutes(server, dependencies.chat);
 
   return server;
 }
