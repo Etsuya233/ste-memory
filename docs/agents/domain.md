@@ -12,31 +12,26 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## File structure
 
-Single-context repo (most repos):
+Multi-context repo (this repo — `CONTEXT-MAP.md` exists at the root):
 
 ```
 /
-|- CONTEXT.md
-|- docs/adr/
-|  |- 0001-event-sourced-orders.md
-|  `- 0002-postgres-for-write-model.md
-`- src/
-```
-
-Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
-
-```
-/
-|- CONTEXT-MAP.md
+|- CONTEXT-MAP.md                     <- read first: which context owns what
 |- docs/adr/                          <- system-wide decisions
-`- src/
-   |- ordering/
-   |  |- CONTEXT.md
-   |  `- docs/adr/                    <- context-specific decisions
-   `- billing/
-      |- CONTEXT.md
-      `- docs/adr/
+|- core/
+|  |- CONTEXT.md                      <- domain vocabulary (memory tables, evidence, revisions, spaces…)
+|  `- docs/adr/                       <- core-scoped decisions (created lazily)
+`- apps/
+   |- CONTEXT.md                      <- app-layer vocabulary, shared by apps/api + apps/web
+   |- docs/adr/                       <- app-scoped decisions (created lazily)
+   |- api/
+   `- web/
 ```
+
+Context ownership:
+
+- The **core** context owns the domain vocabulary; every other context reads it without redefining it.
+- The **apps** context is one context shared by `apps/api` and `apps/web` — they are a pair with one vocabulary; never define an app-layer term for only one of them.
 
 ## Use the glossary's vocabulary
 
