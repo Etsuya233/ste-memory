@@ -18,6 +18,7 @@ import {
   type ToolCallCard,
 } from "../query-chat-state.ts";
 import { LlmConfigForm } from "./LlmConfigForm.tsx";
+import { MarkdownContent } from "./MarkdownContent.tsx";
 
 interface QueryChatPanelProps {
   readonly memorySpaceId?: string;
@@ -32,13 +33,10 @@ function newMessageId(): string {
  * - 消息历史保留在页面内（按空间存于内存 Map，切换空间不丢失）；
  * - SSE 实时展示思考过程、工具调用参数/结果（结果可展开收起）；
  * - 提问中可取消（AbortController）；错误提示不阻塞继续操作；
- * - LLM 配置：API Key 仅页面内存，Base URL/Model 存浏览器本地。
+ * - LLM 配置：API Key / Base URL / Model 均保存在浏览器本地（localStorage）。
  */
 export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
-  const [config, setConfig] = useState<LlmWebConfig>(() => {
-    const persisted = loadPersistedLlmConfig();
-    return { ...persisted, apiKey: "" };
-  });
+  const [config, setConfig] = useState<LlmWebConfig>(loadPersistedLlmConfig);
   const [envInfo, setEnvInfo] = useState<LlmConfigInfo>();
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const [input, setInput] = useState("");
@@ -86,8 +84,7 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
   function updateConfig(patch: Partial<LlmWebConfig>) {
     setConfig((current) => {
       const next = { ...current, ...patch };
-      // 非敏感配置（Base URL / Model）持久化；API Key 只在内存
-      savePersistedLlmConfig({ baseUrl: next.baseUrl, model: next.model });
+      savePersistedLlmConfig(next);
       return next;
     });
   }
@@ -221,13 +218,17 @@ function AssistantMessageView({
       {message.thinking.length > 0 ? (
         <details className="thinking-block" open={message.status === "streaming"}>
           <summary>思考过程</summary>
-          <p>{message.thinking}</p>
+          <MarkdownContent text={message.thinking} />
         </details>
       ) : null}
       {message.toolCalls.map((card) => (
         <ToolCallCardView key={card.callId} card={card} />
       ))}
-      {message.text.length > 0 ? <p className="chat-assistant-text">{message.text}</p> : null}
+      {message.text.length > 0 ? (
+        <div className="chat-assistant-text">
+          <MarkdownContent text={message.text} />
+        </div>
+      ) : null}
       {message.error ? <p className="chat-assistant-error">{message.error}</p> : null}
     </div>
   );

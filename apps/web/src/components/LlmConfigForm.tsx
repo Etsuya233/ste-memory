@@ -97,7 +97,7 @@ export function LlmConfigForm({ config, envInfo, onChange }: LlmConfigFormProps)
               <button
                 className="icon-button"
                 type="button"
-                title="清除（仅清除本页内存中的 Key）"
+                title="清除本地保存的 API Key"
                 aria-label="清除 API Key"
                 onClick={() => onChange({ apiKey: "" })}
               >
@@ -108,7 +108,7 @@ export function LlmConfigForm({ config, envInfo, onChange }: LlmConfigFormProps)
         </label>
         <p className="config-notes">
           <ShieldCheck size={13} />
-          API Key 仅保存在当前页面内存中，刷新即失效；Base URL / Model 会自动保存到浏览器本地。
+          API Key 与 Base URL / Model 一样保存在浏览器本地（localStorage），刷新页面不丢失。
         </p>
         {envInfo === undefined ? (
           <p className="config-notes config-notes-warn">

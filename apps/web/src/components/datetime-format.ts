@@ -8,7 +8,7 @@ export function storedToDatetimeLocal(value: string): string {
 // 输入框值 -> 存储值；缺少秒时补 ":00"，非 datetime-local 格式原样返回
 export function datetimeLocalToStored(value: string): string {
   if (!value.includes("T")) return value;
-  const [datePart, timePart] = value.split("T");
+  const [datePart = "", timePart = ""] = value.split("T");
   const time = timePart.length === 5 ? `${timePart}:00` : timePart;
   return `${datePart} ${time}`;
 }

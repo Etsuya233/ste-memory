@@ -126,26 +126,38 @@ export async function streamChat(
 }
 
 // ---------------------------------------------------------------------------
-// 非敏感配置的浏览器本地持久化（baseUrl/model 可保存；API Key 绝不落盘）
+// LLM 配置的浏览器本地持久化（baseUrl/model/apiKey 均保存；刷新不丢失）
 // ---------------------------------------------------------------------------
 
 const LLM_CONFIG_STORAGE_KEY = "ste-memory.llm-config";
 
-export function loadPersistedLlmConfig(): { baseUrl: string; model: string } {
+/** localStorage 中保存的 LLM 配置；空字符串 = 未填写。 */
+export interface PersistedLlmConfig {
+  readonly baseUrl: string;
+  readonly model: string;
+  readonly apiKey: string;
+}
+
+export function loadPersistedLlmConfig(): PersistedLlmConfig {
   try {
     const raw = localStorage.getItem(LLM_CONFIG_STORAGE_KEY);
-    if (!raw) return { baseUrl: "", model: "" };
-    const parsed = JSON.parse(raw) as { baseUrl?: unknown; model?: unknown };
+    if (!raw) return { baseUrl: "", model: "", apiKey: "" };
+    const parsed = JSON.parse(raw) as {
+      baseUrl?: unknown;
+      model?: unknown;
+      apiKey?: unknown;
+    };
     return {
       baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "",
       model: typeof parsed.model === "string" ? parsed.model : "",
+      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
     };
   } catch {
-    return { baseUrl: "", model: "" };
+    return { baseUrl: "", model: "", apiKey: "" };
   }
 }
 
-export function savePersistedLlmConfig(config: { baseUrl: string; model: string }): void {
+export function savePersistedLlmConfig(config: PersistedLlmConfig): void {
   try {
     localStorage.setItem(LLM_CONFIG_STORAGE_KEY, JSON.stringify(config));
   } catch {
