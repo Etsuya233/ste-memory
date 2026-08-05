@@ -1,4 +1,5 @@
-import type { MemoryProposalOperation, MemoryRecordId, MemoryRevisionId } from "../memory/index.ts";
+import type { MemoryRecordId, MemoryRevisionId } from "../../domain/index.ts";
+import type { MemoryProposalOperation } from "../memory-proposal.ts";
 import { findFieldInDigest, findTableInDigest, type MemorySpaceTableDigest } from "./digest.ts";
 import type { ProposalState, ProposalStateOperationInput } from "./proposal-state.ts";
 

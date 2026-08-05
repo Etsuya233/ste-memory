@@ -4,15 +4,15 @@
 
 ## Problem Statement
 
-当前 Core 按 Domain 与 Application 横向分层，现有代码全部服务于记忆管理，因此职责暂时清晰。随着 Retrieval、表格填写 Agent 和 SillyTavern 插件加入，同一组横向目录会混入多个业务模型、用例和端口，调用方也能通过宽泛导出绕过模块公开接口。届时业务所有权、依赖方向和代码导航都会逐渐模糊，后期再移动并同时修改代码还会降低 Git 对文件历史的识别质量。
+当前 Core 按 Domain 与 Application 横向分层，现有代码全部服务于记忆管理，因此职责暂时清晰。随着 Retrieval 和 SillyTavern 插件加入，以及表格填写 Agent 的编排在 Memory 模块内持续增长，同一组横向目录会混入多个业务模型、用例和端口，调用方也能通过宽泛导出绕过模块公开接口。届时业务所有权、依赖方向和代码导航都会逐渐模糊，后期再移动并同时修改代码还会降低 Git 对文件历史的识别质量。
 
 系统还需要支持多个可执行宿主。HTTP API 由 Fastify 请求驱动，未来的 SillyTavern 插件由 SillyTavern Event 驱动，并可能在浏览器运行时直接装配业务模块。两种宿主拥有不同的 inbound Adapter、配置、生命周期和持久化选择。当前 API 目录同时放置 HTTP 转换、SQLite Adapter、对象装配和部分应用编排，尚未明确区分宿主 Application 层与 Composition Root。
 
-需要建立一套可以渐进演进的模块结构，使记忆管理拥有稳定接口，让不同宿主复用相同业务规则，并为未来 Retrieval 与 Agent 保留清晰位置，同时避免提前创建没有行为的空模块或引入不必要的进程边界。
+需要建立一套可以渐进演进的模块结构，使记忆管理拥有稳定接口，让不同宿主复用相同业务规则，并为未来 Retrieval 保留清晰位置、为表格填写 Agent 在 Memory 内保留稳定子层，同时避免提前创建没有行为的空模块或引入不必要的进程边界。
 
 ## Solution
 
-代码按照“业务模块”和“可执行宿主”两个维度组织。Memory 作为当前唯一业务模块，内部保留 Domain、Application、inbound ports 和 outbound ports；未来 Retrieval 与 Agent 在出现真实模型和用例时建立同级模块。每个模块通过单一公开入口暴露用例、命令、查询结果和必要的集成契约，模块内部类型、Repository 与校验实现不向其他模块开放。
+代码按照“业务模块”和“可执行宿主”两个维度组织。Memory 作为当前唯一业务模块，内部保留 Domain、Application、inbound ports 和 outbound ports；表格填写 Agent 是 Memory Application 层内的 agent 子层（`core/src/memory/application/agent`），不是 peer 业务模块——它的语义（提案、temp id、修订）属于记忆领域，行为是记忆用例的编排。未来 Retrieval 在出现真实模型和用例时建立同级业务模块。每个模块通过单一公开入口暴露用例、命令、查询结果和必要的集成契约，模块内部类型、Repository 与校验实现不向其他模块开放。
 
 API 与 SillyTavern 插件分别作为可执行宿主。宿主拥有自己的 Application 层、technology-specific Adapter 和 Composition Root。宿主 Application 层承载仅对该运行形态成立的流程，例如 HTTP 上传来源文件后的协调流程，或 SillyTavern Event 到达后的会话同步流程；它只能调用业务模块公开接口和宿主自有端口。Composition Root 只读取配置、创建 Adapter、构造业务模块并连接依赖，不包含业务判断。
 
@@ -27,7 +27,7 @@ HTTP 路由和 SillyTavern Event Listener 都作为 inbound Adapter，把外部�
 3. As a maintainer, I want internal domain types and persistence ports hidden from unrelated modules, so that refactors remain local to the owning module.
 4. As a maintainer, I want Domain and Application separation preserved inside Memory, so that domain rules remain independent from orchestration and I/O.
 5. As a contributor, I want future Retrieval code to have a clear peer location, so that indexing and search concepts do not enter the Memory model.
-6. As a contributor, I want future Agent code to have a clear peer location, so that runs, tool calls and model interaction do not enter the Memory model.
+6. As a contributor, I want Agent code to have a clear location inside the Memory module's Application layer, so that runs, tool calls and model interaction do not enter the Memory domain model.
 7. As an API developer, I want HTTP routes to call explicit inbound ports, so that request handling contains only transport conversion and response mapping.
 8. As a SillyTavern plugin developer, I want SillyTavern Event listeners to drive the same business use cases, so that plugin behavior reuses Memory rules without HTTP.
 9. As a SillyTavern plugin developer, I want SillyTavern event names, payloads and lifecycle behavior isolated in an Adapter, so that external platform semantics do not leak into business modules.
@@ -36,7 +36,7 @@ HTTP 路由和 SillyTavern Event Listener 都作为 inbound Adapter，把外部�
 12. As a host developer, I want the Composition Root limited to configuration and dependency wiring, so that starting the program does not execute hidden business policy.
 13. As a Memory consumer, I want to submit changes through Memory commands, so that manual edits, Agent proposals and future adapters obey the same invariants.
 14. As a Memory consumer, I want stable query results designed for callers, so that consumers do not depend on Repository interfaces or database-shaped entities.
-15. As an Agent developer, I want Agent-owned outbound ports for the Memory and Retrieval capabilities it needs, so that Agent terminology can evolve independently.
+15. As an Agent developer, I want agent runs to read memory only through a narrow read port and to write only via the proposal pipeline, so that tool code never touches repositories or writes directly.
 16. As an integration developer, I want translation Adapters between business modules when their models differ, so that one context does not adopt another context's internal language.
 17. As a Retrieval developer, I want indexing failures isolated from Memory commits, so that Memory remains usable while derived indexes are unavailable.
 18. As a Retrieval developer, I want Memory changes available through a stable integration contract, so that indexes can be updated or rebuilt without database access.
@@ -57,13 +57,13 @@ HTTP 路由和 SillyTavern Event Listener 都作为 inbound Adapter，把外部�
 
 - Organize the Core by business module first and by technical layer second. Memory contains its own Domain, Application, inbound ports, outbound ports and public entry point.
 - Treat Memory as the cohesive owner of memory spaces, table definitions, fields, records, references, evidence and revisions. Do not create a narrower `memory-table` business module.
-- Add Retrieval and Agent as peer business modules only when their first real use cases are implemented. This refactor must not create placeholder directories, empty interfaces or speculative implementations for them.
+- Add Retrieval as a peer business module only when its first real use cases are implemented. The table-filling Agent is not a peer business module: its orchestration lives in the Memory module's Application layer under `memory/application/agent`, which is the only place allowed to import the agent engine (`@earendil-works/pi-*`, typebox). This refactor must not create placeholder directories, empty interfaces or speculative implementations for Retrieval.
 - Keep business modules in one Core package during this phase. Reassess separate workspace packages when multiple modules exist and compile-time package isolation provides concrete value.
 - Replace broad wildcard exports with explicit public module entry points. External callers may import published commands, queries, result views and errors; internal validation functions, Repository interfaces and implementation details remain private unless an Adapter genuinely implements the port.
 - Define inbound ports in the Application layer of the module that offers the use case. HTTP routes, event listeners, tests and other driver Adapters call these ports.
 - Define outbound ports in the Application layer of the module that needs an external capability. Persistence, model provider, clock, identity generation and integration Adapters implement those ports.
 - Use provider-owned integration contracts for stable facts or events published to other modules. When a consumer needs different terminology or a smaller capability, let the consumer own an outbound port and connect it through a translation Adapter.
-- Do not allow Retrieval or Agent to import Memory repositories, database schema, domain validation helpers or internal entities. Future integrations must use Memory's public Application or integration interface.
+- Do not allow Retrieval to import Memory repositories, database schema, domain validation helpers or internal entities. Future integrations must use Memory's public Application or integration interface. The agent sublayer lives inside the Memory module and may import its internals, with two hard constraints: the domain layer never imports the agent sublayer, and engine dependencies (`@earendil-works/pi-*`, typebox) are confined to `memory/application/agent`.
 - Establish a host-level Application layer inside each executable host. It coordinates runtime-specific flows and imports only public business-module interfaces plus host-owned ports.
 - Keep HTTP multipart parsing, status-code mapping, Fastify registration and HTTP DTO conversion in the API inbound Adapter.
 - Split the current memory-space upload flow so that SillyTavern JSONL parsing and HTTP source-store concerns stay owned by the API host, while general Memory creation and system-table installation are exposed through a Memory use case.
@@ -85,7 +85,7 @@ HTTP 路由和 SillyTavern Event Listener 都作为 inbound Adapter，把外部�
 - Domain tests continue to cover pure invariants directly where the invariant has meaningful behavior independent of a use case.
 - Existing Memory service and mutation tests provide prior art for verifying record validation, reference safety, revision conflicts and atomic mutation behavior. Preserve their behavioral assertions while updating imports and construction.
 - Existing API integration tests provide prior art for driving the HTTP Adapter through a constructed Fastify server backed by SQLite. They must continue to verify current request, response and persistence behavior after the move.
-- Add architecture tests or lint rules that fail when a business module imports another module's internals, a Domain imports Application or infrastructure code, a host Application imports Adapter implementations, or a non-bootstrap file acts as a Composition Root.
+- Add architecture tests or lint rules that fail when a business module imports another module's internals, a Domain imports Application or infrastructure code, a host Application imports Adapter implementations, a non-bootstrap file acts as a Composition Root, or code outside `memory/application/agent` imports the agent engine (`@earendil-works/pi-*`, typebox).
 - Add a focused test for the host workflow that creates a Memory space from an uploaded source, proving that parsing failures, system-table installation and Source Store persistence retain their current externally visible behavior.
 - Test HTTP request conversion separately from Memory business behavior where the mapping has independent rules, including multipart parsing, filename validation and transport error mapping.
 - Future SillyTavern Adapter tests will use synthetic normalized Event payloads at the Adapter seam; they are documented here as the intended seam and are outside this implementation.
@@ -110,7 +110,7 @@ HTTP 路由和 SillyTavern Event Listener 都作为 inbound Adapter，把外部�
 
 The word `application` has two valid scopes in this architecture. A business-module Application layer implements use cases for one bounded context. A host Application layer coordinates workflows that exist because of a particular executable runtime. The `apps` directory names deployable hosts and does not replace either business Domain or business Application logic.
 
-The desired dependency shape is asymmetric at runtime: Memory owns authoritative state; future Retrieval consumes a rebuildable projection; future Agent consumes Memory and Retrieval capabilities. At source level, a host integration Adapter may depend on both public interfaces while the business modules remain unaware of each other's internals.
+The desired dependency shape is asymmetric at runtime: Memory owns authoritative state; future Retrieval consumes a rebuildable projection; the agent sublayer consumes Memory capabilities through the module's own Application internals. At source level, a host integration Adapter may depend on both public interfaces while the business modules remain unaware of each other's internals.
 
 The existing API bootstrap already approximates a Composition Root. The current memory-space manager contains a mixture of host workflow, source parsing and Memory coordination, making it the main candidate for responsibility separation during this refactor.
 

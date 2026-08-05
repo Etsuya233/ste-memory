@@ -10,7 +10,7 @@
  */
 import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import type { LlmPort } from "@ste-memory/core/agent";
+import type { LlmPort } from "@ste-memory/core/memory/agent";
 import { OPENAI_COMPATIBLE_PROVIDER_ID } from "../../../application/chat/chat-manager.ts";
 
 export interface BuildOpenAiCompatibleLlmPortInput {

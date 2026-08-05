@@ -1,16 +1,15 @@
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import type {
-  MemoryEvidence,
-  MemoryMessageRange,
-  MemoryProposalPorts,
-  MemoryProposalSubmission,
-  MemorySpaceId,
-} from "../memory/index.ts";
+import type { MemoryEvidence, MemorySpaceId } from "../../domain/index.ts";
+import type { MemoryProposalPorts } from "../memory-proposal-validation.ts";
 import {
   previewProposal,
+  type MemoryMessageRange,
+  type MemoryProposalSubmission,
+} from "../memory-proposal-preview.ts";
+import {
   validateProposalOperation,
   validateProposalOperations,
-} from "../memory/index.ts";
+} from "../memory-proposal-validation.ts";
 import {
   abortedAgentRunSummary,
   convertAgentMessagesToLlm,

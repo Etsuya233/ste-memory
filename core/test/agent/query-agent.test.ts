@@ -3,7 +3,7 @@ import {
   DEFAULT_QUERY_AGENT_TIMEOUT_MS,
   QUERY_RECORDS_TOOL_NAME,
   QueryAgent,
-} from "../../src/agent/index.ts";
+} from "../../src/memory/application/agent/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Context } from "@earendil-works/pi-ai";
 import { createTestMemorySpace, type TestMemorySpace } from "./memory-space-fixture.ts";

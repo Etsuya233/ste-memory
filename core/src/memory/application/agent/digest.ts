@@ -7,7 +7,7 @@ import type {
   MemoryTable,
   MemoryTableId,
   MemoryTableKey,
-} from "../memory/index.ts";
+} from "../../domain/index.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
 
 /**

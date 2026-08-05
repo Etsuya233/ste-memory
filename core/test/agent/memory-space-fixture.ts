@@ -14,7 +14,7 @@ import type {
   MemorySpaceRepository,
   MemoryTableRepository,
 } from "../../src/memory/adapter.ts";
-import type { MemorySpaceReader } from "../../src/agent/index.ts";
+import type { MemorySpaceReader } from "../../src/memory/application/agent/index.ts";
 import {
   SPACE_ID,
   TABLES,

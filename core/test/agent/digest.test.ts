@@ -3,7 +3,7 @@ import {
   buildMemorySpaceTableDigest,
   findFieldInDigest,
   findTableInDigest,
-} from "../../src/agent/index.ts";
+} from "../../src/memory/application/agent/index.ts";
 import { createTestMemorySpace } from "./memory-space-fixture.ts";
 import { SPACE_ID } from "./memory-space-data.ts";
 describe("MemorySpaceTableDigest", () => {

@@ -6,10 +6,12 @@ import {
   type MemoryFieldValue,
   type MemoryRecordId,
   type MemoryRevisionId,
-  type QueryRecordFieldId,
-  type QueryRecordsCondition,
-  type QueryRecordsPage,
-} from "../memory/index.ts";
+} from "../../domain/index.ts";
+import type {
+  QueryRecordFieldId,
+  QueryRecordsCondition,
+  QueryRecordsPage,
+} from "../memory-record-query-contract.ts";
 import {
   findFieldInDigest,
   findTableInDigest,

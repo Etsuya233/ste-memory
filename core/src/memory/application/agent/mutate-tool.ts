@@ -1,11 +1,12 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type {
-  MemoryFieldValue,
-  MemoryProposalError,
-  MemoryProposalOperation,
-} from "../memory/index.ts";
-import { MEMORY_PROPOSAL_TEMP_ID_PREFIX, isProposalTempId } from "../memory/index.ts";
+import type { MemoryFieldValue } from "../../domain/index.ts";
+import {
+  MEMORY_PROPOSAL_TEMP_ID_PREFIX,
+  isProposalTempId,
+  type MemoryProposalError,
+  type MemoryProposalOperation,
+} from "../memory-proposal.ts";
 import {
   availableFieldKeys,
   availableTableKeys,

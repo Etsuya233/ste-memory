@@ -5,7 +5,7 @@
   "exports": {
     "./memory": "./src/memory/index.ts",
     "./memory/adapter": "./src/memory/adapter.ts",
-    "./agent": "./src/agent/index.ts"
+    "./memory/agent": "./src/memory/application/agent/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

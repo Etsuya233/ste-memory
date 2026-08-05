@@ -5,7 +5,7 @@ import {
   QueryRecordsToolError,
   buildMemorySpaceTableDigest,
   createQueryRecordsTool,
-} from "../../src/agent/index.ts";
+} from "../../src/memory/application/agent/index.ts";
 import type { QueryRecordsInput } from "../../src/memory/index.ts";
 import { createTestMemorySpace, type TestMemorySpace } from "./memory-space-fixture.ts";
 

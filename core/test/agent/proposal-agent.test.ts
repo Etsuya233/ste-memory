@@ -6,7 +6,7 @@ import {
   PROPOSAL_PREVIEW_TOOL_NAME,
   ProposalAgent,
   SUBMIT_PROPOSAL_TOOL_NAME,
-} from "../../src/agent/index.ts";
+} from "../../src/memory/application/agent/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Context, ToolResultMessage } from "@earendil-works/pi-ai";
 import { createTestMemorySpace, type TestMemorySpace } from "./memory-space-fixture.ts";

@@ -2,7 +2,7 @@
  * MemorySpaceReader 适配器：把现有应用层 UseCases 装配为 core agent 的只读端口。
  * 只转发只读方法（表/字段列表 + 记录查询），agent 永远接触不到写方法。
  */
-import type { MemorySpaceReader } from "@ste-memory/core/agent";
+import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import type { MemorySpaceId, MemoryTableId, QueryRecordsInput } from "@ste-memory/core/memory";
 import type { MemoryFieldManager } from "../../../application/ports/memory-field.ts";
 import type { MemoryRecordQueryManager } from "../../../application/ports/memory-record-query.ts";

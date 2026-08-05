@@ -6,7 +6,7 @@
  * （provider 构造经 buildLlmPort 注入，见 adapters/outbound/llm）。
  */
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { QueryAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/agent";
+import { QueryAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { ChatManager, ChatMessageInput, ChatRunHooks, PreparedChat } from "../ports/chat.ts";

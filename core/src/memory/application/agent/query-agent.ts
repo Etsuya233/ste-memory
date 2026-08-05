@@ -1,5 +1,5 @@
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import type { MemorySpaceId } from "../memory/index.ts";
+import type { MemorySpaceId } from "../../domain/index.ts";
 import {
   abortedAgentRunSummary,
   convertAgentMessagesToLlm,

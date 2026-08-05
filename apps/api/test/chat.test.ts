@@ -1,7 +1,7 @@
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { QUERY_RECORDS_TOOL_NAME } from "@ste-memory/core/agent";
+import { QUERY_RECORDS_TOOL_NAME } from "@ste-memory/core/memory/agent";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { buildServer } from "../src/adapters/inbound/http/server.ts";
 import type { ChatEvent } from "../src/application/chat/chat-events.ts";

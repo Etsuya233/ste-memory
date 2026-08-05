@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProposalState } from "../src/agent/index.ts";
+import { ProposalState } from "../src/memory/application/agent/index.ts";
 
 function create(overrides: Partial<Parameters<ProposalState["apply"]>[0]> = {}) {
   return {
