@@ -141,7 +141,7 @@ export function runSeed(data) {
   i = 0;
   for (const arc of data.PLOT_ARCS) {
     let k = 0;
-    for (const [name, status, chars, locs, details, notes] of arc.list) {
+    for (const [name, status, chars, locs, details, notes, start, end] of arc.list) {
       i += 1;
       k += 1;
       records.push({
@@ -153,6 +153,8 @@ export function runSeed(data) {
           [fk("plots", "related_characters")]: chars.map(charId),
           [fk("plots", "related_locations")]: locs.map(locId),
           [fk("plots", "status")]: status,
+          [fk("plots", "start_time")]: start,
+          [fk("plots", "end_time")]: end,
           [fk("plots", "notes")]: notes,
         },
         displayText: name,

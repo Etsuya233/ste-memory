@@ -239,6 +239,8 @@ describe("system memory table initialization", () => {
       ["related_characters", "相关人物"],
       ["related_locations", "相关地点"],
       ["status", "状态"],
+      ["start_time", "开始时间"],
+      ["end_time", "结束时间"],
       ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("foreshadowing")!].map(({ key, name }) => [key, name])).toEqual([
