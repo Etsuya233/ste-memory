@@ -19,6 +19,7 @@ body {
   color: var(--ink);
   background: var(--bg);
   font-family: var(--font-sans);
+  font-weight: var(--font-weight-body, 400);
   font-size: var(--fs-base);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -65,7 +66,7 @@ textarea:disabled {
 }
 
 ::selection {
-  background: #d8e6a4;
+  background: #cfe2ff;
 }
 
 /* 细滚动条 */
@@ -160,7 +161,7 @@ textarea:disabled {
 
 .topbar-search-box:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(124, 154, 38, 0.28);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
 }
 
 .topbar-search-box input {
@@ -174,7 +175,7 @@ textarea:disabled {
 }
 
 .topbar-search-box input::placeholder {
-  color: #6d7567;
+  color: #9ca3af;
 }
 
 .search-kbd {
@@ -300,23 +301,67 @@ textarea:disabled {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #6b7468;
+  background: #cbd5e1;
 }
 
 .health-dot.ok {
-  background: #a3c93f;
-  box-shadow: 0 0 0 3px rgba(163, 201, 63, 0.16);
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
 }
 
 .health-dot.bad {
-  background: #e0634f;
-  box-shadow: 0 0 0 3px rgba(224, 99, 79, 0.18);
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 顶栏字体切换（思源黑体 / 思源宋体）
+ * 注意：不使用 ui.tsx 的 Select（其 .control 类带 36px 最小高度/白底/100% 宽度，
+ * 会让控件溢出容器）——这里用原生 select + 独立样式，紧凑嵌入。 */
+.topbar-font-switch {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 0 9px;
+  color: var(--topbar-ink-2);
+  background: var(--topbar-bg-2);
+  border: 1px solid var(--topbar-line);
+  border-radius: var(--r-md);
+}
+
+.topbar-font-switch > svg {
+  flex: none;
+}
+
+.topbar-font-select {
+  width: auto;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  color: var(--topbar-ink);
+  background-color: transparent;
+  border: 0;
+  outline: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--topbar-ink-2) 50%),
+    linear-gradient(135deg, var(--topbar-ink-2) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) 55%,
+    calc(100% - 7px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.topbar-font-select:hover {
+  color: var(--topbar-ink);
 }
 
 /* ---------------------------------------------------------------------------
@@ -352,7 +397,7 @@ textarea:disabled {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #c4e25e;
+  background: #4f8ef7;
 }
 
 .btn-secondary {
@@ -543,7 +588,9 @@ select.control:disabled {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  /* min 240px：对话框（~604px 内容宽）与配置表单（~632px）都稳定两列，
+     窄屏自动塌缩为一列；minmax(min(...), 1fr) 防止窄容器溢出。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 14px;
 }
 
@@ -576,7 +623,7 @@ select.control:disabled {
 .switch span {
   position: absolute;
   inset: 0;
-  background: #b6bcb0;
+  background: #cbd5e1;
   border-radius: var(--r-full);
   transition: background 0.15s ease;
 }
@@ -791,6 +838,12 @@ select.control:disabled {
   min-height: 120px;
 }
 
+/* 折叠后只保留标题行：不再占满剩余高度 */
+.side-section.collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
 .side-section-header {
   min-height: 40px;
   display: flex;
@@ -806,6 +859,16 @@ select.control:disabled {
   gap: 7px;
   min-width: 0;
   flex: 1;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  text-align: left;
+}
+
+.side-section-title:hover h3 {
+  color: var(--accent-strong);
 }
 
 .side-section-title > svg {
@@ -905,7 +968,7 @@ select.control:disabled {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(22, 26, 20, 0.5);
+  background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(3px);
 }
 
@@ -947,9 +1010,9 @@ select.control:disabled {
   padding: 18px;
 }
 
-.dialog-body .form-grid + .field,
-.dialog-body .field + .field,
-.dialog-body .field + .form-grid {
+.dialog-body > .form-grid + .field,
+.dialog-body > .field + .field,
+.dialog-body > .field + .form-grid {
   margin-top: 14px;
 }
 

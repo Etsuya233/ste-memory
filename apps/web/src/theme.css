@@ -1,51 +1,52 @@
 /* ---------------------------------------------------------------------------
  * STE Memory — design tokens
  * 所有组件样式只使用这里的变量；需要调整外观时先改这里。
+ * 主题：清淡的蓝灰中性底 + 简洁蓝强调（常见、干净、低饱和）。
  * ------------------------------------------------------------------------- */
 
 :root {
-  /* ---------- 色彩：暖中性底 + 青柠强调 ---------- */
-  --bg: #eef0ea;
+  /* ---------- 色彩：蓝灰中性底 + 蓝色强调 ---------- */
+  --bg: #f4f6f9;
   --surface: #ffffff;
-  --surface-2: #f6f7f2;
-  --surface-3: #edefe8;
-  --surface-4: #e4e7dd;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f4f8;
+  --surface-4: #e3e8ef;
 
-  --ink: #20241f;
-  --ink-2: #4c544a;
-  --ink-3: #747c70;
-  --ink-4: #9aa298;
+  --ink: #1f2937;
+  --ink-2: #4b5563;
+  --ink-3: #6b7280;
+  --ink-4: #9ca3af;
 
-  --line: #e1e4dc;
-  --line-2: #d0d5c9;
+  --line: #e5e7eb;
+  --line-2: #d1d5db;
 
-  --brand: #b6d84d;
-  --brand-ink: #242a0c;
+  --brand: #3b82f6;
+  --brand-ink: #ffffff;
 
-  --accent: #7c9a26;
-  --accent-strong: #637e1b;
-  --accent-ink: #40540f;
-  --accent-soft: #eef3df;
-  --accent-softer: #f5f8ec;
-  --accent-line: #ccd8a6;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-ink: #1e40af;
+  --accent-soft: #eff6ff;
+  --accent-softer: #f5f9ff;
+  --accent-line: #bfdbfe;
 
-  --danger: #bc4a3c;
-  --danger-strong: #a23c30;
-  --danger-soft: #f9ebe8;
-  --danger-line: #eccbc4;
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-line: #fecaca;
 
-  --warn: #93660f;
-  --warn-soft: #fcf3dd;
-  --warn-line: #ead9a9;
+  --warn: #b45309;
+  --warn-soft: #fffbeb;
+  --warn-line: #fde68a;
 
-  --ok: #4c7a24;
+  --ok: #16a34a;
 
-  /* ---------- 顶栏（深色） ---------- */
-  --topbar-bg: #20241f;
-  --topbar-bg-2: #2a2f28;
-  --topbar-ink: #f1f3ed;
-  --topbar-ink-2: #a7afa1;
-  --topbar-line: #363c33;
+  /* ---------- 顶栏（浅色） ---------- */
+  --topbar-bg: #ffffff;
+  --topbar-bg-2: #f1f4f8;
+  --topbar-ink: #1f2937;
+  --topbar-ink-2: #6b7280;
+  --topbar-line: #e5e7eb;
 
   /* ---------- 字体 ---------- */
   --font-sans:
@@ -53,6 +54,10 @@
     system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono:
     "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 宋体模式：顶栏切换（见 App.tsx 字体下拉框） */
+  --font-serif:
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", SimSun, serif;
 
   /* ---------- 字号阶梯 ---------- */
   --fs-2xs: 10px;
@@ -71,9 +76,9 @@
   --r-full: 999px;
   --control-h: 36px;
 
-  --shadow-sm: 0 1px 2px rgba(24, 28, 22, 0.05);
-  --shadow-md: 0 6px 18px rgba(24, 28, 22, 0.1);
-  --shadow-lg: 0 20px 48px rgba(20, 24, 18, 0.24);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.18);
 
   --z-popover: 30;
   --z-dialog: 40;
@@ -83,4 +88,10 @@
   --sidebar-w: 276px;
   --rail-w: 46px;
   --inspector-w: 376px;
+}
+
+:root[data-font="serif"] {
+  --font-sans: var(--font-serif);
+  /* 思源宋体默认加粗：宋体笔画细，基础字重提升一档 */
+  --font-weight-body: 600;
 }

@@ -79,7 +79,7 @@ export function RecordInspector(props: RecordInspectorProps) {
         <div className="inspector-content-scroll">
           <RecordHistoryPanel memorySpaceId={props.memorySpaceId} selection={selection} />
         </div>
-      ) : selection ? (
+      ) : tab === "record" && selection ? (
         <div className="inspector-content-scroll">
           <div className="record-inspector-content">
             <header>
@@ -146,12 +146,12 @@ export function RecordInspector(props: RecordInspectorProps) {
             </section>
           </div>
         </div>
-      ) : (
+      ) : tab === "record" ? (
         <div className="inspector-empty">
           <Database size={24} />
           <p>选择一条记录查看字段原值与来源。</p>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

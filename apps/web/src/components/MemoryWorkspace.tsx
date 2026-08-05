@@ -4,6 +4,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
   RefreshCw,
   Table2,
 } from "lucide-react";
@@ -266,11 +267,10 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
               actions={
                 <IconButton
                   label="创建表格"
-                 
                   disabled={!props.selectedSpaceId}
                   onClick={() => setDialog({ mode: "create" })}
                 >
-                  <Database size={14} />
+                  <Plus size={14} />
                 </IconButton>
               }
             >

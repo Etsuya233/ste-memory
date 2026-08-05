@@ -117,6 +117,8 @@ function ResizeHandle({ axis, size, minSize, label, onResize }: ResizeHandleProp
       tabIndex={0}
       onKeyDown={resizeWithKeyboard}
       onPointerDown={startResize}
+      /* 阻止 mousedown 默认的焦点转移：否则拖拽行/列手柄时，正在编辑的单元格会因失焦而关闭 */
+      onMouseDown={(event) => event.preventDefault()}
     />
   );
 }
@@ -127,6 +129,8 @@ interface RecordColumn {
   readonly resizeLabel: string;
   readonly defaultWidth: number;
   readonly className?: string;
+  /** 是否允许拖拽调整列宽（行号等窄列关闭）。 */
+  readonly resizable?: boolean;
 }
 
 interface EditableRecordRowProps {
@@ -135,6 +139,7 @@ interface EditableRecordRowProps {
   readonly record: MemoryRecord;
   readonly fields: readonly MemoryField[];
   readonly referenceRecords: MemoryRecordsByTable;
+  readonly rowIndex: number;
   readonly onSaved: (record: MemoryRecord) => void;
   readonly onSelect: (record: MemoryRecord) => void;
 }
@@ -210,6 +215,7 @@ function EditableRecordRow(props: EditableRecordRowProps) {
       onClick={() => props.onSelect(recordRef.current)}
       onFocus={() => props.onSelect(recordRef.current)}
     >
+      <td className="record-row-index-cell">{props.rowIndex}</td>
       <td className="record-status-cell">
         <SaveIndicator state={saveState} message={saveMessage} />
         <ResizeHandle
@@ -224,7 +230,7 @@ function EditableRecordRow(props: EditableRecordRowProps) {
         <strong>{recordRef.current.displayText || "未命名记录"}</strong>
       </td>
       {props.fields.map((field) => (
-        <td key={field.id} className={!field.enabled ? "disabled-record-cell" : undefined}>
+        <td key={field.id} className={`record-field-cell ${!field.enabled ? "disabled-record-cell" : ""}`}>
           <RecordCell
             field={field}
             value={payload[field.id]}
@@ -307,6 +313,9 @@ function NewRecordRow(props: NewRecordRowProps) {
       style={{ height: rowHeight }}
       onBlur={(event) => void save(event)}
     >
+      <td className="record-row-index-cell" aria-hidden="true">
+        <Plus size={12} />
+      </td>
       <td className="record-status-cell">
         <span className="new-record-label">
           <Plus size={14} /> 新记录
@@ -325,7 +334,7 @@ function NewRecordRow(props: NewRecordRowProps) {
       </td>
       <td className="record-display-cell">保存后生成</td>
       {props.fields.map((field) => (
-        <td key={field.id} className={!field.enabled ? "disabled-record-cell" : undefined}>
+        <td key={field.id} className={`record-field-cell ${!field.enabled ? "disabled-record-cell" : ""}`}>
           <RecordCell
             field={field}
             value={payload[field.id]}
@@ -343,6 +352,9 @@ function NewRecordRow(props: NewRecordRowProps) {
   );
 }
 
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+const DEFAULT_PAGE_SIZE = 50;
+
 export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: RecordTableProps) {
   const [fields, setFields] = useState<MemoryField[]>([]);
   const [result, setResult] = useState<MemoryRecordPage>();
@@ -350,6 +362,8 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -361,7 +375,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
       listMemoryFields(memorySpaceId, table.id),
       listMemoryRecords(memorySpaceId, table.id, {
         page: nextPage,
-        pageSize: 20,
+        pageSize,
         search: nextSearch,
       }),
     ])
@@ -388,12 +402,25 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
   useEffect(() => {
     onSelect(undefined);
     load(page, search);
-  }, [memorySpaceId, table.id, page, search, refreshVersion]);
+  }, [memorySpaceId, table.id, page, search, pageSize, refreshVersion]);
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
     setPage(1);
+    setPageInput("1");
     setSearch(searchInput);
+  }
+
+  /** 跳到指定页：钳制到有效范围，并同步页码输入框。 */
+  function jumpToPage(raw: string) {
+    const next = Number(raw);
+    if (!Number.isInteger(next)) return;
+    const clamped = Math.min(
+      Math.max(1, next),
+      Math.max(1, result?.totalPages ?? 1),
+    );
+    setPage(clamped);
+    setPageInput(String(clamped));
   }
 
   function updateVisibleRecord(record: MemoryRecord) {
@@ -422,6 +449,14 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
   }
 
   const columns: readonly RecordColumn[] = [
+    {
+      key: "row",
+      label: "",
+      resizeLabel: "行号",
+      defaultWidth: 44,
+      className: "record-row-index-cell",
+      resizable: false,
+    },
     {
       key: "status",
       label: "保存状态",
@@ -498,25 +533,27 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                     return (
                       <th key={column.key} className={column.className}>
                         {column.label}
-                        <ResizeHandle
-                          axis="column"
-                          size={width}
-                          minSize={88}
-                          label={column.resizeLabel}
-                          onResize={(nextWidth) =>
-                            setColumnWidths((current) => ({
-                              ...current,
-                              [column.key]: nextWidth,
-                            }))
-                          }
-                        />
+                        {column.resizable === false ? null : (
+                          <ResizeHandle
+                            axis="column"
+                            size={width}
+                            minSize={88}
+                            label={column.resizeLabel}
+                            onResize={(nextWidth) =>
+                              setColumnWidths((current) => ({
+                                ...current,
+                                [column.key]: nextWidth,
+                              }))
+                            }
+                          />
+                        )}
                       </th>
                     );
                   })}
                 </tr>
               </thead>
               <tbody>
-                {result.records.map((record) => (
+                {result.records.map((record, index) => (
                   <EditableRecordRow
                     key={record.id}
                     memorySpaceId={memorySpaceId}
@@ -524,6 +561,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                     record={record}
                     fields={fields}
                     referenceRecords={referenceRecords}
+                    rowIndex={(page - 1) * pageSize + index + 1}
                     onSaved={updateVisibleRecord}
                     onSelect={selectRecord}
                   />
@@ -548,25 +586,60 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
             <span>
               共 {result.total} 条 · 第 {result.page}/{Math.max(1, result.totalPages)} 页
             </span>
-            <div>
+            <div className="record-pagination-controls">
               <button
                 className="icon-btn"
                 type="button"
                 aria-label="上一页"
                 disabled={page <= 1}
-                onClick={() => setPage((value) => value - 1)}
+                onClick={() => jumpToPage(String(page - 1))}
               >
                 <ChevronLeft size={16} />
               </button>
+              <form
+                className="record-page-jump"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  jumpToPage(pageInput);
+                }}
+              >
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, result.totalPages)}
+                  value={pageInput}
+                  aria-label="页码"
+                  title="输入页码后按 Enter 跳转"
+                  onChange={(event) => setPageInput(event.target.value)}
+                  onBlur={() => jumpToPage(pageInput)}
+                />
+                <span>/ {Math.max(1, result.totalPages)}</span>
+              </form>
               <button
                 className="icon-btn"
                 type="button"
                 aria-label="下一页"
                 disabled={page >= result.totalPages}
-                onClick={() => setPage((value) => value + 1)}
+                onClick={() => jumpToPage(String(page + 1))}
               >
                 <ChevronRight size={16} />
               </button>
+              <select
+                className="record-page-size"
+                value={pageSize}
+                aria-label="每页条数"
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                  setPageInput("1");
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size} 条/页
+                  </option>
+                ))}
+              </select>
             </div>
           </footer>
         </>

@@ -107,9 +107,39 @@
   background: var(--accent-soft);
 }
 
+/* ---------- 字段单元格：承载绝对定位的编辑器（行手柄的锚点仍是 tr） ---------- */
+
+.record-field-cell {
+  position: relative;
+}
+
+/* ---------- 行号列（窄、无标题） ---------- */
+
+.record-row-index-cell {
+  padding: 6px 4px !important;
+  color: var(--ink-4);
+  text-align: center !important;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.record-table th.record-row-index-cell {
+  padding: 8px 4px !important;
+}
+
+.record-row-index-cell svg {
+  margin: 0 auto;
+}
+
+/* ---------- 单元格编辑器：绝对铺满单元格，随行高伸展 ---------- */
+
 .record-cell-editor {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 6px;
+  width: auto;
+  height: auto;
   overflow: hidden;
 }
 
@@ -153,6 +183,12 @@
   resize: none;
 }
 
+/* 编辑器铺满后，让多行/多选控件吃掉多余高度 */
+.record-cell-editor textarea,
+.record-cell-editor select[multiple] {
+  height: 100%;
+}
+
 .record-cell-editor select[multiple] {
   padding: 3px;
 }
@@ -169,7 +205,7 @@
   line-height: 1.45;
 }
 
-/* ---------- datetime 分体输入（单元格内） ---------- */
+/* ---------- datetime 一体式输入（单元格内） ---------- */
 
 .record-cell-editor .datetime-control {
   width: 100%;
@@ -182,7 +218,7 @@
 }
 
 .record-cell-editor .datetime-control input {
-  flex: 1 1 50%;
+  flex: 1;
   min-width: 0;
   width: auto;
   height: 30px;
@@ -217,11 +253,11 @@
   background: var(--danger-soft);
 }
 
-/* 表单里的 datetime 分体输入 */
+/* 表单里的 datetime 一体式输入 */
 .record-field-input .datetime-control,
 .record-source-fields .datetime-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr) 26px;
   gap: 6px;
   align-items: center;
 }
@@ -377,6 +413,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 9px 16px;
   color: var(--ink-3);
   font-size: var(--fs-xs);
@@ -384,9 +421,70 @@
   background: var(--surface-2);
 }
 
-.record-pagination div {
+.record-pagination-controls {
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 页码填写框（Enter 跳转） */
+.record-page-jump {
+  display: flex;
+  align-items: center;
   gap: 5px;
+  color: var(--ink-4);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+
+.record-page-jump input {
+  width: 52px;
+  height: 28px;
+  padding: 0 6px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  outline: none;
+  font-size: var(--fs-xs);
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.record-page-jump input::-webkit-outer-spin-button,
+.record-page-jump input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.record-page-jump input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 每页条数选择 */
+.record-page-size {
+  height: 28px;
+  padding: 0 22px 0 8px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  outline: none;
+  font-size: var(--fs-xs);
+}
+
+.record-page-size:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+@media (max-width: 720px) {
+  .record-pagination {
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
 }
 
 /* ===========================================================================

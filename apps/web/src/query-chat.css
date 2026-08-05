@@ -253,7 +253,7 @@
   border-left-color: var(--danger);
 }
 
-.tool-card > header {
+.tool-card > summary {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -261,9 +261,37 @@
   background: var(--accent-softer);
   font-size: var(--fs-2xs);
   color: var(--accent-ink);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
 
-.tool-card-error > header {
+.tool-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-card > summary:hover {
+  background: var(--accent-soft);
+}
+
+/* 展开箭头（替代浏览器默认三角） */
+.tool-card > summary::after {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.55;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.tool-card[open] > summary::after {
+  transform: rotate(-135deg);
+}
+
+.tool-card-error > summary {
   background: var(--danger-soft);
   color: var(--danger);
 }
@@ -274,7 +302,7 @@
   font-weight: 700;
 }
 
-.tool-card header em {
+.tool-card summary em {
   margin-left: auto;
   font-style: normal;
   font-weight: 600;
@@ -302,13 +330,16 @@
   border-top: 1px solid var(--line);
 }
 
-.tool-card-result summary {
+.tool-card-result > strong {
+  display: block;
   padding: 4px 8px;
-  cursor: pointer;
   font-size: var(--fs-2xs);
   font-weight: 600;
   color: var(--accent-strong);
-  user-select: none;
+}
+
+.tool-card-error .tool-card-result > strong {
+  color: var(--danger);
 }
 
 .tool-card-result pre {

@@ -1,4 +1,4 @@
-import { BrainCircuit, PanelLeftClose, Plus } from "lucide-react";
+import { BrainCircuit, PanelLeftClose, Plus, Type } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   createMemorySpace,
@@ -17,6 +17,13 @@ import { Button, IconButton, usePersistedState } from "./ui.tsx";
 type DialogState =
   | { readonly mode: "create" }
   | { readonly mode: "rename" | "delete"; readonly space: MemorySpace };
+
+type UiFont = "sans" | "serif";
+
+const FONT_OPTIONS: readonly { value: UiFont; label: string }[] = [
+  { value: "sans", label: "思源黑体" },
+  { value: "serif", label: "思源宋体" },
+];
 
 const HEALTH_POLL_MS = 30_000;
 
@@ -38,6 +45,12 @@ export function App() {
     "sm.sidebar.collapsed",
     false,
   );
+
+  // 界面字体：思源黑体 / 思源宋体（全局生效，localStorage 持久化）
+  const [font, setFont] = usePersistedState<UiFont>("sm.ui.font", "sans");
+  useEffect(() => {
+    document.documentElement.dataset.font = font;
+  }, [font]);
 
   // 服务健康（API + SQLite）
   const [health, setHealth] = useState<SystemHealth>();
@@ -165,6 +178,21 @@ export function App() {
         />
 
         <div className="topbar-actions">
+          <label className="topbar-font-switch" title="切换界面字体">
+            <Type size={14} />
+            <select
+              className="topbar-font-select"
+              aria-label="界面字体"
+              value={font}
+              onChange={(event) => setFont(event.target.value as UiFont)}
+            >
+              {FONT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span
             className="health-pill"
             title={dbOk ? "API 与数据库正常" : "API 或数据库不可用"}

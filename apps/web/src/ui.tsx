@@ -299,7 +299,7 @@ export function CollapsibleSection({
 }: CollapsibleSectionProps) {
   const [open, setOpen] = usePersistedState(storageKey, defaultOpen);
   return (
-    <section className={`side-section ${flexible ? "flexible" : ""}`}>
+    <section className={`side-section ${flexible ? "flexible" : ""} ${open ? "" : "collapsed"}`}>
       <div className="side-section-header">
         <button
           type="button"

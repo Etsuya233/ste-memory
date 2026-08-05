@@ -235,21 +235,26 @@ function AssistantMessageView({
 }
 
 function ToolCallCardView({ card }: { card: ToolCallCard }) {
+  const running = card.result === undefined;
   return (
-    <article className={`tool-card ${card.isError ? "tool-card-error" : ""}`}>
-      <header>
+    <details
+      className={`tool-card ${card.isError ? "tool-card-error" : ""}`}
+      /* 执行中的调用默认展开以实时观察参数；结束/出错后回到折叠态 */
+      open={running}
+    >
+      <summary>
         <Wrench size={12} />
         <code>{card.name}</code>
-        <em>{card.isError ? "执行失败" : card.result === undefined ? "执行中…" : "完成"}</em>
-      </header>
+        <em>{card.isError ? "执行失败" : running ? "执行中…" : "完成"}</em>
+      </summary>
       <pre className="tool-card-args">{JSON.stringify(card.args, null, 2)}</pre>
       {card.result !== undefined ? (
-        <details className="tool-card-result" open={card.isError}>
-          <summary>结果（{card.isError ? "错误" : `${recordCount(card.result)} 条记录`}）</summary>
+        <div className="tool-card-result">
+          <strong>结果（{card.isError ? "错误" : `${recordCount(card.result)} 条记录`}）</strong>
           <pre>{JSON.stringify(card.result, null, 2)}</pre>
-        </details>
+        </div>
       ) : null}
-    </article>
+    </details>
   );
 }
 
