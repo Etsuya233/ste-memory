@@ -17,6 +17,8 @@ import type { ChatManager } from "../../../application/ports/chat.ts";
 import { registerFillTaskRoutes } from "./fill-tasks/routes.ts";
 import type { FillTaskManager } from "../../../application/ports/fill-task-manager.ts";
 import { FillTaskSpaceReadOnlyError } from "../../../application/fill-tasks/write-guard.ts";
+import { registerCleaningRuleRoutes } from "./cleaning-rules/routes.ts";
+import type { CleaningRuleManager } from "../../../application/ports/cleaning-rule.ts";
 
 export interface ServerDependencies {
   readonly database: DatabaseHealthCheck;
@@ -27,6 +29,7 @@ export interface ServerDependencies {
   readonly memoryRecordQueries: MemoryRecordQueryManager;
   readonly chat: ChatManager;
   readonly fillTasks: FillTaskManager;
+  readonly cleaningRules: CleaningRuleManager;
 }
 
 /**
@@ -114,6 +117,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemoryRecordRoutes(server, dependencies.memoryRecords, dependencies.memoryRecordQueries);
   registerChatRoutes(server, dependencies.chat);
   registerFillTaskRoutes(server, dependencies.fillTasks);
+  registerCleaningRuleRoutes(server, dependencies.cleaningRules);
 
   return server;
 }

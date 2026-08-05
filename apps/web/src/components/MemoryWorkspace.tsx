@@ -17,6 +17,7 @@ import {
 } from "../api/memory-spaces.ts";
 import { SpaceList } from "./SpaceList.tsx";
 import { FillTaskPanel } from "./FillTaskPanel.tsx";
+import { CleaningRulesPanel } from "./CleaningRulesPanel.tsx";
 import { TableDialog } from "./TableDialog.tsx";
 import { TableList } from "./TableList.tsx";
 import { TableWorkspace } from "./TableWorkspace.tsx";
@@ -44,6 +45,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
   const [updatingId, setUpdatingId] = useState<string>();
   const [recordSelection, setRecordSelection] = useState<RecordSelection>();
   const [recordRefreshVersion, setRecordRefreshVersion] = useState(0);
+  const [contentRefreshVersion, setContentRefreshVersion] = useState(0);
   const [highlightedSourceIds, setHighlightedSourceIds] = useState<readonly number[]>([]);
   const [missingSourceIds, setMissingSourceIds] = useState<readonly (string | number)[]>([]);
   const [dialog, setDialog] = useState<
@@ -87,7 +89,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
     return () => {
       active = false;
     };
-  }, [props.selectedSpaceId]);
+  }, [props.selectedSpaceId, contentRefreshVersion]);
 
   const selectedTable = tables.find((table) => table.id === selectedTableId);
 
@@ -167,6 +169,12 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
         </section>
         {props.selectedSpaceId ? (
           <FillTaskPanel space={props.spaces.find((item) => item.id === props.selectedSpaceId)!} />
+        ) : null}
+        {props.selectedSpaceId ? (
+          <CleaningRulesPanel
+            spaceId={props.selectedSpaceId}
+            onSaved={() => setContentRefreshVersion((value) => value + 1)}
+          />
         ) : null}
         {workspaceError ? <div className="page-error">{workspaceError}</div> : null}
         <TableList

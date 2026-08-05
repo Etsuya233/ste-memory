@@ -21,6 +21,7 @@ describe("application database migrations", () => {
         ORDER BY name
       `.execute(database);
       expect(tables.rows.map((row) => row.name)).toEqual([
+        "cleaning_rules",
         "kysely_migration",
         "kysely_migration_lock",
         "memory_evidence",

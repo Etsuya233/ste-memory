@@ -34,6 +34,8 @@ import { SystemMemoryTableInstaller } from "./application/system-memory/system-m
 import { FillTaskService } from "./application/fill-tasks/fill-task-service.ts";
 import { FillTaskWriteGuard } from "./application/fill-tasks/write-guard.ts";
 import { KyselyFillTaskRepository } from "./adapters/outbound/sqlite/fill-tasks/repository.ts";
+import { KyselyCleaningRuleRepository } from "./adapters/outbound/sqlite/cleaning-rules/repository.ts";
+import { DefaultCleaningRuleManager } from "./application/cleaning-rules/manager.ts";
 
 export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
   const config = loadConfig(environment);
@@ -42,6 +44,16 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
     const context = new DatabaseContext(database);
     const unitOfWork = new KyselyUnitOfWork(database, context);
     const memorySpaceRepository = new KyselyMemorySpaceRepository(context);
+    const cleaningRuleRepository = new KyselyCleaningRuleRepository(
+      context,
+      unitOfWork,
+      () => randomUUID(),
+      () => new Date().toISOString(),
+    );
+    const cleaningRules = new DefaultCleaningRuleManager(
+      cleaningRuleRepository,
+      memorySpaceRepository,
+    );
     const memoryTableRepository = new KyselyMemoryTableRepository(context);
     const memoryFieldRepository = new KyselyMemoryFieldRepository(context);
     const memoryRecordRepository = new KyselyMemoryRecordRepository(context, unitOfWork);
@@ -71,6 +83,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       memorySpaceService,
       new SystemMemoryTableInstaller(memoryTableService, memoryFieldService),
       new KyselySourceChatRepository(context, unitOfWork),
+      cleaningRuleRepository,
       unitOfWork,
     );
     const chat = new DefaultChatManager({
@@ -92,6 +105,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       tasks: new KyselyFillTaskRepository(context),
       sources: new KyselySourceChatRepository(context, unitOfWork),
       spaces: memorySpaces,
+      cleaningRules: cleaningRuleRepository,
       envConfig: loadLlmEnvConfig(environment),
       buildLlmPort: (config) =>
         buildOpenAiCompatibleLlmPort({
@@ -155,6 +169,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       memoryRecordQueries,
       chat,
       fillTasks,
+      cleaningRules,
     });
     server.addHook("onClose", async () => database.destroy());
     await server.listen({ host: config.host, port: config.port });

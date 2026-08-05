@@ -27,7 +27,9 @@ import type { UnitOfWork } from "@ste-memory/tools";
 import type { FillTask, FillTaskRepository } from "../ports/fill-task.ts";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { SourceChatRepository } from "../ports/source-chat.ts";
+import type { CleaningRuleRepository } from "../ports/cleaning-rule.ts";
 import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
+import { applyCleaningRules } from "../cleaning-rules/transform.ts";
 import {
   resolveLlmConfig,
   type LlmEnvConfig,
@@ -81,6 +83,8 @@ export interface FillTaskServiceOptions {
   readonly tasks: FillTaskRepository;
   readonly sources: SourceChatRepository;
   readonly spaces: Pick<MemorySpaceManager, "exists">;
+  /** 清洗规则（ADR apps/0001：读取时套用，喂给 Agent 前去掉多余符号）。 */
+  readonly cleaningRules: CleaningRuleRepository;
   /** 服务端环境变量配置（OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL）。 */
   readonly envConfig: LlmEnvConfig;
   /** provider 构造：每个任务构建一次 LlmPort（API Key 只存在于内存闭包）。 */
@@ -105,6 +109,7 @@ export class FillTaskService {
   readonly #tasks: FillTaskRepository;
   readonly #sources: SourceChatRepository;
   readonly #spaces: Pick<MemorySpaceManager, "exists">;
+  readonly #cleaningRules: CleaningRuleRepository;
   readonly #envConfig: LlmEnvConfig;
   readonly #buildLlmPort: (config: ResolvedLlmConfig) => LlmPort;
   readonly #reader: MemorySpaceReader;
@@ -121,6 +126,7 @@ export class FillTaskService {
     this.#tasks = options.tasks;
     this.#sources = options.sources;
     this.#spaces = options.spaces;
+    this.#cleaningRules = options.cleaningRules;
     this.#envConfig = options.envConfig;
     this.#buildLlmPort = options.buildLlmPort;
     this.#reader = options.reader;
@@ -226,19 +232,25 @@ export class FillTaskService {
     if (messages.length === 0) {
       throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
     }
+    // 清洗规则在读取时套用：原文存储不变，喂给 Agent 的是清洗后内容。
+    const rules = await this.#cleaningRules.list(task.memorySpaceId);
+    const cleanedMessages = messages.map((message) => ({
+      ...message,
+      content: applyCleaningRules(message.content, rules),
+    }));
     const evidence = await buildBlockEvidence(
       (memorySpaceId, sourceType, sourceId) =>
         this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
       this.#createEvidenceId,
       task.memorySpaceId,
-      messages,
+      cleanedMessages,
     );
     const result = await agent.run({
       memorySpaceId: task.memorySpaceId,
       messages: [
         {
           role: "user",
-          content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
+          content: [{ type: "text", text: composeBlockPrompt(from, to, cleanedMessages) }],
           timestamp: Date.now(),
         },
       ],

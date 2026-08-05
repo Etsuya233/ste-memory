@@ -113,6 +113,7 @@ describe("KyselyUnitOfWork", () => {
       app.spaces,
       app.systemTables,
       sourceChats,
+      app.cleaningRuleRepository,
       app.unitOfWork,
     );
     try {

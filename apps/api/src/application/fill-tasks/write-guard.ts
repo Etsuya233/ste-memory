@@ -72,7 +72,7 @@ export class FillTaskWriteGuard {
       exists: (id) => spaces.exists(id),
       list: () => spaces.list(),
       errors: (id) => spaces.errors(id),
-      messages: (id) => spaces.messages(id),
+      messages: (id, options) => spaces.messages(id, options),
     };
   }
 

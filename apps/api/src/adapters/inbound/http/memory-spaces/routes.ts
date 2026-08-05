@@ -89,10 +89,24 @@ export function registerMemorySpaceRoutes(
     return reply.code(204).send();
   });
 
-  server.get<{ Params: IdParams }>("/memory-spaces/:id/messages", async (request, reply) => {
-    const messages = await memorySpaces.messages(request.params.id as MemorySpaceId);
-    return messages ?? reply.code(404).send({ message: "记忆空间不存在" });
-  });
+  server.get<{ Params: IdParams; Querystring: { raw?: string; limit?: string } }>(
+    "/memory-spaces/:id/messages",
+    async (request, reply) => {
+      const { raw, limit } = request.query;
+      let parsedLimit: number | undefined;
+      if (limit !== undefined) {
+        parsedLimit = Number(limit);
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+          return reply.code(400).send({ message: "limit 必须是大于 0 的整数" });
+        }
+      }
+      const messages = await memorySpaces.messages(request.params.id as MemorySpaceId, {
+        raw: raw === "1" || raw === "true",
+        limit: parsedLimit,
+      });
+      return messages ?? reply.code(404).send({ message: "记忆空间不存在" });
+    },
+  );
 
   server.get<{ Params: IdParams }>("/memory-spaces/:id/parse-errors", async (request, reply) => {
     const errors = await memorySpaces.errors(request.params.id as MemorySpaceId);

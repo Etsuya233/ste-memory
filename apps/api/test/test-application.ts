@@ -37,6 +37,8 @@ import { UseCaseMemorySpaceReader } from "../src/adapters/outbound/memory/memory
 import type { ChatManagerOptions } from "../src/application/chat/chat-manager.ts";
 import { FillTaskService } from "../src/application/fill-tasks/fill-task-service.ts";
 import { FillTaskWriteGuard } from "../src/application/fill-tasks/write-guard.ts";
+import { KyselyCleaningRuleRepository } from "../src/adapters/outbound/sqlite/cleaning-rules/repository.ts";
+import { DefaultCleaningRuleManager } from "../src/application/cleaning-rules/manager.ts";
 
 export interface TestChatOptions {
   readonly envConfig?: ChatManagerOptions["envConfig"];
@@ -93,7 +95,20 @@ export async function createTestApplication(
     () => randomUUID() as MemoryEvidenceId,
   );
   const sourceChats = new KyselySourceChatRepository(context, unitOfWork);
-  const memorySpaces = new DefaultMemorySpaceManager(spaces, systemTables, sourceChats, unitOfWork);
+  const cleaningRuleRepository = new KyselyCleaningRuleRepository(
+    context,
+    unitOfWork,
+    () => randomUUID(),
+    () => timestamp,
+  );
+  const cleaningRules = new DefaultCleaningRuleManager(cleaningRuleRepository, spaceRepository);
+  const memorySpaces = new DefaultMemorySpaceManager(
+    spaces,
+    systemTables,
+    sourceChats,
+    cleaningRuleRepository,
+    unitOfWork,
+  );
   const reader = new UseCaseMemorySpaceReader(tables, fields, memoryRecordQueries);
   const chat = new DefaultChatManager({
     envConfig: chatOptions.envConfig ?? loadLlmEnvConfig({}),
@@ -112,6 +127,7 @@ export async function createTestApplication(
     tasks: fillTaskRepository,
     sources: sourceChats,
     spaces: memorySpaces,
+    cleaningRules: cleaningRuleRepository,
     envConfig: chatOptions.envConfig ?? loadLlmEnvConfig({}),
     buildLlmPort:
       chatOptions.buildLlmPort ??
@@ -156,6 +172,7 @@ export async function createTestApplication(
     memoryRecordQueries,
     chat,
     fillTasks,
+    cleaningRules,
   });
   server.addHook("onClose", async () => database.destroy());
   return {
@@ -172,6 +189,7 @@ export async function createTestApplication(
     sourceChats,
     fillTasks,
     fillTaskRepository,
+    cleaningRuleRepository,
     spaceRepository,
     tableRepository,
     fieldRepository,

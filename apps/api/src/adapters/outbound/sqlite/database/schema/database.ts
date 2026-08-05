@@ -112,6 +112,19 @@ export interface SourceStoreParseErrorsTable {
   message: string;
 }
 
+export interface CleaningRulesTable {
+  id: string;
+  memory_space_id: string;
+  position: number;
+  enabled: number;
+  name: string;
+  mode: "keep" | "discard";
+  pattern: string;
+  flags: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DatabaseSchema {
   memory_spaces: MemorySpacesTable;
   memory_tables: MemoryTablesTable;
@@ -123,6 +136,7 @@ export interface DatabaseSchema {
   source_store_messages: SourceStoreMessagesTable;
   source_store_parse_errors: SourceStoreParseErrorsTable;
   memory_fill_tasks: MemoryFillTasksTable;
+  cleaning_rules: CleaningRulesTable;
 }
 import type {
   MemoryFieldType,

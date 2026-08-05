@@ -1,10 +1,13 @@
 import type { MemorySpaceId, MemorySpaceUseCases } from "@ste-memory/core/memory";
 import type { UnitOfWork } from "@ste-memory/tools";
 import type { SourceChatRepository } from "../ports/source-chat.ts";
+import type { CleaningRuleRepository } from "../ports/cleaning-rule.ts";
+import { applyCleaningRules } from "../cleaning-rules/transform.ts";
 import type {
   CreateMemorySpaceInput,
   MemorySpaceManager,
   MemorySpaceView,
+  MessageReadOptions,
 } from "../ports/memory-space.ts";
 import type { SystemMemoryTableInstaller } from "../system-memory/system-memory-table-definitions.ts";
 
@@ -12,17 +15,20 @@ export class DefaultMemorySpaceManager implements MemorySpaceManager {
   private readonly spaces: MemorySpaceUseCases;
   private readonly systemTables: SystemMemoryTableInstaller;
   private readonly sourceChats: SourceChatRepository;
+  private readonly cleaningRules: CleaningRuleRepository;
   private readonly unitOfWork: UnitOfWork;
 
   constructor(
     spaces: MemorySpaceUseCases,
     systemTables: SystemMemoryTableInstaller,
     sourceChats: SourceChatRepository,
+    cleaningRules: CleaningRuleRepository,
     unitOfWork: UnitOfWork,
   ) {
     this.spaces = spaces;
     this.systemTables = systemTables;
     this.sourceChats = sourceChats;
+    this.cleaningRules = cleaningRules;
     this.unitOfWork = unitOfWork;
   }
 
@@ -60,9 +66,17 @@ export class DefaultMemorySpaceManager implements MemorySpaceManager {
     );
   }
 
-  async messages(id: MemorySpaceId) {
+  async messages(id: MemorySpaceId, options: MessageReadOptions = {}) {
     if (!(await this.spaces.find(id))) return undefined;
-    return this.sourceChats.messages(id);
+    const messages = await this.sourceChats.messages(id);
+    const limited = options.limit !== undefined ? messages.slice(0, options.limit) : messages;
+    // 预览（raw）不需要规则：跳过查询。
+    if (options.raw) return limited;
+    const rules = await this.cleaningRules.list(id);
+    return limited.map((message) => ({
+      ...message,
+      content: applyCleaningRules(message.content, rules),
+    }));
   }
 
   async rename(id: MemorySpaceId, name: string): Promise<MemorySpaceView | undefined> {
