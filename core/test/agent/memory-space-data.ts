@@ -24,6 +24,7 @@ export const FIELD_CURRENT_STATUS = "field-current-status" as MemoryFieldId;
 export const FIELD_LOCATION = "field-location" as MemoryFieldId;
 export const FIELD_ALIASES = "field-aliases" as MemoryFieldId;
 export const FIELD_SECRET_NOTES = "field-secret-notes" as MemoryFieldId;
+export const FIELD_LOC_NAME = "field-loc-name" as MemoryFieldId;
 
 const timestamp = "2026-07-30T00:00:00.000Z";
 
@@ -129,8 +130,8 @@ export const RECORDS_BY_TABLE_ID = new Map<MemoryTableId, readonly MemoryRecord[
   [
     TABLE_LOCATIONS,
     [
-      record("loc-1", "临渊城", TABLE_LOCATIONS, { [FIELD_NAME]: "临渊城" }),
-      record("loc-2", "白帝城", TABLE_LOCATIONS, { [FIELD_NAME]: "白帝城" }),
+      record("loc-1", "临渊城", TABLE_LOCATIONS, { [FIELD_LOC_NAME]: "临渊城" }),
+      record("loc-2", "白帝城", TABLE_LOCATIONS, { [FIELD_LOC_NAME]: "白帝城" }),
     ],
   ],
 ]);
@@ -156,7 +157,7 @@ function table(id: MemoryTableId, key: string, name: string, enabled: boolean): 
     description: "",
     prompt: "",
     enabled,
-    displayStrategy: null,
+    displayStrategy: id === TABLE_CHARACTERS ? { type: "field", fieldId: FIELD_NAME } : null,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

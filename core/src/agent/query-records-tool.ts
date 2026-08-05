@@ -10,7 +10,13 @@ import {
   type QueryRecordsCondition,
   type QueryRecordsPage,
 } from "../memory/index.ts";
-import { findFieldInDigest, findTableInDigest, type MemorySpaceTableDigest } from "./digest.ts";
+import {
+  findFieldInDigest,
+  findTableInDigest,
+  availableFieldKeys,
+  availableTableKeys,
+  type MemorySpaceTableDigest,
+} from "./digest.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
 
 export const QUERY_RECORDS_TOOL_NAME = "query_records";
@@ -232,14 +238,6 @@ function payloadEntriesKeyedByFieldKey(
     const key = fieldKeyById.get(fieldId);
     return key === undefined ? [] : [[key, value] as const];
   });
-}
-
-function availableTableKeys(digest: MemorySpaceTableDigest): string {
-  return digest.tables.map((table) => table.key).join("、") || "（无）";
-}
-
-function availableFieldKeys(table: MemorySpaceTableDigest["tables"][number]): string {
-  return table.fields.map((field) => field.key).join("、") || "（无）";
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import {
   MemoryRecordQueryService,
   MemoryTableService,
   type MemoryField,
+  type MemoryProposalPorts,
   type MemoryRecord,
   type MemoryTable,
   type MemoryTableId,
@@ -28,6 +29,8 @@ const timestamp = "2026-07-30T00:00:00.000Z";
 export interface TestMemorySpace {
   readonly memorySpaceId: MemorySpaceId;
   readonly reader: MemorySpaceReader;
+  /** 提案校验/预览所需的领域访问端口（与宿主装配方式一致）。 */
+  readonly ports: MemoryProposalPorts;
   readonly tables: readonly MemoryTable[];
   readonly fieldsByTableId: ReadonlyMap<MemoryTableId, readonly MemoryField[]>;
   readonly recordsByTableId: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>;
@@ -120,6 +123,7 @@ export function createTestMemorySpace(): TestMemorySpace {
   return {
     memorySpaceId: SPACE_ID,
     reader,
+    ports: { tables: tablesRepo, fields: fieldsRepo, records: recordsRepo },
     tables: TABLES,
     fieldsByTableId: FIELDS_BY_TABLE_ID,
     recordsByTableId: RECORDS_BY_TABLE_ID,

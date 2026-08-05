@@ -112,3 +112,13 @@ export function findFieldInDigest(
 ): MemoryFieldDigest | undefined {
   return table.fields.find((field) => field.key === fieldKey);
 }
+
+/** 全部可用表 key（顿号分隔，供错误提示回喂模型）。 */
+export function availableTableKeys(digest: MemorySpaceTableDigest): string {
+  return digest.tables.map((table) => table.key).join("、") || "（无）";
+}
+
+/** 全部可用字段 key（顿号分隔，供错误提示回喂模型）。 */
+export function availableFieldKeys(table: MemoryTableDigest): string {
+  return table.fields.map((field) => field.key).join("、") || "（无）";
+}

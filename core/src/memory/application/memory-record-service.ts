@@ -1,7 +1,5 @@
 import {
-  derivedDisplayTemplate,
   DomainError,
-  type MemoryField,
   type MemoryEvidence,
   type MemoryEvidenceId,
   type MemoryEvidenceInput,
@@ -9,12 +7,10 @@ import {
   type MemoryRecord,
   type MemoryRecordHistory,
   type MemoryRecordId,
-  type MemoryRecordPayload,
   type MemoryRecordSource,
   type MemoryRevisionId,
   type MemoryRevisionSource,
   type MemorySpaceId,
-  type MemoryTable,
   type MemoryTableId,
 } from "../domain/index.ts";
 import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
@@ -25,6 +21,7 @@ import type {
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import type { MemoryEvidenceRepository } from "./ports/memory-record-repository.ts";
 import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
+import { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
 import { validateMemoryRecordReferences } from "./memory-record-reference-validation.ts";
 import {
   commitMemoryRecordMutationBatch,
@@ -123,7 +120,13 @@ export class MemoryRecordService {
       tableId,
       payload,
       fieldEvidence,
-      displayText: await this.displayText(table, fields, payload),
+      displayText: await computeMemoryRecordDisplayText(
+        this.records,
+        table.memorySpaceId,
+        table,
+        fields,
+        payload,
+      ),
       source,
       revisionId: this.createRevisionId(),
       revisionSource: "user",
@@ -208,7 +211,8 @@ export class MemoryRecordService {
         createHistoryId: this.createHistoryId,
         createRevisionId: this.createRevisionId,
         now: this.now,
-        displayText: (table, fields, payload) => this.displayText(table, fields, payload),
+        displayText: (table, fields, payload) =>
+          computeMemoryRecordDisplayText(this.records, table.memorySpaceId, table, fields, payload),
       },
       memorySpaceId,
       input,
@@ -319,49 +323,5 @@ export class MemoryRecordService {
       }
     }
     return { fieldEvidence: result, createdEvidence };
-  }
-
-  private async displayText(
-    table: MemoryTable,
-    fields: readonly MemoryField[],
-    payload: MemoryRecordPayload,
-  ): Promise<string> {
-    if (!table.displayStrategy) {
-      throw new DomainError({
-        type: "memory_record_display_strategy_missing",
-        humanMsg: "创建记录前必须配置表格显示策略",
-      });
-    }
-    if (table.displayStrategy.type === "field") {
-      return String(payload[table.displayStrategy.fieldId] ?? "");
-    }
-    const template = derivedDisplayTemplate(table.displayStrategy.template);
-    let text = template.template;
-    for (const fieldId of template.fieldIds) {
-      const field = fields.find((item) => item.id === fieldId)!;
-      const value = payload[fieldId];
-      const values = Array.isArray(value)
-        ? value
-        : value === null || value === undefined
-          ? []
-          : [value];
-      const rendered = field.referenceTableId
-        ? (
-            await Promise.all(
-              values.map((id) =>
-                this.records.find(
-                  table.memorySpaceId,
-                  field.referenceTableId!,
-                  id as MemoryRecordId,
-                ),
-              ),
-            )
-          )
-            .map((record) => record!.displayText)
-            .join(", ")
-        : values.join(", ");
-      text = text.replaceAll(`{${fieldId}}`, rendered);
-    }
-    return text;
   }
 }

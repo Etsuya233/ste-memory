@@ -30,6 +30,33 @@ export type {
   MemoryRecordMutationOperation,
   MemoryRecordMutationResult,
 } from "./memory-record-mutations.ts";
+export {
+  MEMORY_PROPOSAL_TEMP_ID_PREFIX,
+  isProposalTempId,
+  memoryProposalBatch,
+  memoryProposalError,
+} from "./memory-proposal.ts";
+export type {
+  MemoryMutationBatch,
+  MemoryProposalCreateOperation,
+  MemoryProposalDeleteOperation,
+  MemoryProposalError,
+  MemoryProposalOperation,
+  MemoryProposalUpdateOperation,
+} from "./memory-proposal.ts";
+export {
+  validateProposalOperation,
+  validateProposalOperations,
+} from "./memory-proposal-validation.ts";
+export type { MemoryProposalPorts } from "./memory-proposal-validation.ts";
+export { memoryProposalSubmission, previewProposal } from "./memory-proposal-preview.ts";
+export type {
+  MemoryMessageRange,
+  MemoryProposalPreview,
+  MemoryProposalPreviewChange,
+  MemoryProposalPreviewOperation,
+  MemoryProposalSubmission,
+} from "./memory-proposal-preview.ts";
 export type {
   MemoryEvidenceRepository,
   MemoryRecordHistoryQuery,

@@ -4,6 +4,14 @@ export {
   MemoryRecordQueryService,
   MemorySpaceService,
   MemoryTableService,
+  MEMORY_PROPOSAL_TEMP_ID_PREFIX,
+  isProposalTempId,
+  memoryProposalBatch,
+  memoryProposalError,
+  memoryProposalSubmission,
+  previewProposal,
+  validateProposalOperation,
+  validateProposalOperations,
 } from "./application/index.ts";
 export type {
   CreateMemoryTableInput,
@@ -30,6 +38,18 @@ export type {
   UpdateMemoryRecordInput,
   UpdateMemoryTableInput,
   MemoryEvidenceRepository,
+  MemoryMessageRange,
+  MemoryMutationBatch,
+  MemoryProposalCreateOperation,
+  MemoryProposalDeleteOperation,
+  MemoryProposalError,
+  MemoryProposalOperation,
+  MemoryProposalPorts,
+  MemoryProposalPreview,
+  MemoryProposalPreviewChange,
+  MemoryProposalPreviewOperation,
+  MemoryProposalSubmission,
+  MemoryProposalUpdateOperation,
 } from "./application/index.ts";
 export {
   DomainError,
