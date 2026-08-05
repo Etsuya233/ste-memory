@@ -8,6 +8,7 @@ import type { MemoryTableManager } from "../src/application/ports/memory-table.t
 import type { MemoryFieldManager } from "../src/application/ports/memory-field.ts";
 import type { MemoryRecordManager } from "../src/application/ports/memory-record.ts";
 import type { MemoryRecordQueryManager } from "../src/application/ports/memory-record-query.ts";
+import type { FillTaskManager } from "../src/application/ports/fill-task-manager.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
   return {
@@ -58,6 +59,13 @@ const memoryRecordQueries: MemoryRecordQueryManager = {
   query: async () => ({ records: [], page: 1, pageSize: 1, total: 0, totalPages: 0 }),
 };
 
+const fillTasks: FillTaskManager = {
+  submit: async () => {
+    throw new Error("health test 不访问填表任务");
+  },
+  activeTask: async () => undefined,
+};
+
 describe("GET /health", () => {
   it("reports API and database connection status", async () => {
     const server = await buildServer({
@@ -67,6 +75,7 @@ describe("GET /health", () => {
       memoryFields,
       memoryRecords,
       memoryRecordQueries,
+      fillTasks,
       chat: new DefaultChatManager({
         envConfig: loadLlmEnvConfig({}),
         spaces: memorySpaces,

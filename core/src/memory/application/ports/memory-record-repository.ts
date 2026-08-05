@@ -16,11 +16,19 @@ export interface MemoryEvidenceRepository {
   ): Promise<MemoryEvidence | undefined>;
 }
 
-export interface MemoryRecordMutation {
-  readonly previous: MemoryRecord;
-  readonly current?: MemoryRecord;
-  readonly history: MemoryRecordHistory;
-}
+/**
+ * 一次原子批次内的一条记录变更：
+ * - create：新建记录（无旧状态、无历史快照）；
+ * - replace：更新（含 current）或删除（无 current）一条已有记录，并保留旧状态历史。
+ */
+export type MemoryRecordMutation =
+  | { readonly kind: "create"; readonly current: MemoryRecord }
+  | {
+      readonly kind: "replace";
+      readonly previous: MemoryRecord;
+      readonly current?: MemoryRecord;
+      readonly history: MemoryRecordHistory;
+    };
 
 export interface MemoryRecordHistoryQuery {
   readonly memorySpaceId: MemorySpaceId;

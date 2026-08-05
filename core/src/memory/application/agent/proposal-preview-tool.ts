@@ -56,6 +56,7 @@ export function createProposalPreviewTool(
     label: "校验并预览提案",
     description: PROPOSAL_PREVIEW_TOOL_DESCRIPTION,
     parameters: proposalPreviewParamsSchema,
+    executionMode: "sequential",
     async execute(_toolCallId, params) {
       const result = await executeProposalPreview(deps, params);
       return {

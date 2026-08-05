@@ -14,6 +14,9 @@ import type { MemoryRecordManager } from "../../../application/ports/memory-reco
 import type { MemoryRecordQueryManager } from "../../../application/ports/memory-record-query.ts";
 import { registerChatRoutes } from "./chat/routes.ts";
 import type { ChatManager } from "../../../application/ports/chat.ts";
+import { registerFillTaskRoutes } from "./fill-tasks/routes.ts";
+import type { FillTaskManager } from "../../../application/ports/fill-task-manager.ts";
+import { FillTaskSpaceReadOnlyError } from "../../../application/fill-tasks/write-guard.ts";
 
 export interface ServerDependencies {
   readonly database: DatabaseHealthCheck;
@@ -23,6 +26,7 @@ export interface ServerDependencies {
   readonly memoryRecords: MemoryRecordManager;
   readonly memoryRecordQueries: MemoryRecordQueryManager;
   readonly chat: ChatManager;
+  readonly fillTasks: FillTaskManager;
 }
 
 /**
@@ -75,6 +79,13 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   });
 
   server.setErrorHandler((error: Error, _request, reply) => {
+    if (error instanceof FillTaskSpaceReadOnlyError) {
+      return reply.code(409).send({
+        type: "fill_task_space_read_only",
+        task: error.task,
+        message: error.message,
+      });
+    }
     if (error instanceof DomainError) {
       const statusCode =
         error.type === "memory_record_revision_conflict" ||
@@ -102,6 +113,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
   registerMemoryRecordRoutes(server, dependencies.memoryRecords, dependencies.memoryRecordQueries);
   registerChatRoutes(server, dependencies.chat);
+  registerFillTaskRoutes(server, dependencies.fillTasks);
 
   return server;
 }

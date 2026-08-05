@@ -678,6 +678,47 @@ describe("ProposalAgent", () => {
     expect(systemPrompt).not.toContain("secret_notes");
   });
 
+  it("同一轮消息内的多个工具调用按顺序执行（状态工具 sequential，防并行竞态）", async () => {
+    const space = createTestMemorySpace();
+    const { streamFn, agent } = runAgent(space, (context) => {
+      if (!lastToolResult(context)) {
+        // 一次消息带 3 个调用：mutate → preview → submit 必须按序生效
+        return assistantMessage(
+          [
+            toolCallMessage("call-1", MUTATE_TOOL_NAME, {
+              op: "create",
+              table: "characters",
+              patch: { name: "新角色" },
+            }),
+            toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
+            toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
+          ],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("已提交。")], "stop");
+    });
+
+    const result = await agent.run({
+      memorySpaceId: SPACE_ID,
+      messages: [userMessage("填写表格")],
+      messageRange: MESSAGE_RANGE,
+      evidence: EVIDENCE,
+    });
+
+    // 顺序执行：submit 看到的是 mutate 之后的完整 State，冻结提案含 1 个 create
+    expect(result.proposal).toBeDefined();
+    expect(result.proposal!.batch.create).toHaveLength(1);
+    // 两轮：3 个工具调用轮 + 1 轮自然停止
+    expect(streamFn.calls.count).toBe(2);
+    // preview 在 mutate 之后执行：能看到刚加入的操作，而不是空提案
+    const previewResult = toolResultsOf(result.messages, PROPOSAL_PREVIEW_TOOL_NAME);
+    expect(previewResult).toHaveLength(1);
+    const previewText = toolResultText(previewResult[0]!);
+    expect(previewText).toContain('"valid": true');
+    expect(previewText).toContain("新角色");
+  });
+
   it("导出默认超时常量（对齐 QueryAgent 5 分钟）", () => {
     expect(DEFAULT_PROPOSAL_AGENT_TIMEOUT_MS).toBe(5 * 60 * 1000);
   });

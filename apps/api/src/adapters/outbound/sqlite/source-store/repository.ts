@@ -12,6 +12,19 @@ import type {
 
 const INSERT_BATCH_SIZE = 500;
 
+function toSourceMessage(message: {
+  readonly source_id: number;
+  readonly content: string;
+  readonly extra_props_json: string;
+}): SourceMessage {
+  return {
+    source_type: SILLY_TAVERN_SOURCE_TYPE,
+    source_id: message.source_id,
+    content: message.content,
+    extraProps: JSON.parse(message.extra_props_json) as Record<string, unknown>,
+  };
+}
+
 export class KyselySourceChatRepository implements SourceChatRepository {
   readonly #context: DatabaseContext;
   readonly #unitOfWork: UnitOfWork;
@@ -42,6 +55,7 @@ export class KyselySourceChatRepository implements SourceChatRepository {
               source_id: message.source_id,
               content: message.content,
               extra_props_json: JSON.stringify(message.extraProps),
+              status: "untracked",
             })),
           )
           .execute();
@@ -70,12 +84,45 @@ export class KyselySourceChatRepository implements SourceChatRepository {
       .where("memory_space_id", "=", memorySpaceId)
       .orderBy("source_id")
       .execute();
-    return rows.map((message) => ({
-      source_type: SILLY_TAVERN_SOURCE_TYPE,
-      source_id: message.source_id,
-      content: message.content,
-      extraProps: JSON.parse(message.extra_props_json) as Record<string, unknown>,
-    }));
+    return rows.map(toSourceMessage);
+  }
+
+  async messagesInRange(
+    memorySpaceId: MemorySpaceId,
+    from: number,
+    to: number,
+  ): Promise<SourceMessage[]> {
+    const rows = await this.#context.database
+      .selectFrom("source_store_messages")
+      .select(["source_id", "content", "extra_props_json"])
+      .where("memory_space_id", "=", memorySpaceId)
+      .where("source_id", ">=", from)
+      .where("source_id", "<=", to)
+      .orderBy("source_id")
+      .execute();
+    return rows.map(toSourceMessage);
+  }
+
+  async markProcessed(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void> {
+    await this.#updateStatus(memorySpaceId, sourceIds, "processed");
+  }
+
+  async markError(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void> {
+    await this.#updateStatus(memorySpaceId, sourceIds, "error");
+  }
+
+  async #updateStatus(
+    memorySpaceId: MemorySpaceId,
+    sourceIds: readonly number[],
+    status: "processed" | "error",
+  ): Promise<void> {
+    if (sourceIds.length === 0) return;
+    await this.#context.database
+      .updateTable("source_store_messages")
+      .set({ status })
+      .where("memory_space_id", "=", memorySpaceId)
+      .where("source_id", "in", [...sourceIds])
+      .execute();
   }
 
   async errors(memorySpaceId: MemorySpaceId): Promise<SourceParseError[]> {

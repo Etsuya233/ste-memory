@@ -198,6 +198,7 @@ class FailingSourceChatRepository implements SourceChatRepository {
         source_id: chat.messages[0]!.source_id,
         content: chat.messages[0]!.content,
         extra_props_json: JSON.stringify(chat.messages[0]!.extraProps),
+        status: "untracked",
       })
       .execute();
     await this.#context.database
@@ -215,6 +216,18 @@ class FailingSourceChatRepository implements SourceChatRepository {
   async messages(_memorySpaceId: MemorySpaceId): Promise<SourceMessage[]> {
     return [];
   }
+  async messagesInRange(
+    _memorySpaceId: MemorySpaceId,
+    _from: number,
+    _to: number,
+  ): Promise<SourceMessage[]> {
+    return [];
+  }
+  async markProcessed(
+    _memorySpaceId: MemorySpaceId,
+    _sourceIds: readonly number[],
+  ): Promise<void> {}
+  async markError(_memorySpaceId: MemorySpaceId, _sourceIds: readonly number[]): Promise<void> {}
   async errors(_memorySpaceId: MemorySpaceId): Promise<SourceParseError[]> {
     return [];
   }

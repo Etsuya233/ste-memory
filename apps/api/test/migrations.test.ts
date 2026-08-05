@@ -25,6 +25,7 @@ describe("application database migrations", () => {
         "kysely_migration_lock",
         "memory_evidence",
         "memory_fields",
+        "memory_fill_tasks",
         "memory_record_history",
         "memory_records",
         "memory_spaces",

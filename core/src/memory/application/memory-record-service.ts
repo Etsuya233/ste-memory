@@ -208,6 +208,7 @@ export class MemoryRecordService {
         tables: this.tables,
         fields: this.fields,
         records: this.records,
+        createId: this.createId,
         createHistoryId: this.createHistoryId,
         createRevisionId: this.createRevisionId,
         now: this.now,

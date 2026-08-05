@@ -1,5 +1,6 @@
 import {
   MemoryRecordService,
+  type MemoryEvidence,
   type MemoryField,
   type MemoryFieldId,
   type MemoryRecord,
@@ -22,7 +23,7 @@ const spaceId = "space-1" as MemorySpaceId;
 const peopleId = "people" as MemoryTableId;
 const placesId = "places" as MemoryTableId;
 const nameId = "name" as MemoryFieldId;
-const noteId = "note" as MemoryFieldId;
+const homeId = "home" as MemoryFieldId;
 
 function table(id: MemoryTableId): MemoryTable {
   return {
@@ -40,27 +41,33 @@ function table(id: MemoryTableId): MemoryTable {
   };
 }
 
-function field(id: MemoryFieldId, tableId: MemoryTableId, required: boolean): MemoryField {
+function field(
+  id: MemoryFieldId,
+  tableId: MemoryTableId,
+  referenceTableId: MemoryTableId | null = null,
+): MemoryField {
   return {
     id,
     memorySpaceId: spaceId,
     tableId,
     name: id,
-    type: "short_text",
-    required,
+    type: referenceTableId === null ? "short_text" : "single_reference",
+    required: id === nameId,
     prompt: "",
     enabled: true,
     position: 0,
     options: [],
-    referenceTableId: null,
+    referenceTableId,
     createdAt: "2026-07-28T00:00:00.000Z",
     updatedAt: "2026-07-28T00:00:00.000Z",
   };
 }
 
+/** 内存仓库：与 SQLite 实现相同的语义（create 插入无历史；replace 写历史 + 乐观锁）。 */
 class Records implements MemoryRecordRepository {
   readonly values: MemoryRecord[] = [];
   readonly history: MemoryRecordHistory[] = [];
+  readonly committedEvidence: readonly MemoryEvidence[][] = [];
 
   async create(record: MemoryRecord): Promise<void> {
     this.values.push(record);
@@ -79,7 +86,10 @@ class Records implements MemoryRecordRepository {
     );
   }
 
-  async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
+  async commit(
+    mutations: readonly MemoryRecordMutation[],
+    evidence: readonly MemoryEvidence[],
+  ): Promise<boolean> {
     if (
       mutations.some(
         (mutation) =>
@@ -94,13 +104,14 @@ class Records implements MemoryRecordRepository {
     ) {
       return false;
     }
+    this.committedEvidence.push(evidence);
     for (const mutation of mutations) {
       if (mutation.kind === "create") {
         this.values.push(mutation.current);
         continue;
       }
-      const index = this.values.findIndex((record) => record.id === mutation.previous.id);
       this.history.push(mutation.history);
+      const index = this.values.findIndex((record) => record.id === mutation.previous.id);
       if (mutation.current) this.values[index] = mutation.current;
       else this.values.splice(index, 1);
     }
@@ -123,9 +134,9 @@ class Records implements MemoryRecordRepository {
 function setup() {
   const tables = [table(peopleId), table(placesId)];
   const fields = [
-    field(nameId, peopleId, true),
-    field(noteId, peopleId, false),
-    field(nameId, placesId, true),
+    field(nameId, peopleId),
+    field(homeId, peopleId, placesId),
+    field(nameId, placesId),
   ];
   const records = new Records();
   let recordNumber = 0;
@@ -172,115 +183,120 @@ function setup() {
   };
 }
 
-describe("MemoryRecordService mutations", () => {
-  it("patches and deletes records atomically with one revision and complete snapshots", async () => {
+describe("MemoryRecordService 批量 create", () => {
+  it("create/update/delete 在同一原子批次提交：临时 ID 解析为真实 ID，create 不写历史", async () => {
     const { records, service } = setup();
-    const person = await service.create(spaceId, peopleId, {
-      payload: { [nameId]: "林夏", [noteId]: "旧备注" },
-    })!;
-    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
+    const linxia = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
+    const yunjin = (await service.create(spaceId, peopleId, { payload: { [nameId]: "云烬" } }))!;
 
     const result = await service.mutate(
       spaceId,
       {
         revisionSource: "agent",
         operations: [
+          { type: "create", tableId: placesId, tempId: "tmp:r1", patch: { [nameId]: "港口" } },
+          {
+            type: "create",
+            tableId: peopleId,
+            tempId: "tmp:r2",
+            patch: { [nameId]: "周遥", [homeId]: "tmp:r1" },
+          },
           {
             type: "update",
             tableId: peopleId,
-            recordId: person.id,
-            expectedRevisionId: person.revisionId,
-            patch: { [noteId]: null },
+            recordId: linxia.id,
+            expectedRevisionId: linxia.revisionId,
+            patch: { [homeId]: "tmp:r1" },
           },
           {
             type: "delete",
-            tableId: placesId,
-            recordId: place.id,
-            expectedRevisionId: place.revisionId,
+            tableId: peopleId,
+            recordId: yunjin.id,
+            expectedRevisionId: yunjin.revisionId,
           },
         ],
       },
       [],
     );
 
-    expect(result).toMatchObject({ revisionId: "revision-batch", changed: 2 });
-    expect(await records.find(spaceId, peopleId, person.id)).toMatchObject({
-      payload: { [nameId]: "林夏", [noteId]: null },
+    expect(result).toMatchObject({ revisionId: "revision-batch", changed: 4 });
+    const port = records.values.find((record) => record.payload[nameId] === "港口")!;
+    const zhouyao = records.values.find((record) => record.payload[nameId] === "周遥")!;
+    expect(port).toMatchObject({
+      id: "record-3",
+      payload: { [nameId]: "港口" },
       revisionId: "revision-batch",
       revisionSource: "agent",
-      createdAt: person.createdAt,
-      updatedAt: "2026-07-28T02:00:00.000Z",
+      source: { type: "manual" },
+      createdAt: "2026-07-28T02:00:00.000Z",
     });
-    expect(await records.find(spaceId, placesId, place.id)).toBeUndefined();
+    expect(zhouyao).toMatchObject({
+      id: "record-4",
+      payload: { [nameId]: "周遥", [homeId]: "record-3" },
+      revisionId: "revision-batch",
+      revisionSource: "agent",
+    });
+    // 引用字段的 tmp: 值被改写为真实 ID，而非原样入库
+    expect(zhouyao.payload[homeId]).toBe(port.id);
+    expect(await records.find(spaceId, peopleId, linxia.id)).toMatchObject({
+      payload: { [nameId]: "林夏", [homeId]: port.id },
+      revisionId: "revision-batch",
+    });
+    expect(await records.find(spaceId, peopleId, yunjin.id)).toBeUndefined();
+    // 历史只含 update/delete 的旧快照；create 无旧状态不写历史
     expect(records.history).toEqual([
-      expect.objectContaining({
-        id: "history-1",
-        recordId: person.id,
-        payload: person.payload,
-        previousRevisionId: person.revisionId,
-        revisionId: "revision-batch",
-        revisionSource: "agent",
-      }),
-      expect.objectContaining({
-        id: "history-2",
-        recordId: place.id,
-        payload: place.payload,
-        previousRevisionId: place.revisionId,
-        revisionId: "revision-batch",
-      }),
+      expect.objectContaining({ recordId: linxia.id, revisionId: "revision-batch" }),
+      expect.objectContaining({ recordId: yunjin.id, revisionId: "revision-batch" }),
     ]);
   });
 
-  it("rejects a stale expected revision without applying any operation", async () => {
+  it("批次内任何操作的预期 revision 过期时整批失败，create 不落库", async () => {
     const { records, service } = setup();
-    const person = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
-    const place = (await service.create(spaceId, placesId, { payload: { [nameId]: "港口" } }))!;
+    const linxia = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
 
     await expect(
       service.mutate(
         spaceId,
         {
-          revisionSource: "user",
+          revisionSource: "agent",
           operations: [
+            { type: "create", tableId: placesId, tempId: "tmp:r1", patch: { [nameId]: "港口" } },
             {
               type: "update",
               tableId: peopleId,
-              recordId: person.id,
+              recordId: linxia.id,
               expectedRevisionId: "stale" as MemoryRevisionId,
               patch: { [nameId]: "周遥" },
-            },
-            {
-              type: "delete",
-              tableId: placesId,
-              recordId: place.id,
-              expectedRevisionId: place.revisionId,
             },
           ],
         },
         [],
       ),
     ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_revision_conflict" }));
-    expect(records.values).toHaveLength(2);
+    expect(records.values).toHaveLength(1);
     expect(records.history).toHaveLength(0);
+    expect(records.committedEvidence).toHaveLength(0);
   });
 
-  it("lists immutable history by record, revision, and archive time", async () => {
+  it("引用不存在的批内临时 ID 时报引用错误", async () => {
     const { service } = setup();
-    const person = (await service.create(spaceId, peopleId, { payload: { [nameId]: "林夏" } }))!;
-    await service.update(spaceId, peopleId, person.id, {
-      expectedRevisionId: person.revisionId,
-      patch: { [nameId]: "林夏（化名）" },
-      revisionSource: "user",
-    });
 
-    expect(
-      await service.listHistory(spaceId, {
-        tableId: peopleId,
-        recordId: person.id,
-        revisionId: "revision-batch" as MemoryRevisionId,
-        archivedFrom: "2026-07-28T01:00:00.000Z",
-        archivedTo: "2026-07-28T03:00:00.000Z",
-      }),
-    ).toEqual([expect.objectContaining({ payload: { [nameId]: "林夏" } })]);
+    await expect(
+      service.mutate(
+        spaceId,
+        {
+          revisionSource: "agent",
+          operations: [
+            {
+              type: "create",
+              tableId: peopleId,
+              tempId: "tmp:r1",
+              patch: { [nameId]: "周遥", [homeId]: "tmp:missing" },
+            },
+          ],
+        },
+        [],
+      ),
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_reference_invalid" }));
   });
 });

@@ -55,6 +55,7 @@ export function createSubmitProposalTool(
     label: "提交提案",
     description: SUBMIT_PROPOSAL_TOOL_DESCRIPTION,
     parameters: submitProposalParamsSchema,
+    executionMode: "sequential",
     async execute(_toolCallId) {
       const result = await executeSubmitProposal(deps);
       return {

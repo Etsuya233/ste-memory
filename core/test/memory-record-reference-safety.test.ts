@@ -89,6 +89,10 @@ class Records implements MemoryRecordRepository {
 
   async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
     for (const mutation of mutations) {
+      if (mutation.kind === "create") {
+        this.values.push(mutation.current);
+        continue;
+      }
       const index = this.values.findIndex((record) => record.id === mutation.previous.id);
       this.history.push(mutation.history);
       if (mutation.current) this.values[index] = mutation.current;

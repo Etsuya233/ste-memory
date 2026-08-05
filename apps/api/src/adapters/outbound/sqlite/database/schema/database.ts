@@ -90,6 +90,19 @@ export interface SourceStoreMessagesTable {
   source_id: number;
   content: string;
   extra_props_json: string;
+  status: "untracked" | "processed" | "error";
+}
+
+export interface MemoryFillTasksTable {
+  run_id: string;
+  memory_space_id: string;
+  from_source_id: number;
+  to_source_id: number;
+  block_size: number;
+  status: "running" | "succeeded" | "failed";
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SourceStoreParseErrorsTable {
@@ -109,6 +122,7 @@ export interface DatabaseSchema {
   source_store_chats: SourceStoreChatsTable;
   source_store_messages: SourceStoreMessagesTable;
   source_store_parse_errors: SourceStoreParseErrorsTable;
+  memory_fill_tasks: MemoryFillTasksTable;
 }
 import type {
   MemoryFieldType,

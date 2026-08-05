@@ -1,0 +1,58 @@
+/**
+ * 处理块适配（ticket 13）：把来源消息块翻译成 Agent 的输入形态。
+ *
+ * - 块证据：reference 模式指向来源存储（source_type + source_id），内容不重复落库；
+ * - 块提示词：把块消息整理为本轮用户消息，模型只管看内容对表操作
+ *   （消息范围与证据由外部注入，Agent 不感知来源细节）。
+ */
+import type { MemoryEvidence, MemoryEvidenceId, MemorySpaceId } from "@ste-memory/core/memory";
+import type { SourceMessage } from "../ports/source-chat.ts";
+
+/**
+ * 块证据：reference 模式指向来源存储（source_type + source_id），内容不重复落库。
+ * 已注册过证据的来源复用既有证据行（memory_evidence 对同源唯一），
+ * 只为本块首次处理的来源新造证据。
+ */
+export async function buildBlockEvidence(
+  findExisting: (
+    memorySpaceId: MemorySpaceId,
+    sourceType: string,
+    sourceId: string | number,
+  ) => Promise<MemoryEvidence | undefined>,
+  createEvidenceId: () => MemoryEvidenceId,
+  memorySpaceId: MemorySpaceId,
+  messages: readonly SourceMessage[],
+): Promise<readonly MemoryEvidence[]> {
+  const result: MemoryEvidence[] = [];
+  for (const message of messages) {
+    const existing = await findExisting(memorySpaceId, message.source_type, message.source_id);
+    if (existing) continue;
+    result.push({
+      evidence_id: createEvidenceId(),
+      source_type: message.source_type,
+      source_id: message.source_id,
+      storage_mode: "reference",
+      extraProps: {},
+    });
+  }
+  return result;
+}
+
+export function composeBlockPrompt(
+  from: number,
+  to: number,
+  messages: readonly SourceMessage[],
+): string {
+  const lines = messages.map((message) => {
+    const name = typeof message.extraProps.name === "string" ? message.extraProps.name : undefined;
+    return name !== undefined
+      ? `[${message.source_id}] ${name}：${message.content}`
+      : `[${message.source_id}] ${message.content}`;
+  });
+  return [
+    `以下是需要处理的对话消息（消息 ${from} 到 ${to}，共 ${messages.length} 条）：`,
+    ...lines,
+    "",
+    "请依据这些消息更新记忆表格；确认无需变更时直接结束对话。",
+  ].join("\n");
+}

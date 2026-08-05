@@ -126,8 +126,30 @@ export class KyselyMemoryRecordRepository
   ): Promise<boolean> {
     try {
       await this.#unitOfWork.run(async () => {
-        await this.#saveEvidence(mutations[0]!.previous.memorySpaceId, evidence);
+        const first = mutations[0]!;
+        const memorySpaceId =
+          first.kind === "create" ? first.current.memorySpaceId : first.previous.memorySpaceId;
+        await this.#saveEvidence(memorySpaceId, evidence);
         for (const mutation of mutations) {
+          if (mutation.kind === "create") {
+            await this.#context.database
+              .insertInto("memory_records")
+              .values({
+                id: mutation.current.id,
+                memory_space_id: mutation.current.memorySpaceId,
+                table_id: mutation.current.tableId,
+                payload_json: JSON.stringify(mutation.current.payload),
+                field_evidence_json: JSON.stringify(mutation.current.fieldEvidence),
+                display_text: mutation.current.displayText,
+                source_json: JSON.stringify(mutation.current.source),
+                revision_id: mutation.current.revisionId,
+                revision_source: mutation.current.revisionSource,
+                created_at: mutation.current.createdAt,
+                updated_at: mutation.current.updatedAt,
+              })
+              .execute();
+            continue;
+          }
           const history = mutation.history;
           await this.#context.database
             .insertInto("memory_record_history")

@@ -5,10 +5,11 @@ import {
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  computeMemoryRecordDisplayText,
+  type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
-  type MemoryEvidenceId,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
@@ -30,6 +31,9 @@ import { KyselyMemoryTableRepository } from "./adapters/outbound/sqlite/memory/m
 import { buildServer } from "./adapters/inbound/http/server.ts";
 import { KyselySourceChatRepository } from "./adapters/outbound/sqlite/source-store/repository.ts";
 import { SystemMemoryTableInstaller } from "./application/system-memory/system-memory-table-definitions.ts";
+import { FillTaskService } from "./application/fill-tasks/fill-task-service.ts";
+import { FillTaskWriteGuard } from "./application/fill-tasks/write-guard.ts";
+import { KyselyFillTaskRepository } from "./adapters/outbound/sqlite/fill-tasks/repository.ts";
 
 export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
   const config = loadConfig(environment);
@@ -84,12 +88,53 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
           modelId: config.model,
         }),
     });
-    const server = await buildServer({
-      database: new KyselyDatabaseHealthCheck(context),
-      memorySpaces,
-      memoryTables: memoryTableService,
-      memoryFields: memoryFieldService,
-      memoryRecords: new MemoryRecordService(
+    const fillTasks = new FillTaskService({
+      tasks: new KyselyFillTaskRepository(context),
+      sources: new KyselySourceChatRepository(context, unitOfWork),
+      spaces: memorySpaces,
+      envConfig: loadLlmEnvConfig(environment),
+      buildLlmPort: (config) =>
+        buildOpenAiCompatibleLlmPort({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.model,
+        }),
+      reader: new UseCaseMemorySpaceReader(
+        memoryTableService,
+        memoryFieldService,
+        memoryRecordQueries,
+      ),
+      ports: {
+        tables: memoryTableRepository,
+        fields: memoryFieldRepository,
+        records: memoryRecordRepository,
+      },
+      evidence: memoryRecordRepository,
+      commitContext: {
+        tables: memoryTableRepository,
+        fields: memoryFieldRepository,
+        records: memoryRecordRepository,
+        createId: () => randomUUID() as MemoryRecordId,
+        createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
+        createRevisionId: () => randomUUID() as MemoryRevisionId,
+        now: () => new Date().toISOString(),
+        displayText: (table, fields, payload) =>
+          computeMemoryRecordDisplayText(
+            memoryRecordRepository,
+            table.memorySpaceId,
+            table,
+            fields,
+            payload,
+          ),
+      },
+      unitOfWork,
+      createEvidenceId: () => randomUUID() as MemoryEvidenceId,
+    });
+    const writeGuard = new FillTaskWriteGuard(new KyselyFillTaskRepository(context), {
+      spaces: memorySpaces,
+      tables: memoryTableService,
+      fields: memoryFieldService,
+      records: new MemoryRecordService(
         memoryTableRepository,
         memoryFieldRepository,
         memoryRecordRepository,
@@ -100,8 +145,16 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         memoryRecordRepository,
         () => randomUUID() as MemoryEvidenceId,
       ),
+    });
+    const server = await buildServer({
+      database: new KyselyDatabaseHealthCheck(context),
+      memorySpaces: writeGuard.spaces,
+      memoryTables: writeGuard.tables,
+      memoryFields: writeGuard.fields,
+      memoryRecords: writeGuard.records,
       memoryRecordQueries,
       chat,
+      fillTasks,
     });
     server.addHook("onClose", async () => database.destroy());
     await server.listen({ host: config.host, port: config.port });

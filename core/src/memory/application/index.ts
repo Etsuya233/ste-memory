@@ -12,6 +12,8 @@ export type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 export type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 export { MemoryRecordService } from "./memory-record-service.ts";
 export { MemoryRecordQueryService } from "./memory-record-query-service.ts";
+export { commitMemoryProposalBatch } from "./memory-proposal-commit.ts";
+export { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
 export type {
   QueryRecordFieldId,
   QueryRecordOperator,
@@ -27,6 +29,7 @@ export type {
 } from "./memory-record-service.ts";
 export type {
   MemoryRecordMutationBatchInput,
+  MemoryRecordMutationContext,
   MemoryRecordMutationOperation,
   MemoryRecordMutationResult,
 } from "./memory-record-mutations.ts";

@@ -29,6 +29,12 @@ export interface SourceChatSummary {
 export interface SourceChatRepository {
   create(memorySpaceId: MemorySpaceId, chat: ParsedChat): Promise<void>;
   messages(memorySpaceId: MemorySpaceId): Promise<SourceMessage[]>;
+  /** 闭区间 [from, to] 内的消息（按 source_id 升序），供填表任务分块处理。 */
+  messagesInRange(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<SourceMessage[]>;
   errors(memorySpaceId: MemorySpaceId): Promise<SourceParseError[]>;
   summary(memorySpaceId: MemorySpaceId): Promise<SourceChatSummary>;
+  /** 把一批消息标记为已填表（与批次提交同一事务，失败回滚不产生半批状态）。 */
+  markProcessed(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void>;
+  /** 把出错批的消息标记为 error（最后一次运行出错的消息，可重试）。 */
+  markError(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void>;
 }

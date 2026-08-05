@@ -3,6 +3,7 @@ import { Migrator, type MigrationProvider } from "kysely/migration";
 import { initialMigration } from "./migrations/0001-initial.ts";
 import { fieldEvidenceMigration } from "./migrations/0002-field-evidence.ts";
 import { plotStartEndTimeMigration } from "./migrations/0003-plot-start-end-time.ts";
+import { fillTaskMigration } from "./migrations/0004-fill-tasks.ts";
 import type { DatabaseSchema } from "./schema/database.ts";
 
 const migrations: MigrationProvider = {
@@ -11,6 +12,7 @@ const migrations: MigrationProvider = {
       "0001-initial": initialMigration,
       "0002-field-evidence": fieldEvidenceMigration,
       "0003-plot-start-end-time": plotStartEndTimeMigration,
+      "0004-fill-tasks": fillTaskMigration,
     };
   },
 };

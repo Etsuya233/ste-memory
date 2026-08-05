@@ -16,6 +16,7 @@ import {
   type SourceParseError,
 } from "../api/memory-spaces.ts";
 import { SpaceList } from "./SpaceList.tsx";
+import { FillTaskPanel } from "./FillTaskPanel.tsx";
 import { TableDialog } from "./TableDialog.tsx";
 import { TableList } from "./TableList.tsx";
 import { TableWorkspace } from "./TableWorkspace.tsx";
@@ -164,6 +165,9 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
             />
           )}
         </section>
+        {props.selectedSpaceId ? (
+          <FillTaskPanel space={props.spaces.find((item) => item.id === props.selectedSpaceId)!} />
+        ) : null}
         {workspaceError ? <div className="page-error">{workspaceError}</div> : null}
         <TableList
           tables={tables}

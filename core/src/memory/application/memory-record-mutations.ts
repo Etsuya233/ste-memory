@@ -1,6 +1,7 @@
 import {
   DomainError,
   type MemoryField,
+  type MemoryFieldId,
   type MemoryEvidence,
   type MemoryFieldEvidence,
   type MemoryRecord,
@@ -8,6 +9,7 @@ import {
   type MemoryRecordHistoryId,
   type MemoryRecordId,
   type MemoryRecordPayload,
+  type MemoryRecordSource,
   type MemoryRevisionId,
   type MemoryRevisionSource,
   type MemorySpaceId,
@@ -20,6 +22,7 @@ import type {
   MemoryRecordRepository,
 } from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
+import { isProposalTempId } from "./memory-proposal.ts";
 import {
   findMemoryRecordReferenceLocations,
   validateMemoryRecordReferences,
@@ -27,6 +30,16 @@ import {
 import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
 
 export type MemoryRecordMutationOperation =
+  | {
+      readonly type: "create";
+      readonly tableId: MemoryTableId;
+      /** 批内临时 ID（引用字段可用 tmp: 前缀指向它），提交时解析为真实记录 ID。 */
+      readonly tempId: string;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly fieldEvidence?: MemoryFieldEvidence;
+      /** 新记录来源；缺省时按字段证据推断（有字段证据 = source，否则 manual）。 */
+      readonly source?: MemoryRecordSource;
+    }
   | {
       readonly type: "update";
       readonly tableId: MemoryTableId;
@@ -52,10 +65,11 @@ export interface MemoryRecordMutationResult {
   readonly changed: number;
 }
 
-interface MemoryRecordMutationContext {
+export interface MemoryRecordMutationContext {
   readonly tables: MemoryTableRepository;
   readonly fields: MemoryFieldRepository;
   readonly records: MemoryRecordRepository;
+  readonly createId: () => MemoryRecordId;
   readonly createHistoryId: () => MemoryRecordHistoryId;
   readonly createRevisionId: () => MemoryRevisionId;
   readonly now: () => string;
@@ -66,6 +80,10 @@ interface MemoryRecordMutationContext {
   ) => Promise<string>;
 }
 
+/**
+ * 原子提交一批记录变更：create/update/delete 共享同一修订身份，统一写入
+ * 当前记录、旧状态历史与字段证据。任何一步失败（校验、乐观锁、写库）整批回滚。
+ */
 export async function commitMemoryRecordMutationBatch(
   context: MemoryRecordMutationContext,
   memorySpaceId: MemorySpaceId,
@@ -74,8 +92,29 @@ export async function commitMemoryRecordMutationBatch(
 ): Promise<MemoryRecordMutationResult> {
   const revisionId = context.createRevisionId();
   const archivedAt = context.now();
+
+  // 批内临时 ID 解析：create 操作由引擎分配真实 ID，引用字段的 tmp: 值提交时改写。
+  const tempIdToRecordId = new Map<string, MemoryRecordId>();
+  for (const operation of input.operations) {
+    if (operation.type === "create") tempIdToRecordId.set(operation.tempId, context.createId());
+  }
+
   const mutations: MemoryRecordMutation[] = [];
   for (const operation of input.operations) {
+    if (operation.type === "create") {
+      mutations.push(
+        await buildCreateMutation(
+          context,
+          memorySpaceId,
+          operation,
+          revisionId,
+          archivedAt,
+          input.revisionSource,
+          tempIdToRecordId,
+        ),
+      );
+      continue;
+    }
     const previous = await context.records.find(
       memorySpaceId,
       operation.tableId,
@@ -91,13 +130,11 @@ export async function commitMemoryRecordMutationBatch(
     let current: MemoryRecord | undefined;
     if (operation.type === "update") {
       const fields = await context.fields.list(memorySpaceId, operation.tableId);
+      const patch = resolveTempReferences(fields, operation.patch, tempIdToRecordId);
       const payload = validatedMemoryRecordPayload(fields, {
         ...previous.payload,
-        ...operation.patch,
+        ...patch,
       });
-      await validateMemoryRecordReferences(fields, payload, (tableId, recordId) =>
-        context.records.find(memorySpaceId, tableId, recordId),
-      );
       const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
       const displayText = await context.displayText(table, fields, payload);
       if (
@@ -117,6 +154,7 @@ export async function commitMemoryRecordMutationBatch(
       };
     }
     mutations.push({
+      kind: "replace",
       previous,
       current,
       history: historySnapshot(
@@ -130,9 +168,101 @@ export async function commitMemoryRecordMutationBatch(
   }
   await validateFinalReferences(context, memorySpaceId, mutations);
   if (mutations.length > 0 && !(await context.records.commit(mutations, evidence))) {
-    revisionConflict(mutations[0]!.previous.id);
+    const first = mutations[0]!;
+    revisionConflict(first.kind === "create" ? first.current.id : first.previous.id);
   }
   return { revisionId, changed: mutations.length };
+}
+
+async function buildCreateMutation(
+  context: MemoryRecordMutationContext,
+  memorySpaceId: MemorySpaceId,
+  operation: Extract<MemoryRecordMutationOperation, { type: "create" }>,
+  revisionId: MemoryRevisionId,
+  archivedAt: string,
+  revisionSource: MemoryRevisionSource,
+  tempIdToRecordId: ReadonlyMap<string, MemoryRecordId>,
+): Promise<MemoryRecordMutation> {
+  const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
+  const fields = await context.fields.list(memorySpaceId, operation.tableId);
+  const payload = validatedMemoryRecordPayload(
+    fields,
+    resolveTempReferences(fields, operation.patch, tempIdToRecordId),
+  );
+  const fieldEvidence = operation.fieldEvidence ?? {};
+  const recordId = tempIdToRecordId.get(operation.tempId);
+  if (!recordId) {
+    throw new DomainError({
+      type: "memory_record_reference_invalid",
+      param: { fieldId: operation.tempId },
+      humanMsg: `批内临时 ID ${operation.tempId} 不存在`,
+    });
+  }
+  return {
+    kind: "create",
+    current: {
+      id: recordId,
+      memorySpaceId,
+      tableId: operation.tableId,
+      payload,
+      fieldEvidence,
+      displayText: await context.displayText(table, fields, payload),
+      source:
+        operation.source ??
+        (Object.keys(fieldEvidence).length > 0
+          ? { type: "source", sourceTime: null, sourceLocation: null }
+          : { type: "manual" }),
+      revisionId,
+      revisionSource,
+      createdAt: archivedAt,
+      updatedAt: archivedAt,
+    },
+  };
+}
+
+/**
+ * 把引用字段中的批内临时 ID（tmp: 前缀）改写为真实记录 ID；
+ * 单引用为字符串、多引用为字符串数组，其余字段原样保留。
+ */
+function resolveTempReferences(
+  fields: readonly MemoryField[],
+  patch: Readonly<Record<string, unknown>>,
+  tempIdToRecordId: ReadonlyMap<string, MemoryRecordId>,
+): Readonly<Record<string, unknown>> {
+  const referenceFieldIds = new Set(
+    fields.filter((field) => field.referenceTableId !== null).map((field) => field.id),
+  );
+  let rewritten: Record<string, unknown> | undefined;
+  for (const [fieldId, value] of Object.entries(patch)) {
+    if (!referenceFieldIds.has(fieldId as MemoryFieldId)) continue;
+    const resolved = resolveTempReferenceValue(value, tempIdToRecordId, fieldId);
+    if (resolved !== value) {
+      rewritten ??= { ...patch };
+      rewritten[fieldId] = resolved;
+    }
+  }
+  return rewritten ?? patch;
+}
+
+function resolveTempReferenceValue(
+  value: unknown,
+  tempIdToRecordId: ReadonlyMap<string, MemoryRecordId>,
+  fieldId: string,
+): unknown {
+  const resolveOne = (candidate: unknown): unknown => {
+    if (typeof candidate !== "string" || !isProposalTempId(candidate)) return candidate;
+    const recordId = tempIdToRecordId.get(candidate);
+    if (!recordId) {
+      throw new DomainError({
+        type: "memory_record_reference_invalid",
+        param: { fieldId },
+        humanMsg: `批内临时 ID ${candidate} 不存在`,
+      });
+    }
+    return recordId;
+  };
+  if (Array.isArray(value)) return value.map(resolveOne);
+  return resolveOne(value);
 }
 
 async function validateFinalReferences(
@@ -159,13 +289,17 @@ async function validateFinalReferences(
     ),
   );
   for (const mutation of mutations) {
+    if (mutation.kind === "create") {
+      finalRecords.get(mutation.current.tableId)!.set(mutation.current.id, mutation.current);
+      continue;
+    }
     const records = finalRecords.get(mutation.previous.tableId)!;
     if (mutation.current) records.set(mutation.previous.id, mutation.current);
     else records.delete(mutation.previous.id);
   }
   const records = [...finalRecords.values()].flatMap((recordsById) => [...recordsById.values()]);
   for (const mutation of mutations) {
-    if (mutation.current) continue;
+    if (mutation.kind !== "replace" || mutation.current) continue;
     const references = findMemoryRecordReferenceLocations(
       records,
       fieldsByTable,
@@ -181,10 +315,11 @@ async function validateFinalReferences(
     }
   }
   for (const mutation of mutations) {
-    if (!mutation.current) continue;
+    if (mutation.kind === "replace" && !mutation.current) continue;
+    const current = mutation.current!;
     await validateMemoryRecordReferences(
-      fieldsByTable.get(mutation.current.tableId)!,
-      mutation.current.payload,
+      fieldsByTable.get(current.tableId)!,
+      current.payload,
       async (tableId, recordId) => finalRecords.get(tableId)!.get(recordId),
     );
   }

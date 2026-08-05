@@ -91,6 +91,8 @@ export function createMutateTool(
     label: "提交记录变更",
     description: MUTATE_TOOL_DESCRIPTION,
     parameters: mutateParamsSchema,
+    // 提案状态是顺序语义：同一轮消息里的多个工具调用必须按序执行（pi 默认并行）。
+    executionMode: "sequential",
     async execute(_toolCallId, params) {
       const result = await executeMutate(deps, params);
       return {

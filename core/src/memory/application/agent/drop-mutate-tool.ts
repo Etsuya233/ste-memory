@@ -34,6 +34,7 @@ export function createDropMutateTool(
     label: "移除变更操作",
     description: DROP_MUTATE_TOOL_DESCRIPTION,
     parameters: dropMutateParamsSchema,
+    executionMode: "sequential",
     async execute(_toolCallId, params) {
       const result = executeDropMutate(deps, params);
       return {
