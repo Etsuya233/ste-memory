@@ -22,7 +22,10 @@ import type { ProposalState, ProposalStateOperationInput } from "./proposal-stat
 export const MUTATE_TOOL_NAME = "mutate";
 
 // ---------------------------------------------------------------------------
-// 参数 Schema（TypeBox）：op 为判别字段，形状错误由 pi 在 execute 前拦截
+// 参数 Schema（TypeBox）：op 为判别字段，形状错误由 pi 在 execute 前拦截。
+// 顶层必须是 type: "object" 的单对象：OpenAI 兼容服务端（DeepSeek 等）拒绝
+// 纯 anyOf union（无顶层 type）的工具 schema；判别式校验以 anyOf 兄弟关键字
+// 保留，pi 本地校验照常生效（回归测试见 core/test/agent/mutate-tool.test.ts）。
 // ---------------------------------------------------------------------------
 
 const fieldValueSchema = Type.Union([
@@ -35,27 +38,40 @@ const fieldValueSchema = Type.Union([
 
 const patchSchema = Type.Record(Type.String(), fieldValueSchema);
 
-const mutateParamsSchema = Type.Union([
-  Type.Object({
-    op: Type.Literal("create"),
-    table: Type.String(),
-    patch: patchSchema,
+const createVariant = Type.Object({
+  op: Type.Literal("create"),
+  table: Type.String(),
+  patch: patchSchema,
+  tempId: Type.Optional(Type.String()),
+});
+const updateVariant = Type.Object({
+  op: Type.Literal("update"),
+  table: Type.String(),
+  recordId: Type.String(),
+  expectedRevisionId: Type.String(),
+  patch: patchSchema,
+});
+const deleteVariant = Type.Object({
+  op: Type.Literal("delete"),
+  table: Type.String(),
+  recordId: Type.String(),
+  expectedRevisionId: Type.String(),
+});
+
+const mutateParamsSchema = Type.Object(
+  {
+    op: Type.Union([Type.Literal("create"), Type.Literal("update"), Type.Literal("delete")]),
+    table: Type.Optional(Type.String()),
+    recordId: Type.Optional(Type.String()),
+    expectedRevisionId: Type.Optional(Type.String()),
+    patch: Type.Optional(patchSchema),
     tempId: Type.Optional(Type.String()),
-  }),
-  Type.Object({
-    op: Type.Literal("update"),
-    table: Type.String(),
-    recordId: Type.String(),
-    expectedRevisionId: Type.String(),
-    patch: patchSchema,
-  }),
-  Type.Object({
-    op: Type.Literal("delete"),
-    table: Type.String(),
-    recordId: Type.String(),
-    expectedRevisionId: Type.String(),
-  }),
-]);
+  },
+  {
+    additionalProperties: false,
+    anyOf: [createVariant, updateVariant, deleteVariant],
+  },
+);
 
 export type MutateToolParams = Static<typeof mutateParamsSchema>;
 
@@ -121,6 +137,9 @@ async function executeMutate(
   deps: MutateToolDependencies,
   params: MutateToolParams,
 ): Promise<MutateToolResult> {
+  if (params.table === undefined) {
+    throw new ProposalToolError("mutate 操作需要 table");
+  }
   const table = findTableInDigest(deps.digest, params.table);
   if (!table) {
     throw new ProposalToolError(
@@ -128,6 +147,10 @@ async function executeMutate(
     );
   }
   if (params.op !== "delete") {
+    // anyOf 判别在 pi 校验层保证 patch 必填；此处兜底防止非预期路径崩在 Object.keys。
+    if (params.patch === undefined) {
+      throw new ProposalToolError(`${params.op} 操作需要 patch`);
+    }
     validatePatchKeys(table, params.patch);
   }
 
@@ -164,24 +187,23 @@ async function buildStateOperationInput(
           );
         }
       }
-      return { op: "create", tableKey, tempId, patch: params.patch };
+      return { op: "create", tableKey, tempId, patch: params.patch ?? {} };
     }
-    case "update":
-      return {
-        op: "update",
-        tableKey,
-        recordId: params.recordId,
-        expectedRevisionId: params.expectedRevisionId,
-        patch: params.patch,
-      };
-    case "delete":
-      return {
-        op: "delete",
-        tableKey,
-        recordId: params.recordId,
-        expectedRevisionId: params.expectedRevisionId,
-        patch: {},
-      };
+    case "update": {
+      // 单对象 schema 下这些字段类型上可选；anyOf 判别已保证运行时必填，此处兜底。
+      const { recordId, expectedRevisionId, patch } = params;
+      if (recordId === undefined || expectedRevisionId === undefined || patch === undefined) {
+        throw new ProposalToolError("update 操作需要 recordId、expectedRevisionId 与 patch");
+      }
+      return { op: "update", tableKey, recordId, expectedRevisionId, patch };
+    }
+    case "delete": {
+      const { recordId, expectedRevisionId } = params;
+      if (recordId === undefined || expectedRevisionId === undefined) {
+        throw new ProposalToolError("delete 操作需要 recordId 与 expectedRevisionId");
+      }
+      return { op: "delete", tableKey, recordId, expectedRevisionId, patch: {} };
+    }
   }
 }
 
