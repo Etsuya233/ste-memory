@@ -20,11 +20,11 @@ function isDate(value: string): boolean {
 }
 
 function isDateTime(value: string): boolean {
-  return (
-    /^\d{4}-\d{2}-\d{2}T/.test(value) &&
-    isDate(value.slice(0, 10)) &&
-    !Number.isNaN(Date.parse(value))
-  );
+  // 统一契约：YYYY-MM-DD HH:mm:ss（无时区、固定宽度，字典序比较即时间序比较）
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return false;
+  if (!isDate(value.slice(0, 10))) return false;
+  const [hours, minutes, seconds] = value.slice(11).split(":").map(Number);
+  return hours < 24 && minutes < 60 && seconds < 60;
 }
 
 function isDistinctStrings(value: unknown): value is readonly string[] {

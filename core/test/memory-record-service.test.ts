@@ -291,7 +291,12 @@ describe("MemoryRecordService", () => {
     setup.fields[birthdayIndex] = { ...setup.fields[birthdayIndex]!, type: "datetime" };
     await expect(
       setup.service.create(spaceId, characterTableId, {
-        payload: { [nameId]: "林夏", [birthdayId]: "2026-02-30T10:00:00" },
+        payload: { [nameId]: "林夏", [birthdayId]: "2026-02-30 10:00:00" },
+      }),
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
+    await expect(
+      setup.service.create(spaceId, characterTableId, {
+        payload: { [nameId]: "林夏", [birthdayId]: "2026-02-28T10:00:00" },
       }),
     ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
   });

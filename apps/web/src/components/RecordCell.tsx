@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { MemoryField } from "../api/memory-fields.ts";
 import type { MemoryFieldValue, MemoryRecord } from "../api/memory-records.ts";
 import { formatMemoryFieldValue } from "./memory-record-value.ts";
+import { datetimeLocalToStored, storedToDatetimeLocal } from "./datetime-format.ts";
 
 interface RecordCellProps {
   readonly field: MemoryField;
@@ -112,9 +113,23 @@ export function RecordCell({
         autoFocus
         required={field.required}
         type={field.type === "date" ? "date" : "datetime-local"}
-        value={typeof value === "string" ? value : ""}
+        value={
+          typeof value === "string"
+            ? field.type === "datetime"
+              ? storedToDatetimeLocal(value)
+              : value
+            : ""
+        }
         onBlur={finishEditing}
-        onChange={(event) => onChange(event.target.value || undefined)}
+        onChange={(event) =>
+          onChange(
+            event.target.value === ""
+              ? undefined
+              : field.type === "datetime"
+                ? datetimeLocalToStored(event.target.value)
+                : event.target.value,
+          )
+        }
       />
     );
   } else if (field.type === "single_select" || field.type === "single_reference") {

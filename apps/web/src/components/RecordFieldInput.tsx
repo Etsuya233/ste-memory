@@ -1,5 +1,6 @@
 import type { MemoryField, MemoryFieldType } from "../api/memory-fields.ts";
 import type { MemoryFieldValue, MemoryRecord } from "../api/memory-records.ts";
+import { datetimeLocalToStored, storedToDatetimeLocal } from "./datetime-format.ts";
 
 interface RecordFieldInputProps {
   readonly field: MemoryField;
@@ -77,8 +78,22 @@ export function RecordFieldInput({
         id={id}
         type={field.type === "date" ? "date" : "datetime-local"}
         required={field.required}
-        value={typeof value === "string" ? value : ""}
-        onChange={(event) => onChange(event.target.value || undefined)}
+        value={
+          typeof value === "string"
+            ? field.type === "datetime"
+              ? storedToDatetimeLocal(value)
+              : value
+            : ""
+        }
+        onChange={(event) =>
+          onChange(
+            event.target.value === ""
+              ? undefined
+              : field.type === "datetime"
+                ? datetimeLocalToStored(event.target.value)
+                : event.target.value,
+          )
+        }
       />
     );
   } else if (field.type === "single_select") {
