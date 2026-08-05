@@ -14,12 +14,28 @@ import { ChatSpaceNotFoundError } from "../../../../application/chat/chat-manage
 import type { ChatEvent } from "../../../../application/chat/chat-events.ts";
 import { LlmConfigError, type LlmWebConfig } from "../../../../application/chat/llm-config.ts";
 import type { ChatManager, ChatMessageInput } from "../../../../application/ports/chat.ts";
+import { ALLOWED_WEB_ORIGIN } from "../server.ts";
 
 const SSE_HEADERS = {
   "content-type": "text/event-stream; charset=utf-8",
   "cache-control": "no-cache",
   connection: "keep-alive",
 } as const;
+
+/**
+ * hijack 接管响应后 @fastify/cors 的钩子不再生效(其设置的响应头会被
+ * raw.writeHead 的 headers 参数整体覆盖),需按请求 Origin 手动补 CORS 头;
+ * 无 Origin(非浏览器客户端)时保持原样。
+ */
+function buildSseHeaders(request: FastifyRequest): Record<string, string> {
+  const headers: Record<string, string> = { ...SSE_HEADERS };
+  const origin = request.headers.origin;
+  if (origin !== undefined && ALLOWED_WEB_ORIGIN.test(origin)) {
+    headers["access-control-allow-origin"] = origin;
+    headers["vary"] = "Origin";
+  }
+  return headers;
+}
 
 /** 单次请求回传的历史消息上限（对话历史随请求回传，做个合理的防滥用护栏）。 */
 const MAX_CHAT_MESSAGES = 100;
@@ -141,7 +157,7 @@ async function streamChat(
   const onDisconnect = () => controller.abort();
   raw.on("close", onDisconnect);
   raw.on("error", onDisconnect);
-  raw.writeHead(200, SSE_HEADERS);
+  raw.writeHead(200, buildSseHeaders(request));
 
   try {
     await run(controller.signal, send);

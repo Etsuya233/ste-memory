@@ -25,6 +25,12 @@ export interface ServerDependencies {
   readonly chat: ChatManager;
 }
 
+/**
+ * 允许的跨源 Origin(浏览器 Web 页面)。
+ * @fastify/cors 与 SSE hijack 响应共用:chat 路由 hijack 后 cors 钩子不再生效,需手动补头。
+ */
+export const ALLOWED_WEB_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
+
 const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_space_name_required: "记忆空间名称不能为空",
   memory_space_name_too_long: "记忆空间名称不能超过 120 个字符",
@@ -61,7 +67,7 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {
   const server = Fastify({ logger: true });
   await server.register(cors, {
-    origin: /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/,
+    origin: ALLOWED_WEB_ORIGIN,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
   await server.register(multipart, {
