@@ -33,7 +33,11 @@
 }
 .record-table-scroll {
   overflow: auto;
-  overscroll-behavior: contain;
+  /* padding-bottom 吸收最后一行行高拖拽手柄（bottom: -4px）超出表格底部的 4px，
+     使内层容器纵向无可滚动溢出（scrollTopMax = 0）：
+     不渲染幽灵纵向滚动条，且指针在表格上时滚轮事件能冒泡到外层 .table-workspace。
+     注意：不要给内层容器加 overscroll-behavior: contain，它会截获滚轮、阻止冒泡。 */
+  padding-bottom: 4px;
 }
 .record-table {
   min-width: 100%;
