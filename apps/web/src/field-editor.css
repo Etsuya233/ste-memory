@@ -1,11 +1,17 @@
+/* ---------------------------------------------------------------------------
+ * 字段编辑器与显示策略
+ * ------------------------------------------------------------------------- */
+
 .field-editor {
   position: relative;
 }
+
 .display-strategy,
 .field-definition-list {
-  padding: 22px;
-  border-bottom: 1px solid #e1e4df;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
 }
+
 .definition-section-heading {
   display: flex;
   align-items: center;
@@ -13,150 +19,170 @@
   gap: 14px;
   margin-bottom: 16px;
 }
+
 .definition-section-heading h3 {
-  font-size: 14px;
+  font-size: var(--fs-base);
+  font-weight: 750;
 }
+
 .definition-section-heading span {
   display: block;
-  margin-top: 3px;
-  color: #747c72;
-  font-size: 10px;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
 }
+
+/* ---------- 显示策略 ---------- */
+
+.display-strategy label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+
 .strategy-modes {
   width: fit-content;
   display: grid;
   grid-template-columns: 1fr 1fr;
   margin-bottom: 15px;
-  border: 1px solid #c8cec5;
-  border-radius: 5px;
-  overflow: hidden;
 }
-.strategy-modes button {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  color: #596056;
-  background: #fff;
-  border: 0;
+
+.template-editor {
+  margin-top: 14px;
 }
-.strategy-modes button + button {
-  border-left: 1px solid #c8cec5;
-}
-.strategy-modes button.active {
-  color: #263018;
-  background: #e8efda;
-  font-weight: 700;
-}
-.display-strategy label > span,
-.field-dialog label > span {
-  display: block;
-  margin-bottom: 7px;
-  color: #555d53;
-  font-size: 12px;
-  font-weight: 650;
-}
-.display-strategy input,
-.display-strategy select,
-.field-dialog input:not([type="checkbox"]),
-.field-dialog select,
-.field-dialog textarea {
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
-  color: #30352f;
-  background: #fff;
-  border: 1px solid #c7cdc5;
-  border-radius: 5px;
-}
+
 .template-fields {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 9px;
 }
+
 .template-fields button {
-  min-height: 28px;
+  min-height: 26px;
   padding: 0 9px;
-  color: #4f5f29;
-  background: #f2f6e9;
-  border: 1px solid #cbd7b2;
-  border-radius: 4px;
-  font-size: 11px;
+  color: var(--accent-ink);
+  background: var(--accent-softer);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
 }
+
+.template-fields button:hover {
+  background: var(--accent-soft);
+}
+
+/* ---------- 字段列表 ---------- */
+
 .field-definition {
-  min-height: 62px;
+  min-height: 58px;
   display: grid;
-  grid-template-columns: 54px minmax(140px, 1fr) 38px 34px 34px;
+  grid-template-columns: 58px minmax(140px, 1fr) auto 30px 30px;
   align-items: center;
-  gap: 8px;
-  border-top: 1px solid #e3e6e1;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  transition: background 0.1s ease;
 }
+
 .field-definition:last-child {
-  border-bottom: 1px solid #e3e6e1;
+  border-bottom: 1px solid var(--line);
 }
+
+.field-definition:hover {
+  background: var(--surface-2);
+}
+
 .field-definition.disabled {
-  background: #f7f7f5;
+  background: var(--surface-3);
+  opacity: 0.75;
 }
+
 .field-order {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #777f75;
+  gap: 6px;
+  color: var(--ink-3);
 }
+
 .field-order strong {
-  width: 19px;
-  font-size: 11px;
+  width: 18px;
+  font-size: var(--fs-xs);
   text-align: center;
 }
+
 .field-order div {
   display: grid;
 }
+
 .field-order button {
   width: 22px;
-  height: 22px;
+  height: 20px;
   display: grid;
   place-items: center;
   padding: 0;
-  color: #70776e;
+  color: var(--ink-4);
   background: transparent;
   border: 0;
+  border-radius: var(--r-sm);
 }
+
+.field-order button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+
+.field-order button:disabled {
+  opacity: 0.3;
+}
+
 .field-summary strong,
 .field-summary span {
   display: block;
 }
+
 .field-summary strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .field-summary span {
-  margin-top: 4px;
-  color: #747c72;
-  font-size: 10px;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
 }
+
+.field-definition .switch {
+  margin-right: 4px;
+}
+
 .field-list-state {
   min-height: 88px;
   display: grid;
   place-items: center;
-  color: #7a8278;
-  font-size: 11px;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
 }
+
 .field-warning {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 14px 22px;
+  margin: 14px 24px;
   padding: 9px 11px;
-  color: #77521d;
-  background: #fff5dc;
-  border: 1px solid #ead5a4;
-  border-radius: 5px;
-  font-size: 11px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
 }
+
 .field-warning button {
   display: grid;
   place-items: center;
@@ -165,50 +191,40 @@
   background: transparent;
   border: 0;
 }
+
 .field-editor-error {
-  margin: 14px 22px;
+  margin: 14px 24px;
 }
+
+/* ---------- 字段对话框 ---------- */
+
 .field-dialog {
-  width: min(100%, 620px);
+  width: min(100%, 640px);
 }
-.field-dialog label + label,
-.field-dialog .field-form-grid + label,
-.field-dialog label + .field-checks {
-  display: block;
+
+.field-grid-second {
   margin-top: 14px;
 }
-.field-form-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px 90px;
-  gap: 12px;
+
+.field-block-gap {
+  margin-top: 14px;
 }
+
 .field-checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 14px;
-}
-.field-checks label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.field-checks label > span {
-  margin: 0;
-}
-.dialog > .delete-copy {
-  padding: 18px 18px 0;
-}
-.dialog > .delete-copy + .dialog-footer {
-  padding: 0 18px 18px;
+  gap: 22px;
 }
 
 @media (max-width: 720px) {
-  .field-form-grid {
-    grid-template-columns: 1fr;
-  }
   .display-strategy,
   .field-definition-list {
     padding: 18px 14px;
+  }
+  .field-definition {
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+  }
+  .field-definition > .icon-btn {
+    display: none;
   }
 }

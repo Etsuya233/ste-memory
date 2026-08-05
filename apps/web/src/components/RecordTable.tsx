@@ -408,6 +408,19 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
     onSelect({ record, fields, referenceRecords });
   }
 
+  /**
+   * 选择回调的去重版：行内的 focus/click 会在编辑输入聚焦时再次触发，
+   * 若每次都 setState 会引发整表重渲染，导致原生 date/time 输入框的
+   * 内部焦点段丢失（表现为点击后无法键入）。同一 revision 只通知一次。
+   */
+  const lastSelectionKeyRef = useRef<string | undefined>(undefined);
+  function selectRecord(record: MemoryRecord) {
+    const key = `${record.id}@${record.revisionId}`;
+    if (lastSelectionKeyRef.current === key) return;
+    lastSelectionKeyRef.current = key;
+    onSelect({ record, fields, referenceRecords });
+  }
+
   const columns: readonly RecordColumn[] = [
     {
       key: "status",
@@ -512,9 +525,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                     fields={fields}
                     referenceRecords={referenceRecords}
                     onSaved={updateVisibleRecord}
-                    onSelect={(selected) =>
-                      onSelect({ record: selected, fields, referenceRecords })
-                    }
+                    onSelect={selectRecord}
                   />
                 ))}
                 <NewRecordRow
@@ -539,7 +550,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
             </span>
             <div>
               <button
-                className="icon-button"
+                className="icon-btn"
                 type="button"
                 aria-label="上一页"
                 disabled={page <= 1}
@@ -548,7 +559,7 @@ export function RecordTable({ memorySpaceId, table, onSelect, refreshVersion }: 
                 <ChevronLeft size={16} />
               </button>
               <button
-                className="icon-button"
+                className="icon-btn"
                 type="button"
                 aria-label="下一页"
                 disabled={page >= result.totalPages}

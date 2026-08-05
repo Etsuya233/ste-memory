@@ -1,165 +1,246 @@
-.cleaning-rules-panel {
+/* ---------------------------------------------------------------------------
+ * 清洗规则面板（中央工作台）：左规则编辑 / 右实时预览
+ * ------------------------------------------------------------------------- */
+
+.cleaning-panel {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 5fr) minmax(0, 6fr);
+}
+
+.cleaning-rules-column,
+.cleaning-preview-column {
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.25));
-  padding-bottom: 12px;
+  gap: 12px;
+  padding: 18px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cleaning-preview-column {
+  border-left: 1px solid var(--line);
+  background: var(--surface-2);
 }
 
 .cleaning-rules-actions {
   display: flex;
-  gap: 6px;
   align-items: center;
+  gap: 8px;
 }
 
-.cleaning-rules-actions .primary-button,
-.cleaning-rules-actions .secondary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
+.cleaning-save-result {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--ok);
 }
+
+/* ---------- 规则行 ---------- */
 
 .cleaning-rule-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
+  gap: 8px;
 }
 
 .cleaning-rule-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.25));
-  border-radius: 6px;
-  background: rgba(128, 128, 128, 0.06);
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.12s ease;
+}
+
+.cleaning-rule-row:focus-within {
+  border-color: var(--accent);
 }
 
 .cleaning-rule-row.disabled {
-  opacity: 0.55;
+  opacity: 0.6;
+  background: var(--surface-2);
 }
 
 .cleaning-rule-row-header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.cleaning-rule-row-header > input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .cleaning-rule-name {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
-  padding: 2px 6px;
+  height: 30px;
+  padding: 0 9px;
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.cleaning-rule-name:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .cleaning-rule-mode {
-  font-size: 12px;
-  padding: 2px 4px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.cleaning-rule-mode:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.cleaning-rule-row-header .icon-btn {
+  width: 27px;
+  height: 27px;
 }
 
 .cleaning-rule-row-body {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .cleaning-rule-pattern {
   flex: 1;
   min-width: 0;
-  font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
-  font-size: 11px;
-  padding: 2px 6px;
+  height: 32px;
+  padding: 0 9px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.cleaning-rule-pattern:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .cleaning-rule-flags {
   display: flex;
-  gap: 4px;
+  gap: 7px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   align-items: center;
 }
 
 .cleaning-rule-flags label {
   display: inline-flex;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
   cursor: pointer;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .cleaning-rule-flags input {
   margin: 0;
   width: 12px;
   height: 12px;
+  accent-color: var(--accent);
 }
 
 .cleaning-rule-error {
   margin: 0;
-  font-size: 11px;
-  color: #d64545;
+  font-size: var(--fs-xs);
+  color: var(--danger);
 }
 
-.cleaning-save-result {
-  font-size: 12px;
-  color: #4a9d5f;
-}
+/* ---------- 预览 ---------- */
 
 .cleaning-preview {
-  border-top: 1px dashed var(--border-color, rgba(128, 128, 128, 0.25));
-  padding-top: 6px;
-}
-
-.cleaning-preview h3 {
-  margin: 0 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.cleaning-preview ul {
   list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  max-height: 180px;
-  overflow-y: auto;
-  font-size: 11px;
+  gap: 6px;
+  padding: 2px 0 10px;
 }
 
 .cleaning-preview li {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 5fr) 18px minmax(0, 6fr);
+  gap: 8px;
   align-items: baseline;
-  line-height: 1.4;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  line-height: 1.55;
+  font-size: var(--fs-xs);
+}
+
+.cleaning-preview li.changed {
+  border-color: var(--accent-line);
+  background: var(--accent-softer);
 }
 
 .cleaning-preview-id {
-  color: var(--muted-color, #888);
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
   flex-shrink: 0;
 }
 
 .cleaning-preview-original {
-  color: var(--muted-color, #888);
+  color: var(--ink-4);
   text-decoration: line-through;
-  opacity: 0.8;
-  max-width: 40%;
+  opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex-shrink: 1;
 }
 
 .cleaning-preview-arrow {
-  color: var(--muted-color, #888);
-  flex-shrink: 0;
+  color: var(--ink-4);
+  text-align: center;
 }
 
 .cleaning-preview-cleaned {
-  flex: 1;
   min-width: 0;
   word-break: break-all;
+  color: var(--ink);
+}
+
+.cleaning-preview-unchanged {
+  color: var(--ink-4);
+  font-style: normal;
+}
+
+@media (max-width: 1120px) {
+  .cleaning-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .cleaning-preview-column {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
 }

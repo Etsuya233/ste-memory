@@ -2,6 +2,7 @@ import { Braces, Save, Type } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { updateDisplayStrategy, type MemoryField } from "../api/memory-fields.ts";
 import type { MemoryTable } from "../api/memory-tables.ts";
+import { Button, Field, Segmented, TextInput } from "../ui.tsx";
 
 interface DisplayStrategyFormProps {
   readonly fields: readonly MemoryField[];
@@ -47,34 +48,35 @@ export function DisplayStrategyForm(props: DisplayStrategyFormProps) {
           <h3>记录显示策略</h3>
           <span>{props.table.displayStrategy ? "已配置" : "待配置"}</span>
         </div>
-        <button
-          className="primary-button"
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
+          icon={<Save size={13} />}
           disabled={busy || (mode === "field" && !fieldId)}
+          loading={busy}
         >
-          <Save size={14} /> {busy ? "保存中..." : "保存策略"}
-        </button>
+          保存策略
+        </Button>
       </header>
-      <div className="strategy-modes" role="group" aria-label="显示策略类型">
-        <button
-          className={mode === "field" ? "active" : ""}
-          type="button"
-          onClick={() => setMode("field")}
-        >
-          <Type size={14} /> 短文本字段
-        </button>
-        <button
-          className={mode === "template" ? "active" : ""}
-          type="button"
-          onClick={() => setMode("template")}
-        >
-          <Braces size={14} /> 派生模板
-        </button>
-      </div>
+      <Segmented<"field" | "template">
+        label="显示策略类型"
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "field", label: "短文本字段", icon: Type },
+          { value: "template", label: "派生模板", icon: Braces },
+        ]}
+      />
       {mode === "field" ? (
-        <label>
-          <span>显示字段</span>
-          <select required value={fieldId} onChange={(event) => setFieldId(event.target.value)}>
+        <Field label="显示字段" htmlFor="strategy-field" className="strategy-field">
+          <select
+            id="strategy-field"
+            className="control"
+            required
+            value={fieldId}
+            onChange={(event) => setFieldId(event.target.value)}
+          >
             <option value="" disabled>
               选择短文本字段
             </option>
@@ -84,17 +86,17 @@ export function DisplayStrategyForm(props: DisplayStrategyFormProps) {
               </option>
             ))}
           </select>
-        </label>
+        </Field>
       ) : (
         <div className="template-editor">
-          <label>
-            <span>显示模板</span>
-            <input
+          <Field label="显示模板" htmlFor="strategy-template" hint="点击下方字段插入占位符">
+            <TextInput
+              id="strategy-template"
               required
               value={template}
               onChange={(event) => setTemplate(event.target.value)}
             />
-          </label>
+          </Field>
           <div className="template-fields">
             {enabledFields.map((field) => (
               <button

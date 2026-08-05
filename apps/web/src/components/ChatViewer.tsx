@@ -85,7 +85,7 @@ export function ChatViewer({
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
-          <button className="icon-button" type="submit" title="定位消息" aria-label="定位消息">
+          <button className="icon-btn" type="submit" title="定位消息" aria-label="定位消息">
             <LocateFixed size={17} />
           </button>
         </form>

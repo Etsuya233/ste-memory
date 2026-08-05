@@ -1,4 +1,4 @@
-import { Plus, Save } from "lucide-react";
+import { Eraser, Plus, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   applyCleaningRules,
@@ -13,6 +13,7 @@ import {
 } from "../api/cleaning-rules.ts";
 import type { SourceMessage } from "../api/memory-spaces.ts";
 import { CleaningRuleRow } from "./CleaningRuleRow.tsx";
+import { Badge, Button } from "../ui.tsx";
 import "./cleaning-rules.css";
 
 /** 预览使用的原文消息条数（raw=1&limit=N 拉取）。 */
@@ -178,73 +179,114 @@ export function CleaningRulesPanel({ spaceId, onSaved }: CleaningRulesPanelProps
     }
   }
 
+  const appliedCount = preview.filter((text, index) => text !== rawMessages[index]?.content)
+    .length;
+
   return (
-    <section className="cleaning-rules-panel">
-      <div className="sidebar-heading">
-        <h2>清洗规则</h2>
-        <span>{draft.length} 条 · 读取时生效</span>
-      </div>
-      <div className="cleaning-rules-actions">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={loading}
-          onClick={() => setDraft((current) => [...current, newDraftRule(crypto.randomUUID())])}
-        >
-          <Plus size={14} /> 添加规则
-        </button>
-        <button
-          type="button"
-          className="primary-button"
-          disabled={!dirty || hasErrors || saving}
-          onClick={() => void save()}
-        >
-          <Save size={14} /> {saving ? "保存中..." : "保存"}
-        </button>
-      </div>
-      {error ? <div className="page-error">{error}</div> : null}
-      {saveResult ? <div className="cleaning-save-result">{saveResult}</div> : null}
-      {loading && draft.length === 0 ? <p className="empty-list">正在读取...</p> : null}
-      <div className="cleaning-rule-list">
-        {draft.map((rule, index) => (
-          <CleaningRuleRow
-            key={rule.id}
-            rule={rule}
-            index={index}
-            ruleCount={draft.length}
-            error={errors[index]}
-            onUpdate={updateRule}
-            onMove={move}
-            onRemove={(removeIndex) =>
-              setDraft((current) => current.filter((_, i) => i !== removeIndex))
-            }
-          />
-        ))}
-      </div>
-      {draft.length === 0 && !loading ? (
-        <p className="empty-list">还没有规则。添加规则后，消息展示与填表输入会在保存时生效。</p>
-      ) : null}
-      <div className="cleaning-preview">
-        <h3>预览（前 {PREVIEW_MESSAGE_LIMIT} 条消息）</h3>
-        {rawMessages.length === 0 ? (
-          <p className="empty-list">暂无消息可预览</p>
+    <div className="cleaning-panel">
+      <div className="cleaning-rules-column">
+        <header className="tool-panel-heading">
+          <div>
+            <h3>清洗规则</h3>
+            <p>按顺序作用于每条原始消息，读取时生效。</p>
+          </div>
+          <Badge tone={dirty ? "warn" : "neutral"}>{dirty ? "有未保存修改" : "已保存"}</Badge>
+        </header>
+
+        <div className="cleaning-rules-actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Plus size={13} />}
+            disabled={loading}
+            onClick={() => setDraft((current) => [...current, newDraftRule(crypto.randomUUID())])}
+          >
+            添加规则
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Save size={13} />}
+            disabled={!dirty || hasErrors || saving}
+            loading={saving}
+            onClick={() => void save()}
+          >
+            保存全部
+          </Button>
+          {saveResult ? <span className="cleaning-save-result">✓ {saveResult}</span> : null}
+        </div>
+
+        {error ? <div className="form-error">{error}</div> : null}
+        {loading && draft.length === 0 ? (
+          <div className="empty-state">
+            <Eraser size={26} />
+            <p>正在读取规则...</p>
+          </div>
+        ) : null}
+        {!loading && draft.length === 0 ? (
+          <div className="empty-state">
+            <Eraser size={26} />
+            <strong>还没有规则</strong>
+            <p>添加规则后，消息展示与填表输入会在保存时生效。</p>
+          </div>
         ) : (
-          <ul>
-            {rawMessages.map((message, index) => (
-              <li key={message.source_id}>
-                <span className="cleaning-preview-id">#{message.source_id}</span>
-                <span className="cleaning-preview-original">{message.content}</span>
-                <span className="cleaning-preview-arrow">→</span>
-                <span className="cleaning-preview-cleaned">
-                  {preview[index] === message.content
-                    ? `${message.content}（无变化）`
-                    : preview[index]}
-                </span>
-              </li>
+          <div className="cleaning-rule-list">
+            {draft.map((rule, index) => (
+              <CleaningRuleRow
+                key={rule.id}
+                rule={rule}
+                index={index}
+                ruleCount={draft.length}
+                error={errors[index]}
+                onUpdate={updateRule}
+                onMove={move}
+                onRemove={(removeIndex) =>
+                  setDraft((current) => current.filter((_, i) => i !== removeIndex))
+                }
+              />
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="cleaning-preview-column">
+        <header className="tool-panel-heading">
+          <div>
+            <h3>实时预览</h3>
+            <p>前 {PREVIEW_MESSAGE_LIMIT} 条消息：原样 → 清洗后。</p>
+          </div>
+          {rawMessages.length > 0 ? (
+            <Badge tone={appliedCount > 0 ? "accent" : "neutral"}>
+              {appliedCount} 条受影响
+            </Badge>
+          ) : null}
+        </header>
+        {rawMessages.length === 0 ? (
+          <div className="empty-state">
+            <Eraser size={26} />
+            <p>暂无消息可预览</p>
+          </div>
+        ) : (
+          <ul className="cleaning-preview">
+            {rawMessages.map((message, index) => {
+              const cleaned = preview[index];
+              const changed = cleaned !== message.content;
+              return (
+                <li key={message.source_id} className={changed ? "changed" : ""}>
+                  <span className="cleaning-preview-id">#{message.source_id}</span>
+                  <span className="cleaning-preview-original" title={message.content}>
+                    {message.content}
+                  </span>
+                  <span className="cleaning-preview-arrow">→</span>
+                  <span className="cleaning-preview-cleaned" title={cleaned}>
+                    {changed ? cleaned : <em className="cleaning-preview-unchanged">（无变化）</em>}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
-    </section>
+    </div>
   );
 }

@@ -177,7 +177,7 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
         />
         {streaming ? (
           <button
-            className="icon-button"
+            className="icon-btn"
             type="button"
             title="停止"
             aria-label="停止"
@@ -187,7 +187,7 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
           </button>
         ) : (
           <button
-            className="primary-button"
+            className="btn btn-primary query-chat-send"
             type="submit"
             disabled={input.trim().length === 0}
             aria-label="发送"

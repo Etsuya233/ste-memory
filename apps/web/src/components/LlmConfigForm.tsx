@@ -95,7 +95,7 @@ export function LlmConfigForm({ config, envInfo, onChange }: LlmConfigFormProps)
             />
             {config.apiKey ? (
               <button
-                className="icon-button"
+                className="icon-btn"
                 type="button"
                 title="清除本地保存的 API Key"
                 aria-label="清除 API Key"

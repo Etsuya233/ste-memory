@@ -36,7 +36,7 @@ export function RecordInspector(props: RecordInspectorProps) {
           className={tab === "record" ? "active" : ""}
           onClick={() => setTab("record")}
         >
-          <Database size={15} /> 记录详情
+          <Database size={13} /> 记录
         </button>
         <button
           type="button"
@@ -44,99 +44,107 @@ export function RecordInspector(props: RecordInspectorProps) {
           disabled={!selection}
           onClick={() => setTab("history")}
         >
-          <History size={15} /> 修订历史
+          <History size={13} /> 历史
         </button>
         <button
           type="button"
           className={tab === "chat" ? "active" : ""}
           onClick={() => setTab("chat")}
         >
-          <MessageSquareText size={15} /> 原始聊天
+          <MessageSquareText size={13} /> 原聊
         </button>
         <button
           type="button"
           className={tab === "agent" ? "active" : ""}
           onClick={() => setTab("agent")}
         >
-          <Bot size={15} /> Agent 聊天
+          <Bot size={13} /> Agent
         </button>
       </nav>
       {/* Agent 聊天面板保持挂载（隐藏而非卸载）：消息历史保留在页面内，切换标签不中断流 */}
-      <div className={tab === "agent" ? "" : "inspector-panel-hidden"}>
+      <div className={tab === "agent" ? "query-chat-panel-wrap" : "inspector-panel-hidden"}>
         <QueryChatPanel memorySpaceId={props.memorySpaceId} />
       </div>
       {tab === "chat" ? (
-        <ChatViewer
-          messages={props.messages}
-          errors={props.errors}
-          loading={props.loading}
-          highlightedSourceIds={props.highlightedSourceIds}
-          missingSourceIds={props.missingSourceIds}
-        />
+        <div className="inspector-content-scroll">
+          <ChatViewer
+            messages={props.messages}
+            errors={props.errors}
+            loading={props.loading}
+            highlightedSourceIds={props.highlightedSourceIds}
+            missingSourceIds={props.missingSourceIds}
+          />
+        </div>
       ) : tab === "history" && selection && props.memorySpaceId ? (
-        <RecordHistoryPanel memorySpaceId={props.memorySpaceId} selection={selection} />
+        <div className="inspector-content-scroll">
+          <RecordHistoryPanel memorySpaceId={props.memorySpaceId} selection={selection} />
+        </div>
       ) : selection ? (
-        <div className="record-inspector-content">
-          <header>
-            <div className="record-inspector-heading">
-              <span>{selection.record.source.type === "manual" ? "手动记录" : "来源记录"}</span>
-              {props.memorySpaceId ? (
-                <RecordActions
-                  memorySpaceId={props.memorySpaceId}
-                  selection={selection}
-                  onMutation={props.onRecordMutation}
-                />
-              ) : null}
-            </div>
-            <h2>{selection.record.displayText || "未命名记录"}</h2>
-            <code>{selection.record.id}</code>
-            <p className="record-revision-meta">
-              {selection.record.revisionSource === "user" ? "用户修订" : "Agent 修订"} ·{" "}
-              {selection.record.revisionId}
-            </p>
-          </header>
-          <dl>
-            {selection.fields.map((field) => (
-              <div key={field.id} className={!field.enabled ? "disabled-field-value" : ""}>
-                <dt>
-                  {field.name}
-                  {!field.enabled ? <em>已停用</em> : null}
-                </dt>
-                <dd>
-                  {formatMemoryFieldValue(
-                    selection.record.payload[field.id],
-                    "未填写",
-                    field.referenceTableId
-                      ? selection.referenceRecords[field.referenceTableId]
-                      : undefined,
-                  )}
-                  <FieldEvidenceList
-                    evidence={selection.record.fieldEvidence[field.id] ?? []}
-                    messages={props.messages}
-                    onSelect={(sourceIds, missingIds) => {
-                      setTab("chat");
-                      props.onEvidenceSelect?.(sourceIds, missingIds);
-                    }}
+        <div className="inspector-content-scroll">
+          <div className="record-inspector-content">
+            <header>
+              <div className="record-inspector-heading">
+                <span className="record-type">
+                  {selection.record.source.type === "manual" ? "手动记录" : "来源记录"}
+                </span>
+                {props.memorySpaceId ? (
+                  <RecordActions
+                    memorySpaceId={props.memorySpaceId}
+                    selection={selection}
+                    onMutation={props.onRecordMutation}
                   />
-                </dd>
+                ) : null}
               </div>
-            ))}
-          </dl>
-          <section className="record-source-detail">
-            <h3>来源</h3>
-            {selection.record.source.type === "manual" ? (
-              <p>手动创建，无来源信息</p>
-            ) : (
-              <>
-                <p>
-                  {selection.record.source.sourceTime
-                    ? new Date(selection.record.source.sourceTime).toLocaleString()
-                    : "未记录来源时间"}
-                </p>
-                <p>{selection.record.source.sourceLocation || "未记录来源定位"}</p>
-              </>
-            )}
-          </section>
+              <h2>{selection.record.displayText || "未命名记录"}</h2>
+              <code>{selection.record.id}</code>
+              <p className="record-revision-meta">
+                {selection.record.revisionSource === "user" ? "用户修订" : "Agent 修订"} ·{" "}
+                {selection.record.revisionId}
+              </p>
+            </header>
+            <dl>
+              {selection.fields.map((field) => (
+                <div key={field.id} className={!field.enabled ? "disabled-field-value" : ""}>
+                  <dt>
+                    {field.name}
+                    {!field.enabled ? <em>已停用</em> : null}
+                  </dt>
+                  <dd>
+                    {formatMemoryFieldValue(
+                      selection.record.payload[field.id],
+                      "未填写",
+                      field.referenceTableId
+                        ? selection.referenceRecords[field.referenceTableId]
+                        : undefined,
+                    )}
+                    <FieldEvidenceList
+                      evidence={selection.record.fieldEvidence[field.id] ?? []}
+                      messages={props.messages}
+                      onSelect={(sourceIds, missingIds) => {
+                        setTab("chat");
+                        props.onEvidenceSelect?.(sourceIds, missingIds);
+                      }}
+                    />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <section className="record-source-detail">
+              <h3>来源</h3>
+              {selection.record.source.type === "manual" ? (
+                <p>手动创建，无来源信息</p>
+              ) : (
+                <>
+                  <p>
+                    {selection.record.source.sourceTime
+                      ? new Date(selection.record.source.sourceTime).toLocaleString()
+                      : "未记录来源时间"}
+                  </p>
+                  <p>{selection.record.source.sourceLocation || "未记录来源定位"}</p>
+                </>
+              )}
+            </section>
+          </div>
         </div>
       ) : (
         <div className="inspector-empty">

@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { BrainCircuit, PanelLeftClose, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   createMemorySpace,
@@ -7,11 +7,18 @@ import {
   renameMemorySpace,
   type MemorySpace,
 } from "./api/memory-spaces.ts";
+import type { MemoryTable } from "./api/memory-tables.ts";
+import { fetchSystemHealth, type SystemHealth } from "./api/system-health.ts";
 import { MemoryWorkspace } from "./components/MemoryWorkspace.tsx";
+import { QuickJump } from "./components/QuickJump.tsx";
 import { SpaceDialog } from "./components/SpaceDialog.tsx";
+import { Button, IconButton, usePersistedState } from "./ui.tsx";
 
 type DialogState =
-  { readonly mode: "create" } | { readonly mode: "rename" | "delete"; readonly space: MemorySpace };
+  | { readonly mode: "create" }
+  | { readonly mode: "rename" | "delete"; readonly space: MemorySpace };
+
+const HEALTH_POLL_MS = 30_000;
 
 export function App() {
   const [spaces, setSpaces] = useState<MemorySpace[]>([]);
@@ -21,6 +28,37 @@ export function App() {
   const [dialog, setDialog] = useState<DialogState>();
   const [dialogBusy, setDialogBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string>();
+
+  // 顶栏快速跳转用：表格列表由 MemoryWorkspace 上抛
+  const [jumpTables, setJumpTables] = useState<readonly MemoryTable[]>([]);
+  const [jumpToTable, setJumpToTable] = useState<{ tableId: string; nonce: number }>();
+
+  // 侧栏收起（顶栏按钮 + 侧栏窄条均可切换）
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState(
+    "sm.sidebar.collapsed",
+    false,
+  );
+
+  // 服务健康（API + SQLite）
+  const [health, setHealth] = useState<SystemHealth>();
+
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const next = await fetchSystemHealth();
+        if (active) setHealth(next);
+      } catch {
+        if (active) setHealth(undefined);
+      }
+    }
+    void poll();
+    const timer = setInterval(() => void poll(), HEALTH_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const refreshSpaces = useCallback(async () => {
     setLoadingSpaces(true);
@@ -88,32 +126,79 @@ export function App() {
     });
   }
 
+  function jumpToTableInSpace(spaceId: string, tableId: string) {
+    setSelectedId(spaceId);
+    setJumpToTable((current) => ({ tableId, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+
+  const apiOk = health?.api === "ok";
+  const dbOk = health?.database.connected === true;
+
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand-mark">SM</div>
-        <div className="brand-copy">
-          <h1>STE Memory</h1>
-          <span>本地对话记忆实验</span>
+        <div className="brand">
+          <div className="brand-mark">
+            <BrainCircuit size={19} />
+          </div>
+          <div className="brand-copy">
+            <h1>STE Memory</h1>
+            <span>记忆工作台</span>
+          </div>
         </div>
-        <button
-          className="primary-button topbar-create"
-          type="button"
-          onClick={() => openDialog({ mode: "create" })}
+
+        <IconButton
+          label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+          className="topbar-sidebar-toggle"
+          onClick={() => setSidebarCollapsed((current) => !current)}
         >
-          <Plus size={17} /> 创建空间
-        </button>
+          <PanelLeftClose size={16} />
+        </IconButton>
+
+        <QuickJump
+          spaces={spaces}
+          tables={jumpTables}
+          selectedSpaceId={selectedId}
+          disabled={loadingSpaces && spaces.length === 0}
+          onSelectSpace={setSelectedId}
+          onSelectTable={jumpToTableInSpace}
+        />
+
+        <div className="topbar-actions">
+          <span
+            className="health-pill"
+            title={dbOk ? "API 与数据库正常" : "API 或数据库不可用"}
+          >
+            <span className={`health-dot ${apiOk && dbOk ? "ok" : "bad"}`} />
+            <span className="health-text">
+              {apiOk && dbOk ? "服务正常" : apiOk ? "数据库离线" : "API 离线"}
+            </span>
+          </span>
+          <Button
+            variant="primary"
+            icon={<Plus size={16} />}
+            onClick={() => openDialog({ mode: "create" })}
+          >
+            创建空间
+          </Button>
+        </div>
       </header>
+
       <MemoryWorkspace
         spaces={spaces}
         selectedSpaceId={selectedId}
         loadingSpaces={loadingSpaces}
         pageError={pageError}
+        jumpToTable={jumpToTable}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+        onTablesChange={setJumpTables}
         onRefreshSpaces={() => void refreshSpaces()}
         onSelectSpace={setSelectedId}
         onRenameSpace={(space) => openDialog({ mode: "rename", space })}
         onDeleteSpace={(space) => openDialog({ mode: "delete", space })}
       />
+
       {dialog ? (
         <SpaceDialog
           mode={dialog.mode}

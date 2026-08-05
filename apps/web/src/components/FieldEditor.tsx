@@ -10,6 +10,7 @@ import {
   type MemoryFieldPatch,
 } from "../api/memory-fields.ts";
 import type { MemoryTable } from "../api/memory-tables.ts";
+import { Button, Switch } from "../ui.tsx";
 import { DisplayStrategyForm } from "./DisplayStrategyForm.tsx";
 import { FIELD_TYPE_OPTIONS, FieldDialog } from "./FieldDialog.tsx";
 
@@ -138,9 +139,9 @@ export function FieldEditor(props: FieldEditorProps) {
             <h3>字段定义</h3>
             <span>{fields.length} 个字段</span>
           </div>
-          <button className="primary-button" type="button" onClick={() => setEditing("create")}>
-            <Plus size={15} /> 新增字段
-          </button>
+          <Button variant="primary" size="sm" type="button" icon={<Plus size={13} />} onClick={() => setEditing("create")}>
+            新增字段
+          </Button>
         </header>
         {loading ? <div className="field-list-state">正在读取字段...</div> : null}
         {!loading && fields.length === 0 ? (
@@ -176,18 +177,15 @@ export function FieldEditor(props: FieldEditorProps) {
                 {field.required ? " · 必填" : ""}
               </span>
             </div>
-            <label className="table-toggle" title={field.enabled ? "停用字段" : "启用字段"}>
-              <input
-                type="checkbox"
-                checked={field.enabled}
-                disabled={busyId === field.id}
-                aria-label={`${field.enabled ? "停用" : "启用"} ${field.name}`}
-                onChange={(event) => void toggle(field, event.target.checked)}
-              />
-              <span />
-            </label>
+            <Switch
+              checked={field.enabled}
+              disabled={busyId === field.id}
+              ariaLabel={`${field.enabled ? "停用" : "启用"} ${field.name}`}
+              title={field.enabled ? "停用字段" : "启用字段"}
+              onChange={(enabled) => void toggle(field, enabled)}
+            />
             <button
-              className="icon-button"
+              className="icon-btn"
               type="button"
               aria-label={`编辑 ${field.name}`}
               onClick={() => setEditing(field)}
@@ -195,7 +193,7 @@ export function FieldEditor(props: FieldEditorProps) {
               <Pencil size={14} />
             </button>
             <button
-              className="icon-button danger"
+              className="icon-btn danger"
               type="button"
               aria-label={`删除 ${field.name}`}
               onClick={() => setDeleting(field)}
@@ -229,7 +227,7 @@ export function FieldEditor(props: FieldEditorProps) {
             <header className="dialog-header">
               <h2>删除字段</h2>
               <button
-                className="icon-button"
+                className="icon-btn"
                 type="button"
                 aria-label="关闭"
                 onClick={() => setDeleting(undefined)}
@@ -241,21 +239,17 @@ export function FieldEditor(props: FieldEditorProps) {
               将物理删除“{deleting.name}”。删除后无法恢复，请确认现有记录不再需要该字段。
             </p>
             <footer className="dialog-footer">
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => setDeleting(undefined)}
-              >
+              <Button variant="secondary" type="button" onClick={() => setDeleting(undefined)}>
                 取消
-              </button>
-              <button
-                className="danger-button"
+              </Button>
+              <Button
+                variant="danger"
                 type="button"
                 disabled={busyId === deleting.id}
                 onClick={() => void remove()}
               >
                 确认物理删除
-              </button>
+              </Button>
             </footer>
           </section>
         </div>

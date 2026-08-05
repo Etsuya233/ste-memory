@@ -1,262 +1,328 @@
-.workspace {
-  grid-template-columns: 286px minmax(420px, 1fr) minmax(320px, 390px);
-}
+/* ---------------------------------------------------------------------------
+ * 中央工作台：表头、标签页、表格配置表单
+ * ------------------------------------------------------------------------- */
 
 .table-workspace {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  background: #fff;
-  border-right: 1px solid #dde1da;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
 }
+
+/* ---------- 表头 ---------- */
+
 .table-workspace-header {
-  min-height: 104px;
+  flex: none;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 22px;
-  border-bottom: 1px solid #e1e4df;
+  padding: 16px 22px 13px;
+  border-bottom: 1px solid var(--line);
 }
+
+.table-workspace-title {
+  min-width: 0;
+}
+
+.table-breadcrumb {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink-4);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+}
+
+.table-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .table-workspace-header h2 {
-  margin-top: 7px;
-  font-size: 19px;
+  font-size: var(--fs-xl);
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
+
 .table-workspace-header p {
   max-width: 680px;
-  margin-top: 5px;
-  color: #687066;
-  font-size: 12px;
-  line-height: 1.5;
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
 }
-.status-label {
-  color: #4e6220;
-  font-size: 10px;
-  font-weight: 700;
-}
-.status-label.disabled {
-  color: #8b5d28;
-}
+
+/* ---------- 标签页 ---------- */
+
 .table-tabs {
-  height: 49px;
+  flex: none;
   display: flex;
-  align-items: end;
-  gap: 4px;
-  padding: 0 20px;
-  border-bottom: 1px solid #e1e4df;
+  gap: 2px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
 }
+
 .table-tabs button {
-  height: 40px;
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 0 12px;
-  color: #687066;
+  padding: 10px 13px;
+  color: var(--ink-3);
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  transition: color 0.12s ease;
 }
+
+.table-tabs button:hover:not(.active) {
+  color: var(--ink);
+}
+
 .table-tabs button.active {
-  color: #273119;
-  border-bottom-color: #8eae35;
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
+}
+
+.table-tab-badge {
+  min-width: 18px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  color: var(--ink-3);
+  background: var(--surface-4);
+  border-radius: var(--r-full);
+  font-size: var(--fs-2xs);
   font-weight: 700;
 }
-.table-empty-state,
-.empty-workspace {
-  min-height: calc(100vh - 217px);
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  padding: 28px;
-  color: #7a8278;
-  text-align: center;
+
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-.table-empty-state h3,
-.empty-workspace h2,
-.field-empty-state h3 {
-  color: #3f473d;
-  font-size: 14px;
+
+.tab-panel-hidden {
+  display: none;
 }
-.table-empty-state p,
-.empty-workspace p,
-.field-empty-state p {
-  max-width: 380px;
-  font-size: 11px;
+
+.workspace-empty {
+  min-height: 320px;
+  flex: 1;
+}
+
+/* ---------- 工具面板通用头（填表任务 / 清洗规则） ---------- */
+
+.tool-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.tool-panel-heading h3 {
+  font-size: var(--fs-lg);
+  font-weight: 750;
+}
+
+.tool-panel-heading p {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
   line-height: 1.6;
 }
-.table-config-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
-  gap: 24px;
-  padding: 22px;
-}
+
+/* ---------- 表格配置表单 ---------- */
+
 .table-definition-workspace {
-  min-height: calc(100vh - 217px);
-  padding-bottom: 48px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 60px;
 }
+
 .table-definition-workspace > .table-config-form {
   max-width: none;
-  padding: 22px;
-  border-bottom: 1px solid #e1e4df;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
 }
+
 .table-config-form {
   max-width: 680px;
 }
+
 .config-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
-}
-.config-heading h3 {
-  font-size: 14px;
-}
-.config-heading p {
-  margin-top: 4px;
-  color: #747c72;
-  font-size: 11px;
-}
-.table-config-form label,
-.table-create-fields label {
-  display: block;
-}
-.table-config-form label + label,
-.table-create-fields label + label {
-  margin-top: 15px;
-}
-.table-config-form label > span,
-.table-create-fields label > span {
-  display: block;
-  margin-bottom: 7px;
-  color: #555d53;
-  font-size: 12px;
-  font-weight: 650;
-}
-.table-config-form input:not([type="checkbox"]),
-.table-config-form textarea,
-.table-create-fields input,
-.table-create-fields textarea {
-  width: 100%;
-  padding: 9px 10px;
-  color: #30352f;
-  background: #fff;
-  border: 1px solid #c7cdc5;
-  border-radius: 5px;
-  outline: none;
-  resize: vertical;
-}
-.table-config-form input:not([type="checkbox"]):focus,
-.table-config-form textarea:focus,
-.table-create-fields input:focus,
-.table-create-fields textarea:focus {
-  border-color: #779526;
-  box-shadow: 0 0 0 2px #e8f2ca;
-}
-.table-config-form .config-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.table-config-form .config-checkbox span {
-  margin: 0;
-}
-.field-empty-state {
-  align-self: start;
-  padding: 18px;
-  color: #7a8278;
-  background: #f7f8f5;
-  border-left: 3px solid #c9d6a7;
-}
-.field-empty-state h3 {
-  margin-top: 10px;
-}
-.field-empty-state p {
-  margin-top: 5px;
-}
-.chat-inspector {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  background: #fff;
-}
-.chat-inspector .viewer-toolbar {
-  padding: 14px 16px;
-}
-.chat-inspector .locate-form input {
-  width: 105px;
-}
-.chat-inspector .message-list {
-  padding: 8px 12px 50px;
-}
-.chat-inspector .message-row {
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 8px;
+  margin-bottom: 18px;
 }
 
-@media (max-width: 1120px) {
-  .workspace {
-    grid-template-columns: 270px minmax(0, 1fr);
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-  }
-  .sidebar {
-    grid-row: 1 / -1;
-  }
-  .chat-inspector {
-    grid-column: 2;
-    grid-row: 2;
-    border-top: 1px solid #dde1da;
-  }
+.config-heading h3 {
+  font-size: var(--fs-base);
+  font-weight: 750;
 }
+
+.config-heading p {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+
+.config-field-gap {
+  margin-top: 14px;
+}
+
+.config-checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.table-create-gap {
+  margin-top: 14px;
+}
+
 @media (max-width: 720px) {
-  .app-shell {
-    height: auto;
-    min-height: 100vh;
-    overflow: visible;
+  .table-workspace-header {
+    padding: 14px;
   }
-  .workspace {
-    height: auto;
-    min-height: calc(100vh - 64px);
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
-    overflow: visible;
+  .table-tabs {
+    padding: 0 8px;
+    overflow-x: auto;
   }
-  .sidebar {
-    grid-row: auto;
-    max-height: none;
-  }
-  .space-navigation {
-    max-height: 300px;
-  }
-  .table-navigation {
-    min-height: 240px;
-  }
-  .table-workspace,
-  .chat-inspector {
-    grid-column: 1;
-    grid-row: auto;
-    overflow: visible;
-  }
-  .table-config-layout {
-    grid-template-columns: 1fr;
-    padding: 18px 14px;
+  .table-tabs button {
+    flex: none;
   }
   .table-definition-workspace > .table-config-form {
     padding: 18px 14px;
   }
-  .table-workspace-header {
-    padding: 16px 14px;
-  }
-  .table-tabs {
-    padding: 0 10px;
-  }
 }
-@media (prefers-reduced-motion: reduce) {
-  .table-toggle span::after {
-    transition: none;
+
+/* ---------------------------------------------------------------------------
+ * 填表任务面板
+ * ------------------------------------------------------------------------- */
+
+.fill-task-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.fill-task-active {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md);
+  background: var(--accent-softer);
+  color: var(--accent-ink);
+  font-size: var(--fs-sm);
+}
+
+.fill-task-active div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fill-task-active strong {
+  font-weight: 750;
+}
+
+.fill-task-active span {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+
+.fill-task-active em {
+  margin-left: auto;
+  color: var(--warn);
+  font-style: normal;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.fill-task-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr);
+  gap: 14px;
+  align-items: end;
+  max-width: 760px;
+}
+
+.fill-task-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.fill-task-range i {
+  font-style: normal;
+  color: var(--ink-4);
+  font-size: var(--fs-sm);
+}
+
+.fill-task-submit {
+  align-self: end;
+}
+
+.fill-task-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-xs);
+}
+
+.fill-task-result {
+  margin: 0;
+  color: var(--ok);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+}
+
+.fill-task-error {
+  margin-top: 0;
+}
+
+.fill-task-readonly-note {
+  max-width: 760px;
+  margin-top: 2px;
+  padding: 10px 12px;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .fill-task-grid {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .fill-task-panel {
+    padding: 18px 14px;
   }
 }

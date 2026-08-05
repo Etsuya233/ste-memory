@@ -71,3 +71,6 @@ build/
 .superpowers/
 ### pi-subagents artifacts ###
 .pi-subagents/
+
+# 运行时数据（SQLite）
+data/

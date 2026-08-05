@@ -1,223 +1,124 @@
-.space-navigation {
-  min-height: 0;
-  max-height: 43%;
+/* ---------------------------------------------------------------------------
+ * 侧栏导航：空间列表 / 表格列表
+ * ------------------------------------------------------------------------- */
+
+.side-list {
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid #dfe3dc;
+  gap: 2px;
 }
-.space-navigation .space-list {
-  min-height: 0;
-  overflow: auto;
-}
-.table-navigation {
-  min-height: 0;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-}
-.table-navigation-heading {
-  min-height: 67px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 13px 16px;
-  border-bottom: 1px solid #e0e3de;
-}
-.table-navigation-heading h2 {
-  font-size: 14px;
-}
-.table-navigation-heading span {
-  display: block;
-  margin-top: 4px;
-  color: #747c72;
-  font-size: 11px;
-}
-.table-list {
-  min-height: 0;
-  padding: 8px;
-  overflow: auto;
-}
-.table-list-state {
-  min-height: 130px;
+
+.side-list-item {
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  padding: 20px;
-  color: #7b8279;
-  font-size: 12px;
-  text-align: center;
-}
-.table-list-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  gap: 4px;
+  padding: 3px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--r-md);
+  transition: background 0.1s ease;
 }
-.table-list-item + .table-list-item {
-  margin-top: 4px;
+
+.side-list-item:hover {
+  background: var(--surface-3);
 }
-.table-list-item:hover {
-  background: #eef0ec;
+
+.side-list-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
-.table-list-item.selected {
-  background: #e8edde;
-  border-color: #cbd8ad;
-}
-.table-select {
+
+.side-list-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 9px 8px;
+  gap: 8px;
+  padding: 7px 6px;
   color: inherit;
   text-align: left;
   background: transparent;
   border: 0;
+  border-radius: var(--r-sm);
 }
-.table-select span,
-.table-select strong,
-.table-select small {
+
+.side-list-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+  background: var(--surface-3);
+  border-radius: var(--r-sm);
+}
+
+.side-list-item.selected .side-list-icon {
+  color: var(--accent-strong);
+  background: var(--accent-softer);
+}
+
+.side-list-copy {
   min-width: 0;
   display: block;
 }
-.table-select strong {
+
+.side-list-copy strong,
+.side-list-copy small {
+  display: block;
   overflow: hidden;
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.table-select small {
-  margin-top: 3px;
-  color: #747c72;
-  font-size: 10px;
-}
-.table-toggle {
-  position: relative;
-  width: 30px;
-  height: 18px;
-  display: block;
-  cursor: pointer;
-}
-.table-toggle input {
-  position: absolute;
-  opacity: 0;
-}
-.table-toggle span {
-  position: absolute;
-  inset: 0;
-  background: #b7bdb4;
-  border-radius: 9px;
-}
-.table-toggle span::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  content: "";
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.15s ease;
-}
-.table-toggle input:checked + span {
-  background: #779526;
-}
-.table-toggle input:checked + span::after {
-  transform: translateX(12px);
-}
-.table-toggle input:focus-visible + span {
-  outline: 2px solid #506a13;
-  outline-offset: 2px;
+
+.side-list-copy strong {
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  color: var(--ink);
 }
 
-/* ---------------------------------------------------------------------------
- * 填表任务面板（ticket 13）
- * ------------------------------------------------------------------------- */
+.side-list-copy small {
+  margin-top: 1px;
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+}
 
-.fill-task-panel {
-  padding: 13px 16px 14px;
-  border-bottom: 1px solid #e0e3de;
-  background: #fbfcf9;
-}
-.fill-task-panel .sidebar-heading {
-  margin-bottom: 10px;
-}
-.fill-task-active {
+.side-list-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 9px 11px;
-  border: 1px solid #d8e0c9;
-  border-radius: 8px;
-  background: #f2f6e8;
-  color: #3d4a2a;
-  font-size: 12px;
-}
-.fill-task-active div {
-  display: flex;
-  flex-direction: column;
   gap: 1px;
-  min-width: 0;
+  padding-right: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
-.fill-task-active span {
-  color: #6b7560;
-  font-size: 11px;
+
+.side-list-item:hover .side-list-actions,
+.side-list-item:focus-within .side-list-actions,
+.side-list-item.selected .side-list-actions {
+  opacity: 1;
 }
-.fill-task-active em {
-  margin-left: auto;
-  color: #8a6d1f;
-  font-style: normal;
-  font-size: 11px;
+
+.side-list-actions .icon-btn {
+  width: 26px;
+  height: 26px;
 }
-.fill-task-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+
+.side-list-item .switch {
+  margin-right: 6px;
 }
-.fill-task-range,
-.fill-task-block {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #52594f;
+
+/* 侧栏错误提示 */
+.page-error {
+  margin: 10px;
+  padding: 9px 11px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
 }
-.fill-task-range span,
-.fill-task-block span {
-  width: 62px;
+
+.sidebar-error {
   flex: none;
-}
-.fill-task-range input,
-.fill-task-block input {
-  width: 64px;
-  padding: 4px 6px;
-  border: 1px solid #d4d9d0;
-  border-radius: 6px;
-  background: #fff;
-  font: inherit;
-  font-size: 12px;
-}
-.fill-task-range i {
-  font-style: normal;
-  color: #9aa19a;
-}
-.fill-task-submit {
-  justify-content: center;
-  margin-top: 2px;
-}
-.fill-task-hint,
-.fill-task-result {
-  margin: 8px 0 0;
-  font-size: 11px;
-  color: #747c72;
-}
-.fill-task-result {
-  color: #3d4a2a;
-}
-.fill-task-error {
-  margin-top: 8px;
+  margin: 0 10px 10px;
 }

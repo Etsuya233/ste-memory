@@ -1,6 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/noto-sans-sc";
+import "@fontsource-variable/jetbrains-mono";
 import { App } from "./App.tsx";
+import "./theme.css";
 import "./styles.css";
 import "./workspace.css";
 import "./memory-table-navigation.css";

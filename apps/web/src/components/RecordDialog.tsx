@@ -9,6 +9,7 @@ import {
   type MemoryRecordsByTable,
 } from "../api/memory-records.ts";
 import { RecordFieldInput } from "./RecordFieldInput.tsx";
+import { Button } from "../ui.tsx";
 
 interface RecordDialogProps {
   readonly memorySpaceId: string;
@@ -88,7 +89,7 @@ export function RecordDialog(props: RecordDialogProps) {
             <h2>{props.record ? "编辑记忆记录" : "创建记忆记录"}</h2>
             <p>{props.record ? "保存后会归档当前快照。" : "填写结构化字段与可选来源。"}</p>
           </div>
-          <button className="icon-button" type="button" aria-label="关闭" onClick={props.onClose}>
+          <button className="icon-btn" type="button" aria-label="关闭" onClick={props.onClose}>
             <X size={18} />
           </button>
         </header>
@@ -141,12 +142,12 @@ export function RecordDialog(props: RecordDialogProps) {
           ) : null}
           {error ? <p className="form-error">{error}</p> : null}
           <footer>
-            <button type="button" className="secondary-button" onClick={props.onClose}>
+            <Button variant="secondary" type="button" onClick={props.onClose}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={busy}>
-              {busy ? "保存中..." : props.record ? "保存变更" : "创建记录"}
-            </button>
+            </Button>
+            <Button variant="primary" type="submit" disabled={busy} loading={busy}>
+              {props.record ? "保存变更" : "创建记录"}
+            </Button>
           </footer>
         </form>
       </section>

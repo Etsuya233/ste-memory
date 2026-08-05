@@ -62,7 +62,7 @@ export function CleaningRuleRow({
         </select>
         <button
           type="button"
-          className="icon-button"
+          className="icon-btn"
           title="上移"
           aria-label="上移"
           disabled={index === 0}
@@ -72,7 +72,7 @@ export function CleaningRuleRow({
         </button>
         <button
           type="button"
-          className="icon-button"
+          className="icon-btn"
           title="下移"
           aria-label="下移"
           disabled={index === ruleCount - 1}
@@ -82,7 +82,7 @@ export function CleaningRuleRow({
         </button>
         <button
           type="button"
-          className="icon-button"
+          className="icon-btn"
           title="删除"
           aria-label="删除"
           onClick={() => onRemove(index)}

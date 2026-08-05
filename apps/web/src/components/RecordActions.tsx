@@ -3,6 +3,7 @@ import { useState } from "react";
 import { deleteMemoryRecord, type MemoryRecord } from "../api/memory-records.ts";
 import { RecordDialog } from "./RecordDialog.tsx";
 import type { RecordSelection } from "./RecordTable.tsx";
+import { Button } from "../ui.tsx";
 
 interface RecordActionsProps {
   readonly memorySpaceId: string;
@@ -37,7 +38,7 @@ export function RecordActions({ memorySpaceId, selection, onMutation }: RecordAc
   return (
     <div className="record-actions">
       <button
-        className="icon-button"
+        className="icon-btn"
         type="button"
         title="编辑记录"
         aria-label="编辑记录"
@@ -46,7 +47,7 @@ export function RecordActions({ memorySpaceId, selection, onMutation }: RecordAc
         <Pencil size={14} />
       </button>
       <button
-        className="icon-button danger"
+        className="icon-btn danger"
         type="button"
         title="删除记录"
         aria-label="删除记录"
@@ -86,21 +87,18 @@ export function RecordActions({ memorySpaceId, selection, onMutation }: RecordAc
               </p>
               {error ? <p className="form-error">{error}</p> : null}
               <footer>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => setMode(undefined)}
-                >
+                <Button variant="secondary" type="button" onClick={() => setMode(undefined)}>
                   取消
-                </button>
-                <button
-                  className="danger-button"
+                </Button>
+                <Button
+                  variant="danger"
                   type="button"
                   disabled={busy}
+                  loading={busy}
                   onClick={() => void remove()}
                 >
-                  {busy ? "删除中..." : "确认删除"}
-                </button>
+                  确认删除
+                </Button>
               </footer>
             </div>
           </section>

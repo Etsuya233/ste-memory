@@ -1,0 +1,86 @@
+/* ---------------------------------------------------------------------------
+ * STE Memory — design tokens
+ * 所有组件样式只使用这里的变量；需要调整外观时先改这里。
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* ---------- 色彩：暖中性底 + 青柠强调 ---------- */
+  --bg: #eef0ea;
+  --surface: #ffffff;
+  --surface-2: #f6f7f2;
+  --surface-3: #edefe8;
+  --surface-4: #e4e7dd;
+
+  --ink: #20241f;
+  --ink-2: #4c544a;
+  --ink-3: #747c70;
+  --ink-4: #9aa298;
+
+  --line: #e1e4dc;
+  --line-2: #d0d5c9;
+
+  --brand: #b6d84d;
+  --brand-ink: #242a0c;
+
+  --accent: #7c9a26;
+  --accent-strong: #637e1b;
+  --accent-ink: #40540f;
+  --accent-soft: #eef3df;
+  --accent-softer: #f5f8ec;
+  --accent-line: #ccd8a6;
+
+  --danger: #bc4a3c;
+  --danger-strong: #a23c30;
+  --danger-soft: #f9ebe8;
+  --danger-line: #eccbc4;
+
+  --warn: #93660f;
+  --warn-soft: #fcf3dd;
+  --warn-line: #ead9a9;
+
+  --ok: #4c7a24;
+
+  /* ---------- 顶栏（深色） ---------- */
+  --topbar-bg: #20241f;
+  --topbar-bg-2: #2a2f28;
+  --topbar-ink: #f1f3ed;
+  --topbar-ink-2: #a7afa1;
+  --topbar-line: #363c33;
+
+  /* ---------- 字体 ---------- */
+  --font-sans:
+    "Noto Sans SC Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---------- 字号阶梯 ---------- */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 19px;
+  --fs-2xl: 23px;
+
+  /* ---------- 几何 ---------- */
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-full: 999px;
+  --control-h: 36px;
+
+  --shadow-sm: 0 1px 2px rgba(24, 28, 22, 0.05);
+  --shadow-md: 0 6px 18px rgba(24, 28, 22, 0.1);
+  --shadow-lg: 0 20px 48px rgba(20, 24, 18, 0.24);
+
+  --z-popover: 30;
+  --z-dialog: 40;
+
+  /* ---------- 布局尺寸 ---------- */
+  --topbar-h: 58px;
+  --sidebar-w: 276px;
+  --rail-w: 46px;
+  --inspector-w: 376px;
+}

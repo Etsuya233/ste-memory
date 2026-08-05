@@ -7,6 +7,7 @@ import type {
   MemoryFieldType,
 } from "../api/memory-fields.ts";
 import type { MemoryTable } from "../api/memory-tables.ts";
+import { Button, Field, Select, Switch, TextArea, TextInput } from "../ui.tsx";
 
 export const FIELD_TYPE_OPTIONS: readonly { value: MemoryFieldType; label: string }[] = [
   { value: "short_text", label: "短文本" },
@@ -76,117 +77,143 @@ export function FieldDialog(props: FieldDialogProps) {
     }
   }
 
+  const typeLabel =
+    FIELD_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
+
   return (
     <div className="dialog-backdrop" role="presentation">
       <section className="dialog field-dialog" role="dialog" aria-modal="true">
         <header className="dialog-header">
-          <h2>{props.field ? "编辑字段" : "新增字段"}</h2>
-          <button className="icon-button" type="button" onClick={props.onClose} aria-label="关闭">
+          <div>
+            <h2>{props.field ? "编辑字段" : "新增字段"}</h2>
+            <p>类型创建后不可修改；显示顺序可随时调整。</p>
+          </div>
+          <button className="icon-btn" type="button" onClick={props.onClose} aria-label="关闭">
             <X size={18} />
           </button>
         </header>
         <form onSubmit={(event) => void submit(event)}>
-          <div className="field-form-grid">
-            <label>
-              <span>字段 Key</span>
-              <input
+          <div className="dialog-body">
+            <div className="form-grid">
+              <Field label="字段 Key" htmlFor="field-key" required>
+                <TextInput
+                  id="field-key"
+                  required
+                  maxLength={120}
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                />
+              </Field>
+              <Field label="字段名称" htmlFor="field-name" required>
+                <TextInput
+                  id="field-name"
+                  required
+                  maxLength={120}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="form-grid field-grid-second">
+              <Field label="字段类型" htmlFor="field-type" hint={props.field ? "不可修改" : undefined}>
+                <Select
+                  id="field-type"
+                  value={type}
+                  disabled={Boolean(props.field)}
+                  onChange={(e) => setType(e.target.value as MemoryFieldType)}
+                >
+                  {FIELD_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="显示顺序" htmlFor="field-position">
+                <TextInput
+                  id="field-position"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={position}
+                  onChange={(e) => setPosition(e.target.valueAsNumber)}
+                />
+              </Field>
+            </div>
+            {isSelect ? (
+              <Field
+                label={`固定选项（每行一个）`}
+                htmlFor="field-options"
+                className="field-block-gap"
                 required
-                maxLength={120}
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-              />
-            </label>
-            <label>
-              <span>字段名称</span>
-              <input
-                required
-                maxLength={120}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <label>
-              <span>字段类型</span>
-              <select
-                value={type}
-                disabled={Boolean(props.field)}
-                onChange={(e) => setType(e.target.value as MemoryFieldType)}
               >
-                {FIELD_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>显示顺序</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={position}
-                onChange={(e) => setPosition(e.target.valueAsNumber)}
-              />
-            </label>
-          </div>
-          {isSelect ? (
-            <label>
-              <span>固定选项</span>
-              <textarea
+                <TextArea
+                  id="field-options"
+                  required
+                  rows={5}
+                  value={options}
+                  onChange={(e) => setOptions(e.target.value)}
+                />
+              </Field>
+            ) : null}
+            {isReference ? (
+              <Field
+                label="引用目标表"
+                htmlFor="field-reference"
+                className="field-block-gap"
                 required
-                rows={5}
-                value={options}
-                onChange={(e) => setOptions(e.target.value)}
-              />
-            </label>
-          ) : null}
-          {isReference ? (
-            <label>
-              <span>引用目标表</span>
-              <select
-                required
-                value={referenceTableId}
-                onChange={(e) => setReferenceTableId(e.target.value)}
               >
-                {props.tables.map((table) => (
-                  <option key={table.id} value={table.id}>
-                    {table.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            <span>字段 Prompt</span>
-            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-          </label>
-          <div className="field-checks">
-            <label>
-              <input
-                type="checkbox"
+                <Select
+                  id="field-reference"
+                  required
+                  value={referenceTableId}
+                  onChange={(e) => setReferenceTableId(e.target.value)}
+                >
+                  {props.tables.map((table) => (
+                    <option key={table.id} value={table.id}>
+                      {table.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            <Field
+              label="字段 Prompt"
+              htmlFor="field-prompt"
+              className="field-block-gap"
+              hint={`Agent 如何填写${typeLabel}`}
+            >
+              <TextArea
+                id="field-prompt"
+                rows={4}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            </Field>
+            <div className="field-checks field-block-gap">
+              <Switch
+                id="field-required"
                 checked={required}
-                onChange={(e) => setRequired(e.target.checked)}
+                onChange={setRequired}
+                label="必填"
+                hint="缺少时 Agent 无法创建记录"
               />
-              <span>必填</span>
-            </label>
-            <label>
-              <input
-                type="checkbox"
+              <Switch
+                id="field-enabled"
                 checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
+                onChange={setEnabled}
+                label="参与 Agent 自动填写"
               />
-              <span>参与 Agent 自动填写</span>
-            </label>
+            </div>
+            {error ? <p className="form-error">{error}</p> : null}
           </div>
-          {error ? <p className="form-error">{error}</p> : null}
           <footer className="dialog-footer">
-            <button className="secondary-button" type="button" onClick={props.onClose}>
+            <Button variant="secondary" type="button" onClick={props.onClose}>
               取消
-            </button>
-            <button className="primary-button" type="submit" disabled={busy}>
-              {busy ? "保存中..." : "保存字段"}
-            </button>
+            </Button>
+            <Button variant="primary" type="submit" loading={busy}>
+              保存字段
+            </Button>
           </footer>
         </form>
       </section>

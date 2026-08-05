@@ -1,8 +1,9 @@
-import { LoaderCircle, Play } from "lucide-react";
+import { CircleAlert, LoaderCircle, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fetchActiveFillTask, submitFillTask, type FillTask } from "../api/fill-tasks.ts";
 import { loadPersistedLlmConfig } from "../api/chat.ts";
 import type { MemorySpace } from "../api/memory-spaces.ts";
+import { Badge, Button, Field, TextInput } from "../ui.tsx";
 
 interface FillTaskPanelProps {
   readonly space: MemorySpace;
@@ -80,25 +81,37 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
   }
 
   const rangeInvalid = from < 1 || to < from || to > space.messageCount;
+  const blocked = active !== null;
 
   return (
-    <section className="fill-task-panel">
-      <div className="sidebar-heading">
-        <h2>填表任务</h2>
-        <span>{space.messageCount} 条消息</span>
-      </div>
+    <div className="fill-task-panel">
+      <header className="tool-panel-heading">
+        <div>
+          <h3>后台填表任务</h3>
+          <p>
+            在「{space.name}」的消息区间内，由 Agent 批量提取结构化记忆写入各表格。
+          </p>
+        </div>
+        <Badge tone="neutral">{space.messageCount} 条消息</Badge>
+      </header>
+
       {active ? (
         <div className="fill-task-active">
-          <LoaderCircle size={14} className="spinning" />
+          <LoaderCircle size={15} className="spinning" />
           <div>
-            <strong>任务运行中</strong>
+            <strong>
+              任务运行中
+              {active.status === "succeeded" ? "（已完成）" : active.status === "failed" ? "（失败）" : ""}
+            </strong>
             <span>
-              {active.runId.slice(0, 8)} · 消息 {active.from}–{active.to}
+              {active.runId.slice(0, 8)} · 消息 {active.from}–{active.to} · 块大小{" "}
+              {active.blockSize}
             </span>
           </div>
           <em>该空间任务期间只读</em>
         </div>
       ) : null}
+
       <form
         className="fill-task-form"
         onSubmit={(event) => {
@@ -106,50 +119,74 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
           void submit();
         }}
       >
-        <label className="fill-task-range">
-          <span>消息范围</span>
-          <input
-            type="number"
-            min={1}
-            max={space.messageCount}
-            value={from}
-            onChange={(event) => setFrom(event.target.valueAsNumber)}
-            aria-label="起始消息"
-          />
-          <i>–</i>
-          <input
-            type="number"
-            min={1}
-            max={space.messageCount}
-            value={to}
-            onChange={(event) => setTo(event.target.valueAsNumber)}
-            aria-label="结束消息"
-          />
-        </label>
-        <label className="fill-task-block">
-          <span>分块大小</span>
-          <input
-            type="number"
-            min={1}
-            value={blockSize}
-            onChange={(event) => setBlockSize(event.target.valueAsNumber)}
-            aria-label="分块大小"
-          />
-        </label>
-        <button
-          className="primary-button fill-task-submit"
-          type="submit"
-          disabled={busy || active !== null || rangeInvalid}
-          title={active ? "已有任务运行中" : undefined}
-        >
-          <Play size={14} /> 开始填表
-        </button>
+        <div className="fill-task-grid">
+          <Field
+            label="消息范围"
+            hint={`共 ${space.messageCount} 条`}
+            htmlFor="fill-from"
+          >
+            <div className="fill-task-range">
+              <TextInput
+                id="fill-from"
+                type="number"
+                min={1}
+                max={space.messageCount}
+                value={Number.isFinite(from) ? from : ""}
+                onChange={(event) => setFrom(event.target.valueAsNumber)}
+                aria-label="起始消息"
+              />
+              <i>至</i>
+              <TextInput
+                id="fill-to"
+                type="number"
+                min={1}
+                max={space.messageCount}
+                value={Number.isFinite(to) ? to : ""}
+                onChange={(event) => setTo(event.target.valueAsNumber)}
+                aria-label="结束消息"
+              />
+            </div>
+          </Field>
+          <Field
+            label="分块大小"
+            hint="每条消息单独写入"
+            htmlFor="fill-block"
+          >
+            <TextInput
+              id="fill-block"
+              type="number"
+              min={1}
+              value={Number.isFinite(blockSize) ? blockSize : ""}
+              onChange={(event) => setBlockSize(event.target.valueAsNumber)}
+              aria-label="分块大小"
+            />
+          </Field>
+          <Field label="提交任务" hint={blocked ? "已有任务运行中" : undefined} htmlFor="fill-submit">
+            <Button
+              className="fill-task-submit"
+              variant="primary"
+              type="submit"
+              block
+              icon={<Play size={14} />}
+              disabled={busy || blocked || rangeInvalid}
+            >
+              开始填表
+            </Button>
+          </Field>
+        </div>
+        {rangeInvalid ? (
+          <p className="fill-task-hint">
+            <CircleAlert size={12} /> 范围需在 [1, {space.messageCount}] 内
+          </p>
+        ) : null}
       </form>
-      {rangeInvalid ? (
-        <p className="fill-task-hint">范围需在 [1, {space.messageCount}] 内</p>
-      ) : null}
-      {lastResult ? <p className="fill-task-result">{lastResult}</p> : null}
-      {error ? <p className="page-error fill-task-error">{error}</p> : null}
-    </section>
+
+      {lastResult ? <p className="fill-task-result">✓ {lastResult}</p> : null}
+      {error ? <p className="form-error fill-task-error">{error}</p> : null}
+
+      <div className="fill-task-readonly-note">
+        LLM 配置沿用 Agent 聊天面板中保存在本地的值；任务运行期间该空间会被服务端锁定为只读。
+      </div>
+    </div>
   );
 }

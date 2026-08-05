@@ -1,264 +1,250 @@
+/* ---------------------------------------------------------------------------
+ * 原始聊天查看器（检查器内）+ 响应式
+ * ------------------------------------------------------------------------- */
+
 .viewer {
   min-width: 0;
-  background: #fff;
 }
+
 .viewer-toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
-  min-height: 74px;
+  min-height: 62px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 24px;
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid #e1e4df;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
 }
+
 .viewer-toolbar h2 {
-  font-size: 16px;
+  font-size: var(--fs-base);
+  font-weight: 750;
 }
+
 .viewer-toolbar p {
-  margin-top: 4px;
-  color: #737b71;
-  font-size: 11px;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
 }
+
 .locate-form {
   display: flex;
   gap: 6px;
 }
+
 .locate-form input {
-  width: 132px;
-  height: 34px;
+  width: 120px;
+  height: 32px;
   padding: 0 10px;
-  color: #30352f;
-  border: 1px solid #cbd0c9;
-  border-radius: 5px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
   outline: none;
+  font-size: var(--fs-xs);
 }
+
 .locate-form input:focus {
-  border-color: #779526;
-  box-shadow: 0 0 0 2px #e8f2ca;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
 .parse-errors {
-  margin: 16px 24px 0;
-  color: #82502b;
-  background: #fff7e8;
-  border: 1px solid #ead4ad;
-  border-radius: 5px;
-  font-size: 12px;
+  margin: 12px 16px 0;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
 }
+
 .parse-errors summary {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   cursor: pointer;
-  font-weight: 650;
+  font-weight: 700;
 }
+
 .parse-errors div {
   max-height: 180px;
   overflow: auto;
   padding: 0 12px 10px 35px;
 }
+
 .parse-errors p + p {
   margin-top: 5px;
 }
+
 .message-list {
-  padding: 12px 24px 60px;
+  padding: 8px 16px 40px;
 }
+
 .message-row {
   display: grid;
-  grid-template-columns: 54px minmax(0, 760px);
-  gap: 12px;
-  padding: 15px 8px;
-  border-bottom: 1px solid #edf0eb;
-  scroll-margin-top: 90px;
-  content-visibility: auto;
-  contain-intrinsic-size: 86px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px 6px;
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 78px;
+  border-radius: var(--r-sm);
 }
+
 .message-row.highlighted {
-  background: #f0f6dc;
-  box-shadow: inset 3px 0 #92b531;
+  background: var(--accent-softer);
+  box-shadow: inset 3px 0 var(--accent);
 }
+
 .source-id {
   padding-top: 2px;
-  color: #92998f;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
   text-align: right;
 }
+
 .message-row strong {
-  font-size: 12px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
 }
+
 .message-row p {
-  margin-top: 6px;
-  color: #383e37;
-  font-size: 13px;
+  margin-top: 5px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
 .evidence-missing {
-  margin: 12px 24px;
-  padding: 10px;
-  color: #8f332b;
-  background: #f8e8e5;
-  border: 1px solid #eccbc6;
-  border-radius: 5px;
-  font-size: 11px;
+  margin: 12px 16px;
+  padding: 9px 11px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
 }
+
 .viewer-state {
-  min-height: calc(100vh - 64px);
+  min-height: 260px;
   display: grid;
   place-content: center;
   justify-items: center;
   gap: 10px;
-  color: #7d847b;
-  font-size: 12px;
+  color: var(--ink-4);
+  font-size: var(--fs-xs);
+  text-align: center;
 }
 
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(24, 27, 23, 0.55);
+.viewer-state svg {
+  color: var(--line-2);
 }
-.dialog {
-  width: min(100%, 460px);
-  background: #fff;
-  border: 1px solid #cfd4cc;
-  border-radius: 7px;
-  box-shadow: 0 20px 55px rgba(20, 24, 19, 0.22);
-}
-.dialog-header {
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e2e5e0;
-}
-.dialog-header h2 {
-  font-size: 15px;
-}
-.dialog form {
-  padding: 18px;
-}
-.dialog label > span {
-  display: block;
-  margin-bottom: 7px;
-  color: #555d53;
-  font-size: 12px;
-  font-weight: 650;
-}
-.dialog label > input:not([type="file"]) {
-  width: 100%;
-  height: 38px;
-  padding: 0 10px;
-  border: 1px solid #c7cdc5;
-  border-radius: 5px;
-  outline: none;
-}
-.dialog label > input:focus {
-  border-color: #779526;
-  box-shadow: 0 0 0 2px #e8f2ca;
-}
-.file-field {
-  display: block;
-  margin-top: 16px;
-}
-.file-field input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-.file-picker {
-  min-height: 66px;
-  display: grid;
-  grid-template-columns: 24px 1fr 18px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 13px;
-  color: #596056;
-  background: #f7f8f5;
-  border: 1px dashed #b9c0b6;
-  border-radius: 5px;
-  cursor: pointer;
-}
-.file-picker span {
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.form-error {
-  margin-top: 14px;
-  color: #963d34;
-  font-size: 12px;
-}
-.delete-copy {
-  color: #4b5249;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 22px;
-}
-.spinning {
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+
+/* ===========================================================================
+ * 响应式
+ * ========================================================================= */
+
+@media (max-width: 1120px) {
+  .workspace {
+    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .sidebar {
+    grid-row: 1 / -1;
+  }
+  .table-workspace {
+    grid-column: 2;
+    grid-row: 1;
+    border-bottom: 1px solid var(--line);
+  }
+  .inspector,
+  .inspector-rail {
+    grid-column: 2;
+    grid-row: 2;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .workspace.inspector-collapsed {
+    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) var(--rail-w);
+  }
+  .workspace.sidebar-collapsed {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+  .workspace.sidebar-collapsed.inspector-collapsed {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 720px) {
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
   .topbar {
-    padding: 0 14px;
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .topbar-search {
+    order: 3;
+    width: 100%;
+    margin: 0;
   }
   .brand-copy span {
     display: none;
   }
   .workspace {
-    grid-template-columns: 1fr;
+    height: auto;
+    min-height: calc(100vh - 130px);
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .sidebar,
+  .sidebar-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
   .sidebar {
-    min-height: 260px;
-    max-height: 42vh;
-    border-right: 0;
-    border-bottom: 1px solid #d7dbd4;
+    max-height: 44vh;
   }
-  .storage-note {
-    display: none;
+  .sidebar-rail {
+    flex-direction: row;
+    justify-content: center;
+    padding: 8px;
   }
-  .viewer-state {
-    min-height: 52vh;
+  .rail-divider {
+    width: 1px;
+    height: 22px;
   }
-  .viewer-toolbar {
-    padding: 12px 14px;
+  .table-workspace {
+    border-bottom: 1px solid var(--line);
+  }
+  .inspector,
+  .inspector-rail {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .inspector-rail {
+    flex-direction: row;
+    justify-content: center;
   }
   .message-list {
-    padding: 8px 10px 40px;
+    padding: 8px 10px 36px;
   }
   .message-row {
-    grid-template-columns: 38px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
     gap: 8px;
-  }
-  .parse-errors {
-    margin: 12px 14px 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinning {
-    animation: none;
   }
 }

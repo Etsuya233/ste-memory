@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type { MemoryTable, MemoryTableInput } from "../api/memory-tables.ts";
+import { Button, Field, TextArea, TextInput } from "../ui.tsx";
 
 interface CommonDialogProps {
   readonly onClose: () => void;
@@ -55,67 +56,86 @@ export function TableDialog(props: TableDialogProps) {
         aria-labelledby="table-dialog-title"
       >
         <header className="dialog-header">
-          <h2 id="table-dialog-title">{title}</h2>
-          <button className="icon-button" type="button" onClick={props.onClose} aria-label="关闭">
+          <div>
+            <h2 id="table-dialog-title">{title}</h2>
+            <p>
+              {props.mode === "create"
+                ? "自定义表会参与 Agent 填表，字段稍后在「字段配置」中定义"
+                : "删除后无法从历史记录恢复"}
+            </p>
+          </div>
+          <button className="icon-btn" type="button" onClick={props.onClose} aria-label="关闭">
             <X size={18} />
           </button>
         </header>
         <form onSubmit={(event) => void submit(event)}>
-          {props.mode === "delete" ? (
-            <p className="delete-copy">
-              将物理删除“{props.table.name}”。删除后无法从历史记录恢复，请确认该表不再需要。
-            </p>
-          ) : (
-            <div className="table-create-fields">
-              <label>
-                <span>表格 Key</span>
-                <input
-                  autoFocus
-                  required
-                  maxLength={120}
-                  value={key}
-                  onChange={(event) => setKey(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>表格名称</span>
-                <input
-                  required
-                  maxLength={120}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>描述</span>
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>表级 Prompt</span>
-                <textarea
-                  rows={5}
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                />
-              </label>
-            </div>
-          )}
-          {error ? <p className="form-error">{error}</p> : null}
+          <div className="dialog-body">
+            {props.mode === "delete" ? (
+              <p className="delete-copy">
+                将物理删除 <strong>「{props.table.name}」</strong>及其全部记录与字段。
+                删除后无法从历史记录恢复，请确认该表不再需要。
+              </p>
+            ) : (
+              <div className="table-create-fields">
+                <div className="form-grid">
+                  <Field label="表格 Key" htmlFor="table-key" required hint="小写字母/数字/下划线">
+                    <TextInput
+                      id="table-key"
+                      autoFocus
+                      required
+                      maxLength={120}
+                      placeholder="如 characters"
+                      value={key}
+                      onChange={(event) => setKey(event.target.value)}
+                    />
+                  </Field>
+                  <Field label="表格名称" htmlFor="table-name" required>
+                    <TextInput
+                      id="table-name"
+                      required
+                      maxLength={120}
+                      placeholder="如 人物"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Field label="描述" htmlFor="table-desc" className="table-create-gap">
+                  <TextArea
+                    id="table-desc"
+                    rows={2}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="表级 Prompt"
+                  htmlFor="table-prompt"
+                  className="table-create-gap"
+                  hint="Agent 填表时如何抽取该表"
+                >
+                  <TextArea
+                    id="table-prompt"
+                    rows={5}
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                  />
+                </Field>
+              </div>
+            )}
+            {error ? <p className="form-error">{error}</p> : null}
+          </div>
           <footer className="dialog-footer">
-            <button className="secondary-button" type="button" onClick={props.onClose}>
+            <Button variant="secondary" type="button" onClick={props.onClose}>
               取消
-            </button>
-            <button
-              className={props.mode === "delete" ? "danger-button" : "primary-button"}
+            </Button>
+            <Button
+              variant={props.mode === "delete" ? "danger" : "primary"}
               type="submit"
-              disabled={busy}
+              loading={busy}
             >
-              {busy ? "处理中..." : props.mode === "delete" ? "确认物理删除" : "创建表格"}
-            </button>
+              {props.mode === "delete" ? "确认物理删除" : "创建表格"}
+            </Button>
           </footer>
         </form>
       </section>
