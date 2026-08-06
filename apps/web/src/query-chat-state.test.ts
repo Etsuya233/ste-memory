@@ -177,7 +177,7 @@ describe("finalizeInFlight", () => {
       erroredAssistant("4", "x"),
     ];
     const finalized = finalizeInFlight(messages);
-    expect(finalized[0]).toMatchObject({ status: "error", error: "已中断（切换了记忆空间）" });
+    expect(finalized[0]).toMatchObject({ status: "error", error: "已中断（切换了记忆空间或模式）" });
     expect(finalized[1]).toMatchObject({ status: "done" });
     expect(finalized[2]).toMatchObject({ status: "error", error: "x" });
   });

@@ -128,7 +128,7 @@ export function terminalAgentRunEvent(
     case "error":
       return { type: "error", message: errorMessage ?? "模型调用失败" };
     case "aborted":
-      return { type: "error", message: "查询超时（默认 5 分钟），请重试或缩小问题范围" };
+      return { type: "error", message: "Agent 运行超时（默认 5 分钟），请重试或缩小问题范围" };
     default:
       return { type: "error", message: "未产生回答" };
   }

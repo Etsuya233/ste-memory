@@ -126,22 +126,17 @@ export class DefaultChatManager implements ChatManager {
       reader: this.#reader,
       timeoutMs: this.#timeoutMs,
     });
-    let emittedTextDelta = false;
+    const emittedTextDelta = { fired: false };
     const result = await agent.run(
       {
         memorySpaceId: prepared.spaceId,
         messages: toAgentMessages(prepared.messages, prepared.config.model),
       },
-      this.#runHooks(hooks, () => (emittedTextDelta = true)),
+      this.#runHooks(hooks, emittedTextDelta),
     );
     // 客户端已断开时不再写事件（socket 已死）；其余情况发送终态事件。
     if (!hooks.signal.aborted) {
-      // 兼容不吐 text_delta 的 provider/模型：回答全文一次性补发，保证客户端总能收到回答。
-      if (!emittedTextDelta && result.answer.length > 0) {
-        hooks.onEvent({ type: "message_delta", text: result.answer });
-      }
-      const terminal = terminalAgentRunEvent(result.stopReason, result.errorMessage);
-      if (terminal) hooks.onEvent(terminal);
+      this.#emitTerminal(result, hooks, emittedTextDelta);
     }
   }
 
@@ -158,7 +153,7 @@ export class DefaultChatManager implements ChatManager {
       composeSystemPrompt: composeInteractiveProposalAgentSystemPrompt,
       timeoutMs: this.#timeoutMs,
     });
-    let emittedTextDelta = false;
+    const emittedTextDelta = { fired: false };
     const result = await agent.run(
       {
         memorySpaceId: prepared.spaceId,
@@ -168,7 +163,7 @@ export class DefaultChatManager implements ChatManager {
         // v1 交互式填写不注入证据（领域规则允许零条）。
         evidence: [],
       },
-      this.#runHooks(hooks, () => (emittedTextDelta = true)),
+      this.#runHooks(hooks, emittedTextDelta),
     );
     if (hooks.signal.aborted) return;
 
@@ -187,8 +182,24 @@ export class DefaultChatManager implements ChatManager {
         commit = { status: "failed", error: errorMessage(error) };
       }
     }
+    this.#emitTerminal(result, hooks, emittedTextDelta, commit);
+  }
 
-    if (!emittedTextDelta && result.answer.length > 0) {
+  /**
+   * 终态收尾：兼容不吐 text_delta 的 provider/模型（回答全文一次性补发，
+   * 保证客户端总能收到回答）+ 发送 done/error 终态事件（可携带自动落库结果）。
+   */
+  #emitTerminal(
+    result: {
+      readonly stopReason: string | undefined;
+      readonly errorMessage: string | undefined;
+      readonly answer: string;
+    },
+    hooks: ChatRunHooks,
+    emittedTextDelta: { fired: boolean },
+    commit?: ChatCommitResult,
+  ): void {
+    if (!emittedTextDelta.fired && result.answer.length > 0) {
       hooks.onEvent({ type: "message_delta", text: result.answer });
     }
     const terminal = terminalAgentRunEvent(result.stopReason, result.errorMessage, commit);
@@ -198,13 +209,13 @@ export class DefaultChatManager implements ChatManager {
   /** run 的事件转发（思考/回答增量、工具调用）；text_delta 记账供兼容补发。 */
   #runHooks(
     hooks: ChatRunHooks,
-    onTextDelta: () => void,
+    emittedTextDelta: { fired: boolean },
   ): { signal: AbortSignal; onEvent: (event: AgentEvent) => void } {
     return {
       signal: hooks.signal,
       onEvent: (event) => {
         for (const chatEvent of translateAgentEvent(event)) {
-          if (chatEvent.type === "message_delta") onTextDelta();
+          if (chatEvent.type === "message_delta") emittedTextDelta.fired = true;
           hooks.onEvent(chatEvent);
         }
       },

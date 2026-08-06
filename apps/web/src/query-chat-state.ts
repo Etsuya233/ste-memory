@@ -79,7 +79,7 @@ export function applyChatEvent(
 export function finalizeInFlight(messages: readonly ChatUiMessage[]): ChatUiMessage[] {
   return messages.map((message) =>
     message.kind === "assistant" && message.status === "streaming"
-      ? { ...message, status: "error", error: "已中断（切换了记忆空间）" }
+      ? { ...message, status: "error", error: "已中断（切换了记忆空间或模式）" }
       : message,
   );
 }
