@@ -267,8 +267,9 @@ describe("system memory table initialization", () => {
         type: "short_text",
         key: "current_time",
         maxChars: 30,
-        valuePattern: "^第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+$",
-        valuePatternMessage: expect.stringContaining("第 N 天·时段"),
+        valuePattern:
+          "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日(?:\\s*\\d{1,2}[:：]\\d{2}(?:[:：]\\d{2})?)?|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
+        valuePatternMessage: expect.stringContaining("2025年5月14日 17:35"),
       },
       { type: "short_text", key: "current_location", maxChars: 30, valuePattern: null },
       { type: "short_text", key: "weather", maxChars: 30, valuePattern: null },
@@ -279,7 +280,8 @@ describe("system memory table initialization", () => {
       valuePattern: "^世界状态$",
     });
     expect(fieldsByTable.get("plots")!.find((field) => field.key === "time_hint")).toMatchObject({
-      valuePattern: "^第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+$",
+      valuePattern:
+        "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日(?:\\s*\\d{1,2}[:：]\\d{2}(?:[:：]\\d{2})?)?|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
     });
 
     const characters = repository.tables.find((table) => table.key === "characters")!;
