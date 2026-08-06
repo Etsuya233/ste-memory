@@ -204,6 +204,48 @@ describe("MemoryFieldService", () => {
     expect(repository.fields.get(fieldId)).toEqual(result?.field);
   });
 
+  it("updates maxChars and valuePattern, and can clear them back to null", async () => {
+    const repository = new FieldRepository();
+    const fields = fieldService(repository);
+    await fields.create(memorySpaceId, tableId, {
+      key: "summary",
+      name: "摘要",
+      type: "long_text",
+      required: false,
+      prompt: "",
+      enabled: true,
+      position: 0,
+      maxChars: 800,
+      valuePattern: "^第.+",
+      valuePatternMessage: "第 N 天格式",
+    });
+    expect(repository.fields.get(fieldId)).toMatchObject({
+      maxChars: 800,
+      valuePattern: "^第.+",
+      valuePatternMessage: "第 N 天格式",
+    });
+
+    // 清空：显式 null 生效（undefined 才保留原值）
+    await fields.update(memorySpaceId, tableId, fieldId, {
+      maxChars: null,
+      valuePattern: null,
+      valuePatternMessage: null,
+    });
+    expect(repository.fields.get(fieldId)).toMatchObject({
+      maxChars: null,
+      valuePattern: null,
+      valuePatternMessage: null,
+    });
+
+    // 未传：保留原值
+    await fields.update(memorySpaceId, tableId, fieldId, { name: "摘要2" });
+    expect(repository.fields.get(fieldId)).toMatchObject({
+      name: "摘要2",
+      maxChars: null,
+      valuePattern: null,
+    });
+  });
+
   it("lists fields in display order and physically deletes a field", async () => {
     const repository = new FieldRepository();
     const fields = fieldService(repository);

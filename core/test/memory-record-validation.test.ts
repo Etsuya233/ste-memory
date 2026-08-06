@@ -86,4 +86,23 @@ describe("validateMemoryFieldValue 格式校验（valuePattern）", () => {
       expect.objectContaining({ type: "memory_record_field_value_pattern_mismatch" }),
     );
   });
+
+  it("maxChars 超限被拒（字符串与数组元素）", () => {
+    const f = field({ maxChars: 10 });
+    expect(validateMemoryFieldValue(f, "十个字以内的值")).toBe("十个字以内的值");
+    expect(() => validateMemoryFieldValue(f, "这个值肯定超过十个字了没错吧")).toThrowError(
+      expect.objectContaining({
+        type: "memory_record_field_value_too_long",
+        param: { fieldId: "field-1", maxChars: 10, actualLength: 14 },
+        humanMsg: expect.stringContaining("超过上限 10 字"),
+      }),
+    );
+    const listField = field({ type: "short_text_list", maxChars: 5 });
+    expect(() => validateMemoryFieldValue(listField, ["短", "这个元素超过五个字了"])).toThrowError(
+      expect.objectContaining({
+        type: "memory_record_field_value_too_long",
+        param: expect.objectContaining({ maxChars: 5 }),
+      }),
+    );
+  });
 });

@@ -13,11 +13,11 @@ function invalid(field: MemoryField): never {
   });
 }
 
-function tooLong(field: MemoryField, valueLength: number): never {
+function tooLong(field: MemoryField, maxChars: number, valueLength: number): never {
   throw new DomainError({
     type: "memory_record_field_value_too_long",
-    param: { fieldId: field.id, maxChars: field.maxChars ?? 0, actualLength: valueLength },
-    humanMsg: `字段“${field.name}”的值长度 ${valueLength} 超过上限 ${field.maxChars} 字；请压缩、合并或删除旧内容后再提交`,
+    param: { fieldId: field.id, maxChars, actualLength: valueLength },
+    humanMsg: `字段“${field.name}”的值长度 ${valueLength} 超过上限 ${maxChars} 字；请压缩、合并或删除旧内容后再提交`,
   });
 }
 
@@ -33,30 +33,33 @@ function patternMismatch(field: MemoryField, value: string): never {
   });
 }
 
+/** 对字符串或字符串数组的每个非空元素执行检查（字符串与数组两条校验路径共用）。 */
+function visitStrings(value: unknown, check: (item: string) => void): void {
+  if (typeof value === "string") {
+    if (value.length > 0) check(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.length > 0) check(item);
+    }
+  }
+}
+
 /** 文本类字段长度校验：有 maxChars 上限时对字符串（含数组元素）逐项检查。 */
 function checkLength(field: MemoryField, value: unknown): void {
   if (field.maxChars === null) return;
-  if (typeof value === "string") {
-    if (value.length > field.maxChars) tooLong(field, value.length);
-  } else if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.length > field.maxChars) tooLong(field, item.length);
-    }
-  }
+  const maxChars = field.maxChars;
+  visitStrings(value, (item) => {
+    if (item.length > maxChars) tooLong(field, maxChars, item.length);
+  });
 }
 
 /** 文本类字段格式校验：有 valuePattern 时非空字符串（含数组元素）必须匹配。 */
 function checkPattern(field: MemoryField, value: unknown): void {
   if (field.valuePattern === null) return;
   const pattern = new RegExp(field.valuePattern);
-  if (typeof value === "string") {
-    if (value.length > 0 && !pattern.test(value)) patternMismatch(field, value);
-  } else if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.length > 0 && !pattern.test(item))
-        patternMismatch(field, item);
-    }
-  }
+  visitStrings(value, (item) => {
+    if (!pattern.test(item)) patternMismatch(field, item);
+  });
 }
 
 function isDate(value: string): boolean {

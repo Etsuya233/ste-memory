@@ -25,6 +25,9 @@ interface CreateFieldBody {
   readonly position?: unknown;
   readonly options?: unknown;
   readonly referenceTableId?: unknown;
+  readonly maxChars?: unknown;
+  readonly valuePattern?: unknown;
+  readonly valuePatternMessage?: unknown;
 }
 
 interface FieldParams extends TableParams {
@@ -102,6 +105,23 @@ export function registerMemoryFieldRoutes(
       if (body.referenceTableId !== undefined && typeof body.referenceTableId !== "string") {
         return reply.code(400).send({ message: "引用目标表 ID 必须是文本" });
       }
+      if (
+        body.maxChars !== undefined &&
+        body.maxChars !== null &&
+        (typeof body.maxChars !== "number" || !Number.isInteger(body.maxChars) || body.maxChars < 1)
+      ) {
+        return reply.code(400).send({ message: "字段长度上限必须是正整数" });
+      }
+      if (body.valuePattern !== undefined && body.valuePattern !== null && typeof body.valuePattern !== "string") {
+        return reply.code(400).send({ message: "字段值格式校验必须是文本" });
+      }
+      if (
+        body.valuePatternMessage !== undefined &&
+        body.valuePatternMessage !== null &&
+        typeof body.valuePatternMessage !== "string"
+      ) {
+        return reply.code(400).send({ message: "字段格式说明必须是文本" });
+      }
       const input: CreateMemoryFieldInput = {
         key: body.key,
         name: body.name,
@@ -112,6 +132,9 @@ export function registerMemoryFieldRoutes(
         position: body.position,
         options: body.options as string[] | undefined,
         referenceTableId: body.referenceTableId as MemoryTableId | undefined,
+        maxChars: body.maxChars as number | null | undefined,
+        valuePattern: body.valuePattern as string | null | undefined,
+        valuePatternMessage: body.valuePatternMessage as string | null | undefined,
       };
       const created = await memoryFields.create(
         request.params.spaceId as MemorySpaceId,
@@ -177,6 +200,27 @@ export function registerMemoryFieldRoutes(
       ) {
         return reply.code(400).send({ message: "引用目标表 ID 必须是文本" });
       }
+      if (
+        body?.maxChars !== undefined &&
+        body.maxChars !== null &&
+        (typeof body.maxChars !== "number" || !Number.isInteger(body.maxChars) || body.maxChars < 1)
+      ) {
+        return reply.code(400).send({ message: "字段长度上限必须是正整数" });
+      }
+      if (
+        body?.valuePattern !== undefined &&
+        body.valuePattern !== null &&
+        typeof body.valuePattern !== "string"
+      ) {
+        return reply.code(400).send({ message: "字段值格式校验必须是文本" });
+      }
+      if (
+        body?.valuePatternMessage !== undefined &&
+        body.valuePatternMessage !== null &&
+        typeof body.valuePatternMessage !== "string"
+      ) {
+        return reply.code(400).send({ message: "字段格式说明必须是文本" });
+      }
       const updated = await memoryFields.update(
         request.params.spaceId as MemorySpaceId,
         request.params.tableId as MemoryTableId,
@@ -191,6 +235,9 @@ export function registerMemoryFieldRoutes(
           position: body?.position as number | undefined,
           options: body?.options as string[] | undefined,
           referenceTableId: body?.referenceTableId as MemoryTableId | null | undefined,
+          maxChars: body?.maxChars as number | null | undefined,
+          valuePattern: body?.valuePattern as string | null | undefined,
+          valuePatternMessage: body?.valuePatternMessage as string | null | undefined,
         },
       );
       return updated ?? reply.code(404).send({ message: "字段不存在" });

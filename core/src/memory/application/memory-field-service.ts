@@ -207,7 +207,7 @@ export class MemoryFieldService {
       field.type,
       input.options ?? field.options,
       input.referenceTableId ?? field.referenceTableId,
-      input.maxChars ?? field.maxChars,
+      input.maxChars === undefined ? field.maxChars : input.maxChars,
     );
     const table = await this.tables.find(memorySpaceId, tableId);
     if (

@@ -68,12 +68,12 @@ export interface MemoryFieldConfiguration {
 
 export function memoryFieldConfiguration(
   type: MemoryFieldType,
-  options: readonly string[] | null,
+  options: readonly string[],
   referenceTableId: MemoryTableId | null,
   maxChars: number | null,
 ): MemoryFieldConfiguration {
   const isSelect = type === "single_select" || type === "multi_select";
-  const normalizedOptions = isSelect ? (options ?? []).map((option) => option.trim()) : [];
+  const normalizedOptions = isSelect ? options.map((option) => option.trim()) : [];
   if (
     isSelect &&
     (normalizedOptions.length === 0 ||
