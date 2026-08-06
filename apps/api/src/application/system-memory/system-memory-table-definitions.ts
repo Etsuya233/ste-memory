@@ -73,10 +73,11 @@ const STORY_TIME_MESSAGE =
  * 5. 事件唯一归位 plots，其他表只写稳定状态（表级 prompt 已写明）；
  * 6. plots.details 为追加式摘要（保留旧事实 + 追加新进展，允许润色不得删事实，
  *    maxChars 400→800 —— details 是未来 RAG/搜索的语料，覆盖式 = 有损压缩逐轮衰减）；
- * 7. v4 新增 story_state 世界状态表：承载剧情时钟（current_time 第 N 天·时段）、
+ * 7. v4 新增 story_state 世界状态表：承载剧情时钟（current_time）、
  *    当前地点、天气、当日着装；plots.time_hint 参照其 current_time，禁止「今天/当天」等相对词；
  * 8. v4 新增字段格式校验（value_pattern 正则 + 回喂消息）：current_time / time_hint 强制
- *    「第 N 天·时段」格式，story_state.name 固定为「世界状态」——填错被拒 → 错误回喂 → 自愈重提。
+ *    双轨时间格式（有明确日期填绝对年月日时分，否则第 N 天·时段），
+ *    story_state.name 固定为「世界状态」——填错被拒 → 错误回喂 → 自愈重提。
  */
 const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   {
