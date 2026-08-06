@@ -171,6 +171,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       memoryRecordQueries,
       chat,
       fillTasks,
+      fillTaskEvents: fillTasks,
       cleaningRules,
     });
     server.addHook("onClose", async () => database.destroy());

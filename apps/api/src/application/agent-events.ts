@@ -1,12 +1,22 @@
 /**
- * 聊天事件：pi AgentEvent → 应用 ChatEvent → SSE data 的翻译点（11 设计 §8 归属本票）。
+ * Agent 运行事件：pi AgentEvent → 应用事件 → SSE data 的翻译点。
  *
- * 只透传调试 UI 需要的信息：思考增量、回答增量、工具调用参数/结果；
+ * 11.5 起供聊天（QueryAgent）使用；16 起填表任务（ProposalAgent 循环）共用同一套
+ * 类型与翻译实现，避免两套调试 UI 行为漂移。只透传调试 UI 需要的信息：
+ * 思考增量、回答增量、工具调用参数/结果；块与任务状态事件由填表循环本身发出。
+ *
+ * 事件不带 runId（SSE 端点路径已限定），seq 由事件总线附加（见 fill-task-event-bus.ts）。
  * 多轮上下文为无状态回传历史（客户端回传 user/assistant 文本，工具结果不跨轮回传）。
  */
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { FillTaskStatus } from "./ports/fill-task.ts";
 
-export type ChatEvent =
+/**
+ * 应用层 Agent 运行事件（聊天与填表共用的完整超集）：
+ * - 聊天（11.5）只产生 agent 事件 + done/error 终态；
+ * - 填表（16）只产生 agent 事件 + block_start/block_done/task_status（终态经 task_status 表达）。
+ */
+export type AgentRunEvent =
   | { readonly type: "thinking_delta"; readonly text: string }
   | { readonly type: "message_delta"; readonly text: string }
   | {
@@ -22,14 +32,27 @@ export type ChatEvent =
       readonly result: unknown;
       readonly isError: boolean;
     }
+  | { readonly type: "block_start"; readonly from: number; readonly to: number }
+  | {
+      readonly type: "block_done";
+      readonly from: number;
+      readonly to: number;
+      readonly emptyProposal: boolean;
+      readonly changedRecords: number;
+    }
+  | {
+      readonly type: "task_status";
+      readonly status: FillTaskStatus;
+      readonly errorMessage: string | null;
+    }
   | { readonly type: "done"; readonly stopReason: string; readonly errorMessage: string | null }
   | { readonly type: "error"; readonly message: string };
 
 /**
- * 翻译单个 pi Agent 生命周期事件为 0..n 条聊天事件。
- * 未映射的事件类型（agent_start/turn_* 等）返回空数组，不产生聊天噪音。
+ * 翻译单个 pi Agent 生命周期事件为 0..n 条应用事件。
+ * 未映射的事件类型（agent_start/turn_* 等）返回空数组，不产生调试噪音。
  */
-export function translateAgentEvent(event: AgentEvent): readonly ChatEvent[] {
+export function translateAgentEvent(event: AgentEvent): readonly AgentRunEvent[] {
   switch (event.type) {
     case "message_update": {
       const delta = event.assistantMessageEvent;
@@ -70,17 +93,17 @@ function toolResultDetails(result: unknown): unknown {
 }
 
 /**
- * run 终态 → 终态聊天事件。返回 undefined 表示无需发送（调用方自行判断，
+ * run 终态 → 终态事件（聊天用）。返回 undefined 表示无需发送（调用方自行判断，
  * 如客户端已断开时跳过）。
  *
  * - stop / length：正常结束；
  * - error：模型调用失败（网络/鉴权等，pi 以 stopReason "error" + errorMessage 编码）；
  * - aborted：QueryAgent 内部超时中止（客户端断开由调用方在 signal.aborted 时跳过）。
  */
-export function terminalChatEvent(
+export function terminalAgentRunEvent(
   stopReason: string | undefined,
   errorMessage: string | undefined,
-): ChatEvent | undefined {
+): AgentRunEvent | undefined {
   switch (stopReason) {
     case "stop":
     case "length":

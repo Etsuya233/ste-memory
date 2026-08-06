@@ -324,6 +324,81 @@
   line-height: 1.6;
 }
 
+/* 实时运行日志（ticket 16） */
+.fill-task-log {
+  max-width: 760px;
+  margin-top: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.fill-task-log-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+
+.fill-task-log-heading em {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-style: normal;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.fill-task-log-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+
+.fill-task-log-block {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink-2);
+}
+
+.fill-task-log-block strong {
+  color: var(--ink-1);
+  font-weight: 650;
+}
+
+.fill-task-log-block-done {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ok);
+}
+
+.fill-task-log-block-done em {
+  color: var(--ink-3);
+  font-style: normal;
+}
+
+.fill-task-log-status {
+  color: var(--ink-2);
+}
+
+.fill-task-log-status-terminal {
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-2);
+  color: var(--ink-1);
+  font-weight: 650;
+}
+
 @media (max-width: 720px) {
   .fill-task-grid {
     grid-template-columns: 1fr;

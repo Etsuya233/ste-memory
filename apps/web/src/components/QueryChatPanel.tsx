@@ -1,4 +1,4 @@
-import { Bot, LoaderCircle, Send, Square, Wrench } from "lucide-react";
+import { Bot, LoaderCircle, Send, Square } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   fetchLlmConfigInfo,
@@ -15,9 +15,9 @@ import {
   createUserMessage,
   finalizeInFlight,
   type ChatUiMessage,
-  type ToolCallCard,
 } from "../query-chat-state.ts";
 import { LlmConfigForm } from "./LlmConfigForm.tsx";
+import { AgentActivityView } from "./AgentActivityView.tsx";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 
 interface QueryChatPanelProps {
@@ -215,15 +215,11 @@ function AssistantMessageView({
         {message.status === "streaming" ? <LoaderCircle size={13} className="spinning" /> : null}
         <em>{statusLabel}</em>
       </header>
-      {message.thinking.length > 0 ? (
-        <details className="thinking-block" open={message.status === "streaming"}>
-          <summary>思考过程</summary>
-          <MarkdownContent text={message.thinking} />
-        </details>
-      ) : null}
-      {message.toolCalls.map((card) => (
-        <ToolCallCardView key={card.callId} card={card} />
-      ))}
+      <AgentActivityView
+        thinking={message.thinking}
+        toolCalls={message.toolCalls}
+        streaming={message.status === "streaming"}
+      />
       {message.text.length > 0 ? (
         <div className="chat-assistant-text">
           <MarkdownContent text={message.text} />
@@ -232,36 +228,4 @@ function AssistantMessageView({
       {message.error ? <p className="chat-assistant-error">{message.error}</p> : null}
     </div>
   );
-}
-
-function ToolCallCardView({ card }: { card: ToolCallCard }) {
-  const running = card.result === undefined;
-  return (
-    <details
-      className={`tool-card ${card.isError ? "tool-card-error" : ""}`}
-      /* 执行中的调用默认展开以实时观察参数；结束/出错后回到折叠态 */
-      open={running}
-    >
-      <summary>
-        <Wrench size={12} />
-        <code>{card.name}</code>
-        <em>{card.isError ? "执行失败" : running ? "执行中…" : "完成"}</em>
-      </summary>
-      <pre className="tool-card-args">{JSON.stringify(card.args, null, 2)}</pre>
-      {card.result !== undefined ? (
-        <div className="tool-card-result">
-          <strong>结果（{card.isError ? "错误" : `${recordCount(card.result)} 条记录`}）</strong>
-          <pre>{JSON.stringify(card.result, null, 2)}</pre>
-        </div>
-      ) : null}
-    </details>
-  );
-}
-
-function recordCount(result: unknown): number {
-  if (typeof result === "object" && result !== null && "total" in result) {
-    const total = (result as { total: unknown }).total;
-    if (typeof total === "number") return total;
-  }
-  return 0;
 }

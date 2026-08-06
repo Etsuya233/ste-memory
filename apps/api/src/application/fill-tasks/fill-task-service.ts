@@ -27,13 +27,17 @@ import {
 } from "@ste-memory/core/memory";
 import { ProposalAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import type { UnitOfWork } from "@ste-memory/tools";
+import { translateAgentEvent } from "../agent-events.ts";
 import type { FillTask, FillTaskRepository, FillTaskView } from "../ports/fill-task.ts";
 import { isFillTaskTerminal } from "../ports/fill-task.ts";
+import type { AgentRunEventEntry, FillTaskEventBus } from "../ports/fill-task-events.ts";
+import type { FillTaskManager } from "../ports/fill-task-manager.ts";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { SourceChatRepository } from "../ports/source-chat.ts";
 import type { CleaningRuleRepository } from "../ports/cleaning-rule.ts";
 import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
 import { applyCleaningRules } from "../cleaning-rules/transform.ts";
+import { InMemoryFillTaskEventBus } from "./fill-task-event-bus.ts";
 import {
   resolveLlmConfig,
   type LlmEnvConfig,
@@ -131,7 +135,7 @@ export interface FillTaskServiceOptions {
   readonly logError?: (message: string, error: unknown) => void;
 }
 
-export class FillTaskService {
+export class FillTaskService implements FillTaskManager, FillTaskEventBus {
   readonly #tasks: FillTaskRepository;
   readonly #sources: SourceChatRepository;
   readonly #spaces: Pick<MemorySpaceManager, "exists">;
@@ -147,6 +151,8 @@ export class FillTaskService {
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
   readonly #logError: (message: string, error: unknown) => void;
+  /** 事件总线（ticket 16）：缓冲 + 订阅者，HTTP 层经 subscribe 订阅 SSE 流。 */
+  readonly #bus: InMemoryFillTaskEventBus;
 
   constructor(options: FillTaskServiceOptions) {
     this.#tasks = options.tasks;
@@ -164,6 +170,7 @@ export class FillTaskService {
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#logError = options.logError ?? (() => undefined);
+    this.#bus = new InMemoryFillTaskEventBus((runId) => this.#tasks.find(runId));
   }
 
   /** 当前非终态任务视图（无则 undefined）。 */
@@ -185,6 +192,7 @@ export class FillTaskService {
     const task = await this.#requireTask(memorySpaceId, runId);
     const resumed = await this.#tasks.resume(runId);
     if (!resumed) throw new FillTaskStateError(task);
+    this.#bus.emit(runId, { type: "task_status", status: "running", errorMessage: null });
     return this.#toView({ ...task, status: "running" });
   }
 
@@ -199,6 +207,19 @@ export class FillTaskService {
   /** 启动时调用：所有非终态任务标记 interrupted（API 重启，不自动重放）。 */
   async markInterruptedOnStartup(): Promise<void> {
     await this.#tasks.markInterruptedOnStartup();
+  }
+
+  /**
+   * 订阅事件流（ticket 16）：先回放缓冲再实时转发；任务不存在/不属于该空间返回 undefined
+   * （HTTP 层映射 404）。客户端断开只退订，绝不中止任务（中止仍走 cancel 控制端点）。
+   */
+  async subscribe(
+    spaceId: MemorySpaceId,
+    runId: string,
+    afterSeq: number | undefined,
+    onEvent: (entry: AgentRunEventEntry) => void,
+  ): Promise<(() => void) | undefined> {
+    return this.#bus.subscribe(spaceId, runId, afterSeq, onEvent);
   }
 
   async #requireTask(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTask> {
@@ -302,13 +323,17 @@ export class FillTaskService {
         failingBlock = undefined;
       }
       await this.#tasks.markSucceeded(task.runId);
+      this.#bus.emit(task.runId, { type: "task_status", status: "succeeded", errorMessage: null });
     } catch (error) {
       if (error instanceof FillTaskCancelledSignal) {
         // 提交前安全点发现中止请求：提案未提交、消息未标记，按取消收口。
-        await this.#tasks.markCancelled(task.runId);
+        await this.#markCancelled(task.runId);
         return;
       }
       await this.#failTask(task, failingBlock, error);
+    } finally {
+      // 循环结束：无订阅者时释放缓冲（仍有订阅者时由其退订清理兜底）。
+      this.#bus.release(task.runId);
     }
   }
 
@@ -318,11 +343,12 @@ export class FillTaskService {
       const task = await this.#tasks.find(runId);
       if (task === undefined || isFillTaskTerminal(task.status)) return "cancelled";
       if (task.status === "cancel_requested") {
-        await this.#tasks.markCancelled(runId);
+        await this.#markCancelled(runId);
         return "cancelled";
       }
       if (task.status === "pause_requested") {
         await this.#tasks.markPaused(runId);
+        this.#bus.emit(runId, { type: "task_status", status: "paused", errorMessage: null });
         await this.#waitWhilePaused(runId);
         continue; // 醒来后重新检查（可能已恢复、又被中止、或异常终态）。
       }
@@ -347,6 +373,7 @@ export class FillTaskService {
     from: number,
     to: number,
   ): Promise<void> {
+    this.#bus.emit(task.runId, { type: "block_start", from, to });
     const messages = await this.#sources.messagesInRange(task.memorySpaceId, from, to);
     if (messages.length === 0) {
       throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
@@ -364,18 +391,28 @@ export class FillTaskService {
       task.memorySpaceId,
       cleanedMessages,
     );
-    const result = await agent.run({
-      memorySpaceId: task.memorySpaceId,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: composeBlockPrompt(from, to, cleanedMessages) }],
-          timestamp: Date.now(),
+    const result = await agent.run(
+      {
+        memorySpaceId: task.memorySpaceId,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: composeBlockPrompt(from, to, cleanedMessages) }],
+            timestamp: Date.now(),
+          },
+        ],
+        messageRange: { from, to },
+        evidence,
+      },
+      {
+        // 实时输出（ticket 16）：pi 事件 → 应用事件 → 总线缓冲 + SSE 扇出。
+        onEvent: (event) => {
+          for (const translated of translateAgentEvent(event)) {
+            this.#bus.emit(task.runId, translated);
+          }
         },
-      ],
-      messageRange: { from, to },
-      evidence,
-    });
+      },
+    );
     if (result.errorMessage !== undefined) {
       throw new Error(`Agent 运行失败：${result.errorMessage}`);
     }
@@ -398,12 +435,26 @@ export class FillTaskService {
         messages.map((message) => message.source_id),
       );
     }
+    // 块结果摘要（提交成功或空提案都算块成功；失败块由 task_status failed 表达）。
+    this.#bus.emit(task.runId, {
+      type: "block_done",
+      from,
+      to,
+      emptyProposal: result.proposal === undefined,
+      changedRecords: result.proposal?.operations.length ?? 0,
+    });
   }
 
   /** 提交前安全点：任务已请求中止时抛信号，调用方丢弃提案并不标记消息。 */
   async #checkCancelledBeforeCommit(runId: string): Promise<void> {
     const task = await this.#tasks.find(runId);
     if (task?.status === "cancel_requested") throw new FillTaskCancelledSignal();
+  }
+
+  /** 中止收口：标记 cancelled 并发出终态事件（安全点与取消信号两处共用）。 */
+  async #markCancelled(runId: string): Promise<void> {
+    await this.#tasks.markCancelled(runId);
+    this.#bus.emit(runId, { type: "task_status", status: "cancelled", errorMessage: null });
   }
 
   /** 失败收口：只把出错块的消息标记 error，已成功批次保持 processed，任务置为 failed。 */
@@ -428,6 +479,7 @@ export class FillTaskService {
         }
       }
       await this.#tasks.markFailed(task.runId, message);
+      this.#bus.emit(task.runId, { type: "task_status", status: "failed", errorMessage: message });
     } catch (markError) {
       this.#logError(`填表任务 ${task.runId} 失败状态标记出错`, markError);
     }

@@ -10,7 +10,7 @@ import { QueryAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/co
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { ChatManager, ChatMessageInput, ChatRunHooks, PreparedChat } from "../ports/chat.ts";
-import { terminalChatEvent, translateAgentEvent } from "./chat-events.ts";
+import { terminalAgentRunEvent, translateAgentEvent } from "../agent-events.ts";
 import {
   llmConfigInfo,
   resolveLlmConfig,
@@ -107,7 +107,7 @@ export class DefaultChatManager implements ChatManager {
       if (!emittedTextDelta && result.answer.length > 0) {
         hooks.onEvent({ type: "message_delta", text: result.answer });
       }
-      const terminal = terminalChatEvent(result.stopReason, result.errorMessage);
+      const terminal = terminalAgentRunEvent(result.stopReason, result.errorMessage);
       if (terminal) hooks.onEvent(terminal);
     }
   }

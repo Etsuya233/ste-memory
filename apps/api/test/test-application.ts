@@ -178,6 +178,7 @@ export async function createTestApplication(
     memoryRecordQueries,
     chat,
     fillTasks,
+    fillTaskEvents: fillTasks,
     cleaningRules,
   });
   server.addHook("onClose", async () => database.destroy());

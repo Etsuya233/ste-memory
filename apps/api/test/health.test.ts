@@ -9,6 +9,7 @@ import type { MemoryFieldManager } from "../src/application/ports/memory-field.t
 import type { MemoryRecordManager } from "../src/application/ports/memory-record.ts";
 import type { MemoryRecordQueryManager } from "../src/application/ports/memory-record-query.ts";
 import type { FillTaskManager } from "../src/application/ports/fill-task-manager.ts";
+import type { FillTaskEventBus } from "../src/application/ports/fill-task-events.ts";
 import type { CleaningRuleManager } from "../src/application/ports/cleaning-rule.ts";
 
 function healthCheck(connected: boolean): DatabaseHealthCheck {
@@ -76,6 +77,10 @@ const fillTasks: FillTaskManager = {
   },
 };
 
+const fillTaskEvents: FillTaskEventBus = {
+  subscribe: async () => undefined,
+};
+
 const cleaningRules: CleaningRuleManager = {
   create: async () => undefined,
   list: async () => undefined,
@@ -94,6 +99,7 @@ describe("GET /health", () => {
       memoryRecords,
       memoryRecordQueries,
       fillTasks,
+      fillTaskEvents,
       cleaningRules,
       chat: new DefaultChatManager({
         envConfig: loadLlmEnvConfig({}),

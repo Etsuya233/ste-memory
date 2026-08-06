@@ -1,17 +1,29 @@
-import { CircleAlert, LoaderCircle, Pause, Play, Square } from "lucide-react";
+import { Activity, CircleAlert, LoaderCircle, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   cancelFillTask,
   fetchActiveFillTask,
+  isFillTaskTerminal,
   pauseFillTask,
   resumeFillTask,
   submitFillTask,
+  subscribeFillTaskEvents,
   type FillTask,
   type FillTaskStatus,
 } from "../api/fill-tasks.ts";
 import { loadPersistedLlmConfig } from "../api/chat.ts";
 import type { MemorySpace } from "../api/memory-spaces.ts";
 import { availableFillTaskControls, type FillTaskControlAction } from "../fill-task-panel-state.ts";
+import {
+  appendFillTaskEvents,
+  buildFillTaskTimeline,
+  createFillTaskLog,
+  latestTaskStatus,
+  type FillTaskLogState,
+  type FillTaskTimelineItem,
+} from "../fill-task-events-state.ts";
+import { ToolCallCardView } from "./AgentActivityView.tsx";
+import { MarkdownContent } from "./MarkdownContent.tsx";
 import { Badge, Button, Field, TextInput, type BadgeTone } from "../ui.tsx";
 
 interface FillTaskPanelProps {
@@ -22,6 +34,8 @@ interface FillTaskPanelProps {
 const DEFAULT_BLOCK_SIZE = 20;
 /** 活动任务状态轮询间隔（服务端控制请求最迟在安全点生效，秒级可见）。 */
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
+/** 事件流断线后的重连间隔（Last-Event-ID 续传；轮询仍兜底状态）。 */
+const EVENT_RETRY_INTERVAL_MS = 2_000;
 
 /** 状态展示元数据：文案 / 徽标色调 / 是否转圈（任务仍在推进）。 */
 const STATUS_META: Record<
@@ -64,9 +78,11 @@ function formatUpdatedAt(updatedAt: string): string {
 }
 
 /**
- * 填表任务面板（ticket 13/14）：选择消息闭区间 [from, to] 与分块大小提交后台任务；
+ * 填表任务面板（ticket 13/14/16）：选择消息闭区间 [from, to] 与分块大小提交后台任务；
  * 任务运行期间轮询完整状态（状态/进度/最近更新），支持暂停、恢复、中止——
  * 请求中（pendingAction）禁用全部控制，避免重复提交；终态后回到表单可再次提交。
+ * 任务运行期间通过 SSE 事件流实时展示 Agent 输出（思考、工具调用、块结果），
+ * 断线自动重连（Last-Event-ID 续传），轮询兜底状态。
  */
 export function FillTaskPanel({ space }: FillTaskPanelProps) {
   const [from, setFrom] = useState(1);
@@ -77,6 +93,8 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [lastResult, setLastResult] = useState<string>();
+  // 实时运行日志（ticket 16）：事件流按 seq 追加；轮询与流各自驱动，流到达的终态优先。
+  const [log, setLog] = useState<FillTaskLogState>(createFillTaskLog);
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -112,6 +130,40 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
     };
   }, [active, space.id]);
 
+  // 切换空间：清空日志，避免残留上一个空间的运行输出。
+  useEffect(() => {
+    setLog(createFillTaskLog());
+  }, [space.id]);
+
+  // 任务运行期间订阅事件流：断线自动重连（Last-Event-ID 续传）；
+  // 切换任务/空间或组件卸载时中止；任务终态由流中的 task_status 表达。
+  useEffect(() => {
+    const runId = active?.runId;
+    if (!runId) return;
+    const controller = new AbortController();
+    let lastEventId: number | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    const connect = async () => {
+      try {
+        await subscribeFillTaskEvents(space.id, runId, lastEventId, controller.signal, (entry) => {
+          lastEventId = entry.seq;
+          setLog((current) => appendFillTaskEvents(current, [entry]));
+        });
+      } catch {
+        if (controller.signal.aborted || closed) return;
+        // 断线/服务端错误：稍后重连（续传不丢事件）；轮询仍兜底任务状态。
+        retryTimer = setTimeout(() => void connect(), EVENT_RETRY_INTERVAL_MS);
+      }
+    };
+    void connect();
+    return () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [active?.runId, space.id]);
+
   async function submit() {
     setBusy(true);
     setError(undefined);
@@ -124,6 +176,7 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
         config: loadPersistedLlmConfig(),
       });
       setActive(task);
+      setLog(createFillTaskLog());
       setLastResult(
         `任务已提交：${task.runId}（${task.from}–${task.to}，块大小 ${task.blockSize}）`,
       );
@@ -204,6 +257,8 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
         </div>
       ) : null}
 
+      {log.entries.length > 0 ? <FillTaskLogView log={log} /> : null}
+
       <form
         className="fill-task-form"
         onSubmit={(event) => {
@@ -278,4 +333,103 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * 实时运行日志（ticket 16）：块进度 + 思考/工具调用（共享 AgentActivityView 渲染）+
+ * 块结果摘要 + 任务状态。日志随事件流增长，终态后保留在页面上。
+ */
+function FillTaskLogView({ log }: { log: FillTaskLogState }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const timeline = buildFillTaskTimeline(log.entries);
+  const status = latestTaskStatus(log);
+  const ended = status !== undefined && isFillTaskTerminal(status.status);
+
+  // 新事件自动滚到底部。
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [log.entries.length]);
+
+  return (
+    <div className="fill-task-log">
+      <header className="fill-task-log-heading">
+        <Activity size={13} />
+        <span>实时运行日志</span>
+        {!ended ? <LoaderCircle size={12} className="spinning" /> : null}
+        {status ? (
+          <em>
+            {STATUS_META[status.status].label}
+            {status.errorMessage ? `：${status.errorMessage}` : ""}
+          </em>
+        ) : null}
+      </header>
+      <div className="fill-task-log-list" ref={listRef}>
+        {(() => {
+          let blockIndex = 0;
+          return timeline.map((item, index) => {
+            if (item.kind === "block_start") blockIndex += 1;
+            return (
+              <FillTaskLogItemView
+                key={index}
+                item={item}
+                running={!ended}
+                blockIndex={item.kind === "block_start" ? blockIndex : undefined}
+              />
+            );
+          });
+        })()}
+      </div>
+    </div>
+  );
+}
+
+function FillTaskLogItemView({
+  item,
+  running,
+  blockIndex,
+}: {
+  item: FillTaskTimelineItem;
+  running: boolean;
+  blockIndex?: number;
+}) {
+  switch (item.kind) {
+    case "thinking":
+      return (
+        <details className="thinking-block" open={running}>
+          <summary>思考过程</summary>
+          <MarkdownContent text={item.text} />
+        </details>
+      );
+    case "tool":
+      // 时间线 tool 项与聊天 ToolCallCard 同构（callId/name/args/result/isError）。
+      return <ToolCallCardView card={item} />;
+    case "block_start":
+      return (
+        <div className="fill-task-log-block">
+          <strong>第 {blockIndex ?? "?"} 块</strong>
+          <span>
+            消息 {item.from}–{item.to}
+          </span>
+        </div>
+      );
+    case "block_done":
+      return (
+        <div className="fill-task-log-block-done">
+          <span>
+            ✓ 消息 {item.from}–{item.to}
+          </span>
+          <em>
+            {item.emptyProposal ? "空提案（无需变更）" : `变更 ${item.changedRecords} 条记录`}
+          </em>
+        </div>
+      );
+    case "status":
+      return (
+        <div className={`fill-task-log-status ${running ? "" : "fill-task-log-status-terminal"}`}>
+          {STATUS_META[item.status].label}
+          {item.errorMessage ? `：${item.errorMessage}` : ""}
+        </div>
+      );
+  }
 }

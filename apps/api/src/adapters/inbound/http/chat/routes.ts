@@ -7,35 +7,15 @@
  * 预检错误（配置缺失 / 空间不存在）在 SSE 头之前以 JSON 4xx 返回；
  * 流中错误（网络、LLM 鉴权失败、超时）以 SSE error 事件送达；
  * 客户端断开时经 AbortController 中止 QueryAgent（stopReason "aborted" 收尾，不抛异常）。
+ *
+ * SSE 传输与 CORS 处理见通用 streamSse（adapters/inbound/http/sse.ts，ticket 16 起共用）。
  */
 import type { MemorySpaceId } from "@ste-memory/core/memory";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { ChatSpaceNotFoundError } from "../../../../application/chat/chat-manager.ts";
-import type { ChatEvent } from "../../../../application/chat/chat-events.ts";
 import { LlmConfigError, type LlmWebConfig } from "../../../../application/chat/llm-config.ts";
 import type { ChatManager, ChatMessageInput } from "../../../../application/ports/chat.ts";
-import { ALLOWED_WEB_ORIGIN } from "../server.ts";
-
-const SSE_HEADERS = {
-  "content-type": "text/event-stream; charset=utf-8",
-  "cache-control": "no-cache",
-  connection: "keep-alive",
-} as const;
-
-/**
- * hijack 接管响应后 @fastify/cors 的钩子不再生效(其设置的响应头会被
- * raw.writeHead 的 headers 参数整体覆盖),需按请求 Origin 手动补 CORS 头;
- * 无 Origin(非浏览器客户端)时保持原样。
- */
-function buildSseHeaders(request: FastifyRequest): Record<string, string> {
-  const headers: Record<string, string> = { ...SSE_HEADERS };
-  const origin = request.headers.origin;
-  if (origin !== undefined && ALLOWED_WEB_ORIGIN.test(origin)) {
-    headers["access-control-allow-origin"] = origin;
-    headers["vary"] = "Origin";
-  }
-  return headers;
-}
+import { streamSse } from "../sse.ts";
 
 /** 单次请求回传的历史消息上限（对话历史随请求回传，做个合理的防滥用护栏）。 */
 const MAX_CHAT_MESSAGES = 100;
@@ -80,9 +60,17 @@ export function registerChatRoutes(server: FastifyInstance, chat: ChatManager): 
         throw error;
       }
 
-      await streamChat(request, reply, (signal, onEvent) =>
-        chat.runChat(prepared, { signal, onEvent }),
-      );
+      await streamSse(request, reply, async (send, signal) => {
+        try {
+          await chat.runChat(prepared, {
+            signal,
+            onEvent: (event) => send(event, { event: "chat" }),
+          });
+        } catch (error) {
+          request.log.error({ err: error }, "chat run failed");
+          send({ type: "error", message: `服务内部错误：${errorMessage(error)}` });
+        }
+      });
     },
   );
 }
@@ -134,42 +122,6 @@ function parseLlmWebConfig(value: unknown): LlmWebConfig {
     config[field] = entry.trim();
   }
   return config;
-}
-
-/**
- * 接管响应为 SSE 流：转发 run 产生的聊天事件；监听连接关闭中止 run；
- * 未预期异常尽量以 error 事件送达（连接可能已断开，写失败静默忽略）。
- */
-async function streamChat(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  run: (signal: AbortSignal, onEvent: (event: ChatEvent) => void) => Promise<void>,
-): Promise<void> {
-  reply.hijack();
-  const raw = reply.raw;
-  const controller = new AbortController();
-  let ended = false;
-
-  const send = (event: ChatEvent) => {
-    if (ended) return;
-    raw.write(`event: chat\ndata: ${JSON.stringify(event)}\n\n`);
-  };
-  const onDisconnect = () => controller.abort();
-  raw.on("close", onDisconnect);
-  raw.on("error", onDisconnect);
-  raw.writeHead(200, buildSseHeaders(request));
-
-  try {
-    await run(controller.signal, send);
-  } catch (error) {
-    request.log.error({ err: error }, "chat run failed");
-    send({ type: "error", message: `服务内部错误：${errorMessage(error)}` });
-  } finally {
-    ended = true;
-    raw.removeListener("close", onDisconnect);
-    raw.removeListener("error", onDisconnect);
-    raw.end();
-  }
 }
 
 function errorMessage(error: unknown): string {

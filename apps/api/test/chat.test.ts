@@ -4,7 +4,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { QUERY_RECORDS_TOOL_NAME } from "@ste-memory/core/memory/agent";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { buildServer } from "../src/adapters/inbound/http/server.ts";
-import type { ChatEvent } from "../src/application/chat/chat-events.ts";
+import type { AgentRunEvent } from "../src/application/agent-events.ts";
 import { createTestApplication } from "./test-application.ts";
 import {
   assistantMessage,
@@ -27,11 +27,11 @@ afterEach(async () => {
 });
 
 /** 解析 SSE 响应体中的 data 行（本服务每个事件单行 JSON）。 */
-function parseSseEvents(body: string): ChatEvent[] {
+function parseSseEvents(body: string): AgentRunEvent[] {
   return body
     .split("\n")
     .filter((line) => line.startsWith("data: "))
-    .map((line) => JSON.parse(line.slice("data: ".length)) as ChatEvent);
+    .map((line) => JSON.parse(line.slice("data: ".length)) as AgentRunEvent);
 }
 
 /** 建一个安装了系统表、并在 characters 表写入「云烬/受伤」的空间。 */

@@ -16,6 +16,7 @@ import { registerChatRoutes } from "./chat/routes.ts";
 import type { ChatManager } from "../../../application/ports/chat.ts";
 import { registerFillTaskRoutes } from "./fill-tasks/routes.ts";
 import type { FillTaskManager } from "../../../application/ports/fill-task-manager.ts";
+import type { FillTaskEventBus } from "../../../application/ports/fill-task-events.ts";
 import { FillTaskSpaceReadOnlyError } from "../../../application/fill-tasks/write-guard.ts";
 import { registerCleaningRuleRoutes } from "./cleaning-rules/routes.ts";
 import type { CleaningRuleManager } from "../../../application/ports/cleaning-rule.ts";
@@ -29,6 +30,8 @@ export interface ServerDependencies {
   readonly memoryRecordQueries: MemoryRecordQueryManager;
   readonly chat: ChatManager;
   readonly fillTasks: FillTaskManager;
+  /** 填表任务事件流（ticket 16）：与 fillTasks 同一服务实现，HTTP 层经此订阅 SSE。 */
+  readonly fillTaskEvents: FillTaskEventBus;
   readonly cleaningRules: CleaningRuleManager;
 }
 
@@ -116,7 +119,7 @@ export async function buildServer(dependencies: ServerDependencies): Promise<Fas
   registerMemoryFieldRoutes(server, dependencies.memoryTables, dependencies.memoryFields);
   registerMemoryRecordRoutes(server, dependencies.memoryRecords, dependencies.memoryRecordQueries);
   registerChatRoutes(server, dependencies.chat);
-  registerFillTaskRoutes(server, dependencies.fillTasks);
+  registerFillTaskRoutes(server, dependencies.fillTasks, dependencies.fillTaskEvents);
   registerCleaningRuleRoutes(server, dependencies.cleaningRules);
 
   return server;

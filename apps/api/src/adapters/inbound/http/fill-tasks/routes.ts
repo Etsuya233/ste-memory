@@ -1,9 +1,11 @@
 /**
- * 填表任务端点（ticket 13）：
+ * 填表任务端点（ticket 13/14/16）：
  *
  * - POST /memory-spaces/:spaceId/fill-tasks：提交后台填表任务（202 + 任务视图）；
  *   冲突（该空间已有非终态任务）409 携带当前任务；空间不存在 404；范围/配置无效 400。
  * - GET /memory-spaces/:spaceId/fill-tasks/active：当前非终态任务（无则 null）。
+ * - GET /memory-spaces/:spaceId/fill-tasks/:runId/events（ticket 16）：SSE 实时运行输出，
+ *   先回放缓冲再实时转发；Last-Event-ID 断线续传；终态 task_status 后关闭流。
  *
  * 任务轮询、暂停/恢复/中止等完整状态接口归 ticket 14。
  */
@@ -19,6 +21,12 @@ import {
 } from "../../../../application/fill-tasks/fill-task-service.ts";
 import type { FillTaskManager } from "../../../../application/ports/fill-task-manager.ts";
 import type { LlmWebConfig } from "../../../../application/chat/llm-config.ts";
+import {
+  isTerminalFillTaskStatus,
+  type AgentRunEventEntry,
+  type FillTaskEventBus,
+} from "../../../../application/ports/fill-task-events.ts";
+import { streamSse } from "../sse.ts";
 
 interface SpaceIdParams {
   readonly spaceId: string;
@@ -36,7 +44,11 @@ interface SubmitBody {
   readonly config?: unknown;
 }
 
-export function registerFillTaskRoutes(server: FastifyInstance, fillTasks: FillTaskManager): void {
+export function registerFillTaskRoutes(
+  server: FastifyInstance,
+  fillTasks: FillTaskManager,
+  events: FillTaskEventBus,
+): void {
   server.get<{ Params: SpaceIdParams }>(
     "/memory-spaces/:spaceId/fill-tasks/active",
     async (request) => {
@@ -81,6 +93,60 @@ export function registerFillTaskRoutes(server: FastifyInstance, fillTasks: FillT
       },
     );
   }
+
+  // 实时运行输出（ticket 16）：订阅事件流，先回放缓冲再实时转发。
+  // 任务不存在/不属于该空间在 SSE 头之前返回 404；终态 task_status 后正常关闭。
+  server.get<{ Params: SpaceIdRunIdParams }>(
+    "/memory-spaces/:spaceId/fill-tasks/:runId/events",
+    async (request, reply) => {
+      const spaceId = request.params.spaceId as MemorySpaceId;
+      const runId = request.params.runId;
+      const afterSeq = parseLastEventId(request.headers["last-event-id"]);
+      // 先订阅（含缓冲回放）：流接管前到达的事件先入 pending，流启动后按序冲刷。
+      const pending: AgentRunEventEntry[] = [];
+      let streaming = false;
+      let sendEntry: ((entry: AgentRunEventEntry) => void) | undefined;
+      const unsubscribe = await events.subscribe(spaceId, runId, afterSeq, (entry) => {
+        if (streaming) sendEntry?.(entry);
+        else pending.push(entry);
+      });
+      if (unsubscribe === undefined) {
+        return reply.code(404).send({ type: "fill_task_not_found", message: "填表任务不存在" });
+      }
+
+      await streamSse(
+        request,
+        reply,
+        (send, signal) =>
+          new Promise<void>((resolve) => {
+            let finished = false;
+            const finish = () => {
+              if (finished) return;
+              finished = true;
+              unsubscribe();
+              resolve();
+            };
+            // 客户端断开只退订，绝不中止任务（与 chat 的断开即中止相反）；
+            // 中止仍经 POST .../cancel 控制端点在安全点生效。
+            signal.addEventListener("abort", finish, { once: true });
+            sendEntry = (entry) => {
+              send(entry, { id: String(entry.seq) });
+              if (isTerminalFillTaskStatus(entry.event)) finish();
+            };
+            streaming = true;
+            for (const entry of pending) sendEntry(entry);
+          }),
+      );
+    },
+  );
+}
+
+/** Last-Event-ID 解析：非正整数视为未提供（回放全部缓冲）。 */
+function parseLastEventId(value: string | string[] | undefined): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function asFiniteNumber(value: unknown): number {
