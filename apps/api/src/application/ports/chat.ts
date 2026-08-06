@@ -1,5 +1,5 @@
 import type { MemorySpaceId } from "@ste-memory/core/memory";
-import type { AgentRunEvent, ChatCommitResult } from "../agent-events.ts";
+import type { AgentRunEvent } from "../agent-events.ts";
 import type { LlmConfigInfo, LlmWebConfig, ResolvedLlmConfig } from "../chat/llm-config.ts";
 
 /** 聊天 Agent 预设：query（只读查询）/ proposal（交互式填写，查询 + 变更）。 */

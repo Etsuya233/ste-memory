@@ -196,7 +196,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
         <aside className="sidebar-rail">
           <IconButton
             label="展开侧栏"
-           
+
             onClick={toggleSidebar}
           >
             <PanelLeftOpen size={17} />
@@ -233,7 +233,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
               actions={
                 <IconButton
                   label="刷新列表"
-                 
+
                   disabled={props.loadingSpaces}
                   onClick={props.onRefreshSpaces}
                 >
@@ -316,7 +316,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
         <aside className="inspector-rail">
           <IconButton
             label="展开检查器"
-           
+
             onClick={() => setInspectorCollapsed(false)}
           >
             <PanelRightOpen size={17} />
@@ -328,7 +328,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
             <h3>检查器</h3>
             <IconButton
               label="收起检查器"
-             
+
               onClick={() => setInspectorCollapsed(true)}
             >
               <PanelRightClose size={15} />
@@ -352,6 +352,7 @@ export function MemoryWorkspace(props: MemoryWorkspaceProps) {
               );
               setRecordRefreshVersion((value) => value + 1);
             }}
+            onRefreshRecords={() => setRecordRefreshVersion((value) => value + 1)}
             onEvidenceSelect={(sourceIds, missingIds) => {
               setHighlightedSourceIds(sourceIds);
               setMissingSourceIds(missingIds);

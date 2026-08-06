@@ -14,7 +14,11 @@ import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { FastifyInstance } from "fastify";
 import { ChatSpaceNotFoundError } from "../../../../application/chat/chat-manager.ts";
 import { LlmConfigError, type LlmWebConfig } from "../../../../application/chat/llm-config.ts";
-import type { ChatManager, ChatMessageInput, ChatAgentKind } from "../../../../application/ports/chat.ts";
+import type {
+  ChatManager,
+  ChatMessageInput,
+  ChatAgentKind,
+} from "../../../../application/ports/chat.ts";
 import { streamSse } from "../sse.ts";
 
 /** 单次请求回传的历史消息上限（对话历史随请求回传，做个合理的防滥用护栏）。 */

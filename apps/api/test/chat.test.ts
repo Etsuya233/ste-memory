@@ -536,9 +536,13 @@ describe("POST /memory-spaces/:spaceId/chat（agent: proposal）", () => {
       SUBMIT_PROPOSAL_TOOL_NAME,
     ]);
     const preview = events.find(
-      (event) => event.type === "tool_result" && (event as { name: string }).name === PROPOSAL_PREVIEW_TOOL_NAME,
+      (event) =>
+        event.type === "tool_result" &&
+        (event as { name: string }).name === PROPOSAL_PREVIEW_TOOL_NAME,
     );
-    expect(preview && "result" in preview ? (preview as { result: unknown }).result : undefined).toMatchObject({
+    expect(
+      preview && "result" in preview ? (preview as { result: unknown }).result : undefined,
+    ).toMatchObject({
       valid: true,
     });
 

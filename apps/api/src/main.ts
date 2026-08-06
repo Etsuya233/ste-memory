@@ -101,7 +101,11 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
       createRevisionId: () => randomUUID() as MemoryRevisionId,
       now: () => new Date().toISOString(),
-      displayText: (table: Parameters<typeof computeMemoryRecordDisplayText>[2], fields: Parameters<typeof computeMemoryRecordDisplayText>[3], payload: Parameters<typeof computeMemoryRecordDisplayText>[4]) =>
+      displayText: (
+        table: Parameters<typeof computeMemoryRecordDisplayText>[2],
+        fields: Parameters<typeof computeMemoryRecordDisplayText>[3],
+        payload: Parameters<typeof computeMemoryRecordDisplayText>[4],
+      ) =>
         computeMemoryRecordDisplayText(
           memoryRecordRepository,
           table.memorySpaceId,

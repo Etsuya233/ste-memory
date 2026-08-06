@@ -13,10 +13,7 @@ import {
   type LlmPort,
   type MemorySpaceReader,
 } from "@ste-memory/core/memory/agent";
-import type {
-  MemoryProposalPorts,
-  MemoryProposalSubmission,
-} from "@ste-memory/core/memory";
+import type { MemoryProposalPorts, MemoryProposalSubmission } from "@ste-memory/core/memory";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type {
@@ -26,7 +23,11 @@ import type {
   ChatRunHooks,
   PreparedChat,
 } from "../ports/chat.ts";
-import { terminalAgentRunEvent, translateAgentEvent, type ChatCommitResult } from "../agent-events.ts";
+import {
+  terminalAgentRunEvent,
+  translateAgentEvent,
+  type ChatCommitResult,
+} from "../agent-events.ts";
 import {
   llmConfigInfo,
   resolveLlmConfig,

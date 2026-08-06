@@ -20,7 +20,10 @@ import {
 import { buildMemorySpaceTableDigest } from "./digest.ts";
 import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
-import { composeProposalAgentSystemPrompt, type ProposalSystemPromptComposer } from "./prompt-composer.ts";
+import {
+  composeProposalAgentSystemPrompt,
+  type ProposalSystemPromptComposer,
+} from "./prompt-composer.ts";
 import { createProposalPreviewTool } from "./tools/proposal/proposal-preview-tool.ts";
 import { ProposalState } from "./tools/proposal/proposal-state.ts";
 import { createDropMutateTool } from "./tools/proposal/drop-mutate-tool.ts";

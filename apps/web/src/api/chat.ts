@@ -9,6 +9,19 @@ export interface ChatHistoryMessage {
   readonly content: string;
 }
 
+/** 聊天 Agent 预设：query（只读查询）/ proposal（交互式填写，查询 + 变更）。 */
+export type ChatAgentKind = "query" | "proposal";
+
+/** 服务端自动提交冻结提案的结果（done 事件携带；ADR 0019 交互式填写自动落库）。 */
+export type ChatCommitResult =
+  | {
+      readonly status: "committed";
+      readonly created: number;
+      readonly updated: number;
+      readonly deleted: number;
+    }
+  | { readonly status: "failed"; readonly error: string };
+
 /** 网页 LLM 配置；空字符串 = 未填写（服务端逐字段回退环境变量）。 */
 export interface LlmWebConfig {
   readonly baseUrl: string;
@@ -41,7 +54,13 @@ export type ChatEvent =
       readonly result: unknown;
       readonly isError: boolean;
     }
-  | { readonly type: "done"; readonly stopReason: string; readonly errorMessage: string | null }
+  | {
+      readonly type: "done";
+      readonly stopReason: string;
+      readonly errorMessage: string | null;
+      /** 交互式填写自动提交的结果；未产生提案（无提交）时缺省。 */
+      readonly commit?: ChatCommitResult;
+    }
   | { readonly type: "error"; readonly message: string };
 
 export class ChatHttpError extends Error {
@@ -64,6 +83,7 @@ export async function fetchLlmConfigInfo(): Promise<LlmConfigInfo> {
 
 /**
  * SSE 流式对话：解析 data 行并逐条回调 onEvent。
+ * - agent：聊天 Agent 预设（query / proposal），缺省 query；
  * - 非 2xx：抛 ChatHttpError（预检错误，如配置缺失/空间不存在）；
  * - 网络错误：包装为可读信息抛出；
  * - 取消：signal.abort() 后抛 AbortError（调用方按 signal.aborted 区分）。
@@ -72,6 +92,7 @@ export async function streamChat(
   spaceId: string,
   messages: readonly ChatHistoryMessage[],
   config: LlmWebConfig,
+  agent: ChatAgentKind,
   signal: AbortSignal,
   onEvent: (event: ChatEvent) => void,
 ): Promise<void> {
@@ -80,7 +101,7 @@ export async function streamChat(
     response = await fetch(`${API_URL}/memory-spaces/${spaceId}/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages, config }),
+      body: JSON.stringify({ messages, config, agent }),
       signal,
     });
   } catch (error) {

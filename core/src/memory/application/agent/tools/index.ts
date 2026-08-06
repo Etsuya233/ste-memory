@@ -23,7 +23,10 @@ export type {
   ProposalStateOperation,
   ProposalStateOperationInput,
 } from "./proposal/proposal-state.ts";
-export { compileProposalOperation, compileProposalOperations } from "./proposal/proposal-compiler.ts";
+export {
+  compileProposalOperation,
+  compileProposalOperations,
+} from "./proposal/proposal-compiler.ts";
 export { ProposalToolError } from "./proposal/proposal-tool-error.ts";
 export { MUTATE_TOOL_NAME, createMutateTool } from "./proposal/mutate-tool.ts";
 export type {
@@ -31,7 +34,10 @@ export type {
   MutateToolParams,
   MutateToolResult,
 } from "./proposal/mutate-tool.ts";
-export { PROPOSAL_PREVIEW_TOOL_NAME, createProposalPreviewTool } from "./proposal/proposal-preview-tool.ts";
+export {
+  PROPOSAL_PREVIEW_TOOL_NAME,
+  createProposalPreviewTool,
+} from "./proposal/proposal-preview-tool.ts";
 export type {
   ProposalPreviewToolDependencies,
   ProposalPreviewToolParams,
@@ -43,7 +49,10 @@ export type {
   DropMutateToolParams,
   DropMutateToolResult,
 } from "./proposal/drop-mutate-tool.ts";
-export { SUBMIT_PROPOSAL_TOOL_NAME, createSubmitProposalTool } from "./proposal/submit-proposal-tool.ts";
+export {
+  SUBMIT_PROPOSAL_TOOL_NAME,
+  createSubmitProposalTool,
+} from "./proposal/submit-proposal-tool.ts";
 export type {
   SubmitProposalToolDependencies,
   SubmitProposalToolResult,

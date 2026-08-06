@@ -130,7 +130,11 @@ export async function createTestApplication(
     createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
     createRevisionId: () => randomUUID() as MemoryRevisionId,
     now: () => timestamp,
-    displayText: (table: Parameters<typeof computeMemoryRecordDisplayText>[2], tableFields: Parameters<typeof computeMemoryRecordDisplayText>[3], payload: Parameters<typeof computeMemoryRecordDisplayText>[4]) =>
+    displayText: (
+      table: Parameters<typeof computeMemoryRecordDisplayText>[2],
+      tableFields: Parameters<typeof computeMemoryRecordDisplayText>[3],
+      payload: Parameters<typeof computeMemoryRecordDisplayText>[4],
+    ) =>
       computeMemoryRecordDisplayText(
         recordRepository,
         table.memorySpaceId,

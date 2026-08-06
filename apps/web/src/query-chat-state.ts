@@ -2,7 +2,7 @@
  * 聊天面板的纯状态变换：消息列表构建 / SSE 事件应用 / 历史收尾。
  * 与 React 无关，便于单测（见 query-chat-state.test.ts）。
  */
-import type { ChatEvent, ChatHistoryMessage } from "./api/chat.ts";
+import type { ChatCommitResult, ChatEvent, ChatHistoryMessage } from "./api/chat.ts";
 
 export interface ToolCallCard {
   readonly callId: string;
@@ -22,6 +22,8 @@ export type ChatUiMessage =
       readonly thinking: string;
       readonly toolCalls: readonly ToolCallCard[];
       readonly error?: string;
+      /** 交互式填写自动落库的结果（done 事件携带）。 */
+      readonly commit?: ChatCommitResult;
     };
 
 export function createUserMessage(id: string, text: string): ChatUiMessage {
@@ -66,7 +68,7 @@ export function applyChatEvent(
           ),
         };
       case "done":
-        return { ...message, status: "done" };
+        return { ...message, status: "done", commit: event.commit };
       case "error":
         return { ...message, status: "error", error: event.message };
     }
