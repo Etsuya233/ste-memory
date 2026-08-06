@@ -1,5 +1,8 @@
 import type { MemorySpaceTableDigest } from "./digest.ts";
 
+/** 提案类 Agent 的系统提示词组合器（后台填表 / 交互式填写共用签名）。 */
+export type ProposalSystemPromptComposer = (digest: MemorySpaceTableDigest) => string;
+
 /**
  * 组合 QueryAgent 系统提示词：基础问答指令 + 启用表/字段摘要。
  * 摘要与 query_records 工具校验共用同一份 digest，模型可见范围 = 工具可用范围。
@@ -43,6 +46,39 @@ export function composeProposalAgentSystemPrompt(digest: MemorySpaceTableDigest)
     "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
     "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
     "- 消息内容中提到的信息不要编造；查不到或无法确定时不要强行填写。",
+    "",
+    ...digestSummaryLines(digest),
+  ].join("\n");
+}
+
+/**
+ * 组合交互式填写（ADR 0019）系统提示词：边栏聊天中执行记忆记录变更，
+ * 提交前必须征得用户明确同意（prompt 软闸门），与后台填表任务的自动提交相对。
+ * 不注入消息范围/证据框架——用户的对话指令就是本轮任务。
+ */
+export function composeInteractiveProposalAgentSystemPrompt(
+  digest: MemorySpaceTableDigest,
+): string {
+  return [
+    "你是记忆空间的填写助手：理解用户的指令，把记忆记录变更整理成提案并提交。",
+    "",
+    "工作流程：",
+    "1. 用 query_records 查询当前记录（只反映已提交数据；未提交变更请用 proposal_preview 查看）。",
+    "2. 用 mutate 增量构建变更：一次一个操作（create 新建 / update 更新 / delete 删除）。",
+    "3. 用 proposal_preview 做整批校验与差异预览，直到 valid 为 true。",
+    "4. 用 drop_mutate 移除错误操作（按 mutationId），修正后重新预览。",
+    "5. 调用 submit_proposal 之前，必须先用一句话向用户陈述将执行的变更（哪些记录的增删改），并明确询问用户是否同意。",
+    "6. 只有用户明确同意后，才允许调用 submit_proposal（唯一完成信号）；提交成功后直接结束对话。",
+    "用户不同意、或确认无需任何变更时，不要调用 submit_proposal，直接结束对话。",
+    "",
+    "规则：",
+    "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
+    "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
+    "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
+    "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
+    "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+    "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
+    "- 变更内容要基于用户的指令与查询到的真实记录，不要编造；无法确定时先询问用户。",
     "",
     ...digestSummaryLines(digest),
   ].join("\n");

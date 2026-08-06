@@ -1,12 +1,12 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { MemoryFieldValue } from "../../domain/index.ts";
+import type { MemoryFieldValue } from "../../../../domain/index.ts";
 import {
   MEMORY_PROPOSAL_TEMP_ID_PREFIX,
   isProposalTempId,
   type MemoryProposalError,
   type MemoryProposalOperation,
-} from "../memory-proposal.ts";
+} from "../../../memory-proposal.ts";
 import {
   availableFieldKeys,
   availableTableKeys,
@@ -14,7 +14,7 @@ import {
   findTableInDigest,
   type MemorySpaceTableDigest,
   type MemoryTableDigest,
-} from "./digest.ts";
+} from "../../digest.ts";
 import { compileProposalOperation } from "./proposal-compiler.ts";
 import { ProposalToolError } from "./proposal-tool-error.ts";
 import type { ProposalState, ProposalStateOperationInput } from "./proposal-state.ts";

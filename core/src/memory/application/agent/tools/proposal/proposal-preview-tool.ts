@@ -1,11 +1,11 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { MemoryProposalError, MemoryProposalOperation } from "../memory-proposal.ts";
+import type { MemoryProposalError, MemoryProposalOperation } from "../../../memory-proposal.ts";
 import type {
   MemoryProposalPreview,
   MemoryProposalPreviewOperation,
-} from "../memory-proposal-preview.ts";
-import { availableTableKeys, findTableInDigest, type MemorySpaceTableDigest } from "./digest.ts";
+} from "../../../memory-proposal-preview.ts";
+import { availableTableKeys, findTableInDigest, type MemorySpaceTableDigest } from "../../digest.ts";
 import { compileProposalOperations } from "./proposal-compiler.ts";
 import { ProposalToolError } from "./proposal-tool-error.ts";
 import type { ProposalState } from "./proposal-state.ts";

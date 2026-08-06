@@ -20,13 +20,13 @@ import {
 import { buildMemorySpaceTableDigest } from "./digest.ts";
 import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
-import { composeProposalAgentSystemPrompt } from "./prompt-composer.ts";
-import { createProposalPreviewTool } from "./proposal-preview-tool.ts";
-import { ProposalState } from "./proposal-state.ts";
-import { createDropMutateTool } from "./drop-mutate-tool.ts";
-import { createMutateTool } from "./mutate-tool.ts";
-import { createSubmitProposalTool } from "./submit-proposal-tool.ts";
-import { createQueryRecordsTool } from "./query-records-tool.ts";
+import { composeProposalAgentSystemPrompt, type ProposalSystemPromptComposer } from "./prompt-composer.ts";
+import { createProposalPreviewTool } from "./tools/proposal/proposal-preview-tool.ts";
+import { ProposalState } from "./tools/proposal/proposal-state.ts";
+import { createDropMutateTool } from "./tools/proposal/drop-mutate-tool.ts";
+import { createMutateTool } from "./tools/proposal/mutate-tool.ts";
+import { createSubmitProposalTool } from "./tools/proposal/submit-proposal-tool.ts";
+import { createQueryRecordsTool } from "./tools/query/query-records-tool.ts";
 
 /** 单次 run 的总超时：5 分钟（对齐 QueryAgent）。 */
 export const DEFAULT_PROPOSAL_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -37,6 +37,8 @@ export interface ProposalAgentOptions {
   readonly reader: MemorySpaceReader;
   /** 提案校验/预览所需的领域访问端口（与提交 13 共用同一组 repository）。 */
   readonly ports: MemoryProposalPorts;
+  /** 系统提示词组合器：默认后台填表指令；交互式宿主可注入自定义组合器（如交互式填写）。 */
+  readonly composeSystemPrompt?: ProposalSystemPromptComposer;
   /** 单次 run 总超时（毫秒），默认 5 分钟。 */
   readonly timeoutMs?: number;
 }
@@ -68,12 +70,14 @@ export class ProposalAgent {
   readonly #llm: LlmPort;
   readonly #reader: MemorySpaceReader;
   readonly #ports: MemoryProposalPorts;
+  readonly #composeSystemPrompt: ProposalSystemPromptComposer;
   readonly #timeoutMs: number;
 
   constructor(options: ProposalAgentOptions) {
     this.#llm = options.llm;
     this.#reader = options.reader;
     this.#ports = options.ports;
+    this.#composeSystemPrompt = options.composeSystemPrompt ?? composeProposalAgentSystemPrompt;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_PROPOSAL_AGENT_TIMEOUT_MS;
   }
 
@@ -100,7 +104,7 @@ export class ProposalAgent {
 
     const agent = new Agent({
       initialState: {
-        systemPrompt: composeProposalAgentSystemPrompt(digest),
+        systemPrompt: this.#composeSystemPrompt(digest),
         model: this.#llm.model,
         tools: [
           createQueryRecordsTool({ reader: this.#reader, digest }),

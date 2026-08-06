@@ -1,5 +1,5 @@
-import type { MemoryFieldValue } from "../../domain/index.ts";
-import type { MemoryProposalSubmission } from "../memory-proposal-preview.ts";
+import type { MemoryFieldValue } from "../../../../domain/index.ts";
+import type { MemoryProposalSubmission } from "../../../memory-proposal-preview.ts";
 
 /** 会话内提案操作（key 级，模型视角）：mutate 累加/覆盖到 State，编译时映射为 id 级。 */
 export interface ProposalStateOperation {
