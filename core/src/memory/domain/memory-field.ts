@@ -31,6 +31,12 @@ export interface MemoryField {
   readonly position: number;
   readonly options: readonly string[];
   readonly referenceTableId: MemoryTableId | null;
+  /** 文本类字段值长度上限（字符数）；null 表示不限。 */
+  readonly maxChars: number | null;
+  /** 文本类字段非空值的格式校验正则；null 表示不校验。 */
+  readonly valuePattern: string | null;
+  /** 格式校验失败时回喂 Agent 的错误说明（人类可读，含示例）。 */
+  readonly valuePatternMessage: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -56,15 +62,18 @@ export function memoryFieldKey(value: string): MemoryFieldKey {
 export interface MemoryFieldConfiguration {
   readonly options: readonly string[];
   readonly referenceTableId: MemoryTableId | null;
+  /** 文本类字段（short_text/long_text/short_text_list）的值长度上限（字符数）；null 表示不限。 */
+  readonly maxChars: number | null;
 }
 
 export function memoryFieldConfiguration(
   type: MemoryFieldType,
-  options: readonly string[],
+  options: readonly string[] | null,
   referenceTableId: MemoryTableId | null,
+  maxChars: number | null,
 ): MemoryFieldConfiguration {
   const isSelect = type === "single_select" || type === "multi_select";
-  const normalizedOptions = isSelect ? options.map((option) => option.trim()) : [];
+  const normalizedOptions = isSelect ? (options ?? []).map((option) => option.trim()) : [];
   if (
     isSelect &&
     (normalizedOptions.length === 0 ||
@@ -83,9 +92,16 @@ export function memoryFieldConfiguration(
       humanMsg: "引用字段的目标表必须属于当前记忆空间",
     });
   }
+  if (maxChars !== null && (!Number.isInteger(maxChars) || maxChars < 1)) {
+    throw new DomainError({
+      type: "memory_field_max_chars_invalid",
+      humanMsg: "字段长度上限必须是正整数",
+    });
+  }
   return {
     options: normalizedOptions,
     referenceTableId: isReference ? referenceTableId : null,
+    maxChars,
   };
 }
 
@@ -105,6 +121,25 @@ export function memoryFieldName(value: string): string {
     });
   }
   return name;
+}
+
+/**
+ * 字段值格式校验正则（可选）：合法时返回规范化值（trim 后），
+ * 空/null 返回 null（不校验），非法正则抛错。
+ */
+export function memoryFieldValuePattern(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const pattern = value.trim();
+  if (pattern.length === 0) return null;
+  try {
+    new RegExp(pattern);
+  } catch {
+    throw new DomainError({
+      type: "memory_field_pattern_invalid",
+      humanMsg: "字段值格式校验必须是合法正则表达式",
+    });
+  }
+  return pattern;
 }
 
 export function memoryFieldPosition(value: number): number {

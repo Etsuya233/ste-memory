@@ -6,6 +6,8 @@ import { plotStartEndTimeMigration } from "./migrations/0003-plot-start-end-time
 import { fillTaskMigration } from "./migrations/0004-fill-tasks.ts";
 import { cleaningRulesMigration } from "./migrations/0005-cleaning-rules.ts";
 import { fillTaskLifecycleMigration } from "./migrations/0006-fill-task-lifecycle.ts";
+import { fieldMaxCharsMigration } from "./migrations/0007-field-max-chars.ts";
+import { fieldValuePatternMigration } from "./migrations/0008-value-pattern.ts";
 import type { DatabaseSchema } from "./schema/database.ts";
 
 export const migrations: MigrationProvider = {
@@ -17,6 +19,8 @@ export const migrations: MigrationProvider = {
       "0004-fill-tasks": fillTaskMigration,
       "0005-cleaning-rules": cleaningRulesMigration,
       "0006-fill-task-lifecycle": fillTaskLifecycleMigration,
+      "0007-field-max-chars": fieldMaxCharsMigration,
+      "0008-value-pattern": fieldValuePatternMigration,
     };
   },
 };

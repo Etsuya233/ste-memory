@@ -97,7 +97,7 @@ describe("memory space API", () => {
       method: "GET",
       url: `/memory-spaces/${space.id}/tables`,
     });
-    expect(tables.json<{ key: string }[]>()).toHaveLength(7);
+    expect(tables.json<{ key: string }[]>()).toHaveLength(8);
     expect(new Set(tables.json<{ key: string }[]>().map((table) => table.key))).toEqual(
       new Set([
         "characters",
@@ -107,6 +107,7 @@ describe("memory space API", () => {
         "plots",
         "foreshadowing",
         "todos",
+        "story_state",
       ]),
     );
     const characterTable = tables

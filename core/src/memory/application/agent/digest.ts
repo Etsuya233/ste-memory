@@ -23,6 +23,10 @@ export interface MemoryFieldDigest {
   readonly required: boolean;
   readonly options: readonly string[];
   readonly referenceTableKey: MemoryTableKey | null;
+  /** 文本类字段值长度上限（字符数）；null 表示不限。 */
+  readonly maxChars: number | null;
+  /** 文本类字段非空值的格式要求说明（人类可读，含示例）；null 表示无格式要求。 */
+  readonly valuePatternMessage: string | null;
 }
 
 /** 单个启用表的 schema 摘要；`id` 仅用于工具内部 key→id 映射，不进提示词。 */
@@ -94,6 +98,8 @@ function digestField(
     referenceTableKey: field.referenceTableId
       ? (tableKeyById.get(field.referenceTableId) ?? null)
       : null,
+    maxChars: field.maxChars,
+    valuePatternMessage: field.valuePatternMessage,
   };
 }
 

@@ -24,6 +24,9 @@ function toMemoryField(row: MemoryFieldsTable): MemoryField {
     position: row.position,
     options: JSON.parse(row.options_json) as string[],
     referenceTableId: row.reference_table_id as MemoryTableId | null,
+    maxChars: row.max_chars,
+    valuePattern: row.value_pattern,
+    valuePatternMessage: row.value_pattern_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -52,6 +55,9 @@ export class KyselyMemoryFieldRepository implements MemoryFieldRepository {
         position: field.position,
         options_json: JSON.stringify(field.options),
         reference_table_id: field.referenceTableId,
+        max_chars: field.maxChars,
+        value_pattern: field.valuePattern,
+        value_pattern_message: field.valuePatternMessage,
         created_at: field.createdAt,
         updated_at: field.updatedAt,
       })
@@ -126,6 +132,9 @@ export class KyselyMemoryFieldRepository implements MemoryFieldRepository {
         position: field.position,
         options_json: JSON.stringify(field.options),
         reference_table_id: field.referenceTableId,
+        max_chars: field.maxChars,
+        value_pattern: field.valuePattern,
+        value_pattern_message: field.valuePatternMessage,
         updated_at: field.updatedAt,
       })
       .where("memory_space_id", "=", field.memorySpaceId)

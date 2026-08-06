@@ -121,7 +121,7 @@ class MemoryRepository
 }
 
 const spaceId = "space-1" as MemorySpaceId;
-const tableIds = Array.from({ length: 7 }, (_, index) => `table-${index + 1}` as MemoryTableId);
+const tableIds = Array.from({ length: 8 }, (_, index) => `table-${index + 1}` as MemoryTableId);
 const now = "2026-07-28T00:00:00.000Z";
 
 describe("system memory table initialization", () => {
@@ -151,7 +151,7 @@ describe("system memory table initialization", () => {
       ),
     ).install(space.id);
 
-    expect(repository.tables).toHaveLength(7);
+    expect(repository.tables).toHaveLength(8);
     expect(repository.tables.map(({ key, name }) => [key, name])).toEqual([
       ["characters", "人物"],
       ["relationships", "人际关系"],
@@ -160,6 +160,7 @@ describe("system memory table initialization", () => {
       ["plots", "剧情"],
       ["foreshadowing", "伏笔"],
       ["todos", "待办"],
+      ["story_state", "世界状态"],
     ]);
     expect(repository.tables.every((table) => table.kind === "system" && table.enabled)).toBe(true);
     expect(repository.tables.every((table) => table.prompt.length > 0)).toBe(true);
@@ -205,63 +206,81 @@ describe("system memory table initialization", () => {
       ["appearance", "外貌特征"],
       ["background", "背景/经历"],
       ["current_status", "当前状态"],
-      ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("relationships")!].map(({ key, name }) => [key, name])).toEqual([
       ["character_a", "人物 A"],
       ["character_b", "人物 B"],
-      ["description", "关系描述"],
+      ["summary", "关系定性"],
       ["current_status", "当前状态"],
       ["key_facts", "关键事实"],
-      ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("locations")!].map(({ key, name }) => [key, name])).toEqual([
       ["name", "名称"],
       ["type", "地点类型"],
-      ["details", "详细地点文本"],
+      ["details", "固定描述"],
       ["current_status", "当前状态"],
       ["related_characters", "相关人物"],
       ["related_items", "相关物品"],
-      ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("items")!].map(({ key, name }) => [key, name])).toEqual([
       ["name", "名称"],
       ["type", "物品类型"],
       ["owner", "持有者/所属人物"],
       ["current_location", "当前位置"],
-      ["current_status", "状态"],
+      ["status", "状态"],
       ["key_attributes", "关键属性"],
-      ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("plots")!].map(({ key, name }) => [key, name])).toEqual([
       ["name", "名称"],
-      ["details", "详情"],
+      ["details", "进度摘要"],
       ["related_characters", "相关人物"],
       ["related_locations", "相关地点"],
       ["status", "状态"],
-      ["start_time", "开始时间"],
-      ["end_time", "结束时间"],
-      ["notes", "备注"],
+      ["time_hint", "发生时间"],
     ]);
     expect([...fieldsByTable.get("foreshadowing")!].map(({ key, name }) => [key, name])).toEqual([
       ["name", "名称"],
-      ["details", "详情"],
+      ["setup", "线索"],
       ["related_characters", "相关人物"],
       ["related_locations", "相关地点"],
       ["status", "状态"],
       ["resolution_plan", "计划回收信息"],
-      ["notes", "备注"],
     ]);
     expect([...fieldsByTable.get("todos")!].map(({ key, name }) => [key, name])).toEqual([
       ["name", "名称"],
-      ["details", "详情"],
+      ["details", "行动内容"],
       ["related_characters", "相关人物"],
       ["related_locations", "相关地点"],
       ["priority", "优先级"],
       ["status", "状态"],
-      ["due_date", "截止日期"],
-      ["notes", "备注"],
+      ["relative_due", "期望时间"],
     ]);
+    expect([...fieldsByTable.get("story_state")!].map(({ key, name }) => [key, name])).toEqual([
+      ["name", "名称"],
+      ["current_time", "当前时间"],
+      ["current_location", "当前地点"],
+      ["weather", "天气"],
+      ["clothing", "当日着装"],
+    ]);
+    expect(fieldsByTable.get("story_state")!.slice(1, 5)).toMatchObject([
+      {
+        type: "short_text",
+        key: "current_time",
+        maxChars: 30,
+        valuePattern: "^第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+$",
+        valuePatternMessage: expect.stringContaining("第 N 天·时段"),
+      },
+      { type: "short_text", key: "current_location", maxChars: 30, valuePattern: null },
+      { type: "short_text", key: "weather", maxChars: 30, valuePattern: null },
+      { type: "short_text", key: "clothing", maxChars: 60, valuePattern: null },
+    ]);
+    expect(fieldsByTable.get("story_state")![0]).toMatchObject({
+      key: "name",
+      valuePattern: "^世界状态$",
+    });
+    expect(fieldsByTable.get("plots")!.find((field) => field.key === "time_hint")).toMatchObject({
+      valuePattern: "^第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+$",
+    });
 
     const characters = repository.tables.find((table) => table.key === "characters")!;
     const relationships = repository.tables.find((table) => table.key === "relationships")!;
@@ -296,7 +315,7 @@ describe("system memory table initialization", () => {
     expect(fieldsByTable.get("todos")!.slice(4, 7)).toMatchObject([
       { type: "single_select", options: ["高", "中", "低"] },
       { type: "single_select", options: ["待处理", "进行中", "已完成", "已放弃"] },
-      { type: "date" },
+      { type: "short_text", key: "relative_due" },
     ]);
     for (const table of repository.tables.filter((table) => table.key !== "relationships")) {
       const name = fieldsByTable.get(table.key)![0]!;

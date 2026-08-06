@@ -5,6 +5,7 @@ export {
   memoryFieldKey,
   memoryFieldName,
   memoryFieldPosition,
+  memoryFieldValuePattern,
 } from "./memory-field.ts";
 export type {
   MemoryField,

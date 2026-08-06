@@ -37,6 +37,9 @@ describe("MemoryFieldService", () => {
       position: 0,
       options: ["进行中", "已解决"],
       referenceTableId: null,
+      maxChars: null,
+      valuePattern: null,
+      valuePatternMessage: null,
       createdAt: now,
       updatedAt: now,
     });

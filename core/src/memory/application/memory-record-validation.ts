@@ -13,6 +13,52 @@ function invalid(field: MemoryField): never {
   });
 }
 
+function tooLong(field: MemoryField, valueLength: number): never {
+  throw new DomainError({
+    type: "memory_record_field_value_too_long",
+    param: { fieldId: field.id, maxChars: field.maxChars ?? 0, actualLength: valueLength },
+    humanMsg: `字段“${field.name}”的值长度 ${valueLength} 超过上限 ${field.maxChars} 字；请压缩、合并或删除旧内容后再提交`,
+  });
+}
+
+function patternMismatch(field: MemoryField, value: string): never {
+  const snippet = value.length > 40 ? `${value.slice(0, 40)}…` : value;
+  const guidance = field.valuePatternMessage
+    ? field.valuePatternMessage
+    : `必须匹配格式 ${field.valuePattern}`;
+  throw new DomainError({
+    type: "memory_record_field_value_pattern_mismatch",
+    param: { fieldId: field.id },
+    humanMsg: `字段“${field.name}”的值「${snippet}」不符合格式要求：${guidance}；请修正后重新提交`,
+  });
+}
+
+/** 文本类字段长度校验：有 maxChars 上限时对字符串（含数组元素）逐项检查。 */
+function checkLength(field: MemoryField, value: unknown): void {
+  if (field.maxChars === null) return;
+  if (typeof value === "string") {
+    if (value.length > field.maxChars) tooLong(field, value.length);
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.length > field.maxChars) tooLong(field, item.length);
+    }
+  }
+}
+
+/** 文本类字段格式校验：有 valuePattern 时非空字符串（含数组元素）必须匹配。 */
+function checkPattern(field: MemoryField, value: unknown): void {
+  if (field.valuePattern === null) return;
+  const pattern = new RegExp(field.valuePattern);
+  if (typeof value === "string") {
+    if (value.length > 0 && !pattern.test(value)) patternMismatch(field, value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.length > 0 && !pattern.test(item))
+        patternMismatch(field, item);
+    }
+  }
+}
+
 function isDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -45,9 +91,13 @@ export function validateMemoryFieldValue(field: MemoryField, value: unknown): Me
     case "long_text":
       if (typeof value !== "string" || (field.required && value.trim().length === 0))
         invalid(field);
+      checkLength(field, value);
+      checkPattern(field, value);
       return value;
     case "short_text_list":
       if (!isDistinctStrings(value) || (field.required && value.length === 0)) invalid(field);
+      checkLength(field, value);
+      checkPattern(field, value);
       return value;
     case "integer":
       if (typeof value !== "number" || !Number.isInteger(value)) invalid(field);

@@ -69,6 +69,8 @@ function fieldLineSuffix(
 ): string {
   const parts: string[] = [];
   if (field.required) parts.push("必填");
+  if (field.maxChars != null) parts.push(`≤${field.maxChars}字`);
+  if (field.valuePatternMessage != null) parts.push(`格式：${field.valuePatternMessage}`);
   if (field.options.length > 0) parts.push(`选项：${field.options.join(" / ")}`);
   if (field.referenceTableKey) parts.push(`引用：${field.referenceTableKey}（值为记录 id）`);
   return parts.length > 0 ? `，${parts.join("，")}` : "";

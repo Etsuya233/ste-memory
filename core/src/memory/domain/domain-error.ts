@@ -52,6 +52,14 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_field_max_chars_invalid";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_field_pattern_invalid";
+      readonly humanMsg: string;
+    }
+  | {
       readonly type: "memory_field_type_immutable";
       readonly humanMsg: string;
     }
@@ -125,6 +133,20 @@ export type DomainErrorData =
         | "memory_record_reference_invalid"
         | "memory_record_required_field_missing"
         | "memory_record_unknown_field";
+      readonly param: { readonly fieldId: string };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_record_field_value_too_long";
+      readonly param: {
+        readonly fieldId: string;
+        readonly maxChars: number;
+        readonly actualLength: number;
+      };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_record_field_value_pattern_mismatch";
       readonly param: { readonly fieldId: string };
       readonly humanMsg: string;
     };

@@ -12,7 +12,14 @@ import {
 } from "./system-memory-table-prompts.ts";
 
 export type SystemMemoryTableKey =
-  "characters" | "relationships" | "locations" | "items" | "plots" | "foreshadowing" | "todos";
+  | "characters"
+  | "relationships"
+  | "locations"
+  | "items"
+  | "plots"
+  | "foreshadowing"
+  | "todos"
+  | "story_state";
 
 interface FieldTemplate {
   readonly key: string;
@@ -22,6 +29,12 @@ interface FieldTemplate {
   readonly prompt: string;
   readonly options: readonly string[];
   readonly referenceTableKey: SystemMemoryTableKey | null;
+  /** 文本类字段值长度上限（字符数）；null 表示不限。 */
+  readonly maxChars: number | null;
+  /** 文本类字段非空值的格式校验正则；null 表示不校验。 */
+  readonly valuePattern?: string | null;
+  /** 格式校验失败时回喂 Agent 的错误说明（人类可读，含示例）。 */
+  readonly valuePatternMessage?: string | null;
 }
 
 interface TableTemplate {
@@ -38,8 +51,30 @@ const FIELD_DEFAULTS = {
   prompt: "",
   options: NONE,
   referenceTableKey: null,
+  maxChars: null,
 } as const;
 
+/** 「第 N 天·时段」稳定时间坐标格式校验（v4：current_time / time_hint 共用）。
+ * 核心约束：非空值必须以「第 N 天」开头（N 为阿拉伯或中文数字），
+ * 后接时段（分隔符 ·/、 可选，与用户示例「第一天清晨」一致）。 */
+const STORY_TIME_PATTERN = "^第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+$";
+const STORY_TIME_MESSAGE =
+  "「第 N 天·时段」格式（如：第一天清晨、第二天傍晚）；天数随剧情推进，跨入新的一天才 +1";
+
+/**
+ * v4 系统表模板（2026-08-06 数据库质量审查后重构，v4 世界状态表）：
+ * 1. 删除垃圾桶字段（notes）与从未填写的字段（plots.special / start_time / end_time）；
+ * 2. 时间字段改为稳定相对坐标「第 N 天·时段」（ST 消息只有相对表述，无绝对时间可填）；
+ * 3. items.current_status(long_text) 改为 status 枚举（物品状态是有界集合）；
+ * 4. 全部文本字段有 maxChars 上限（校验层硬约束 + digest ≤N字 提示）；
+ * 5. 事件唯一归位 plots，其他表只写稳定状态（表级 prompt 已写明）；
+ * 6. plots.details 为追加式摘要（保留旧事实 + 追加新进展，允许润色不得删事实，
+ *    maxChars 400→800 —— details 是未来 RAG/搜索的语料，覆盖式 = 有损压缩逐轮衰减）；
+ * 7. v4 新增 story_state 世界状态表：承载剧情时钟（current_time 第 N 天·时段）、
+ *    当前地点、天气、当日着装；plots.time_hint 参照其 current_time，禁止「今天/当天」等相对词；
+ * 8. v4 新增字段格式校验（value_pattern 正则 + 回喂消息）：current_time / time_hint 强制
+ *    「第 N 天·时段」格式，story_state.name 固定为「世界状态」——填错被拒 → 错误回喂 → 自愈重提。
+ */
 const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   {
     key: "characters",
@@ -47,20 +82,41 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description: "持续维护人物身份、特征、经历与当前状态。",
     prompt: TP.characters,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "aliases", name: "别名", type: "short_text_list" },
-      { ...FIELD_DEFAULTS, key: "role", name: "身份/定位", type: "long_text" },
-      { ...FIELD_DEFAULTS, key: "personality", name: "性格特征", type: "long_text" },
-      { ...FIELD_DEFAULTS, key: "appearance", name: "外貌特征", type: "long_text" },
-      { ...FIELD_DEFAULTS, key: "background", name: "背景/经历", type: "long_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30 },
+      { ...FIELD_DEFAULTS, key: "aliases", name: "别名", type: "short_text_list", maxChars: 30 },
+      { ...FIELD_DEFAULTS, key: "role", name: "身份/定位", type: "short_text", maxChars: 50, prompt: "一句话身份（如：学长/学生、发小/同班）；不写性格与经历。" },
+      {
+        ...FIELD_DEFAULTS,
+        key: "personality",
+        name: "性格特征",
+        type: "long_text",
+        maxChars: 300,
+        prompt: "本字段只记录稳定显著的个性特质，每条一句，合并同类项；不记录具体事件、台词、场景；每次更新压缩旧内容，总长不超过 300 字。",
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "appearance",
+        name: "外貌特征",
+        type: "long_text",
+        maxChars: 300,
+        prompt: "本字段只记录长期不变的外貌；不写当日穿着、临时配饰、事件性变化（变化进当前状态）；总长不超过 300 字。",
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "background",
+        name: "背景/经历",
+        type: "long_text",
+        maxChars: 300,
+        prompt: "本字段只记录相识前或长期经历的事实；与身份、当前状态不重叠；总长不超过 300 字。",
+      },
       {
         ...FIELD_DEFAULTS,
         key: "current_status",
         name: "当前状态",
         type: "long_text",
+        maxChars: 200,
         prompt: FP.currentStatus,
       },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
     ],
   },
   {
@@ -89,20 +145,28 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
       },
       {
         ...FIELD_DEFAULTS,
-        key: "description",
-        name: "关系描述",
+        key: "summary",
+        name: "关系定性",
         type: "long_text",
-        prompt: FP.relationshipDescription,
+        maxChars: 200,
+        prompt: "本字段只记录双方关系的稳定定性（称呼、相处模式、地位），可体现方向不同的态度；不写事件过程；总长不超过 200 字。",
       },
       {
         ...FIELD_DEFAULTS,
         key: "current_status",
         name: "当前状态",
         type: "long_text",
+        maxChars: 200,
         prompt: FP.currentStatus,
       },
-      { ...FIELD_DEFAULTS, key: "key_facts", name: "关键事实", type: "long_text" },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
+      {
+        ...FIELD_DEFAULTS,
+        key: "key_facts",
+        name: "关键事实",
+        type: "long_text",
+        maxChars: 300,
+        prompt: "本字段只记录关系的里程碑与长期事实（如：已同居、已发生关系、昵称约定）；不写事件流水；总长不超过 300 字。",
+      },
     ],
   },
   {
@@ -111,15 +175,23 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description: "维护地点属性、位置文本、状态及关联对象。",
     prompt: TP.locations,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "type", name: "地点类型", type: "short_text" },
-      { ...FIELD_DEFAULTS, key: "details", name: "详细地点文本", type: "long_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30 },
+      { ...FIELD_DEFAULTS, key: "type", name: "地点类型", type: "short_text", maxChars: 30, prompt: "如：宿舍/住所、食堂/餐厅、商店。" },
+      {
+        ...FIELD_DEFAULTS,
+        key: "details",
+        name: "固定描述",
+        type: "long_text",
+        maxChars: 200,
+        prompt: "本字段只记录地点的固定描述（布局、环境、相对位置）；不含事件；总长不超过 200 字。",
+      },
       {
         ...FIELD_DEFAULTS,
         key: "current_status",
         name: "当前状态",
         type: "long_text",
-        prompt: FP.currentStatus,
+        maxChars: 200,
+        prompt: "本字段只记录此刻在此地点正在发生什么（一两句）；事件结束后清空；禁止过程叙述。",
       },
       {
         ...FIELD_DEFAULTS,
@@ -137,7 +209,6 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
         prompt: FP.relatedItems,
         referenceTableKey: "items",
       },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
     ],
   },
   {
@@ -146,8 +217,8 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description: "维护物品类型、归属、位置、状态与关键属性。",
     prompt: TP.items,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "type", name: "物品类型", type: "short_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30 },
+      { ...FIELD_DEFAULTS, key: "type", name: "物品类型", type: "short_text", maxChars: 30, prompt: "如：眼镜、自行车、食材。" },
       {
         ...FIELD_DEFAULTS,
         key: "owner",
@@ -166,23 +237,38 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
       },
       {
         ...FIELD_DEFAULTS,
-        key: "current_status",
+        key: "status",
         name: "状态",
-        type: "long_text",
-        prompt: FP.currentStatus,
+        type: "single_select",
+        options: ["可用", "已消耗", "已丢失", "已赠出"],
+        prompt: "本字段只记录物品当前状态；不写使用历史与事件过程。",
       },
-      { ...FIELD_DEFAULTS, key: "key_attributes", name: "关键属性", type: "long_text" },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
+      {
+        ...FIELD_DEFAULTS,
+        key: "key_attributes",
+        name: "关键属性",
+        type: "long_text",
+        maxChars: 200,
+        prompt: "本字段只记录物品固定属性（材质、规格、外观、来源）；不写使用历史；总长不超过 200 字。",
+      },
     ],
   },
   {
     key: "plots",
     name: "剧情",
-    description: "维护持续发展的剧情线程及其参与对象和状态。",
+    description: "维护持续发展的剧情事件及其参与对象和状态。",
     prompt: TP.plots,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "details", name: "详情", type: "long_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30, prompt: "简洁事件名，不写括号解释。" },
+      {
+        ...FIELD_DEFAULTS,
+        key: "details",
+        name: "进度摘要",
+        type: "long_text",
+        maxChars: 800,
+        prompt:
+          "本字段是事件持续累积的进度摘要：保留已有事实，追加本轮新进展；允许润色措辞使总长不超过 800 字，但不得删除已记录的事实；禁止全文转写对话。",
+      },
       {
         ...FIELD_DEFAULTS,
         key: "related_characters",
@@ -209,19 +295,14 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
       },
       {
         ...FIELD_DEFAULTS,
-        key: "start_time",
-        name: "开始时间",
-        type: "datetime",
-        prompt: FP.plotStartTime,
+        key: "time_hint",
+        name: "发生时间",
+        type: "short_text",
+        maxChars: 30,
+        prompt: FP.timeHint,
+        valuePattern: STORY_TIME_PATTERN,
+        valuePatternMessage: STORY_TIME_MESSAGE,
       },
-      {
-        ...FIELD_DEFAULTS,
-        key: "end_time",
-        name: "结束时间",
-        type: "datetime",
-        prompt: FP.plotEndTime,
-      },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
     ],
   },
   {
@@ -230,8 +311,15 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description: "维护尚未闭环的叙事线索及其计划回收信息。",
     prompt: TP.foreshadowing,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "details", name: "详情", type: "long_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30 },
+      {
+        ...FIELD_DEFAULTS,
+        key: "setup",
+        name: "线索",
+        type: "long_text",
+        maxChars: 200,
+        prompt: "本字段只记录线索本身（什么还没闭环），一两句话；不写事件经过；总长不超过 200 字。",
+      },
       {
         ...FIELD_DEFAULTS,
         key: "related_characters",
@@ -261,8 +349,9 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
         key: "resolution_plan",
         name: "计划回收信息",
         type: "long_text",
+        maxChars: 200,
+        prompt: "本字段只记录证据暗示或明确提出的回收线索；不写事件经过；总长不超过 200 字。",
       },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
     ],
   },
   {
@@ -271,8 +360,15 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description: "维护明确提出且尚需执行的行动事项。",
     prompt: TP.todos,
     fields: [
-      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true },
-      { ...FIELD_DEFAULTS, key: "details", name: "详情", type: "long_text" },
+      { ...FIELD_DEFAULTS, key: "name", name: "名称", type: "short_text", required: true, maxChars: 30 },
+      {
+        ...FIELD_DEFAULTS,
+        key: "details",
+        name: "行动内容",
+        type: "long_text",
+        maxChars: 150,
+        prompt: "本字段只记录要做什么（谁、做什么）；不写背景经过；完成或放弃后清空；总长不超过 150 字。",
+      },
       {
         ...FIELD_DEFAULTS,
         key: "related_characters",
@@ -306,12 +402,65 @@ const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
       },
       {
         ...FIELD_DEFAULTS,
-        key: "due_date",
-        name: "截止日期",
-        type: "date",
-        prompt: FP.deadline,
+        key: "relative_due",
+        name: "期望时间",
+        type: "short_text",
+        maxChars: 30,
+        prompt: "本字段只记录相对截止时间（如：今晚/周末）；无信息则留空。",
       },
-      { ...FIELD_DEFAULTS, key: "notes", name: "备注", type: "long_text" },
+    ],
+  },
+  {
+    key: "story_state",
+    name: "世界状态",
+    description: "维护剧情世界的当前状态快照（时间、地点、天气、服装）；全表仅一条记录，覆盖式更新。",
+    prompt: TP.storyState,
+    fields: [
+      {
+        ...FIELD_DEFAULTS,
+        key: "name",
+        name: "名称",
+        type: "short_text",
+        required: true,
+        maxChars: 30,
+        prompt: "固定填「世界状态」；本表只维护一条记录。",
+        valuePattern: "^世界状态$",
+        valuePatternMessage: "本表名称固定为「世界状态」",
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "current_time",
+        name: "当前时间",
+        type: "short_text",
+        maxChars: 30,
+        prompt: FP.storyTime,
+        valuePattern: STORY_TIME_PATTERN,
+        valuePatternMessage: STORY_TIME_MESSAGE,
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "current_location",
+        name: "当前地点",
+        type: "short_text",
+        maxChars: 30,
+        prompt: "本字段只记录主要角色当前所在（如：宿舍客厅、超市收银台）；多人分处时简写各自位置；无信息则留空。",
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "weather",
+        name: "天气",
+        type: "short_text",
+        maxChars: 30,
+        prompt: "本字段只记录当前天气（如：晴/多云/雨/雪）；无信息则留空。",
+      },
+      {
+        ...FIELD_DEFAULTS,
+        key: "clothing",
+        name: "当日着装",
+        type: "short_text",
+        maxChars: 60,
+        prompt: "本字段只记录主要角色当日着装要点（谁穿了什么，一两句）；不记录长期配饰（进物品表）；无信息则留空。",
+      },
     ],
   },
 ];
@@ -356,6 +505,9 @@ export class SystemMemoryTableInstaller {
             referenceTableId: field.referenceTableKey
               ? tablesByKey.get(field.referenceTableKey)!.id
               : null,
+            maxChars: field.maxChars,
+            valuePattern: field.valuePattern ?? null,
+            valuePatternMessage: field.valuePatternMessage ?? null,
           }))!,
         );
       }

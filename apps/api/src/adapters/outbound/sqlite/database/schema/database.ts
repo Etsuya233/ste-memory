@@ -32,6 +32,9 @@ export interface MemoryFieldsTable {
   position: number;
   options_json: string;
   reference_table_id: string | null;
+  max_chars: number | null;
+  value_pattern: string | null;
+  value_pattern_message: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,7 @@ import {
   memoryFieldKey,
   memoryFieldName,
   memoryFieldPosition,
+  memoryFieldValuePattern,
   memoryTableDisplayFieldIds,
   type MemoryField,
   type MemoryFieldConfiguration,
@@ -28,6 +29,12 @@ export interface CreateMemoryFieldInput {
   readonly position: number;
   readonly options?: readonly string[];
   readonly referenceTableId?: MemoryTableId | null;
+  /** 文本类字段值长度上限（字符数）；缺省 null 表示不限。 */
+  readonly maxChars?: number | null;
+  /** 文本类字段非空值的格式校验正则；缺省 null 表示不校验。 */
+  readonly valuePattern?: string | null;
+  /** 格式校验失败时回喂 Agent 的错误说明（人类可读，含示例）。 */
+  readonly valuePatternMessage?: string | null;
 }
 
 export interface UpdateMemoryFieldInput {
@@ -40,6 +47,9 @@ export interface UpdateMemoryFieldInput {
   readonly position?: number;
   readonly options?: readonly string[];
   readonly referenceTableId?: MemoryTableId | null;
+  readonly maxChars?: number | null;
+  readonly valuePattern?: string | null;
+  readonly valuePatternMessage?: string | null;
 }
 
 export interface MemoryFieldUpdateResult {
@@ -83,6 +93,7 @@ export class MemoryFieldService {
       input.type,
       input.options ?? [],
       input.referenceTableId ?? null,
+      input.maxChars ?? null,
     );
     const now = this.now();
     const field: MemoryField = {
@@ -98,6 +109,9 @@ export class MemoryFieldService {
       position: memoryFieldPosition(input.position),
       options: configuration.options,
       referenceTableId: configuration.referenceTableId,
+      maxChars: configuration.maxChars,
+      valuePattern: memoryFieldValuePattern(input.valuePattern),
+      valuePatternMessage: input.valuePatternMessage?.trim() || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -193,6 +207,7 @@ export class MemoryFieldService {
       field.type,
       input.options ?? field.options,
       input.referenceTableId ?? field.referenceTableId,
+      input.maxChars ?? field.maxChars,
     );
     const table = await this.tables.find(memorySpaceId, tableId);
     if (
@@ -215,6 +230,15 @@ export class MemoryFieldService {
       position: input.position === undefined ? field.position : memoryFieldPosition(input.position),
       options: configuration.options,
       referenceTableId: configuration.referenceTableId,
+      maxChars: configuration.maxChars,
+      valuePattern:
+        input.valuePattern === undefined
+          ? field.valuePattern
+          : memoryFieldValuePattern(input.valuePattern),
+      valuePatternMessage:
+        input.valuePatternMessage === undefined
+          ? field.valuePatternMessage
+          : (input.valuePatternMessage?.trim() || null),
       updatedAt: this.now(),
     };
     await this.fields.update(updated);
@@ -230,8 +254,9 @@ export class MemoryFieldService {
     type: MemoryFieldType,
     options: readonly string[],
     referenceTableId: MemoryTableId | null,
+    maxChars: number | null,
   ): Promise<MemoryFieldConfiguration> {
-    const configuration = memoryFieldConfiguration(type, options, referenceTableId);
+    const configuration = memoryFieldConfiguration(type, options, referenceTableId, maxChars);
     if (
       configuration.referenceTableId &&
       !(await this.tables.find(memorySpaceId, configuration.referenceTableId))
