@@ -5,6 +5,7 @@ import {
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  commitMemoryProposalBatch,
   computeMemoryRecordDisplayText,
   type MemoryEvidenceId,
   type MemoryFieldId,
@@ -86,6 +87,29 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
       cleaningRuleRepository,
       unitOfWork,
     );
+    // 提案管线（填表任务与交互式填写共用）的领域访问端口与提交上下文
+    const proposalPorts = {
+      tables: memoryTableRepository,
+      fields: memoryFieldRepository,
+      records: memoryRecordRepository,
+    };
+    const commitContext = {
+      tables: memoryTableRepository,
+      fields: memoryFieldRepository,
+      records: memoryRecordRepository,
+      createId: () => randomUUID() as MemoryRecordId,
+      createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
+      createRevisionId: () => randomUUID() as MemoryRevisionId,
+      now: () => new Date().toISOString(),
+      displayText: (table: Parameters<typeof computeMemoryRecordDisplayText>[2], fields: Parameters<typeof computeMemoryRecordDisplayText>[3], payload: Parameters<typeof computeMemoryRecordDisplayText>[4]) =>
+        computeMemoryRecordDisplayText(
+          memoryRecordRepository,
+          table.memorySpaceId,
+          table,
+          fields,
+          payload,
+        ),
+    };
     const chat = new DefaultChatManager({
       envConfig: loadLlmEnvConfig(environment),
       spaces: memorySpaces,
@@ -94,6 +118,11 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         memoryFieldService,
         memoryRecordQueries,
       ),
+      ports: proposalPorts,
+      commitProposal: (memorySpaceId, submission) =>
+        unitOfWork.run(() =>
+          commitMemoryProposalBatch(commitContext, memorySpaceId, submission, "agent"),
+        ),
       buildLlmPort: (config) =>
         buildOpenAiCompatibleLlmPort({
           baseUrl: config.baseUrl,
@@ -118,29 +147,9 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         memoryFieldService,
         memoryRecordQueries,
       ),
-      ports: {
-        tables: memoryTableRepository,
-        fields: memoryFieldRepository,
-        records: memoryRecordRepository,
-      },
+      ports: proposalPorts,
       evidence: memoryRecordRepository,
-      commitContext: {
-        tables: memoryTableRepository,
-        fields: memoryFieldRepository,
-        records: memoryRecordRepository,
-        createId: () => randomUUID() as MemoryRecordId,
-        createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
-        createRevisionId: () => randomUUID() as MemoryRevisionId,
-        now: () => new Date().toISOString(),
-        displayText: (table, fields, payload) =>
-          computeMemoryRecordDisplayText(
-            memoryRecordRepository,
-            table.memorySpaceId,
-            table,
-            fields,
-            payload,
-          ),
-      },
+      commitContext,
       unitOfWork,
       createEvidenceId: () => randomUUID() as MemoryEvidenceId,
     });

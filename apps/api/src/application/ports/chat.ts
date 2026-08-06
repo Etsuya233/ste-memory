@@ -1,6 +1,9 @@
 import type { MemorySpaceId } from "@ste-memory/core/memory";
-import type { AgentRunEvent } from "../agent-events.ts";
+import type { AgentRunEvent, ChatCommitResult } from "../agent-events.ts";
 import type { LlmConfigInfo, LlmWebConfig, ResolvedLlmConfig } from "../chat/llm-config.ts";
+
+/** 聊天 Agent 预设：query（只读查询）/ proposal（交互式填写，查询 + 变更）。 */
+export type ChatAgentKind = "query" | "proposal";
 
 /** 客户端回传的对话历史（无状态多轮：只含 user/assistant 文本，工具结果不跨轮回传）。 */
 export interface ChatMessageInput {
@@ -14,6 +17,8 @@ export interface PreparedChat {
   readonly messages: readonly ChatMessageInput[];
   /** 已合并的 LLM 配置；apiKey 仅存在于本次请求内存。 */
   readonly config: ResolvedLlmConfig;
+  /** Agent 预设；缺省 "query"（路由解析时落默认值）。 */
+  readonly agent: ChatAgentKind;
 }
 
 export interface ChatRunHooks {
@@ -35,7 +40,8 @@ export interface ChatManager {
     readonly spaceId: MemorySpaceId;
     readonly messages: readonly ChatMessageInput[];
     readonly config: LlmWebConfig;
+    readonly agent: ChatAgentKind;
   }): Promise<PreparedChat>;
-  /** 执行流式对话：每请求一个 QueryAgent 实例，pi 事件经翻译后逐条送出，终态事件也由本方法发出。 */
+  /** 执行流式对话：每请求一个 Agent 实例，pi 事件经翻译后逐条送出，终态事件也由本方法发出。 */
   runChat(prepared: PreparedChat, hooks: ChatRunHooks): Promise<void>;
 }

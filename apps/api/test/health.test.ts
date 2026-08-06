@@ -119,6 +119,11 @@ describe("GET /health", () => {
         buildLlmPort: () => {
           throw new Error("health test 不访问 chat");
         },
+        // health test 不访问 chat：proposal 预设相关装配用最小桩
+        ports: { tables: undefined, fields: undefined, records: undefined } as never,
+        commitProposal: async () => {
+          throw new Error("health test 不访问 chat");
+        },
       }),
     });
 
