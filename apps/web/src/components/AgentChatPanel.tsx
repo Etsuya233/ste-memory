@@ -1,10 +1,11 @@
-import { Bot, LoaderCircle, Send, Square } from "lucide-react";
+import { Bot, LoaderCircle, RefreshCw, Send, Square } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   fetchLlmConfigInfo,
   loadPersistedLlmConfig,
   savePersistedLlmConfig,
   streamChat,
+  type ChatAgentKind,
   type LlmConfigInfo,
   type LlmWebConfig,
 } from "../api/chat.ts";
@@ -20,30 +21,50 @@ import { LlmConfigForm } from "./LlmConfigForm.tsx";
 import { AgentActivityView } from "./AgentActivityView.tsx";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 
-interface QueryChatPanelProps {
+interface AgentChatPanelProps {
   readonly memorySpaceId?: string;
+  /** 点击「刷新表格」时通知外层重取记录（bump recordRefreshVersion）。 */
+  readonly onRefreshRecords?: () => void;
 }
+
+/** 模式选择项：agent 预设 id → 展示标签。 */
+const AGENT_MODES: readonly { readonly kind: ChatAgentKind; readonly label: string }[] = [
+  { kind: "query", label: "查询" },
+  { kind: "proposal", label: "填写" },
+];
+
+const AGENT_LABELS: Readonly<Record<ChatAgentKind, string>> = {
+  query: "查询 Agent",
+  proposal: "填写 Agent",
+};
 
 function newMessageId(): string {
   return crypto.randomUUID();
 }
 
+function historyKey(spaceId: string, mode: ChatAgentKind): string {
+  return `${spaceId}:${mode}`;
+}
+
 /**
- * 每记忆空间一个的 Agent 调试聊天面板：
- * - 消息历史保留在页面内（按空间存于内存 Map，切换空间不丢失）；
+ * 每记忆空间每模式一个的 Agent 聊天面板（查询 / 填写）：
+ * - 消息历史按（空间 × 模式）保留在页面内（内存 Map，切换空间/模式不丢失）；
+ * - 查询模式 = QueryAgent（只读）；填写模式 = 交互式填写（ADR 0019，提交前征得用户同意，自动落库）；
  * - SSE 实时展示思考过程、工具调用参数/结果（结果可展开收起）；
  * - 提问中可取消（AbortController）；错误提示不阻塞继续操作；
- * - LLM 配置：API Key / Base URL / Model 均保存在浏览器本地（localStorage）。
+ * - 「刷新表格」按钮由用户手动触发重取记录（不自动刷新）；
+ * - LLM 配置：API Key / Base URL / Model 均保存在浏览器本地（localStorage），两模式共用。
  */
-export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
+export function AgentChatPanel({ memorySpaceId, onRefreshRecords }: AgentChatPanelProps) {
   const [config, setConfig] = useState<LlmWebConfig>(loadPersistedLlmConfig);
   const [envInfo, setEnvInfo] = useState<LlmConfigInfo>();
+  const [mode, setMode] = useState<ChatAgentKind>("query");
   const [messages, setMessages] = useState<ChatUiMessage[]>([]);
   const [input, setInput] = useState("");
 
-  // 按记忆空间保存的历史（页面内存）；messages 是当前空间的可视列表
-  const historyBySpaceRef = useRef(new Map<string, ChatUiMessage[]>());
-  const activeSpaceRef = useRef<string | undefined>(undefined);
+  // 按（空间 × 模式）保存的历史（页面内存）；messages 是当前组合的可视列表
+  const historyByKeyRef = useRef(new Map<string, ChatUiMessage[]>());
+  const activeKeyRef = useRef<string | undefined>(undefined);
   const messagesRef = useRef<ChatUiMessage[]>([]);
   messagesRef.current = messages;
   const controllerRef = useRef<AbortController | undefined>(undefined);
@@ -56,20 +77,20 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
       .catch(() => setEnvInfo(undefined));
   }, []);
 
-  // 空间切换：中止进行中的流 → 当前空间历史收尾并保存 → 载入目标空间历史
+  // 空间/模式切换：中止进行中的流 → 当前组合历史收尾并保存 → 载入目标组合历史
   useEffect(() => {
-    const next = memorySpaceId;
-    if (next === activeSpaceRef.current) return;
-    const previous = activeSpaceRef.current;
+    const next = memorySpaceId === undefined ? undefined : historyKey(memorySpaceId, mode);
+    if (next === activeKeyRef.current) return;
+    const previous = activeKeyRef.current;
     controllerRef.current?.abort();
     controllerRef.current = undefined;
     pendingIdRef.current = undefined;
     if (previous !== undefined) {
-      historyBySpaceRef.current.set(previous, finalizeInFlight(messagesRef.current));
+      historyByKeyRef.current.set(previous, finalizeInFlight(messagesRef.current));
     }
-    activeSpaceRef.current = next;
-    setMessages(next === undefined ? [] : (historyBySpaceRef.current.get(next) ?? []));
-  }, [memorySpaceId]);
+    activeKeyRef.current = next;
+    setMessages(next === undefined ? [] : (historyByKeyRef.current.get(next) ?? []));
+  }, [memorySpaceId, mode]);
 
   // 新内容自动滚到底部
   useEffect(() => {
@@ -87,6 +108,10 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
       savePersistedLlmConfig(next);
       return next;
     });
+  }
+
+  function switchMode(next: ChatAgentKind) {
+    if (next !== mode) setMode(next);
   }
 
   async function send(event: FormEvent) {
@@ -109,11 +134,12 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
         spaceId,
         [...history, { role: "user", content: text }],
         config,
+        mode,
         controller.signal,
         (event) => setMessages((current) => applyChatEvent(current, pending.id, event)),
       );
     } catch (error) {
-      if (controllerRef.current !== controller) return; // 已切换空间，消息已由切换逻辑收尾
+      if (controllerRef.current !== controller) return; // 已切换空间/模式，消息已由切换逻辑收尾
       const message =
         controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")
           ? "已取消"
@@ -141,19 +167,47 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
     return (
       <div className="query-chat-empty">
         <Bot size={26} />
-        <p>请先选择一个记忆空间，再向它提问</p>
+        <p>请先选择一个记忆空间，再与 Agent 对话</p>
       </div>
     );
   }
 
   return (
     <div className="query-chat-panel">
+      <div className="agent-chat-toolbar">
+        <div className="agent-mode-switch" role="tablist" aria-label="Agent 模式">
+          {AGENT_MODES.map((item) => (
+            <button
+              key={item.kind}
+              type="button"
+              role="tab"
+              aria-selected={mode === item.kind}
+              className={mode === item.kind ? "active" : ""}
+              onClick={() => switchMode(item.kind)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="agent-refresh-btn"
+          title="刷新表格（提交变更后手动刷新数据）"
+          onClick={onRefreshRecords}
+        >
+          <RefreshCw size={13} /> 刷新表格
+        </button>
+      </div>
       <LlmConfigForm config={config} envInfo={envInfo} onChange={updateConfig} />
       <div className="query-chat-list" ref={listRef}>
         {messages.length === 0 ? (
           <div className="query-chat-empty">
             <Bot size={26} />
-            <p>向记忆空间提问，实时观察 QueryAgent 的查询路径</p>
+            <p>
+              {mode === "query"
+                ? "向记忆空间提问，实时观察查询 Agent 的查询路径"
+                : "提出记忆记录变更，填写 Agent 会先征求你的同意再提交"}
+            </p>
           </div>
         ) : (
           messages.map((message) =>
@@ -162,7 +216,7 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
                 {message.text}
               </div>
             ) : (
-              <AssistantMessageView key={message.id} message={message} />
+              <AssistantMessageView key={message.id} message={message} mode={mode} />
             ),
           )
         )}
@@ -170,7 +224,13 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
       <form className="query-chat-input-row" onSubmit={send}>
         <input
           type="text"
-          placeholder={streaming ? "Agent 正在回答..." : "向记忆空间提问，Enter 发送"}
+          placeholder={
+            streaming
+              ? "Agent 正在回答..."
+              : mode === "query"
+                ? "向记忆空间提问，Enter 发送"
+                : "提出变更请求，Enter 发送"
+          }
           value={input}
           disabled={streaming}
           onChange={(event) => setInput(event.target.value)}
@@ -202,8 +262,10 @@ export function QueryChatPanel({ memorySpaceId }: QueryChatPanelProps) {
 
 function AssistantMessageView({
   message,
+  mode,
 }: {
   message: Extract<ChatUiMessage, { kind: "assistant" }>;
+  mode: ChatAgentKind;
 }) {
   const statusLabel =
     message.status === "streaming" ? "回答中…" : message.status === "error" ? "出错" : "完成";
@@ -211,7 +273,7 @@ function AssistantMessageView({
     <div className={`chat-assistant chat-assistant-${message.status}`}>
       <header>
         <Bot size={14} />
-        <span>QueryAgent</span>
+        <span>{AGENT_LABELS[mode]}</span>
         {message.status === "streaming" ? <LoaderCircle size={13} className="spinning" /> : null}
         <em>{statusLabel}</em>
       </header>
@@ -224,6 +286,15 @@ function AssistantMessageView({
         <div className="chat-assistant-text">
           <MarkdownContent text={message.text} />
         </div>
+      ) : null}
+      {message.commit?.status === "committed" ? (
+        <p className="chat-commit-banner">
+          已应用变更：创建 {message.commit.created} · 更新 {message.commit.updated} · 删除{" "}
+          {message.commit.deleted}（可在上方点「刷新表格」查看最新数据）
+        </p>
+      ) : null}
+      {message.commit?.status === "failed" ? (
+        <p className="chat-commit-error">提交失败：{message.commit.error}</p>
       ) : null}
       {message.error ? <p className="chat-assistant-error">{message.error}</p> : null}
     </div>

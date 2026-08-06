@@ -6,7 +6,7 @@ import type { SourceMessage, SourceParseError } from "../api/memory-spaces.ts";
 import { ChatViewer } from "./ChatViewer.tsx";
 import type { RecordSelection } from "./RecordTable.tsx";
 import { formatMemoryFieldValue } from "./memory-record-value.ts";
-import { QueryChatPanel } from "./QueryChatPanel.tsx";
+import { AgentChatPanel } from "./AgentChatPanel.tsx";
 import { RecordActions } from "./RecordActions.tsx";
 import { RecordHistoryPanel } from "./RecordHistoryPanel.tsx";
 
@@ -17,6 +17,8 @@ interface RecordInspectorProps {
   readonly loading: boolean;
   readonly memorySpaceId?: string;
   readonly onRecordMutation: (record: MemoryRecord | undefined) => void;
+  /** 手动刷新表格（Agent 提交变更后由用户点击触发）。 */
+  readonly onRefreshRecords: () => void;
   readonly onEvidenceSelect?: (
     sourceIds: readonly number[],
     missingIds: readonly (string | number)[],
@@ -63,7 +65,10 @@ export function RecordInspector(props: RecordInspectorProps) {
       </nav>
       {/* Agent 聊天面板保持挂载（隐藏而非卸载）：消息历史保留在页面内，切换标签不中断流 */}
       <div className={tab === "agent" ? "query-chat-panel-wrap" : "inspector-panel-hidden"}>
-        <QueryChatPanel memorySpaceId={props.memorySpaceId} />
+        <AgentChatPanel
+          memorySpaceId={props.memorySpaceId}
+          onRefreshRecords={props.onRefreshRecords}
+        />
       </div>
       {tab === "chat" ? (
         <div className="inspector-content-scroll">

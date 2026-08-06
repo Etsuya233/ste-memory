@@ -6,20 +6,20 @@ import {
   type MemoryFieldValue,
   type MemoryRecordId,
   type MemoryRevisionId,
-} from "../../domain/index.ts";
+} from "../../../../domain/index.ts";
 import type {
   QueryRecordFieldId,
   QueryRecordsCondition,
   QueryRecordsPage,
-} from "../memory-record-query-contract.ts";
+} from "../../../memory-record-query-contract.ts";
 import {
   findFieldInDigest,
   findTableInDigest,
   availableFieldKeys,
   availableTableKeys,
   type MemorySpaceTableDigest,
-} from "./digest.ts";
-import type { MemorySpaceReader } from "./memory-space-reader.ts";
+} from "../../digest.ts";
+import type { MemorySpaceReader } from "../../memory-space-reader.ts";
 
 export const QUERY_RECORDS_TOOL_NAME = "query_records";
 

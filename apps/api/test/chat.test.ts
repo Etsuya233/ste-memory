@@ -1,7 +1,12 @@
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { QUERY_RECORDS_TOOL_NAME } from "@ste-memory/core/memory/agent";
+import {
+  MUTATE_TOOL_NAME,
+  PROPOSAL_PREVIEW_TOOL_NAME,
+  QUERY_RECORDS_TOOL_NAME,
+  SUBMIT_PROPOSAL_TOOL_NAME,
+} from "@ste-memory/core/memory/agent";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { buildServer } from "../src/adapters/inbound/http/server.ts";
 import type { AgentRunEvent } from "../src/application/agent-events.ts";
@@ -467,6 +472,219 @@ describe("POST /memory-spaces/:spaceId/chat", () => {
     // 断开 → 连接 close → controller.abort() → agent 运行中止 → streamFn 的 signal 收到 abort
     await waitUntil(() => aborted.fired, 2000);
     expect(aborted.fired).toBe(true);
+  });
+});
+
+/** 交互式填写 Agent 脚本：mutate(create characters 云烬) → preview → submit → 自然结束。 */
+function scriptedInteractiveFillAgent() {
+  return scriptedStreamFn((context) => {
+    if (!lastToolResult(context)) {
+      return assistantMessage(
+        [
+          toolCallMessage("call-1", MUTATE_TOOL_NAME, {
+            op: "create",
+            table: "characters",
+            patch: { name: "云烬" },
+          }),
+          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
+          toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
+        ],
+        "toolUse",
+      );
+    }
+    return assistantMessage([textMessage("已按你的同意提交。")], "stop");
+  });
+}
+
+describe("POST /memory-spaces/:spaceId/chat（agent: proposal）", () => {
+  it("交互式填写全循环：用户确认后提交 → done 携带 committed 摘要，记录真实入库", async () => {
+    const streamFn = scriptedInteractiveFillAgent();
+    const { server, spaces, systemTables, tableRepository } = await createTestApplication(
+      "ste-chat-proposal-",
+      "2026-07-30T01:02:03.000Z",
+      {
+        buildLlmPort: () => ({ streamFn, model: fakeModel() }),
+      },
+    );
+    servers.push(server);
+    const space = await spaces.create("会话");
+    await systemTables.install(space.id);
+    const characters = (await tableRepository.list(space.id)).find(
+      (item) => item.key === "characters",
+    )!;
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/chat`,
+      payload: {
+        agent: "proposal",
+        messages: [{ role: "user", content: "新增角色云烬，我已同意。" }],
+        config: { model: "test-model", apiKey: "test-key", baseUrl: "" },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const events = parseSseEvents(response.body);
+
+    // 三个工具调用都在流里可见（mutate / preview / submit）
+    const toolNames = events
+      .filter((event) => event.type === "tool_start")
+      .map((event) => (event as { type: "tool_start"; name: string }).name);
+    expect(toolNames).toEqual([
+      MUTATE_TOOL_NAME,
+      PROPOSAL_PREVIEW_TOOL_NAME,
+      SUBMIT_PROPOSAL_TOOL_NAME,
+    ]);
+    const preview = events.find(
+      (event) =>
+        event.type === "tool_result" &&
+        (event as { name: string }).name === PROPOSAL_PREVIEW_TOOL_NAME,
+    );
+    expect(
+      preview && "result" in preview ? (preview as { result: unknown }).result : undefined,
+    ).toMatchObject({
+      valid: true,
+    });
+
+    // 终态：done 携带 committed 摘要
+    const done = events.at(-1) as Extract<AgentRunEvent, { type: "done" }>;
+    expect(done).toMatchObject({
+      type: "done",
+      stopReason: "stop",
+      commit: { status: "committed", created: 1, updated: 0, deleted: 0 },
+    });
+
+    // 记录真实入库（GET 记录接口可见）
+    const records = await server.inject({
+      method: "GET",
+      url: `/memory-spaces/${space.id}/tables/${characters.id}/records`,
+    });
+    expect(records.statusCode).toBe(200);
+    expect(records.json()).toMatchObject({ total: 1 });
+  });
+
+  it("用户未同意（无提案）→ done 不带 commit，记录不变", async () => {
+    const streamFn = scriptedStreamFn(() =>
+      assistantMessage([textMessage("好的，我先不改。")], "stop"),
+    );
+    const { server, spaces, systemTables } = await createTestApplication(
+      "ste-chat-proposal-empty-",
+      "2026-07-30T01:02:03.000Z",
+      {
+        buildLlmPort: () => ({ streamFn, model: fakeModel() }),
+      },
+    );
+    servers.push(server);
+    const space = await spaces.create("会话");
+    await systemTables.install(space.id);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/chat`,
+      payload: {
+        agent: "proposal",
+        messages: [{ role: "user", content: "先不用改。" }],
+        config: { model: "m", apiKey: "k" },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const done = parseSseEvents(response.body).at(-1) as Extract<AgentRunEvent, { type: "done" }>;
+    expect(done).toMatchObject({ type: "done", stopReason: "stop" });
+    expect("commit" in done ? done.commit : undefined).toBeUndefined();
+  });
+
+  it("提交失败（乐观锁冲突等）→ done 携带 commit failed 与错误信息", async () => {
+    const streamFn = scriptedInteractiveFillAgent();
+    const { server, spaces, systemTables } = await createTestApplication(
+      "ste-chat-proposal-fail-",
+      "2026-07-30T01:02:03.000Z",
+      {
+        buildLlmPort: () => ({ streamFn, model: fakeModel() }),
+        commitProposal: async () => {
+          throw new Error("记录已被他人修改，请重试");
+        },
+      },
+    );
+    servers.push(server);
+    const space = await spaces.create("会话");
+    await systemTables.install(space.id);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/chat`,
+      payload: {
+        agent: "proposal",
+        messages: [{ role: "user", content: "新增角色云烬，我已同意。" }],
+        config: { model: "m", apiKey: "k" },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const done = parseSseEvents(response.body).at(-1) as Extract<AgentRunEvent, { type: "done" }>;
+    expect(done).toMatchObject({
+      type: "done",
+      commit: { status: "failed", error: "记录已被他人修改，请重试" },
+    });
+  });
+});
+
+describe("POST /memory-spaces/:spaceId/chat（agent 参数校验）", () => {
+  it("agent 非 query/proposal → 400", async () => {
+    const { server, spaces } = await createTestApplication(
+      "ste-chat-agent-invalid-",
+      "2026-07-30T01:02:03.000Z",
+    );
+    servers.push(server);
+    const space = await spaces.create("会话");
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/chat`,
+      payload: {
+        agent: "mutate",
+        messages: [{ role: "user", content: "你好" }],
+        config: { model: "m", apiKey: "k" },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("agent");
+  });
+
+  it("agent 缺省时行为不变（query 预设，只读工具）", async () => {
+    const streamFn = scriptedStreamFn((context) => {
+      if (!lastToolResult(context)) {
+        return assistantMessage(
+          [toolCallMessage("call-1", QUERY_RECORDS_TOOL_NAME, { table: "characters" })],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("查询完成。")], "stop");
+    });
+    const { server, spaces, systemTables } = await createTestApplication(
+      "ste-chat-agent-default-",
+      "2026-07-30T01:02:03.000Z",
+      {
+        buildLlmPort: () => ({ streamFn, model: fakeModel() }),
+      },
+    );
+    servers.push(server);
+    const space = await spaces.create("会话");
+    await systemTables.install(space.id);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/memory-spaces/${space.id}/chat`,
+      payload: {
+        messages: [{ role: "user", content: "有哪些角色？" }],
+        config: { model: "m", apiKey: "k" },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const toolNames = parseSseEvents(response.body)
+      .filter((event) => event.type === "tool_start")
+      .map((event) => (event as { type: "tool_start"; name: string }).name);
+    expect(toolNames).toEqual([QUERY_RECORDS_TOOL_NAME]);
   });
 });
 

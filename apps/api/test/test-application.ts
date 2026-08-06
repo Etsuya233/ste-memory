@@ -8,6 +8,7 @@ import {
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  commitMemoryProposalBatch,
   computeMemoryRecordDisplayText,
   type MemoryEvidenceId,
   type MemoryFieldId,
@@ -43,6 +44,8 @@ import { DefaultCleaningRuleManager } from "../src/application/cleaning-rules/ma
 export interface TestChatOptions {
   readonly envConfig?: ChatManagerOptions["envConfig"];
   readonly buildLlmPort?: ChatManagerOptions["buildLlmPort"];
+  /** 覆盖自动提交实现（提交失败路径测试用）。 */
+  readonly commitProposal?: ChatManagerOptions["commitProposal"];
   readonly timeoutMs?: number;
   /** 指定数据库文件（重启/中断测试用）；缺省时新建临时目录。 */
   readonly databaseUrl?: string;
@@ -114,6 +117,32 @@ export async function createTestApplication(
     unitOfWork,
   );
   const reader = new UseCaseMemorySpaceReader(tables, fields, memoryRecordQueries);
+  const proposalPorts = {
+    tables: tableRepository,
+    fields: fieldRepository,
+    records: recordRepository,
+  };
+  const commitContext = {
+    tables: tableRepository,
+    fields: fieldRepository,
+    records: recordRepository,
+    createId: () => randomUUID() as MemoryRecordId,
+    createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
+    createRevisionId: () => randomUUID() as MemoryRevisionId,
+    now: () => timestamp,
+    displayText: (
+      table: Parameters<typeof computeMemoryRecordDisplayText>[2],
+      tableFields: Parameters<typeof computeMemoryRecordDisplayText>[3],
+      payload: Parameters<typeof computeMemoryRecordDisplayText>[4],
+    ) =>
+      computeMemoryRecordDisplayText(
+        recordRepository,
+        table.memorySpaceId,
+        table,
+        tableFields,
+        payload,
+      ),
+  };
   const chat = new DefaultChatManager({
     envConfig: chatOptions.envConfig ?? loadLlmEnvConfig({}),
     spaces: memorySpaces,
@@ -124,6 +153,13 @@ export async function createTestApplication(
       (() => {
         throw new Error("测试未注入 LLM provider");
       }),
+    ports: proposalPorts,
+    commitProposal:
+      chatOptions.commitProposal ??
+      ((memorySpaceId, submission) =>
+        unitOfWork.run(() =>
+          commitMemoryProposalBatch(commitContext, memorySpaceId, submission, "agent"),
+        )),
     timeoutMs: chatOptions.timeoutMs,
   });
   const fillTaskRepository = new KyselyFillTaskRepository(context);
@@ -139,25 +175,9 @@ export async function createTestApplication(
         throw new Error("测试未注入 LLM provider");
       }),
     reader,
-    ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
+    ports: proposalPorts,
     evidence: recordRepository,
-    commitContext: {
-      tables: tableRepository,
-      fields: fieldRepository,
-      records: recordRepository,
-      createId: () => randomUUID() as MemoryRecordId,
-      createHistoryId: () => randomUUID() as MemoryRecordHistoryId,
-      createRevisionId: () => randomUUID() as MemoryRevisionId,
-      now: () => timestamp,
-      displayText: (table, tableFields, payload) =>
-        computeMemoryRecordDisplayText(
-          recordRepository,
-          table.memorySpaceId,
-          table,
-          tableFields,
-          payload,
-        ),
-    },
+    commitContext,
     unitOfWork,
     createEvidenceId: () => randomUUID() as MemoryEvidenceId,
   });

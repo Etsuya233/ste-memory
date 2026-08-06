@@ -36,6 +36,49 @@ function assistantOf(
 }
 
 describe("applyChatEvent", () => {
+  it("done 携带提交结果时记录到消息（交互式填写自动落库摘要）", () => {
+    let messages = pendingState();
+    messages = applyChatEvent(messages, PENDING, {
+      type: "done",
+      stopReason: "stop",
+      errorMessage: null,
+      commit: { status: "committed", created: 1, updated: 0, deleted: 0 },
+    });
+
+    expect(assistantOf(messages)).toMatchObject({
+      status: "done",
+      commit: { status: "committed", created: 1, updated: 0, deleted: 0 },
+    });
+  });
+
+  it("done 携带提交失败结果时记录错误信息", () => {
+    let messages = pendingState();
+    messages = applyChatEvent(messages, PENDING, {
+      type: "done",
+      stopReason: "stop",
+      errorMessage: null,
+      commit: { status: "failed", error: "记录已被他人修改" },
+    });
+
+    expect(assistantOf(messages)).toMatchObject({
+      status: "done",
+      commit: { status: "failed", error: "记录已被他人修改" },
+    });
+  });
+
+  it("done 无提交结果时消息不带 commit（查询模式 / 未产生提案）", () => {
+    let messages = pendingState();
+    messages = applyChatEvent(messages, PENDING, {
+      type: "done",
+      stopReason: "stop",
+      errorMessage: null,
+    });
+
+    const assistant = assistantOf(messages);
+    expect(assistant.status).toBe("done");
+    expect("commit" in assistant ? assistant.commit : undefined).toBeUndefined();
+  });
+
   it("累积思考与回答增量", () => {
     let messages = pendingState();
     messages = applyChatEvent(messages, PENDING, { type: "thinking_delta", text: "先查表" });
@@ -134,7 +177,7 @@ describe("finalizeInFlight", () => {
       erroredAssistant("4", "x"),
     ];
     const finalized = finalizeInFlight(messages);
-    expect(finalized[0]).toMatchObject({ status: "error", error: "已中断（切换了记忆空间）" });
+    expect(finalized[0]).toMatchObject({ status: "error", error: "已中断（切换了记忆空间或模式）" });
     expect(finalized[1]).toMatchObject({ status: "done" });
     expect(finalized[2]).toMatchObject({ status: "error", error: "x" });
   });

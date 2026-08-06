@@ -11,6 +11,16 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { FillTaskStatus } from "./ports/fill-task.ts";
 
+/** 聊天宿主自动提交冻结提案的结果（ADR 0019：交互式填写自动落库）。 */
+export type ChatCommitResult =
+  | {
+      readonly status: "committed";
+      readonly created: number;
+      readonly updated: number;
+      readonly deleted: number;
+    }
+  | { readonly status: "failed"; readonly error: string };
+
 /**
  * 应用层 Agent 运行事件（聊天与填表共用的完整超集）：
  * - 聊天（11.5）只产生 agent 事件 + done/error 终态；
@@ -45,7 +55,13 @@ export type AgentRunEvent =
       readonly status: FillTaskStatus;
       readonly errorMessage: string | null;
     }
-  | { readonly type: "done"; readonly stopReason: string; readonly errorMessage: string | null }
+  | {
+      readonly type: "done";
+      readonly stopReason: string;
+      readonly errorMessage: string | null;
+      /** 交互式填写自动提交的结果；未产生提案（无提交）时缺省。 */
+      readonly commit?: ChatCommitResult;
+    }
   | { readonly type: "error"; readonly message: string };
 
 /**
@@ -103,15 +119,16 @@ function toolResultDetails(result: unknown): unknown {
 export function terminalAgentRunEvent(
   stopReason: string | undefined,
   errorMessage: string | undefined,
+  commit?: ChatCommitResult,
 ): AgentRunEvent | undefined {
   switch (stopReason) {
     case "stop":
     case "length":
-      return { type: "done", stopReason, errorMessage: errorMessage ?? null };
+      return { type: "done", stopReason, errorMessage: errorMessage ?? null, commit };
     case "error":
       return { type: "error", message: errorMessage ?? "模型调用失败" };
     case "aborted":
-      return { type: "error", message: "查询超时（默认 5 分钟），请重试或缩小问题范围" };
+      return { type: "error", message: "Agent 运行超时（默认 5 分钟），请重试或缩小问题范围" };
     default:
       return { type: "error", message: "未产生回答" };
   }

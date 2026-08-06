@@ -69,13 +69,17 @@ describe("mutate 参数 schema：本地校验仍然严格", () => {
       name: MUTATE_TOOL_NAME,
       arguments: args,
     });
-    expect(() => validateToolArguments(tool, call({ op: "create", table: "characters" }))).toThrow();
+    expect(() =>
+      validateToolArguments(tool, call({ op: "create", table: "characters" })),
+    ).toThrow();
     expect(() =>
       validateToolArguments(tool, call({ op: "update", table: "characters", patch: {} })),
     ).toThrow();
     expect(() =>
       validateToolArguments(tool, call({ op: "delete", table: "characters", recordId: "r1" })),
     ).toThrow();
-    expect(() => validateToolArguments(tool, call({ op: "upsert", table: "characters" }))).toThrow();
+    expect(() =>
+      validateToolArguments(tool, call({ op: "upsert", table: "characters" })),
+    ).toThrow();
   });
 });

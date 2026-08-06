@@ -1,18 +1,18 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { MemoryEvidence } from "../../domain/index.ts";
+import type { MemoryEvidence } from "../../../../domain/index.ts";
 import {
   memoryProposalBatch,
   type MemoryProposalError,
   type MemoryProposalOperation,
-} from "../memory-proposal.ts";
+} from "../../../memory-proposal.ts";
 import {
   memoryProposalSubmission,
   type MemoryMessageRange,
   type MemoryProposalPreview,
   type MemoryProposalSubmission,
-} from "../memory-proposal-preview.ts";
-import type { MemorySpaceTableDigest } from "./digest.ts";
+} from "../../../memory-proposal-preview.ts";
+import type { MemorySpaceTableDigest } from "../../digest.ts";
 import { compileProposalOperations } from "./proposal-compiler.ts";
 import { ProposalToolError } from "./proposal-tool-error.ts";
 import type { ProposalState } from "./proposal-state.ts";

@@ -11,7 +11,7 @@ import { buildMemorySpaceTableDigest } from "./digest.ts";
 import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
 import { composeQueryAgentSystemPrompt } from "./prompt-composer.ts";
-import { createQueryRecordsTool } from "./query-records-tool.ts";
+import { createQueryRecordsTool } from "./tools/query/query-records-tool.ts";
 
 /** 单次 run 的总超时：5 分钟（参考值，11.5 可按需调整）。 */
 export const DEFAULT_QUERY_AGENT_TIMEOUT_MS = 5 * 60 * 1000;

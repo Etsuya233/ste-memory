@@ -14,7 +14,11 @@ import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { FastifyInstance } from "fastify";
 import { ChatSpaceNotFoundError } from "../../../../application/chat/chat-manager.ts";
 import { LlmConfigError, type LlmWebConfig } from "../../../../application/chat/llm-config.ts";
-import type { ChatManager, ChatMessageInput } from "../../../../application/ports/chat.ts";
+import type {
+  ChatManager,
+  ChatMessageInput,
+  ChatAgentKind,
+} from "../../../../application/ports/chat.ts";
 import { streamSse } from "../sse.ts";
 
 /** 单次请求回传的历史消息上限（对话历史随请求回传，做个合理的防滥用护栏）。 */
@@ -27,6 +31,7 @@ interface ChatParams {
 interface ChatBody {
   readonly messages?: unknown;
   readonly config?: unknown;
+  readonly agent?: unknown;
 }
 
 export function registerChatRoutes(server: FastifyInstance, chat: ChatManager): void {
@@ -37,8 +42,9 @@ export function registerChatRoutes(server: FastifyInstance, chat: ChatManager): 
     async (request, reply) => {
       let messages: readonly ChatMessageInput[];
       let config: LlmWebConfig;
+      let agent: ChatAgentKind;
       try {
-        ({ messages, config } = parseChatBody(request.body));
+        ({ messages, config, agent } = parseChatBody(request.body));
       } catch (error) {
         return reply.code(400).send({ message: (error as Error).message });
       }
@@ -49,6 +55,7 @@ export function registerChatRoutes(server: FastifyInstance, chat: ChatManager): 
           spaceId: request.params.spaceId as MemorySpaceId,
           messages,
           config,
+          agent,
         });
       } catch (error) {
         if (error instanceof LlmConfigError) {
@@ -78,6 +85,7 @@ export function registerChatRoutes(server: FastifyInstance, chat: ChatManager): 
 function parseChatBody(body: unknown): {
   readonly messages: ChatMessageInput[];
   readonly config: LlmWebConfig;
+  readonly agent: ChatAgentKind;
 } {
   const candidate = (body ?? {}) as Record<string, unknown> | null;
   const rawMessages = candidate?.messages;
@@ -91,7 +99,20 @@ function parseChatBody(body: unknown): {
   if (messages[0]!.role !== "user" || messages[messages.length - 1]!.role !== "user") {
     throw new Error("对话必须以用户消息开头和结尾");
   }
-  return { messages, config: parseLlmWebConfig(candidate?.config) };
+  return {
+    messages,
+    config: parseLlmWebConfig(candidate?.config),
+    agent: parseAgent(candidate?.agent),
+  };
+}
+
+/** agent 预设：缺省 query（向后兼容）；只接受 query / proposal。 */
+function parseAgent(value: unknown): ChatAgentKind {
+  if (value === undefined) return "query";
+  if (value !== "query" && value !== "proposal") {
+    throw new Error("agent 必须是 query 或 proposal");
+  }
+  return value;
 }
 
 function parseChatMessage(entry: unknown, index: number): ChatMessageInput {
