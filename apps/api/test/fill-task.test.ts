@@ -346,7 +346,10 @@ describe("POST /memory-spaces/:spaceId/fill-tasks", () => {
     }
 
     // 两轮任务都成功：记录各新增 1 条；证据行不重复（同源唯一，第二轮复用既有行）
-    const characters = (await app.tableRepository.findByKey(space.id, "characters"))!;
+    const characters = (await app.tableRepository.findByKey(
+      space.id,
+      "characters" as MemoryTableKey,
+    ))!;
     expect(await app.recordRepository.list(space.id, characters.id)).toHaveLength(2);
     const evidenceRows = await app.context.database
       .selectFrom("memory_evidence")

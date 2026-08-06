@@ -37,4 +37,6 @@ export interface SourceChatRepository {
   markProcessed(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void>;
   /** 把出错批的消息标记为 error（最后一次运行出错的消息，可重试）。 */
   markError(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void>;
+  /** 闭区间 [from, to] 内已标记 processed 的消息数（填表任务轮询进度）。 */
+  processedCount(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<number>;
 }

@@ -1,6 +1,11 @@
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { DatabaseContext } from "../database/database-context.ts";
-import type { FillTask, FillTaskRepository } from "../../../../application/ports/fill-task.ts";
+import type {
+  FillTask,
+  FillTaskRepository,
+  FillTaskStatus,
+} from "../../../../application/ports/fill-task.ts";
+import { FILL_TASK_TERMINAL_STATUSES } from "../../../../application/ports/fill-task.ts";
 
 export class KyselyFillTaskRepository implements FillTaskRepository {
   readonly #context: DatabaseContext;
@@ -31,10 +36,31 @@ export class KyselyFillTaskRepository implements FillTaskRepository {
       .selectFrom("memory_fill_tasks")
       .selectAll()
       .where("memory_space_id", "=", memorySpaceId)
-      .where("status", "not in", ["succeeded", "failed"])
+      .where("status", "not in", FILL_TASK_TERMINAL_STATUSES)
       .orderBy("created_at", "desc")
       .executeTakeFirst();
     return row ? toFillTask(row) : undefined;
+  }
+
+  async find(runId: string): Promise<FillTask | undefined> {
+    const row = await this.#context.database
+      .selectFrom("memory_fill_tasks")
+      .selectAll()
+      .where("run_id", "=", runId)
+      .executeTakeFirst();
+    return row ? toFillTask(row) : undefined;
+  }
+
+  async markRunning(runId: string): Promise<void> {
+    await this.#updateStatus(runId, "running");
+  }
+
+  async markPaused(runId: string): Promise<void> {
+    await this.#updateStatus(runId, "paused");
+  }
+
+  async markCancelled(runId: string): Promise<void> {
+    await this.#updateStatus(runId, "cancelled");
   }
 
   async markSucceeded(runId: string): Promise<void> {
@@ -52,6 +78,53 @@ export class KyselyFillTaskRepository implements FillTaskRepository {
       .where("run_id", "=", runId)
       .execute();
   }
+
+  async markInterruptedOnStartup(): Promise<void> {
+    await this.#context.database
+      .updateTable("memory_fill_tasks")
+      .set({ status: "interrupted", updated_at: new Date().toISOString() })
+      .where("status", "not in", FILL_TASK_TERMINAL_STATUSES)
+      .execute();
+  }
+
+  async requestPause(runId: string): Promise<boolean> {
+    const result = await this.#context.database
+      .updateTable("memory_fill_tasks")
+      .set({ status: "pause_requested", updated_at: new Date().toISOString() })
+      .where("run_id", "=", runId)
+      .where("status", "=", "running")
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  }
+
+  async requestCancel(runId: string): Promise<boolean> {
+    const result = await this.#context.database
+      .updateTable("memory_fill_tasks")
+      .set({ status: "cancel_requested", updated_at: new Date().toISOString() })
+      .where("run_id", "=", runId)
+      .where("status", "not in", FILL_TASK_TERMINAL_STATUSES)
+      .where("status", "!=", "cancel_requested")
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  }
+
+  async resume(runId: string): Promise<boolean> {
+    const result = await this.#context.database
+      .updateTable("memory_fill_tasks")
+      .set({ status: "running", updated_at: new Date().toISOString() })
+      .where("run_id", "=", runId)
+      .where("status", "=", "paused")
+      .executeTakeFirst();
+    return result.numUpdatedRows > 0n;
+  }
+
+  async #updateStatus(runId: string, status: FillTaskStatus): Promise<void> {
+    await this.#context.database
+      .updateTable("memory_fill_tasks")
+      .set({ status, updated_at: new Date().toISOString() })
+      .where("run_id", "=", runId)
+      .execute();
+  }
 }
 
 function toFillTask(row: {
@@ -60,7 +133,7 @@ function toFillTask(row: {
   readonly from_source_id: number;
   readonly to_source_id: number;
   readonly block_size: number;
-  readonly status: "running" | "succeeded" | "failed";
+  readonly status: FillTaskStatus;
   readonly error_message: string | null;
   readonly created_at: string;
   readonly updated_at: string;

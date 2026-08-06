@@ -99,7 +99,16 @@ export interface MemoryFillTasksTable {
   from_source_id: number;
   to_source_id: number;
   block_size: number;
-  status: "running" | "succeeded" | "failed";
+  status:
+    | "queued"
+    | "running"
+    | "pause_requested"
+    | "paused"
+    | "cancel_requested"
+    | "cancelled"
+    | "succeeded"
+    | "failed"
+    | "interrupted";
   error_message: string | null;
   created_at: string;
   updated_at: string;

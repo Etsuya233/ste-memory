@@ -139,6 +139,18 @@ export class KyselySourceChatRepository implements SourceChatRepository {
     }));
   }
 
+  async processedCount(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<number> {
+    const row = await this.#context.database
+      .selectFrom("source_store_messages")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .where("memory_space_id", "=", memorySpaceId)
+      .where("source_id", ">=", from)
+      .where("source_id", "<=", to)
+      .where("status", "=", "processed")
+      .executeTakeFirstOrThrow();
+    return row.count;
+  }
+
   async summary(memorySpaceId: MemorySpaceId): Promise<SourceChatSummary> {
     const [messages, errors] = await Promise.all([
       this.#context.database

@@ -12,14 +12,21 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { LlmConfigError } from "../../../../application/chat/llm-config.ts";
 import {
   FillTaskConflictError,
+  FillTaskNotFoundError,
   FillTaskRangeError,
   FillTaskSpaceNotFoundError,
+  FillTaskStateError,
 } from "../../../../application/fill-tasks/fill-task-service.ts";
 import type { FillTaskManager } from "../../../../application/ports/fill-task-manager.ts";
 import type { LlmWebConfig } from "../../../../application/chat/llm-config.ts";
 
 interface SpaceIdParams {
   readonly spaceId: string;
+}
+
+interface SpaceIdRunIdParams {
+  readonly spaceId: string;
+  readonly runId: string;
 }
 
 interface SubmitBody {
@@ -55,6 +62,25 @@ export function registerFillTaskRoutes(server: FastifyInstance, fillTasks: FillT
       }
     },
   );
+
+  // 任务控制（ticket 14）：请求状态先落库，任务循环在安全点应用；
+  // 非法状态转换 409 携带当前任务，任务不存在/不属于该空间 404。
+  for (const action of ["pause", "resume", "cancel"] as const) {
+    server.post<{ Params: SpaceIdRunIdParams }>(
+      `/memory-spaces/:spaceId/fill-tasks/:runId/${action}`,
+      async (request, reply) => {
+        try {
+          const task = await fillTasks[action](
+            request.params.spaceId as MemorySpaceId,
+            request.params.runId,
+          );
+          return reply.code(200).send(task);
+        } catch (error) {
+          return controlErrorResponse(error, reply);
+        }
+      },
+    );
+  }
 }
 
 function asFiniteNumber(value: unknown): number {
@@ -92,6 +118,20 @@ function submitErrorResponse(error: unknown, reply: FastifyReply) {
     return reply
       .code(400)
       .send({ type: "llm_config_error", field: error.field, message: error.message });
+  }
+  throw error;
+}
+
+function controlErrorResponse(error: unknown, reply: FastifyReply) {
+  if (error instanceof FillTaskNotFoundError) {
+    return reply.code(404).send({ type: "fill_task_not_found", message: error.message });
+  }
+  if (error instanceof FillTaskStateError) {
+    return reply.code(409).send({
+      type: "fill_task_state_invalid",
+      message: error.message,
+      task: error.task,
+    });
   }
   throw error;
 }

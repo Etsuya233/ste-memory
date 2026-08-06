@@ -260,6 +260,13 @@
   white-space: nowrap;
 }
 
+.fill-task-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
 .fill-task-grid {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr);

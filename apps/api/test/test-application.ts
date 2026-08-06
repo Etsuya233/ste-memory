@@ -44,6 +44,8 @@ export interface TestChatOptions {
   readonly envConfig?: ChatManagerOptions["envConfig"];
   readonly buildLlmPort?: ChatManagerOptions["buildLlmPort"];
   readonly timeoutMs?: number;
+  /** 指定数据库文件（重启/中断测试用）；缺省时新建临时目录。 */
+  readonly databaseUrl?: string;
 }
 
 export async function createTestApplication(
@@ -51,8 +53,10 @@ export async function createTestApplication(
   timestamp: string,
   chatOptions: TestChatOptions = {},
 ) {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
-  const database = createDatabase(`sqlite:${join(directory, "application.sqlite")}`);
+  const directory = chatOptions.databaseUrl ? undefined : mkdtempSync(join(tmpdir(), prefix));
+  const database = createDatabase(
+    chatOptions.databaseUrl ?? `sqlite:${join(directory ?? tmpdir(), "application.sqlite")}`,
+  );
   await migrateDatabase(database);
   const context = new DatabaseContext(database);
   const unitOfWork = new KyselyUnitOfWork(database, context);
@@ -163,6 +167,8 @@ export async function createTestApplication(
     fields,
     records: memoryRecords,
   });
+  // 模拟真实启动序列：重启后所有非终态任务标记 interrupted（不自动重放）。
+  await fillTasks.markInterruptedOnStartup();
   const server = await buildServer({
     database: new KyselyDatabaseHealthCheck(context),
     memorySpaces: writeGuard.spaces,

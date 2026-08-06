@@ -229,6 +229,9 @@ class FailingSourceChatRepository implements SourceChatRepository {
     _sourceIds: readonly number[],
   ): Promise<void> {}
   async markError(_memorySpaceId: MemorySpaceId, _sourceIds: readonly number[]): Promise<void> {}
+  async processedCount(_memorySpaceId: MemorySpaceId, _from: number, _to: number): Promise<number> {
+    return 0;
+  }
   async errors(_memorySpaceId: MemorySpaceId): Promise<SourceParseError[]> {
     return [];
   }

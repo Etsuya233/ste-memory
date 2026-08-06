@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   MUTATE_TOOL_NAME,
   PROPOSAL_PREVIEW_TOOL_NAME,

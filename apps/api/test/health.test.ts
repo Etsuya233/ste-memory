@@ -65,6 +65,15 @@ const fillTasks: FillTaskManager = {
     throw new Error("health test 不访问填表任务");
   },
   activeTask: async () => undefined,
+  pause: async () => {
+    throw new Error("health test 不访问填表任务");
+  },
+  resume: async () => {
+    throw new Error("health test 不访问填表任务");
+  },
+  cancel: async () => {
+    throw new Error("health test 不访问填表任务");
+  },
 };
 
 const cleaningRules: CleaningRuleManager = {

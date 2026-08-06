@@ -10,8 +10,11 @@
  * - 空提案（Agent 确认无需变更）按成功处理；任何块失败标记该块消息 error 并停止任务；
  * - 批次提交与 processed 标记在同一事务：失败回滚不产生半批数据/半批状态。
  *
- * 状态机（queued/paused/cancelled/interrupted 等）与轮询/暂停/恢复归 ticket 14；
- * 本票只持久化 running/succeeded/failed 三态，供单任务限制与只读检查使用。
+ * 状态机（queued/paused/cancelled/interrupted 等，ticket 14）：
+ * - 提交 = 任务行创建（queued）→ 提交响应前转为 running → 后台分批循环；
+ * - 暂停/恢复/中止经控制端点记请求状态（pause_requested / cancel_requested），
+ *   任务循环在安全点（块开始前、块内提交前）应用，不打断正在运行的 LLM 请求或 SQLite 事务；
+ * - API 重启时所有非终态任务标记 interrupted，不自动重放。
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -24,7 +27,8 @@ import {
 } from "@ste-memory/core/memory";
 import { ProposalAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import type { UnitOfWork } from "@ste-memory/tools";
-import type { FillTask, FillTaskRepository } from "../ports/fill-task.ts";
+import type { FillTask, FillTaskRepository, FillTaskView } from "../ports/fill-task.ts";
+import { isFillTaskTerminal } from "../ports/fill-task.ts";
 import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { SourceChatRepository } from "../ports/source-chat.ts";
 import type { CleaningRuleRepository } from "../ports/cleaning-rule.ts";
@@ -43,6 +47,9 @@ export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
 /** 单块 Agent run 的总超时（对齐 ProposalAgent 默认 5 分钟）。 */
 const BLOCK_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** 暂停等待恢复时的控制状态轮询间隔（恢复请求最迟在此间隔后生效）。 */
+const TASK_CONTROL_POLL_INTERVAL_MS = 500;
+
 /** 同一记忆空间已有非终态任务（提交冲突；HTTP 层映射 409）。 */
 export class FillTaskConflictError extends Error {
   readonly task: FillTask;
@@ -50,6 +57,25 @@ export class FillTaskConflictError extends Error {
   constructor(task: FillTask) {
     super(`该记忆空间已有正在进行的填表任务（${task.runId}），请等待其结束`);
     this.name = "FillTaskConflictError";
+    this.task = task;
+  }
+}
+
+/** 任务不存在或不属于该记忆空间（HTTP 层映射 404）。 */
+export class FillTaskNotFoundError extends Error {
+  constructor() {
+    super("填表任务不存在");
+    this.name = "FillTaskNotFoundError";
+  }
+}
+
+/** 当前状态不允许该控制操作（HTTP 层映射 409，携带当前任务）。 */
+export class FillTaskStateError extends Error {
+  readonly task: FillTask;
+
+  constructor(task: FillTask) {
+    super(`当前任务状态（${task.status}）不允许该操作`);
+    this.name = "FillTaskStateError";
     this.task = task;
   }
 }
@@ -140,16 +166,64 @@ export class FillTaskService {
     this.#logError = options.logError ?? (() => undefined);
   }
 
-  /** 当前非终态任务（无则 undefined）。 */
-  async activeTask(memorySpaceId: MemorySpaceId): Promise<FillTask | undefined> {
-    return this.#tasks.findActive(memorySpaceId);
+  /** 当前非终态任务视图（无则 undefined）。 */
+  async activeTask(memorySpaceId: MemorySpaceId): Promise<FillTaskView | undefined> {
+    const task = await this.#tasks.findActive(memorySpaceId);
+    return task ? this.#toView(task) : undefined;
+  }
+
+  /** 暂停：running → pause_requested（任务循环在安全点应用为 paused）。 */
+  async pause(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    const task = await this.#requireTask(memorySpaceId, runId);
+    const requested = await this.#tasks.requestPause(runId);
+    if (!requested) throw new FillTaskStateError(task);
+    return this.#toView({ ...task, status: "pause_requested" });
+  }
+
+  /** 恢复：paused → running（任务循环从下一块继续，不重跑已成功批次）。 */
+  async resume(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    const task = await this.#requireTask(memorySpaceId, runId);
+    const resumed = await this.#tasks.resume(runId);
+    if (!resumed) throw new FillTaskStateError(task);
+    return this.#toView({ ...task, status: "running" });
+  }
+
+  /** 中止：任意非终态 → cancel_requested（任务循环在安全点丢弃未提交提案后置 cancelled）。 */
+  async cancel(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    const task = await this.#requireTask(memorySpaceId, runId);
+    const requested = await this.#tasks.requestCancel(runId);
+    if (!requested) throw new FillTaskStateError(task);
+    return this.#toView({ ...task, status: "cancel_requested" });
+  }
+
+  /** 启动时调用：所有非终态任务标记 interrupted（API 重启，不自动重放）。 */
+  async markInterruptedOnStartup(): Promise<void> {
+    await this.#tasks.markInterruptedOnStartup();
+  }
+
+  async #requireTask(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTask> {
+    const task = await this.#tasks.find(runId);
+    if (task === undefined || task.memorySpaceId !== memorySpaceId) {
+      throw new FillTaskNotFoundError();
+    }
+    return task;
+  }
+
+  /** 任务视图：行数据 + 实时已处理计数 + 范围总消息数。 */
+  async #toView(task: FillTask): Promise<FillTaskView> {
+    const processedCount = await this.#sources.processedCount(
+      task.memorySpaceId,
+      task.from,
+      task.to,
+    );
+    return { ...task, processedCount, totalCount: task.to - task.from + 1 };
   }
 
   /**
    * 提交填表任务：校验（空间存在 / 范围 / 单任务 / LLM 配置）通过后
    * 持久化任务行并启动后台分批循环，立即返回任务视图。
    */
-  async submit(input: FillTaskSubmitInput): Promise<FillTask> {
+  async submit(input: FillTaskSubmitInput): Promise<FillTaskView> {
     if (!(await this.#spaces.exists(input.memorySpaceId))) {
       throw new FillTaskSpaceNotFoundError();
     }
@@ -180,13 +254,15 @@ export class FillTaskService {
       from: input.from,
       to: input.to,
       blockSize,
-      status: "running",
+      status: "queued",
       errorMessage: null,
       createdAt: now,
       updatedAt: now,
     };
     try {
       await this.#tasks.create(task);
+      // 提交响应返回前完成 queued → running（占用活动名额；状态机完整走一遍）。
+      await this.#tasks.markRunning(task.runId);
     } catch (error) {
       // 并发提交竞态：唯一索引兜底；已存在的活动任务按冲突返回。
       const active = await this.#tasks.findActive(input.memorySpaceId);
@@ -196,10 +272,17 @@ export class FillTaskService {
     const llm = this.#buildLlmPort(config);
     // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
     void this.#runTask(task, llm);
-    return task;
+    // 内存对象仍是 queued：返回视图前反映 markRunning 已完成的 running 状态。
+    return this.#toView({ ...task, status: "running" });
   }
 
-  /** 分批循环：每块一次 Agent 调用 + 一个原子批次；失败标记出错块并停止。 */
+  /**
+   * 分批循环：每块一次 Agent 调用 + 一个原子批次；失败标记出错块并停止。
+   *
+   * 安全点（不打断正在运行的 LLM 请求或 SQLite 事务）：
+   * - 块开始前：应用暂停（pause_requested → paused，等待恢复）与中止（→ cancelled）；
+   * - 块内提交前：应用中止（未提交提案被丢弃，块消息保持原状态）。
+   */
   async #runTask(task: FillTask, llm: LlmPort): Promise<void> {
     const agent = new ProposalAgent({
       llm,
@@ -210,6 +293,8 @@ export class FillTaskService {
     let failingBlock: { readonly from: number; readonly to: number } | undefined;
     try {
       for (let blockFrom = task.from; blockFrom <= task.to; blockFrom += task.blockSize) {
+        // 安全点 1：块开始前。取消 → 直接终态；暂停 → 等待恢复后继续本块。
+        if ((await this.#controlBeforeBlock(task.runId)) === "cancelled") return;
         const blockTo = Math.min(blockFrom + task.blockSize - 1, task.to);
         failingBlock = { from: blockFrom, to: blockTo };
         await this.#processBlock(agent, task, blockFrom, blockTo);
@@ -218,7 +303,41 @@ export class FillTaskService {
       }
       await this.#tasks.markSucceeded(task.runId);
     } catch (error) {
+      if (error instanceof FillTaskCancelledSignal) {
+        // 提交前安全点发现中止请求：提案未提交、消息未标记，按取消收口。
+        await this.#tasks.markCancelled(task.runId);
+        return;
+      }
       await this.#failTask(task, failingBlock, error);
+    }
+  }
+
+  /** 块开始前的控制检查：返回 cancelled 时任务已置终态，循环应直接结束。 */
+  async #controlBeforeBlock(runId: string): Promise<"continue" | "cancelled"> {
+    for (;;) {
+      const task = await this.#tasks.find(runId);
+      if (task === undefined || isFillTaskTerminal(task.status)) return "cancelled";
+      if (task.status === "cancel_requested") {
+        await this.#tasks.markCancelled(runId);
+        return "cancelled";
+      }
+      if (task.status === "pause_requested") {
+        await this.#tasks.markPaused(runId);
+        await this.#waitWhilePaused(runId);
+        continue; // 醒来后重新检查（可能已恢复、又被中止、或异常终态）。
+      }
+      return "continue";
+    }
+  }
+
+  /** 暂停期间轮询控制状态：恢复（running）或中止（cancel_requested）后返回。 */
+  async #waitWhilePaused(runId: string): Promise<void> {
+    for (;;) {
+      await sleep(TASK_CONTROL_POLL_INTERVAL_MS);
+      const task = await this.#tasks.find(runId);
+      if (task === undefined) return;
+      if (task.status === "running" || task.status === "cancel_requested") return;
+      if (isFillTaskTerminal(task.status)) return;
     }
   }
 
@@ -260,6 +379,8 @@ export class FillTaskService {
     if (result.errorMessage !== undefined) {
       throw new Error(`Agent 运行失败：${result.errorMessage}`);
     }
+    // 安全点 2：提交前。中止请求到达时丢弃未提交提案（消息不标记，供重试）。
+    await this.#checkCancelledBeforeCommit(task.runId);
     if (result.proposal) {
       const proposal = result.proposal;
       // 批次提交与 processed 标记同一事务：提交失败回滚时状态也不落库。
@@ -277,6 +398,12 @@ export class FillTaskService {
         messages.map((message) => message.source_id),
       );
     }
+  }
+
+  /** 提交前安全点：任务已请求中止时抛信号，调用方丢弃提案并不标记消息。 */
+  async #checkCancelledBeforeCommit(runId: string): Promise<void> {
+    const task = await this.#tasks.find(runId);
+    if (task?.status === "cancel_requested") throw new FillTaskCancelledSignal();
   }
 
   /** 失败收口：只把出错块的消息标记 error，已成功批次保持 processed，任务置为 failed。 */
@@ -305,4 +432,16 @@ export class FillTaskService {
       this.#logError(`填表任务 ${task.runId} 失败状态标记出错`, markError);
     }
   }
+}
+
+/** 提交前安全点发现中止请求的内部信号（不视为错误，不标记消息为 error）。 */
+class FillTaskCancelledSignal extends Error {
+  constructor() {
+    super("任务已请求中止，未提交提案被丢弃");
+    this.name = "FillTaskCancelledSignal";
+  }
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

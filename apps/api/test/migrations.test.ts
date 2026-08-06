@@ -5,7 +5,7 @@ import { sql } from "kysely";
 import { Migrator } from "kysely/migration";
 import { describe, expect, it } from "vitest";
 import { createDatabase } from "../src/adapters/outbound/sqlite/database/database.ts";
-import { migrateDatabase } from "../src/adapters/outbound/sqlite/database/migrate.ts";
+import { migrateDatabase, migrations } from "../src/adapters/outbound/sqlite/database/migrate.ts";
 import { initialMigration } from "../src/adapters/outbound/sqlite/database/migrations/0001-initial.ts";
 
 describe("application database migrations", () => {
@@ -35,6 +35,75 @@ describe("application database migrations", () => {
         "source_store_messages",
         "source_store_parse_errors",
       ]);
+    } finally {
+      await database.destroy();
+    }
+  });
+
+  it("upgrades fill task rows to the lifecycle status set (0004 → 0006)", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ste-memory-fill-task-upgrade-"));
+    const database = createDatabase(`sqlite:${join(directory, "application.sqlite")}`);
+    try {
+      const initialResult = await new Migrator({
+        db: database,
+        provider: migrations,
+      }).migrateTo("0005-cleaning-rules");
+      expect(initialResult.error).toBeUndefined();
+      await sql
+        .raw(
+          `
+        INSERT INTO memory_spaces (id, name, created_at, updated_at)
+        VALUES ('space-1', '会话', '2026-07-28T00:00:00.000Z', '2026-07-28T00:00:00.000Z')
+      `,
+        )
+        .execute(database);
+      await sql
+        .raw(
+          `
+        INSERT INTO memory_fill_tasks (
+          run_id, memory_space_id, from_source_id, to_source_id, block_size,
+          status, error_message, created_at, updated_at
+        ) VALUES (
+          'run-1', 'space-1', 1, 4, 2, 'running', NULL,
+          '2026-07-28T00:00:00.000Z', '2026-07-28T00:00:00.000Z'
+        )
+      `,
+        )
+        .execute(database);
+
+      await migrateDatabase(database);
+
+      // 旧行保留，状态原样；新状态集可写（约束已重建）。
+      const rows = await sql<{ status: string }>`
+        SELECT status FROM memory_fill_tasks WHERE run_id = 'run-1'
+      `.execute(database);
+      expect(rows.rows[0]?.status).toBe("running");
+      await database
+        .updateTable("memory_fill_tasks")
+        .set({ status: "paused" })
+        .where("run_id", "=", "run-1")
+        .execute();
+      const updated = await sql<{ status: string }>`
+        SELECT status FROM memory_fill_tasks WHERE run_id = 'run-1'
+      `.execute(database);
+      expect(updated.rows[0]?.status).toBe("paused");
+      // 唯一索引语义扩展：取消/中断也视为终态，暂停中的任务仍算活动。
+      await expect(
+        database
+          .insertInto("memory_fill_tasks")
+          .values({
+            run_id: "run-2",
+            memory_space_id: "space-1",
+            from_source_id: 1,
+            to_source_id: 2,
+            block_size: 2,
+            status: "running",
+            error_message: null,
+            created_at: "2026-07-28T00:00:00.000Z",
+            updated_at: "2026-07-28T00:00:00.000Z",
+          })
+          .execute(),
+      ).rejects.toThrow("UNIQUE constraint failed");
     } finally {
       await database.destroy();
     }

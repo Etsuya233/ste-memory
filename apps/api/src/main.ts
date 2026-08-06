@@ -160,6 +160,8 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         () => randomUUID() as MemoryEvidenceId,
       ),
     });
+    // API 重启：所有非终态任务标记 interrupted（不自动重放）。
+    await fillTasks.markInterruptedOnStartup();
     const server = await buildServer({
       database: new KyselyDatabaseHealthCheck(context),
       memorySpaces: writeGuard.spaces,
