@@ -26,9 +26,8 @@ function field(overrides: Partial<MemoryField>): MemoryField {
 }
 
 const STORY_TIME = {
-  valuePattern:
-    "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日(?:\\s*\\d{1,2}[:：]\\d{2}(?:[:：]\\d{2})?)?|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
-  valuePatternMessage: "时间坐标二选一：有明确日期时填具体年月日（如：2025年5月14日 17:35）；否则填「第 N 天·时段」",
+  valuePattern: "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日.*|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
+  valuePatternMessage: "时间坐标二选一：有明确日期时填具体年月日开头（如：2025年5月14日 傍晚至23:10）；否则填「第 N 天·时段」",
 } as const;
 
 describe("validateMemoryFieldValue 格式校验（valuePattern）", () => {
@@ -39,10 +38,12 @@ describe("validateMemoryFieldValue 格式校验（valuePattern）", () => {
     expect(validateMemoryFieldValue(f, "第3天·深夜")).toBe("第3天·深夜");
     // 分隔符可选的宽格式：天数仍可解析（v3 曾填「第二天早晨至午间食堂」）
     expect(validateMemoryFieldValue(f, "第二天早晨至午间食堂")).toBe("第二天早晨至午间食堂");
-    // 绝对时间：年月日（可有时分/时分秒）
+    // 绝对时间：以具体年月日开头，日期后允许时段/范围/钟点描述
     expect(validateMemoryFieldValue(f, "2025年5月14日 17:35")).toBe("2025年5月14日 17:35");
     expect(validateMemoryFieldValue(f, "2025年5月14日")).toBe("2025年5月14日");
-    expect(validateMemoryFieldValue(f, "2025年05月14日17:35:20")).toBe("2025年05月14日17:35:20");
+    expect(validateMemoryFieldValue(f, "2025年5月14日 傍晚至23:10")).toBe("2025年5月14日 傍晚至23:10");
+    expect(validateMemoryFieldValue(f, "2025年5月15日 清晨")).toBe("2025年5月15日 清晨");
+    expect(validateMemoryFieldValue(f, "2025年5月15日-5月21日")).toBe("2025年5月15日-5月21日");
   });
 
   it("不匹配格式的值被拒，错误消息携带格式要求", () => {
@@ -50,7 +51,7 @@ describe("validateMemoryFieldValue 格式校验（valuePattern）", () => {
     expect(() => validateMemoryFieldValue(f, "黄昏（已回到宿舍）")).toThrowError(
       expect.objectContaining({
         type: "memory_record_field_value_pattern_mismatch",
-        humanMsg: expect.stringContaining("2025年5月14日 17:35"),
+        humanMsg: expect.stringContaining("2025年5月14日 傍晚至23:10"),
       }),
     );
     expect(() => validateMemoryFieldValue(f, "当天午后")).toThrowError(
