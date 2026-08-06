@@ -67,6 +67,22 @@ export async function fetchActiveFillTask(spaceId: string): Promise<FillTask | n
   ).task;
 }
 
+// ---------------------------------------------------------------------------
+// 覆盖视图（ticket 17）：全部消息四态分类，供逐消息矩阵渲染
+// ---------------------------------------------------------------------------
+
+/** 与服务端 MessageFillState 一一对应：已跑过 / 任务中待跑 / 错误 / 没计划。 */
+export type MessageFillState = "processed" | "in_task" | "error" | "unplanned";
+
+export interface FillTaskCoverage {
+  readonly states: readonly { readonly sourceId: number; readonly state: MessageFillState }[];
+}
+
+/** 拉取覆盖视图（空间不存在 404 由 responseJson 抛出）。 */
+export async function fetchFillTaskCoverage(spaceId: string): Promise<FillTaskCoverage> {
+  return responseJson(await fetch(`${API_URL}/memory-spaces/${spaceId}/fill-tasks/coverage`));
+}
+
 /** 暂停：服务端先记请求状态（pause_requested），任务循环在安全点应用为 paused。 */
 export async function pauseFillTask(spaceId: string, runId: string): Promise<FillTask> {
   return fillTaskControl(spaceId, runId, "pause");

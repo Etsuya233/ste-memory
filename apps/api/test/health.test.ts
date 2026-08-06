@@ -66,6 +66,7 @@ const fillTasks: FillTaskManager = {
     throw new Error("health test 不访问填表任务");
   },
   activeTask: async () => undefined,
+  coverage: async () => ({ states: [] }),
   pause: async () => {
     throw new Error("health test 不访问填表任务");
   },

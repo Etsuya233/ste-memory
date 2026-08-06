@@ -9,6 +9,14 @@ export interface SourceMessage {
   readonly extraProps: Readonly<Record<string, unknown>>;
 }
 
+/** 消息填表状态（ticket 13 来源进度：untracked 默认 / processed 已填表 / error 出错批）。 */
+export type SourceMessageStatusValue = "untracked" | "processed" | "error";
+
+export interface SourceMessageStatus {
+  readonly sourceId: number;
+  readonly status: SourceMessageStatusValue;
+}
+
 export interface SourceParseError {
   readonly lineNumber: number;
   readonly rawLine: string;
@@ -33,6 +41,8 @@ export interface SourceChatRepository {
   messagesInRange(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<SourceMessage[]>;
   errors(memorySpaceId: MemorySpaceId): Promise<SourceParseError[]>;
   summary(memorySpaceId: MemorySpaceId): Promise<SourceChatSummary>;
+  /** 全部消息的填表状态（source_id 升序），供覆盖视图分类（ticket 17）。 */
+  messageStatuses(memorySpaceId: MemorySpaceId): Promise<SourceMessageStatus[]>;
   /** 把一批消息标记为已填表（与批次提交同一事务，失败回滚不产生半批状态）。 */
   markProcessed(memorySpaceId: MemorySpaceId, sourceIds: readonly number[]): Promise<void>;
   /** 把出错批的消息标记为 error（最后一次运行出错的消息，可重试）。 */

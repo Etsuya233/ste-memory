@@ -1,30 +1,32 @@
-import { Activity, CircleAlert, LoaderCircle, Pause, Play, Square } from "lucide-react";
+import { LoaderCircle, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   cancelFillTask,
   fetchActiveFillTask,
-  isFillTaskTerminal,
+  fetchFillTaskCoverage,
   pauseFillTask,
   resumeFillTask,
   submitFillTask,
   subscribeFillTaskEvents,
   type FillTask,
-  type FillTaskStatus,
+  type FillTaskCoverage,
 } from "../api/fill-tasks.ts";
 import { loadPersistedLlmConfig } from "../api/chat.ts";
 import type { MemorySpace } from "../api/memory-spaces.ts";
-import { availableFillTaskControls, type FillTaskControlAction } from "../fill-task-panel-state.ts";
+import {
+  availableFillTaskControls,
+  STATUS_META,
+  type FillTaskControlAction,
+} from "../fill-task-panel-state.ts";
 import {
   appendFillTaskEvents,
-  buildFillTaskTimeline,
   createFillTaskLog,
-  latestTaskStatus,
   type FillTaskLogState,
-  type FillTaskTimelineItem,
 } from "../fill-task-events-state.ts";
-import { ToolCallCardView } from "./AgentActivityView.tsx";
-import { MarkdownContent } from "./MarkdownContent.tsx";
-import { Badge, Button, Field, TextInput, type BadgeTone } from "../ui.tsx";
+import { FillTaskCoverageMatrix } from "./FillTaskCoverageMatrix.tsx";
+import { FillTaskLogView } from "./FillTaskLogView.tsx";
+import { FillTaskSubmitForm } from "./FillTaskSubmitForm.tsx";
+import { Badge, Button } from "../ui.tsx";
 
 interface FillTaskPanelProps {
   readonly space: MemorySpace;
@@ -36,22 +38,6 @@ const DEFAULT_BLOCK_SIZE = 20;
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
 /** 事件流断线后的重连间隔（Last-Event-ID 续传；轮询仍兜底状态）。 */
 const EVENT_RETRY_INTERVAL_MS = 2_000;
-
-/** 状态展示元数据：文案 / 徽标色调 / 是否转圈（任务仍在推进）。 */
-const STATUS_META: Record<
-  FillTaskStatus,
-  { readonly label: string; readonly tone: BadgeTone; readonly busy: boolean }
-> = {
-  queued: { label: "排队中", tone: "accent", busy: true },
-  running: { label: "运行中", tone: "accent", busy: true },
-  pause_requested: { label: "暂停请求中", tone: "accent", busy: true },
-  paused: { label: "已暂停", tone: "neutral", busy: false },
-  cancel_requested: { label: "正在中止", tone: "accent", busy: true },
-  cancelled: { label: "已中止", tone: "warn", busy: false },
-  succeeded: { label: "已完成", tone: "accent", busy: false },
-  failed: { label: "失败", tone: "danger", busy: false },
-  interrupted: { label: "已中断", tone: "warn", busy: false },
-};
 
 const CONTROL_META: Record<
   FillTaskControlAction,
@@ -78,11 +64,9 @@ function formatUpdatedAt(updatedAt: string): string {
 }
 
 /**
- * 填表任务面板（ticket 13/14/16）：选择消息闭区间 [from, to] 与分块大小提交后台任务；
- * 任务运行期间轮询完整状态（状态/进度/最近更新），支持暂停、恢复、中止——
- * 请求中（pendingAction）禁用全部控制，避免重复提交；终态后回到表单可再次提交。
- * 任务运行期间通过 SSE 事件流实时展示 Agent 输出（思考、工具调用、块结果），
- * 断线自动重连（Last-Event-ID 续传），轮询兜底状态。
+ * 填表任务面板（ticket 13/14/16/17）：选闭区间 [from, to] + 分块大小提交后台任务；
+ * 运行期间轮询状态并支持暂停/恢复/中止（pendingAction 防重复提交）；SSE 实时日志
+ * 断线自动重连（Last-Event-ID 续传）；覆盖矩阵展示全部消息四态，随轮询实时推进。
  */
 export function FillTaskPanel({ space }: FillTaskPanelProps) {
   const [from, setFrom] = useState(1);
@@ -95,6 +79,9 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
   const [lastResult, setLastResult] = useState<string>();
   // 实时运行日志（ticket 16）：事件流按 seq 追加；轮询与流各自驱动，流到达的终态优先。
   const [log, setLog] = useState<FillTaskLogState>(createFillTaskLog);
+  // 覆盖视图（ticket 17）：全部消息四态分类；有活动任务时随轮询刷新。
+  const [coverage, setCoverage] = useState<FillTaskCoverage | null>(null);
+  const hasActiveTask = active !== null;
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -130,10 +117,38 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
     };
   }, [active, space.id]);
 
-  // 切换空间：清空日志，避免残留上一个空间的运行输出。
+  // 切换空间：清空日志与覆盖矩阵，避免残留上一个空间的运行输出/状态。
   useEffect(() => {
     setLog(createFillTaskLog());
+    setCoverage(null);
   }, [space.id]);
+
+  // 覆盖视图：挂载/切换空间立即拉取；有活动任务时每 2s 刷新（进度实时推进）；
+  // 任务提交（active 变非空）或终态（变 null）时立即刷新一次。
+  useEffect(() => {
+    let cancelled = false;
+    void fetchFillTaskCoverage(space.id)
+      .then((result) => {
+        if (!cancelled) setCoverage(result);
+      })
+      .catch(() => undefined);
+    if (!hasActiveTask) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = setInterval(() => {
+      void fetchFillTaskCoverage(space.id)
+        .then((result) => {
+          if (!cancelled) setCoverage(result);
+        })
+        .catch(() => undefined);
+    }, ACTIVE_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [space.id, hasActiveTask]);
 
   // 任务运行期间订阅事件流：断线自动重连（Last-Event-ID 续传）；
   // 切换任务/空间或组件卸载时中止；任务终态由流中的 task_status 表达。
@@ -201,7 +216,6 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
     }
   }
 
-  const rangeInvalid = from < 1 || to < from || to > space.messageCount;
   const blocked = active !== null;
   const controls = active ? availableFillTaskControls(active.status, pendingAction) : [];
 
@@ -257,72 +271,22 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
         </div>
       ) : null}
 
+      {coverage ? <FillTaskCoverageMatrix states={coverage.states} /> : null}
+
       {log.entries.length > 0 ? <FillTaskLogView log={log} /> : null}
 
-      <form
-        className="fill-task-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <div className="fill-task-grid">
-          <Field label="消息范围" hint={`共 ${space.messageCount} 条`} htmlFor="fill-from">
-            <div className="fill-task-range">
-              <TextInput
-                id="fill-from"
-                type="number"
-                min={1}
-                max={space.messageCount}
-                value={Number.isFinite(from) ? from : ""}
-                onChange={(event) => setFrom(event.target.valueAsNumber)}
-                aria-label="起始消息"
-              />
-              <i>至</i>
-              <TextInput
-                id="fill-to"
-                type="number"
-                min={1}
-                max={space.messageCount}
-                value={Number.isFinite(to) ? to : ""}
-                onChange={(event) => setTo(event.target.valueAsNumber)}
-                aria-label="结束消息"
-              />
-            </div>
-          </Field>
-          <Field label="分块大小" hint="每条消息单独写入" htmlFor="fill-block">
-            <TextInput
-              id="fill-block"
-              type="number"
-              min={1}
-              value={Number.isFinite(blockSize) ? blockSize : ""}
-              onChange={(event) => setBlockSize(event.target.valueAsNumber)}
-              aria-label="分块大小"
-            />
-          </Field>
-          <Field
-            label="提交任务"
-            hint={blocked ? "已有任务运行中" : undefined}
-            htmlFor="fill-submit"
-          >
-            <Button
-              className="fill-task-submit"
-              variant="primary"
-              type="submit"
-              block
-              icon={<Play size={14} />}
-              disabled={busy || blocked || rangeInvalid}
-            >
-              开始填表
-            </Button>
-          </Field>
-        </div>
-        {rangeInvalid ? (
-          <p className="fill-task-hint">
-            <CircleAlert size={12} /> 范围需在 [1, {space.messageCount}] 内
-          </p>
-        ) : null}
-      </form>
+      <FillTaskSubmitForm
+        messageCount={space.messageCount}
+        from={from}
+        to={to}
+        blockSize={blockSize}
+        busy={busy}
+        blocked={blocked}
+        onFromChange={setFrom}
+        onToChange={setTo}
+        onBlockSizeChange={setBlockSize}
+        onSubmit={() => void submit()}
+      />
 
       {lastResult ? <p className="fill-task-result">✓ {lastResult}</p> : null}
       {error ? <p className="form-error fill-task-error">{error}</p> : null}
@@ -333,103 +297,4 @@ export function FillTaskPanel({ space }: FillTaskPanelProps) {
       </div>
     </div>
   );
-}
-
-/**
- * 实时运行日志（ticket 16）：块进度 + 思考/工具调用（共享 AgentActivityView 渲染）+
- * 块结果摘要 + 任务状态。日志随事件流增长，终态后保留在页面上。
- */
-function FillTaskLogView({ log }: { log: FillTaskLogState }) {
-  const listRef = useRef<HTMLDivElement>(null);
-  const timeline = buildFillTaskTimeline(log.entries);
-  const status = latestTaskStatus(log);
-  const ended = status !== undefined && isFillTaskTerminal(status.status);
-
-  // 新事件自动滚到底部。
-  useEffect(() => {
-    const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [log.entries.length]);
-
-  return (
-    <div className="fill-task-log">
-      <header className="fill-task-log-heading">
-        <Activity size={13} />
-        <span>实时运行日志</span>
-        {!ended ? <LoaderCircle size={12} className="spinning" /> : null}
-        {status ? (
-          <em>
-            {STATUS_META[status.status].label}
-            {status.errorMessage ? `：${status.errorMessage}` : ""}
-          </em>
-        ) : null}
-      </header>
-      <div className="fill-task-log-list" ref={listRef}>
-        {(() => {
-          let blockIndex = 0;
-          return timeline.map((item, index) => {
-            if (item.kind === "block_start") blockIndex += 1;
-            return (
-              <FillTaskLogItemView
-                key={index}
-                item={item}
-                running={!ended}
-                blockIndex={item.kind === "block_start" ? blockIndex : undefined}
-              />
-            );
-          });
-        })()}
-      </div>
-    </div>
-  );
-}
-
-function FillTaskLogItemView({
-  item,
-  running,
-  blockIndex,
-}: {
-  item: FillTaskTimelineItem;
-  running: boolean;
-  blockIndex?: number;
-}) {
-  switch (item.kind) {
-    case "thinking":
-      return (
-        <details className="thinking-block" open={running}>
-          <summary>思考过程</summary>
-          <MarkdownContent text={item.text} />
-        </details>
-      );
-    case "tool":
-      // 时间线 tool 项与聊天 ToolCallCard 同构（callId/name/args/result/isError）。
-      return <ToolCallCardView card={item} />;
-    case "block_start":
-      return (
-        <div className="fill-task-log-block">
-          <strong>第 {blockIndex ?? "?"} 块</strong>
-          <span>
-            消息 {item.from}–{item.to}
-          </span>
-        </div>
-      );
-    case "block_done":
-      return (
-        <div className="fill-task-log-block-done">
-          <span>
-            ✓ 消息 {item.from}–{item.to}
-          </span>
-          <em>
-            {item.emptyProposal ? "空提案（无需变更）" : `变更 ${item.changedRecords} 条记录`}
-          </em>
-        </div>
-      );
-    case "status":
-      return (
-        <div className={`fill-task-log-status ${running ? "" : "fill-task-log-status-terminal"}`}>
-          {STATUS_META[item.status].label}
-          {item.errorMessage ? `：${item.errorMessage}` : ""}
-        </div>
-      );
-  }
 }

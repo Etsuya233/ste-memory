@@ -7,6 +7,7 @@ import type {
   SourceChatRepository,
   SourceChatSummary,
   SourceMessage,
+  SourceMessageStatus,
   SourceParseError,
 } from "../../../../application/ports/source-chat.ts";
 
@@ -136,6 +137,19 @@ export class KyselySourceChatRepository implements SourceChatRepository {
       lineNumber: error.line_number,
       rawLine: error.raw_line,
       message: error.message,
+    }));
+  }
+
+  async messageStatuses(memorySpaceId: MemorySpaceId): Promise<SourceMessageStatus[]> {
+    const rows = await this.#context.database
+      .selectFrom("source_store_messages")
+      .select(["source_id", "status"])
+      .where("memory_space_id", "=", memorySpaceId)
+      .orderBy("source_id")
+      .execute();
+    return rows.map((row) => ({
+      sourceId: row.source_id,
+      status: row.status,
     }));
   }
 

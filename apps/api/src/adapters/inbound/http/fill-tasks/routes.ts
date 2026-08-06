@@ -4,6 +4,8 @@
  * - POST /memory-spaces/:spaceId/fill-tasks：提交后台填表任务（202 + 任务视图）；
  *   冲突（该空间已有非终态任务）409 携带当前任务；空间不存在 404；范围/配置无效 400。
  * - GET /memory-spaces/:spaceId/fill-tasks/active：当前非终态任务（无则 null）。
+ * - GET /memory-spaces/:spaceId/fill-tasks/coverage（ticket 17）：全部消息的四态覆盖视图
+ *   （错误 / 已跑过 / 任务中待跑 / 没计划），供填表任务界面渲染逐消息矩阵。
  * - GET /memory-spaces/:spaceId/fill-tasks/:runId/events（ticket 16）：SSE 实时运行输出，
  *   先回放缓冲再实时转发；Last-Event-ID 断线续传；终态 task_status 后关闭流。
  *
@@ -71,6 +73,22 @@ export function registerFillTaskRoutes(
         return reply.code(202).send(task);
       } catch (error) {
         return submitErrorResponse(error, reply);
+      }
+    },
+  );
+
+  server.get<{ Params: SpaceIdParams }>(
+    "/memory-spaces/:spaceId/fill-tasks/coverage",
+    async (request, reply) => {
+      try {
+        return await fillTasks.coverage(request.params.spaceId as MemorySpaceId);
+      } catch (error) {
+        if (error instanceof FillTaskSpaceNotFoundError) {
+          return reply
+            .code(404)
+            .send({ type: "fill_task_space_not_found", message: error.message });
+        }
+        throw error;
       }
     },
   );

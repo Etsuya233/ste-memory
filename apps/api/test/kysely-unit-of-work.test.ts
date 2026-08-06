@@ -10,6 +10,7 @@ import type {
   SourceChatRepository,
   SourceChatSummary,
   SourceMessage,
+  SourceMessageStatus,
   SourceParseError,
 } from "../src/application/ports/source-chat.ts";
 import { createTestApplication } from "./test-application.ts";
@@ -229,6 +230,9 @@ class FailingSourceChatRepository implements SourceChatRepository {
     _sourceIds: readonly number[],
   ): Promise<void> {}
   async markError(_memorySpaceId: MemorySpaceId, _sourceIds: readonly number[]): Promise<void> {}
+  async messageStatuses(_memorySpaceId: MemorySpaceId): Promise<SourceMessageStatus[]> {
+    return [];
+  }
   async processedCount(_memorySpaceId: MemorySpaceId, _from: number, _to: number): Promise<number> {
     return 0;
   }

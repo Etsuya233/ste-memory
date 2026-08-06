@@ -28,7 +28,12 @@ import {
 import { ProposalAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import type { UnitOfWork } from "@ste-memory/tools";
 import { translateAgentEvent } from "../agent-events.ts";
-import type { FillTask, FillTaskRepository, FillTaskView } from "../ports/fill-task.ts";
+import type {
+  FillTask,
+  FillTaskCoverageView,
+  FillTaskRepository,
+  FillTaskView,
+} from "../ports/fill-task.ts";
 import { isFillTaskTerminal } from "../ports/fill-task.ts";
 import type { AgentRunEventEntry, FillTaskEventBus } from "../ports/fill-task-events.ts";
 import type { FillTaskManager } from "../ports/fill-task-manager.ts";
@@ -36,6 +41,7 @@ import type { MemorySpaceManager } from "../ports/memory-space.ts";
 import type { SourceChatRepository } from "../ports/source-chat.ts";
 import type { CleaningRuleRepository } from "../ports/cleaning-rule.ts";
 import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
+import { classifyMessages } from "./fill-task-coverage.ts";
 import { applyCleaningRules } from "../cleaning-rules/transform.ts";
 import { InMemoryFillTaskEventBus } from "./fill-task-event-bus.ts";
 import {
@@ -207,6 +213,21 @@ export class FillTaskService implements FillTaskManager, FillTaskEventBus {
   /** 启动时调用：所有非终态任务标记 interrupted（API 重启，不自动重放）。 */
   async markInterruptedOnStartup(): Promise<void> {
     await this.#tasks.markInterruptedOnStartup();
+  }
+
+  /**
+   * 覆盖视图（ticket 17）：全部消息按四态分类（错误 > 已跑过 > 活动任务范围内待跑 > 没计划）。
+   * 分类依赖活动任务范围（服务端事实），因此必须在应用层派生，不能只透传消息状态。
+   */
+  async coverage(memorySpaceId: MemorySpaceId): Promise<FillTaskCoverageView> {
+    if (!(await this.#spaces.exists(memorySpaceId))) {
+      throw new FillTaskSpaceNotFoundError();
+    }
+    const [statuses, active] = await Promise.all([
+      this.#sources.messageStatuses(memorySpaceId),
+      this.#tasks.findActive(memorySpaceId),
+    ]);
+    return { states: classifyMessages(statuses, active) };
   }
 
   /**

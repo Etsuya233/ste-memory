@@ -408,3 +408,115 @@
     padding: 18px 14px;
   }
 }
+
+/* ---------- 任务覆盖矩阵（ticket 17） ---------- */
+
+.fill-task-coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.fill-task-coverage-heading strong {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.fill-task-coverage-heading p {
+  margin: 2px 0 0;
+  font-size: var(--fs-2xs);
+  color: var(--ink-2);
+}
+
+.coverage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.coverage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-2xs);
+  color: var(--ink-2);
+}
+
+.coverage-legend-item b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.coverage-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.coverage-matrix {
+  display: grid;
+  gap: 2px;
+  /* 列数由组件内联 style 指定：repeat(50, minmax(6px, 1fr)) */
+}
+
+.coverage-cell {
+  position: relative;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.coverage-cell:hover {
+  outline: 1px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.coverage-processed {
+  background: var(--ok);
+}
+
+.coverage-in_task {
+  background: var(--accent);
+}
+
+.coverage-error {
+  background: var(--danger);
+}
+
+.coverage-unplanned {
+  background: var(--line-2);
+}
+
+.coverage-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: var(--surface);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+
+.coverage-tooltip strong {
+  font-weight: 700;
+}
+
+.coverage-tooltip em {
+  margin-left: 6px;
+  font-style: normal;
+  opacity: 0.75;
+}
+
+.coverage-cell:hover .coverage-tooltip {
+  display: block;
+}

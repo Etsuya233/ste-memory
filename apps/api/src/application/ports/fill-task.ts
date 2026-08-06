@@ -50,6 +50,20 @@ export interface FillTaskView extends FillTask {
   readonly totalCount: number;
 }
 
+/**
+ * 逐消息填表状态（ticket 17 覆盖视图）：
+ * - processed：已跑过（status = processed）；
+ * - in_task：任务中待跑（untracked 且落在活动任务范围 [from, to] 内）；
+ * - error：错误（status = error，无论是否在活动任务范围内）；
+ * - unplanned：没计划（其余 untracked，从未被任何活动任务覆盖）。
+ */
+export type MessageFillState = "processed" | "in_task" | "error" | "unplanned";
+
+/** 覆盖视图：全部消息的四态分类（source_id 升序），供填表任务界面渲染逐消息矩阵。 */
+export interface FillTaskCoverageView {
+  readonly states: readonly { readonly sourceId: number; readonly state: MessageFillState }[];
+}
+
 export interface FillTaskRepository {
   create(task: FillTask): Promise<void>;
   /** 当前非终态任务（status 不是终态）；每个记忆空间最多一个。 */
