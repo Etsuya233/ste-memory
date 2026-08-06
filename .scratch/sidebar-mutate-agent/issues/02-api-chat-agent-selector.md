@@ -13,6 +13,10 @@
 - 并发写：提交路径直通 repository，不挂 `FillTaskWriteGuard`。
 - 预检错误语义与现有聊天一致（配置缺失 400 / 空间不存在 404 走 SSE 头前 JSON；流中错误走 SSE error 事件）。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **验收:** api 测试（或手动 curl）验证：`agent: "proposal"` 对话 → 用户确认 → `done` 携带 committed 摘要；`agent` 缺省时行为与现状完全一致；无提案对话 `done` 无 commit 信息。
+
+## Answer
+
+已实现（a67d9ab + 6bb5e53）：`ChatBody.agent`（query/proposal，缺省 query，非法 400）；chat-manager 按预设装配，proposal 用交互式 prompt + 合成 messageRange + 零证据；run 结束自动落库（组合根注入 commitProposal，单事务 + revisionSource "agent"）；done 携带 commit 摘要。chat.test.ts 15 测试全绿。
