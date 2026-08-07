@@ -1,3 +1,7 @@
+## 资源
+
+我们会将一些外部资源存储在 tmp 中，比如 SillyTavern 源码、样例插件源码或聊天 JSONL 等。你可以进行参考。但 Git 文件不要引用他们。
+
 ## Agent skills
 
 ### Issue tracker
