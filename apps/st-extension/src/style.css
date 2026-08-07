@@ -1,0 +1,20 @@
+/*
+ * STE Memory 设计令牌 —— 全插件唯一的色板/字体定义处（spec「记忆账本」风格契约）。
+ * 后续调色、浅色模式、主题设置都只改这一块；组件类名前缀 stm- 隔离，不依赖 ST 主题变量。
+ */
+:root {
+  --stm-ink-bg: #171a20;
+  --stm-surface: #21252e;
+  --stm-ink: #e7eaf0;
+  --stm-ink-secondary: #98a0b2;
+  --stm-accent: #6fa894;
+  --stm-success: #7fb08a;
+  --stm-danger: #c96a6a;
+  --stm-warning: #d9a25f;
+
+  /* 正文系统 CJK 栈；楼层号/时间/计数用 --stm-font-mono 等宽数字 */
+  --stm-font:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --stm-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+}

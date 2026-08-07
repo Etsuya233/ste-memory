@@ -1,0 +1,11 @@
+{
+  "display_name": "STE Memory",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "ste-memory",
+  "version": "0.1.0",
+  "auto_update": false
+}
