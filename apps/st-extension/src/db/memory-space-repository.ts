@@ -1,3 +1,4 @@
+import { Dexie } from "dexie";
 import type { MemorySpace, MemorySpaceId } from "@ste-memory/core/memory";
 import type { MemorySpaceRepository } from "@ste-memory/core/memory/adapter";
 import type { SteMemoryDatabase } from "./database.ts";
@@ -15,10 +16,18 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
   }
 
   async delete(id: MemorySpaceId): Promise<boolean> {
-    // 与 SQLite 参照实现的 ON DELETE CASCADE 同语义：删空间连带删其表格与字段
+    // 与 SQLite 参照实现的 ON DELETE CASCADE 同语义：删空间连带删其表格、字段、
+    // 记录、修订历史与字段证据
     return this.#db.transaction(
       "rw",
-      [this.#db.memorySpaces, this.#db.memoryTables, this.#db.memoryFields],
+      [
+        this.#db.memorySpaces,
+        this.#db.memoryTables,
+        this.#db.memoryFields,
+        this.#db.memoryRecords,
+        this.#db.memoryRecordHistory,
+        this.#db.memoryEvidence,
+      ],
       async () => {
         const space = await this.#db.memorySpaces.get(id);
         if (!space) return false;
@@ -28,7 +37,17 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
             .where("[memorySpaceId+tableId]")
             .equals([id, table.id])
             .delete();
+          await this.#db.memoryRecords
+            .where("[memorySpaceId+tableId]")
+            .equals([id, table.id])
+            .delete();
+          await this.#db.memoryRecordHistory
+            .where("[memorySpaceId+tableId+recordId]")
+            .between([id, table.id, Dexie.minKey], [id, table.id, Dexie.maxKey])
+            .delete();
         }
+        await this.#db.memoryRecordHistory.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
         await this.#db.memoryTables.where("memorySpaceId").equals(id).delete();
         await this.#db.memorySpaces.delete(id);
         return true;

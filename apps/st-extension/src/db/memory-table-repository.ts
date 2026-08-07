@@ -1,3 +1,4 @@
+import { Dexie } from "dexie";
 import type {
   MemorySpaceId,
   MemoryTable,
@@ -25,16 +26,30 @@ export class DexieMemoryTableRepository implements MemoryTableRepository {
   }
 
   async delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean> {
-    // 与 SQLite 参照实现的 ON DELETE CASCADE 同语义：删表格连带删其字段定义
+    // 与 SQLite 参照实现的 ON DELETE CASCADE 同语义：删表格连带删其字段定义、
+    // 当前记录与修订历史（证据只挂在空间上，不随表删）
     return this.#db.transaction(
       "rw",
-      [this.#db.memoryTables, this.#db.memoryFields],
+      [
+        this.#db.memoryTables,
+        this.#db.memoryFields,
+        this.#db.memoryRecords,
+        this.#db.memoryRecordHistory,
+      ],
       async () => {
         const table = await this.#db.memoryTables.get(id);
         if (!table || table.memorySpaceId !== memorySpaceId) return false;
         await this.#db.memoryFields
           .where("[memorySpaceId+tableId]")
           .equals([memorySpaceId, id])
+          .delete();
+        await this.#db.memoryRecords
+          .where("[memorySpaceId+tableId]")
+          .equals([memorySpaceId, id])
+          .delete();
+        await this.#db.memoryRecordHistory
+          .where("[memorySpaceId+tableId+recordId]")
+          .between([memorySpaceId, id, Dexie.minKey], [memorySpaceId, id, Dexie.maxKey])
           .delete();
         await this.#db.memoryTables.delete(id);
         return true;
