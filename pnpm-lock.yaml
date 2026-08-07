@@ -77,6 +77,16 @@ importers:
         version: 7.6.13
 
   apps/st-extension:
+    dependencies:
+      '@ste-memory/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@ste-memory/memory-host-shared':
+        specifier: workspace:*
+        version: link:../../packages/memory-host-shared
+      dexie:
+        specifier: ^4.4.4
+        version: 4.4.4
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -1081,6 +1091,9 @@ packages:
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
+
+  dexie@4.4.4:
+    resolution: {integrity: sha512-jIwsYI8Os2hgnqc6O49YwFDKGc5v5QjGx0wPVp543ip1F53VFAKMLthV2pQosQcVTv3eAskTWYspOx195PM0FQ==}
 
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
@@ -3098,6 +3111,8 @@ snapshots:
   devlop@1.1.0:
     dependencies:
       dequal: 2.0.3
+
+  dexie@4.4.4: {}
 
   diff@8.0.4: {}
 
