@@ -1,5 +1,4 @@
-import DexieModule from "dexie";
-import type { Table } from "dexie";
+import { Dexie, type Table } from "dexie";
 import type {
   MemoryField,
   MemoryFieldId,
@@ -8,15 +7,6 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "@ste-memory/core/memory";
-
-/**
- * dexie 类型桥：dexie 的 d.ts 是 CJS 风格，在 TS6 NodeNext 下默认导入被
- * 类型化为模块命名空间（类挂在 `.default` 上）。运行时 esbuild 解析到
- * `import-wrapper.mjs`，其默认导出就是类本身（没有 `.default` 属性），
- * 所以这里只在类型层面取 `.default`，不产生运行时 `.default` 访问。
- */
-type DexieClass = typeof DexieModule.default;
-const Dexie = DexieModule as unknown as DexieClass;
 
 /** 插件 Dexie 数据库默认名称（同一 origin 下与后续版本共用，ADR 0002） */
 export const ST_MEMORY_DB_NAME = "ste-memory";

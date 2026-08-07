@@ -15,7 +15,7 @@
 
 新包 `apps/st-extension/src/db/` 落地 Dexie 持久层（ADR 0002），四个验收项全部闭环：
 
-- **Schema（`database.ts`）**：`SteMemoryDatabase extends Dexie`，v1 三张表——`memorySpaces` / `memoryTables` / `memoryFields`。实体按领域对象原样存储（IndexedDB 原生支持数组/对象，无需像 SQLite 参照实现那样把 options / displayStrategy JSON 字符串化，ticket 07/08 导出与云同步直接序列化行即可）。复合唯一索引 `&[memorySpaceId+key]`（表内）与 `&[memorySpaceId+tableId+key]`（字段）在数据库层兜底「定义 Key 空间内唯一」；跨空间隔离靠所有查询携带 memorySpaceId 作用域 + 索引实现。**dexie 类型桥**：dexie 的 d.ts 是 CJS 风格，TS6 NodeNext 下默认导入被类型化为模块命名空间（类挂在 `.default` 上）；运行时 esbuild 解析到 `import-wrapper.mjs`，默认导出就是类本身——桥只在类型层面取 `.default`，不产生运行时 `.default` 访问（esbuild 打包 + Node fake-indexeddb 运行时冒烟已验证）。
+- **Schema（`database.ts`）**：`SteMemoryDatabase extends Dexie`，v1 三张表——`memorySpaces` / `memoryTables` / `memoryFields`。实体按领域对象原样存储（IndexedDB 原生支持数组/对象，无需像 SQLite 参照实现那样把 options / displayStrategy JSON 字符串化，ticket 07/08 导出与云同步直接序列化行即可）。复合唯一索引 `&[memorySpaceId+key]`（表内）与 `&[memorySpaceId+tableId+key]`（字段）在数据库层兜底「定义 Key 空间内唯一」；跨空间隔离靠所有查询携带 memorySpaceId 作用域 + 索引实现。**dexie 导入**：TS6 NodeNext 下默认导入 `import Dexie from "dexie"` 会被类型化为不可构造的模块命名空间（TS2507，开 esModuleInterop 也无效）；改用 Dexie 4.4.4 的**具名导出** `import { Dexie, type Table } from "dexie"`——类型与运行时一致（bundle 后 Node + fake-indexeddb 运行时验证：同一构造器，读写/复合索引/删除全部通过）。
 - **Repository（三个文件）**：`DexieMemorySpaceRepository` / `DexieMemoryTableRepository` / `DexieMemoryFieldRepository`，逐一实现 core 端口（`@ste-memory/core/memory/adapter`）全部方法，语义对照 `apps/api` 的 Kysely 参照实现：
   - 作用域规则：find/delete/update 以「id 命中 + 空间（及表格）匹配」为准，跨空间/跨表一律未命中（false/undefined）；
   - 排序同参照：空间 createdAt 倒序、表格 createdAt 升序、字段 position 升序（id 兜底保证确定性）；
@@ -33,6 +33,7 @@
 
 ## Comments
 
-- 2026-08-08 code-review（双轴并行）结论：Standards 无硬违规（仅判断级：三 repo 的 scoped 守卫/排序块重复——与参照实现同构、端口契约固有；类型桥为版本脆弱点已注释）。Spec 无 blocker、无缺失；采纳两条修复：①删除级联（SQLite 参照有 `ON DELETE CASCADE`，Dexie 原实现会孤儿化表格/字段，泄漏进未来导出/云同步）——空间/表格删除改为单事务级联，并补两条级联测试；②update 只写可变字段，不再整体覆盖 createdAt。
+- 2026-08-08 code-review（双轴并行）结论：Standards 无硬违规（仅判断级：三 repo 的 scoped 守卫/排序块重复——与参照实现同构、端口契约固有）。Spec 无 blocker、无缺失；采纳两条修复：①删除级联（SQLite 参照有 `ON DELETE CASCADE`，Dexie 原实现会孤儿化表格/字段，泄漏进未来导出/云同步）——空间/表格删除改为单事务级联，并补两条级联测试；②update 只写可变字段，不再整体覆盖 createdAt。
+- 2026-08-08 Codex 分析采纳：类型桥（`DexieModule as unknown as typeof DexieModule.default`）是多余 workaround——Dexie 4.4.4 的**具名导出** `import { Dexie } from "dexie"` 类型与运行时一致（完整工程 typecheck / esbuild bundle / Node ESM 运行时均验证通过），已删除类型桥与整段兼容说明；`module: Preserve` 等替代方案因影响面大未采纳。Codex 另指出旧注释「类本身没有 `.default` 属性」不准确（Dexie 构造器实际带指向自身的静态 `.default`）——随类型桥删除已不存在。
 - 遗留记录：spec.md 多处写「七张系统表」，而共享模板（ADR 0020 单一事实源）与 api 测试均为 8 张（含 story_state）——既有措辞漂移，非本 ticket 引入，未改 spec（开工规则），留待后续统一。
 - 后续 ticket 注意：fake-indexeddb 必须在 dexie 模块求值前装好全局 indexedDB（dexie 模块加载时捕获全局）——测试文件若直接 import `./database.ts`，须先 import `test-support.ts`（已有注释说明）；本包无 vitest config，与全仓零配置约定一致。
