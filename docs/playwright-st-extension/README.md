@@ -1,4 +1,4 @@
-# Playwright 无头验证 SillyTavern 扩展（经验记录）
+# Playwright 无头验证 SillyTavern 扩展
 
 2026-08-08 首次用于 st-extension ticket 02 的手动验收替代/补充：headless chromium
 真实加载 ST 页面，抓 Console 初始化日志 + 扩展管理器识别。本文记录可复用的套路与踩过的坑。
@@ -9,34 +9,32 @@
 - 后续 ticket 的浏览器侧验收（面板打开、事件同步、宏展开等）可沿用同一模式：
   页面加载 → 等待/抓取特定 console 日志或 DOM 状态 → 截图留证
 
-## 环境事实（本机）
+## 环境事实
 
-- ST 源码 checkout 在 `tmp/SillyTavern_Source_Code`（gitignored），`npm install && npm start`
-  后监听 `127.0.0.1:8000`；首次启动会把 default 内容铺到 `data/default-user/`，日志里有
-  `SillyTavern is listening on IPv4: 127.0.0.1:8000` 表示就绪。
-- Playwright 浏览器已缓存在 `~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`
-  （版本目录号随 playwright 升级变化，先 `ls ~/.cache/ms-playwright/` 确认）。
-- **本机有 clash 代理**（`http_proxy`/`HTTPS_PROXY`/`ALL_PROXY` → `172.26.176.1:7890`），
-  连本机服务一律要绕过（curl 用 `--noproxy "*"`）。
+- ST 以源码 checkout 方式运行（位置按本机环境自定，不在本仓库内）：`npm install && npm start`
+  后监听 `127.0.0.1:8000`（ST 默认端口，可用 `ST_URL` 覆盖）；首次启动会把 default 内容铺到
+  `data/default-user/`，日志出现 `SillyTavern is listening on IPv4: 127.0.0.1:8000` 表示就绪。
+- 浏览器用 Playwright 缓存里的 chromium（不重新下载）：`verify.mjs` 自动扫描
+  `~/.cache/ms-playwright/` 下最新的 `chromium-*/chrome-linux*/chrome`，也可用 `CHROME` 环境变量指定。
+- 若本机配置了系统代理（clash 等），连本机服务一律要绕过（curl 用 `--noproxy "*"`）。
 
 ## 步骤
 
 ```bash
-# 1. 一次性准备（playwright-core 很轻，不下载浏览器）
-mkdir -p /tmp/pw-check && cd /tmp/pw-check
-npm init -y >/dev/null && npm install playwright-core --no-audit --no-fund
+# 1. 一次性准备（playwright-core 很轻，不下载浏览器；--ignore-workspace 使其独立于仓库 workspace）
+cd docs/playwright-st-extension
+pnpm install --ignore-workspace
 
 # 2. 确认 ST 在跑
 curl -s -o /dev/null -w "%{http_code}\n" --noproxy "*" http://127.0.0.1:8000/
 
-# 3. 跑验证脚本（模板：tmp/st-verify/verify.mjs，gitignored 本地留存）
-cd /home/etsuya/programming/ste-memory/tmp/st-verify
-node verify.mjs   # exit 0 = 通过；截图 st.png
+# 3. 跑验证脚本（exit 0 = 通过；截图输出到系统临时目录）
+node verify.mjs
 ```
 
 脚本做的事：
 
-1. launch chromium（`executablePath` 指向缓存二进制，headless）
+1. 自动发现缓存 chromium（`CHROME` 可覆盖），headless launch
 2. `page.on("console"/"pageerror"/"requestfailed")` 全量收集
 3. goto ST，**轮询**等待初始化日志（扩展是 module script 异步加载，`domcontentloaded` + 轮询
    比 `networkidle` 稳）
@@ -45,7 +43,7 @@ node verify.mjs   # exit 0 = 通过；截图 st.png
 
 ## 踩过的坑（按代价排序）
 
-1. **代理导致 ERR_TIMED_OUT**（本次最大的坑）：headless chrome 继承 clash 代理环境变量后
+1. **代理导致 ERR_TIMED_OUT**（最大的坑）：headless chrome 继承系统代理环境变量后
    连 `127.0.0.1:8000` 直接超时。修复必须**同时**：
    - launch 参数 `args: ["--no-proxy-server"]`
    - `env: { ...process.env, HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "", ALL_PROXY: "", all_proxy: "" }`
@@ -68,6 +66,6 @@ node verify.mjs   # exit 0 = 通过；截图 st.png
 
 ## 遗留事项
 
-- 脚本只验证「加载 + 识别」；后续 tickt（面板 UI、消息同步、宏展开）需要按各自验收标准
+- 脚本只验证「加载 + 识别」；后续 ticket（面板 UI、消息同步、宏展开）需要按各自验收标准
   扩展等待条件与 DOM 断言。
 - 截图对 AI 阅读不友好（本模型看不了图），DOM 断言才是主证据，截图只给人看。

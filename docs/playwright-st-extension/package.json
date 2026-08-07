@@ -1,0 +1,9 @@
+{
+  "name": "@ste-memory/playwright-st-verify",
+  "private": true,
+  "type": "module",
+  "description": "SillyTavern 扩展无头验证脚本（独立于 workspace，仅本目录使用）",
+  "devDependencies": {
+    "playwright-core": "^1.54.0"
+  }
+}
