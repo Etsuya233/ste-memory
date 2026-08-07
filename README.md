@@ -69,4 +69,5 @@ pnpm build
 - `apps/api/src/main.ts`: API Composition Root，只负责配置读取、Adapter 构造、业务模块装配和宿主启动。
 - `apps/web`: React 实验界面，只通过 HTTP API 访问系统，并在自身 API client 边界维护传输契约。
 - `packages/tools`: 与平台无关的通用接口，目前包含异步 `UnitOfWork`。
+- `packages/memory-host-shared`: 系统表模板共享包（ADR 0020）——七张系统表 + 世界状态表的字段、固定选项与 v4 提示词，以及 `SystemMemoryTableInstaller`，由 apps/api 与 apps/st-extension 共用。
 - `packages/shared`: ESLint 和 Prettier 的共享配置。

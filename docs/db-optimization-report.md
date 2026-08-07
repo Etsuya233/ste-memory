@@ -106,7 +106,7 @@
 **数据证据**（跨空间对照）：`plots` 表的 `start_time/end_time` 字段——
 - 冒烟测试 & 藤ノ森空间（08-04 种子）：类型 `date`
 - 平野健介1（08-05）：类型 `datetime`，且多一个 `special` 字段
-- 当前 API 模板（`system-memory-table-definitions.ts`）：`datetime`、无 `special`
+- 当前 API 模板（已收编至 `@ste-memory/memory-host-shared`，见 `packages/memory-host-shared/src/system-memory-table-definitions.ts`）：`datetime`、无 `special`
 
 **影响**：系统表定义至少演进过 3 个版本，但 ADR 0003「空间拥有表定义」意味着旧空间**永久保留旧快照**，没有对齐/升级机制。随着模板继续演进，各空间系统表会越来越不一致，跨空间对比实验（本项目的核心目的之一）失真。
 

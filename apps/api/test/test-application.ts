@@ -31,7 +31,7 @@ import { KyselyMemoryTableRepository } from "../src/adapters/outbound/sqlite/mem
 import { buildServer } from "../src/adapters/inbound/http/server.ts";
 import { KyselySourceChatRepository } from "../src/adapters/outbound/sqlite/source-store/repository.ts";
 import { KyselyFillTaskRepository } from "../src/adapters/outbound/sqlite/fill-tasks/repository.ts";
-import { SystemMemoryTableInstaller } from "../src/application/system-memory/system-memory-table-definitions.ts";
+import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { DefaultChatManager } from "../src/application/chat/chat-manager.ts";
 import { loadLlmEnvConfig } from "../src/application/chat/llm-config.ts";
 import { UseCaseMemorySpaceReader } from "../src/adapters/outbound/memory/memory-space-reader.ts";

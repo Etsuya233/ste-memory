@@ -9,7 +9,7 @@ import type {
   MemorySpaceView,
   MessageReadOptions,
 } from "../ports/memory-space.ts";
-import type { SystemMemoryTableInstaller } from "../system-memory/system-memory-table-definitions.ts";
+import type { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 
 export class DefaultMemorySpaceManager implements MemorySpaceManager {
   private readonly spaces: MemorySpaceUseCases;

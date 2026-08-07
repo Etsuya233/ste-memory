@@ -21,7 +21,7 @@ export type SystemMemoryTableKey =
   | "todos"
   | "story_state";
 
-interface FieldTemplate {
+export interface FieldTemplate {
   readonly key: string;
   readonly name: string;
   readonly type: MemoryFieldType;
@@ -37,7 +37,7 @@ interface FieldTemplate {
   readonly valuePatternMessage?: string | null;
 }
 
-interface TableTemplate {
+export interface TableTemplate {
   readonly key: SystemMemoryTableKey;
   readonly name: string;
   readonly description: string;
@@ -78,7 +78,7 @@ const STORY_TIME_MESSAGE =
  *    双轨时间格式（有明确日期填绝对年月日时分，否则第 N 天·时段），
  *    story_state.name 固定为「世界状态」——填错被拒 → 错误回喂 → 自愈重提。
  */
-const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
+export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   {
     key: "characters",
     name: "人物",

@@ -31,7 +31,7 @@ import { KyselyMemorySpaceRepository } from "./adapters/outbound/sqlite/memory/m
 import { KyselyMemoryTableRepository } from "./adapters/outbound/sqlite/memory/memory-table-repository.ts";
 import { buildServer } from "./adapters/inbound/http/server.ts";
 import { KyselySourceChatRepository } from "./adapters/outbound/sqlite/source-store/repository.ts";
-import { SystemMemoryTableInstaller } from "./application/system-memory/system-memory-table-definitions.ts";
+import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { FillTaskService } from "./application/fill-tasks/fill-task-service.ts";
 import { FillTaskWriteGuard } from "./application/fill-tasks/write-guard.ts";
 import { KyselyFillTaskRepository } from "./adapters/outbound/sqlite/fill-tasks/repository.ts";

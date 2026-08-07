@@ -17,7 +17,7 @@ import type {
   MemoryTableRepository,
 } from "@ste-memory/core/memory/adapter";
 import { describe, expect, it } from "vitest";
-import { SystemMemoryTableInstaller } from "../src/application/system-memory/system-memory-table-definitions.ts";
+import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 
 class MemoryRepository
   implements MemorySpaceRepository, MemoryTableRepository, MemoryFieldRepository

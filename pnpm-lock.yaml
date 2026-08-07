@@ -56,6 +56,9 @@ importers:
       '@ste-memory/core':
         specifier: workspace:*
         version: link:../../core
+      '@ste-memory/memory-host-shared':
+        specifier: workspace:*
+        version: link:../../packages/memory-host-shared
       '@ste-memory/tools':
         specifier: workspace:*
         version: link:../../packages/tools
@@ -121,6 +124,12 @@ importers:
       typebox:
         specifier: ^1.3.10
         version: 1.3.10
+
+  packages/memory-host-shared:
+    dependencies:
+      '@ste-memory/core':
+        specifier: workspace:*
+        version: link:../../core
 
   packages/shared:
     dependencies:

@@ -3,7 +3,7 @@ import type { Kysely } from "kysely";
 import type { Migration } from "kysely/migration";
 import type { DatabaseSchema } from "../schema/database.ts";
 
-// 一次性快照：与 system-memory-table-definitions.ts 中 plots 模板同时点保持一致。
+// 一次性快照：与 @ste-memory/memory-host-shared 的 system-memory-table-definitions.ts 中 plots 模板同时点保持一致。
 // 迁移不依赖实时模板，保证迁移历史的确定性；后续模板演进通过新迁移处理。
 const PLOT_TIME_FIELDS = [
   { key: "start_time", name: "开始时间", prompt: "只记录证据明确给出的开始时间。" },
