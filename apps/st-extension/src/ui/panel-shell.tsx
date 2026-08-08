@@ -285,6 +285,18 @@ function TablesTab(props: {
     setReloadKey((key) => key + 1);
   }
 
+  function toggleExpand(tableId: MemoryTableId): void {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableId)) {
+        next.delete(tableId);
+      } else {
+        next.add(tableId);
+      }
+      return next;
+    });
+  }
+
   return (
     <ul className="stm-table-list">
       {tables.map((table) => {
@@ -296,7 +308,14 @@ function TablesTab(props: {
             : `${table.enabledFieldCount}/${table.fields.length} 字段启用`;
         return (
           <li key={table.id} className="stm-table-card">
-            <div className="stm-table-row">
+            {/* 整行可点击展开/收起（点开关除外；展开按钮 stopPropagation 避免双触发） */}
+            <div
+              className="stm-table-row"
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest(".stm-switch")) return;
+                toggleExpand(table.id);
+              }}
+            >
               <button
                 type="button"
                 className="stm-expand"
@@ -304,17 +323,10 @@ function TablesTab(props: {
                 data-table-id={table.id}
                 aria-expanded={isExpanded}
                 aria-label={isExpanded ? "收起字段" : "展开字段"}
-                onClick={() =>
-                  setExpanded((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(table.id)) {
-                      next.delete(table.id);
-                    } else {
-                      next.add(table.id);
-                    }
-                    return next;
-                  })
-                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleExpand(table.id);
+                }}
               >
                 <i
                   className={`fa-solid ${isExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}

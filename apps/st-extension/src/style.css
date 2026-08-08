@@ -81,12 +81,16 @@
   opacity: 1;
 }
 
-/* 面板：移动端 = 全屏底部抽屉（默认态，移动优先） */
+/* 面板：移动端 = 全屏底部抽屉（默认态，移动优先）。
+ * 注意：不能用 bottom: 0 锚定——ST 给 html 加了 -webkit-transform: translateZ(0)
+ * （防模糊闪烁），html 成为 fixed 包含块，而移动端 body 为 fixed 导致 html 高度
+ * 塌缩为 0，bottom: 0 会把面板顶到视口上方（真机踩坑，2026-08-08）。改以 top: 0
+ * 锚定（html 顶边 = 视口顶边）+ 关闭态 translateY(100%) 推到视口下方。 */
 .stm-panel {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   z-index: 3010;
   display: flex;
   flex-direction: column;

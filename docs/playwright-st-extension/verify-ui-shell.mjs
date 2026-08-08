@@ -3,7 +3,7 @@
 /* global SillyTavern, document, indexedDB, window, toastr, getComputedStyle */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-ui-shell.mjs（exit 0 = 全流程通过）
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
@@ -176,15 +176,35 @@ async function main() {
       },
       "面板打开",
     );
+    await waitMs(400); // 等抽屉开合动画结束再量绘制位置（0.22s 过渡）
 
-    // 移动端抽屉布局断言（computed style）
+    // 移动端抽屉布局断言（computed style + 实际绘制位置——防 fixed 包含块类 bug）
     const mobileStyle = await page.evaluate(() => {
-      const style = getComputedStyle(document.getElementById("stm-panel"));
-      return { position: style.position, bottom: style.bottom, left: style.left, height: style.height, radius: style.borderRadius };
+      const panel = document.getElementById("stm-panel");
+      const style = getComputedStyle(panel);
+      const rect = panel.getBoundingClientRect();
+      return {
+        position: style.position,
+        bottom: style.bottom,
+        left: style.left,
+        height: style.height,
+        radius: style.borderRadius,
+        rect: {
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+        },
+        innerHeight: window.innerHeight,
+      };
     });
     check(
-      "移动端（390px）：全屏底部抽屉",
-      mobileStyle.position === "fixed" && mobileStyle.bottom === "0px" && mobileStyle.left === "0px" && parseFloat(mobileStyle.height) > 500,
+      "移动端（390px）：全屏底部抽屉且覆盖整个视口",
+      mobileStyle.position === "fixed" &&
+        mobileStyle.left === "0px" &&
+        mobileStyle.rect.top <= 0 &&
+        mobileStyle.rect.bottom >= mobileStyle.innerHeight &&
+        parseFloat(mobileStyle.height) > 500,
       JSON.stringify(mobileStyle),
     );
 
@@ -220,6 +240,34 @@ async function main() {
       return [...rows].map((r) => r.querySelector(".stm-field-name")?.textContent ?? "");
     });
     check("首个表格默认展开字段", firstFields.length > 0, `fields=${firstFields.length}`);
+
+    // 优化项 2：点击表格行（开关/展开按钮之外）可展开/收起字段
+    await page.evaluate(() => {
+      document.querySelectorAll("#stm-panel .stm-table-card")[1].querySelector(".stm-table-row-main").click();
+    });
+    await waitMs(400);
+    const rowExpandState = await page.evaluate(() => {
+      const card = document.querySelectorAll("#stm-panel .stm-table-card")[1];
+      return { expanded: card.querySelector(".stm-field-list") !== null, ariaExpanded: card.querySelector(".stm-expand")?.getAttribute("aria-expanded") };
+    });
+    check(
+      "点击表格行（非开关区域）展开字段",
+      rowExpandState.expanded === true && rowExpandState.ariaExpanded === "true",
+      JSON.stringify(rowExpandState),
+    );
+    await page.evaluate(() => {
+      document.querySelectorAll("#stm-panel .stm-table-card")[1].querySelector(".stm-table-row-main").click();
+    });
+    await waitMs(400);
+    const rowCollapseState = await page.evaluate(() => {
+      const card = document.querySelectorAll("#stm-panel .stm-table-card")[1];
+      return { collapsed: card.querySelector(".stm-field-list") === null, ariaExpanded: card.querySelector(".stm-expand")?.getAttribute("aria-expanded") };
+    });
+    check(
+      "再次点击表格行收起字段",
+      rowCollapseState.collapsed === true && rowCollapseState.ariaExpanded === "false",
+      JSON.stringify(rowCollapseState),
+    );
 
     // 5. 表格启停落库：停用第一个表格 → Dexie enabled=false + UI 反映
     const firstTableId = await page.evaluate(
@@ -362,13 +410,29 @@ async function main() {
       () => document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
       "桌面面板打开",
     );
+    await waitMs(300); // 等浮动面板过渡结束再量绘制位置
     const desktopStyle = await page.evaluate(() => {
-      const style = getComputedStyle(document.getElementById("stm-panel"));
-      return { position: style.position, top: style.top, right: style.right, width: style.width, radius: style.borderRadius };
+      const panel = document.getElementById("stm-panel");
+      const style = getComputedStyle(panel);
+      const rect = panel.getBoundingClientRect();
+      return {
+        position: style.position,
+        top: style.top,
+        right: style.right,
+        width: style.width,
+        radius: style.borderRadius,
+        rect: { top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
+        innerHeight: window.innerHeight,
+      };
     });
     check(
-      "桌面（1280px）：浮动面板",
-      desktopStyle.position === "fixed" && desktopStyle.top === "56px" && desktopStyle.right === "16px" && parseFloat(desktopStyle.width) === 400,
+      "桌面（1280px）：浮动面板且位于视口内",
+      desktopStyle.position === "fixed" &&
+        desktopStyle.top === "56px" &&
+        desktopStyle.right === "16px" &&
+        parseFloat(desktopStyle.width) === 400 &&
+        desktopStyle.rect.top === 56 &&
+        desktopStyle.rect.bottom <= desktopStyle.innerHeight,
       JSON.stringify(desktopStyle),
     );
     await page.evaluate(() => {
@@ -378,6 +442,45 @@ async function main() {
       page,
       () => !document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
       "桌面面板收起",
+    );
+
+    // 10. 优化项 1 回归：存量聊天（无绑定）打开即自动创建空间
+    // 复制一个现有聊天文件并去掉 chat_metadata，模拟插件安装前就存在的存量聊天
+    const chatDir = readdirSync(ST_CHATS_ROOT).find((d) => d.includes(TEST_CHARACTER));
+    const existingChat = readdirSync(path.join(ST_CHATS_ROOT, chatDir)).find((f) => f.endsWith(".jsonl"));
+    const srcLines = readFileSync(path.join(ST_CHATS_ROOT, chatDir, existingChat), "utf8").split("\n").filter(Boolean);
+    const header = JSON.parse(srcLines[0]);
+    delete header.chat_metadata;
+    writeFileSync(
+      path.join(ST_CHATS_ROOT, chatDir, "legacy-chat.jsonl"),
+      [JSON.stringify(header), ...srcLines.slice(1)].join("\n"),
+      "utf8",
+    );
+    const spacesBefore = (await readSteMemoryDb(page)).spaces.length;
+    const logsBeforeLegacy = page.__steLogs.length;
+    await page.evaluate(async () => {
+      await SillyTavern.getContext().openCharacterChat("legacy-chat");
+    });
+    await waitForNewSteLog(
+      page,
+      (t) => t.includes("已为对话") && t.includes("legacy-chat"),
+      logsBeforeLegacy,
+      "存量聊天建空间日志",
+    );
+    await waitForDbState(
+      page,
+      (db) => db.spaces.some((s) => s.name.includes("legacy-chat")),
+      "存量聊天空间落库",
+      15000,
+    );
+    const legacyDb = await readSteMemoryDb(page);
+    const legacyBinding = await page.evaluate(() => SillyTavern.getContext().chatMetadata?.steMemory ?? null);
+    check(
+      "存量聊天无绑定：打开即自动创建空间 + 写绑定",
+      legacyDb.spaces.length === spacesBefore + 1 &&
+        legacyDb.spaces.some((s) => s.name.includes("legacy-chat")) &&
+        typeof legacyBinding?.spaceId === "string",
+      `spaces ${spacesBefore}→${legacyDb.spaces.length}，绑定=${JSON.stringify(legacyBinding)}`,
     );
 
     // 10. 全流程无插件相关页面错误

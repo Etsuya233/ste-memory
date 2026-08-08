@@ -89,6 +89,12 @@ node verify-ui-shell.mjs   # exit 0 = 全流程通过（23 项断言）
 8. 插件总开关关闭 → extensionSettings.steMemory.enabled 持久化 + 头部「插件已停用」；
    重新启用 → 恢复空间名
 9. 收起按钮关闭面板 + 按钮 aria-pressed 同步；全流程无插件相关页面错误
+10. 优化项回归（2026-08-08）：存量聊天（无绑定）打开即自动建空间 + 写绑定；
+    点击表格行（非开关区域）展开/收起字段；移动端断言改为**实际绘制位置**
+    （rect 覆盖整个视口，而非只看 computed style）——曾漏掉 ST 给 html 加
+    `-webkit-transform: translateZ(0)` 导致 fixed 包含块变为 html、`bottom: 0`
+    面板被顶出视口的真机 bug（修法：移动端改 `top: 0` 锚定，关闭态
+    translateY(100%) 推屏下）
 
 踩过的坑（2026-08-08）：
 
