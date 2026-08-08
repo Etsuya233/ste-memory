@@ -29,3 +29,6 @@ watch 模式下 esbuild 监听 src 变化重建 bundle，并把 dist 产物同�
 
 - ST 扩展管理器中应出现 **STE Memory**，可启用/禁用
 - 浏览器控制台出现 `[STE Memory] vX.Y.Z 已加载（SillyTavern UI Extension）` 日志
+- 打开已有对话：控制台出现 `已为对话「…」创建记忆空间「…」`（首次）——空间绑定存
+  chatMetadata（`steMemory` 键），重命名对话不丢；切对话自动切换空间上下文
+- 空间绑定全流程验收脚本：`docs/playwright-st-extension/verify-space-binding.mjs`（14 项断言）
