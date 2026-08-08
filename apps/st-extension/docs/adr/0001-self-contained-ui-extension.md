@@ -6,4 +6,4 @@ ST 记忆表格插件是纯前端 UI Extension（manifest + 单文件 bundle）�
 
 未来路线：Server Plugin 可复用 api 代码库（数据库、任务管理等宿主逻辑），但只覆盖浏览器 + 云酒馆场景——TauriTavern 是 Rust 后端，不支持 Node 服务器插件。
 
-不选方案：插件通过 HTTP 调用 apps/api（引入对实验台进程的运行时依赖、CORS 与配置负担，违背「ST 与 api/web 无关」）；直接做 Server Plugin（目标是 UI Extension）；浏览器端引入 React 等框架（ST 运行时无 node_modules，单文件 bundle 限制，原生 DOM/jQuery 足够）。
+不选方案：插件通过 HTTP 调用 apps/api（引入对实验台进程的运行时依赖、CORS 与配置负担，违背「ST 与 api/web 无关」）；直接做 Server Plugin（目标是 UI Extension）；浏览器端引入 React 等框架（ST 运行时无 node_modules，单文件 bundle 限制，原生 DOM/jQuery 足够）——**已修订：UI 渲染层采纳 React 19（esbuild 打包进单文件，见 ADR 0005）**。

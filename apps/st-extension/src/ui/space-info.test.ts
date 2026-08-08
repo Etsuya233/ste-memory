@@ -82,9 +82,9 @@ describe("runtimeStatusLabel（设置面板运行状态行）", () => {
   it("各状态文案齐全", () => {
     expect(runtimeStatusLabel(undefined)).toBe("启动中…");
     expect(runtimeStatusLabel(status())).toBe("已加载 · 空间同步正常");
-    expect(
-      runtimeStatusLabel({ kind: "unsaved-chat", humanMsg: "x" } as SpaceContextStatus),
-    ).toBe("已加载 · 当前对话未保存");
+    expect(runtimeStatusLabel({ kind: "unsaved-chat", humanMsg: "x" } as SpaceContextStatus)).toBe(
+      "已加载 · 当前对话未保存",
+    );
     expect(
       runtimeStatusLabel({
         kind: "space-missing",

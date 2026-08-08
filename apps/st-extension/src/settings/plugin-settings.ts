@@ -45,13 +45,9 @@ export interface SettingsStore {
 export function mergeSettings(raw: unknown): PluginSettings {
   const source = isRecord(raw) ? raw : {};
   return {
-    enabled:
-      typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
+    enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     r2: mergeR2(source.r2),
-    macroName:
-      typeof source.macroName === "string"
-        ? source.macroName
-        : DEFAULT_SETTINGS.macroName,
+    macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
   };
 }
 
@@ -71,8 +67,7 @@ function mergeR2(raw: unknown): R2Settings {
   const defaults = DEFAULT_SETTINGS.r2;
   return {
     accountId: typeof source.accountId === "string" ? source.accountId : defaults.accountId,
-    accessKeyId:
-      typeof source.accessKeyId === "string" ? source.accessKeyId : defaults.accessKeyId,
+    accessKeyId: typeof source.accessKeyId === "string" ? source.accessKeyId : defaults.accessKeyId,
     secretAccessKey:
       typeof source.secretAccessKey === "string"
         ? source.secretAccessKey

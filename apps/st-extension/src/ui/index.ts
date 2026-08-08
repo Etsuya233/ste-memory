@@ -1,4 +1,4 @@
-/** 面板 UI 出口：纯逻辑模型（可测）+ DOM 宿主（ST 侧薄层，不测） */
+/** 面板 UI 出口：纯逻辑模型（可测）+ React 组件层 + DOM 挂载（ST 侧薄层，不测） */
 export { PANEL_TAB_LABELS, PANEL_TABS, PanelModel } from "./panel-model.ts";
 export type { PanelState, PanelTab } from "./panel-model.ts";
 export { FIELD_TYPE_LABELS, buildTableListViewModel } from "./table-list-model.ts";
@@ -11,4 +11,6 @@ export {
   syncStatusLabel,
 } from "./space-info.ts";
 export type { SpaceInfoViewModel } from "./space-info.ts";
-export { mountPanel } from "./st-panel-host.ts";
+export { PanelShell, ToolbarButton } from "./panel-shell.tsx";
+export type { PanelRuntime } from "./panel-shell.tsx";
+export { mountPanel } from "./st-panel-host.tsx";

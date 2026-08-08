@@ -60,8 +60,20 @@ describe("buildTableListViewModel（表格列表视图模型）", () => {
     const characters = table({ key: "characters", kind: "system", name: "人物" });
     const locations = table({ key: "locations", kind: "system", name: "地点" });
     const fields = [
-      field(characters.id, { key: "name", name: "姓名", type: "short_text", required: true, position: 1 }),
-      field(characters.id, { key: "age", name: "年龄", type: "integer", enabled: false, position: 2 }),
+      field(characters.id, {
+        key: "name",
+        name: "姓名",
+        type: "short_text",
+        required: true,
+        position: 1,
+      }),
+      field(characters.id, {
+        key: "age",
+        name: "年龄",
+        type: "integer",
+        enabled: false,
+        position: 2,
+      }),
       field(locations.id, { key: "where", name: "所在", type: "single_reference", position: 1 }),
     ];
     const model = buildTableListViewModel(

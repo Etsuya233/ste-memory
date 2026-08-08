@@ -12,6 +12,8 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.0.0",
     "vitest": "^4.0.0"
@@ -19,6 +21,8 @@
   "dependencies": {
     "@ste-memory/core": "workspace:*",
     "@ste-memory/memory-host-shared": "workspace:*",
-    "dexie": "^4.4.4"
+    "dexie": "^4.4.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }

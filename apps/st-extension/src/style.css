@@ -196,14 +196,6 @@
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
 }
 
-.stm-tab-section {
-  display: none;
-}
-
-.stm-tab-section--active {
-  display: block;
-}
-
 /* 空状态（「空状态是邀请」风格） */
 .stm-empty {
   padding: 36px 16px;

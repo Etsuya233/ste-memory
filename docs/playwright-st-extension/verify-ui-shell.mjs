@@ -193,7 +193,8 @@ async function main() {
       const panel = document.getElementById("stm-panel");
       const title = panel.querySelector(".stm-space-title")?.textContent ?? "";
       const tabs = [...panel.querySelectorAll(".stm-tab")].map((t) => t.textContent.trim());
-      const activeSection = panel.querySelector(".stm-tab-section--active")?.dataset.stmSection;
+      // React 条件渲染：DOM 中只存在激活区块，存在即激活
+      const activeSection = panel.querySelector(".stm-tab-section")?.dataset.stmSection;
       return { title, tabs, activeSection, tableCards: panel.querySelectorAll(".stm-table-card").length };
     });
     check(

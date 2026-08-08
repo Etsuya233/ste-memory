@@ -1,0 +1,138 @@
+/**
+ * 面板组件冒烟测试（react-dom/server renderToString，无 jsdom——沿用
+ * spec「无组件测试基建」先例，只验证「状态 → 标记」投影的关键契约：
+ * 类名 / aria 属性 / 占位文案与脚本选择器一致）。异步加载（useEffect）
+ * 在 SSR 不执行，表格列表的完整渲染由真机验收脚本覆盖。
+ */
+import type { MemorySpaceId } from "@ste-memory/core/memory";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
+import { DEFAULT_SETTINGS } from "../settings/plugin-settings.ts";
+import { PanelModel } from "./panel-model.ts";
+import { PanelShell, ToolbarButton, type PanelRuntime } from "./panel-shell.tsx";
+
+function activeStatus(): SpaceContextStatus {
+  return {
+    kind: "active",
+    binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+    space: {
+      id: "space-1" as MemorySpaceId,
+      name: "爱丽丝 - story",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      updatedAt: "2026-07-28T00:00:00.000Z",
+    },
+    created: false,
+  };
+}
+
+function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
+  return {
+    manager: {
+      getStatus: () => activeStatus(),
+      onStatusChange: () => () => {},
+      syncToCurrentChat: vi.fn(async () => activeStatus()),
+    },
+    tables: {
+      list: vi.fn(async () => []),
+      update: vi.fn(async () => undefined),
+    },
+    fields: {
+      list: vi.fn(async () => []),
+      update: vi.fn(async () => undefined),
+    },
+    settings: {
+      read: () => DEFAULT_SETTINGS,
+      write: vi.fn(),
+    },
+    version: "0.1.0",
+    ...overrides,
+  };
+}
+
+function renderShell(model: PanelModel, runtime: PanelRuntime = fakeRuntime()): string {
+  return renderToString(<PanelShell runtime={runtime} model={model} />);
+}
+
+describe("ToolbarButton（顶部按钮投影）", () => {
+  it("aria-pressed 跟随面板开关状态", () => {
+    const model = new PanelModel();
+    expect(renderToString(<ToolbarButton model={model} />)).toContain('aria-pressed="false"');
+
+    model.open();
+    expect(renderToString(<ToolbarButton model={model} />)).toContain('aria-pressed="true"');
+  });
+
+  it("包含图标与可访问名", () => {
+    const html = renderToString(<ToolbarButton model={new PanelModel()} />);
+    expect(html).toContain("fa-book-open");
+    expect(html).toContain("记忆面板");
+  });
+});
+
+describe("PanelShell（面板骨架投影）", () => {
+  it("初始：收起态（aria-hidden）+ 空间名 + 四 Tab + 表格区块", () => {
+    const html = renderShell(new PanelModel());
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("爱丽丝 - story");
+    expect(html).toContain("云同步未配置");
+    for (const label of ["表格", "记录", "任务", "设置"]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain('data-stm-section="tables"');
+    expect(html).toContain('id="stm-panel"');
+  });
+
+  it("打开：class 带 stm-panel--open、aria-hidden=false", () => {
+    const model = new PanelModel();
+    model.open();
+    const html = renderShell(model);
+    expect(html).toContain('class="stm-panel stm-panel--open"');
+    expect(html).toContain('aria-hidden="false"');
+  });
+
+  it("默认表格 Tab：aria-selected 标记正确", () => {
+    const model = new PanelModel();
+    const html = renderShell(model);
+    expect(html).toContain('data-tab="tables"');
+    // 只有一个 Tab 处于选中态（表格是默认 Tab）
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html).toContain('data-tab="settings"');
+  });
+
+  it("设置 Tab：开关/版本/运行状态/R2 与宏占位（禁用 + 默认值）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("插件总开关");
+    expect(html).toContain('data-action="toggle-plugin"');
+    expect(html).toContain("v0.1.0");
+    expect(html).toContain("已加载 · 空间同步正常");
+    expect(html).toContain('data-stm-field="r2-account-id"');
+    expect(html).toContain('data-stm-field="r2-bucket"');
+    expect(html).toContain('data-stm-field="macro-name"');
+    expect(html).toContain('value="{{memoryContext}}"');
+    expect(html).toContain("disabled");
+  });
+
+  it("插件停用：头部提示 + 表格区块占位（设置优先于空间状态）", () => {
+    const runtime = fakeRuntime({
+      settings: {
+        read: () => ({ ...DEFAULT_SETTINGS, enabled: false }),
+        write: vi.fn(),
+      },
+    });
+    const html = renderShell(new PanelModel(), runtime);
+    expect(html).toContain("插件已停用");
+    expect(html).not.toContain("爱丽丝 - story");
+  });
+
+  it("记录/任务 Tab 占位文案（验收脚本契约）", () => {
+    const model = new PanelModel();
+    model.setTab("records");
+    expect(renderShell(model)).toContain("记录视图即将开放");
+
+    model.setTab("tasks");
+    expect(renderShell(model)).toContain("任务状态即将开放");
+  });
+});

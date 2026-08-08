@@ -1,4 +1,10 @@
-import type { MemoryField, MemoryFieldId, MemoryFieldType, MemoryTable, MemoryTableId } from "@ste-memory/core/memory";
+import type {
+  MemoryField,
+  MemoryFieldId,
+  MemoryFieldType,
+  MemoryTable,
+  MemoryTableId,
+} from "@ste-memory/core/memory";
 
 /** 12 种字段类型的显示名（表格列表与后续 ticket 09 字段编辑器共用） */
 export const FIELD_TYPE_LABELS: Readonly<Record<MemoryFieldType, string>> = {

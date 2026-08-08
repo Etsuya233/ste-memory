@@ -51,8 +51,14 @@ export function createEsbuildOptions(outdir: string, dev: boolean): BuildOptions
     minify: !dev,
     sourcemap: dev,
     logLevel: "info",
+    // React 自动 JSX runtime（react/jsx-runtime 随包打进 bundle，ADR 0005）
+    jsx: "automatic",
     // 版本号在构建时注入：manifest / package.json / 运行时日志同源
-    define: { __STE_MEMORY_VERSION__: JSON.stringify(readPackageVersion()) },
+    define: {
+      __STE_MEMORY_VERSION__: JSON.stringify(readPackageVersion()),
+      // React 生产/开发构建分支（react-dom 内部读 NODE_ENV）
+      "process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production"),
+    },
   };
 }
 
