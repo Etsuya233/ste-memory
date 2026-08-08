@@ -18,3 +18,25 @@
     "Noto Sans CJK SC", sans-serif;
   --stm-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
 }
+
+/* 楼层跳转高亮（证据楼层 chip 的底层反馈）：ST 消息块 `.mes[mesid="N"]` 临时描边。
+ * 全插件仅此一处动效 + 抽屉开合，尊重 reduced-motion（spec UI 契约）。 */
+.stm-floor-flash {
+  animation: stm-floor-flash 2s ease-out;
+}
+
+@keyframes stm-floor-flash {
+  0%,
+  100% {
+    outline: 2px solid transparent;
+  }
+  20% {
+    outline: 2px solid var(--stm-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stm-floor-flash {
+    animation: none;
+  }
+}

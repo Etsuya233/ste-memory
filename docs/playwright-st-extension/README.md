@@ -69,3 +69,32 @@ node verify.mjs
 - 脚本只验证「加载 + 识别」；后续 ticket（面板 UI、消息同步、宏展开）需要按各自验收标准
   扩展等待条件与 DOM 断言。
 - 截图对 AI 阅读不友好（本模型看不了图），DOM 断言才是主证据，截图只给人看。
+
+## ticket 05 验收脚本（verify-space-binding.mjs）
+
+```bash
+node verify-space-binding.mjs   # exit 0 = 全流程通过（14 项断言）
+```
+
+真实 ST 中走完「打开对话建空间 → 发消息 → 新对话 → 切回 → 重命名 → 刷新不重建」全流程：
+
+1. 插件加载（初始化日志）
+2. 打开 Seraphina 对话 → 自动建空间 + chatMetadata 绑定 + 8 张系统表就位
+3. 发消息（MESSAGE_SENT / MESSAGE_RECEIVED 已注册，无 LLM 后端时生成失败可接受）
+4. 新对话 → 第二个空间；切回原对话 → 绑定不变、不重复建
+5. 重命名对话 → 绑定跟随（同 spaceId）、空间显示名保持创建时值
+6. 直接读对话文件 JSONL 第一行确认绑定随文件持久化
+7. 刷新页面 → 再次打开不重复建
+
+踩过的坑（2026-08-08）：
+
+- **角色聊天目录名是 `chats/default_Seraphina/` 而非 `chats/Seraphina/`**——清理残留时要按
+  `chats/*` 扫描含角色名的目录；聊天文件名（card 的 `chat` 字段）会跨运行残留，同名叠加
+  「-已改名」后缀属正常现象，不影响断言。
+- **ST 新版 Popup 是 `<dialog class="popup">`**，旧 `#popup` 选择器匹配不到；确认按钮
+  为 `dialog.popup .popup-button-ok`。
+- **角色列表/聊天切换都是异步的**：`characters` 在插件初始化日志后一段时间才就绪；
+  `selectCharacterById` / `openCharacterChat` 在保存未完成时会静默跳过或延后生效——
+  一律用轮询断言（chatId / 绑定值），不要依赖固定 sleep 或一次性调用。
+- **日志断言要按「新日志计数」**：`waitForSteLog` 会匹配到历史日志，须记录操作前的
+  日志总数再等新条目。
