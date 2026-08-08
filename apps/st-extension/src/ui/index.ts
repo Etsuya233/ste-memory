@@ -4,11 +4,15 @@ export type { PanelState, PanelTab } from "./panel-model.ts";
 export { FIELD_TYPE_LABELS, buildTableListViewModel } from "./table-list-model.ts";
 export type { FieldItemViewModel, TableListItemViewModel } from "./table-list-model.ts";
 export {
-  SYNC_CONFIGURED_LABEL,
+  SYNC_ERROR_PREFIX,
   SYNC_NOT_CONFIGURED_LABEL,
+  SYNC_PENDING_LABEL,
+  SYNC_SYNCING_LABEL,
   buildSpaceInfo,
+  formatSyncTime,
   runtimeStatusLabel,
-  syncStatusLabel,
+  syncStatusDetail,
+  syncStatusSummary,
 } from "./space-info.ts";
 export type { SpaceInfoViewModel } from "./space-info.ts";
 export { PanelShell, ToolbarButton } from "./panel-shell.tsx";

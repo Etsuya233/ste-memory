@@ -485,6 +485,14 @@
   font-family: var(--stm-font-mono);
 }
 
+/* 同步失败提示（设置面板「同步状态」组）：危险色 + 允许折行 */
+.stm-sync-error {
+  color: var(--stm-danger);
+  line-height: 1.5;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 /* 桌面：浮动面板（与 ST 移动断点一致：≥1001px） */
 @media (min-width: 1001px) {
   .stm-panel {

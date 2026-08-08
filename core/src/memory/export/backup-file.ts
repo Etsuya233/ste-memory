@@ -187,7 +187,8 @@ const memoryRecordHistorySchema = Type.Object({
   archivedAt: timestampSchema,
 });
 
-const memorySpaceBackupSchema = Type.Object({
+/** 单个记忆空间的序列化单元 schema（备份文件 data.spaces 元素；云同步文件 data 复用） */
+export const memorySpaceBackupSchema = Type.Object({
   space: memorySpaceSchema,
   tables: Type.Array(memoryTableSchema),
   fields: Type.Array(memoryFieldSchema),

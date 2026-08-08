@@ -123,6 +123,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
 
     expect(runtime.version).toBe("9.9.9");
     expect(runtime.settings.read()).toEqual(DEFAULT_SETTINGS);
+    // 云同步协调器就位：未配置 R2 时状态 unconfigured、无任何云端活动
+    expect(runtime.sync.getStatus()).toEqual({ kind: "unconfigured" });
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
     // 服务可列出系统表与字段（面板表格列表的数据来源）；系统表均带预置字段

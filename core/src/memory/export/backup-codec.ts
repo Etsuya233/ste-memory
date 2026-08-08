@@ -1,7 +1,7 @@
 import { Value } from "typebox/value";
 import { DomainError } from "../domain/index.ts";
 import { BACKUP_FORMAT, BACKUP_VERSION, memoryBackupFileSchema } from "./backup-file.ts";
-import type { MemoryBackupData, MemoryBackupFile } from "./backup-file.ts";
+import type { MemoryBackupData, MemoryBackupFile, MemorySpaceBackup } from "./backup-file.ts";
 
 /**
  * 备份文件编解码（纯函数，ADR 0021）：快照 ↔ 信封对象 ↔ JSON 字符串。
@@ -14,11 +14,11 @@ import type { MemoryBackupData, MemoryBackupFile } from "./backup-file.ts";
  *   两平台共享同一份文本格式。
  */
 
-function formatInvalid(reason: string): never {
+function formatInvalid(reason: string, label = "备份文件"): never {
   throw new DomainError({
     type: "memory_backup_format_invalid",
     param: { reason },
-    humanMsg: `备份文件无效：${reason}`,
+    humanMsg: `${label}无效：${reason}`,
   });
 }
 
@@ -80,6 +80,28 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
   return value as unknown as MemoryBackupFile;
 }
 
+/** 各类 id 去重集合（备份文件内全局唯一；跨单元共享同一个 seen） */
+export interface BackupSeenIds {
+  readonly space: Set<string>;
+  readonly table: Set<string>;
+  readonly field: Set<string>;
+  readonly record: Set<string>;
+  readonly history: Set<string>;
+  readonly evidence: Set<string>;
+}
+
+/** 新建一组 id 去重集合（备份文件 / 云同步文件各建一组）。 */
+export function createBackupSeenIds(): BackupSeenIds {
+  return {
+    space: new Set(),
+    table: new Set(),
+    field: new Set(),
+    record: new Set(),
+    history: new Set(),
+    evidence: new Set(),
+  };
+}
+
 /**
  * 完整性校验：结构正确但语义损坏的文件在恢复时会撞数据库约束（报错信息晦涩）
  * 或写入悬挂引用。这里在触碰数据库之前拦截：
@@ -88,102 +110,102 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
  * - 字段、记录、历史必须指向单元内存在的表格；引用字段的目标表必须在单元内。
  */
 export function validateBackupData(data: MemoryBackupData): void {
-  const seen = {
-    space: new Set<string>(),
-    table: new Set<string>(),
-    field: new Set<string>(),
-    record: new Set<string>(),
-    history: new Set<string>(),
-    evidence: new Set<string>(),
-  };
+  const seen = createBackupSeenIds();
   for (const unit of data.spaces) {
-    const spaceId = unit.space.id;
-    if (seen.space.has(spaceId)) formatInvalid(`记忆空间 id 重复：${spaceId}`);
-    seen.space.add(spaceId);
+    validateSpaceBackupUnit(unit, seen);
+  }
+}
 
-    const tableIds = new Set<string>();
-    for (const table of unit.tables) {
-      if (table.memorySpaceId !== spaceId) {
-        formatInvalid(`表格 ${table.id} 不属于空间 ${spaceId}（实际 ${table.memorySpaceId}）`);
-      }
-      if (seen.table.has(table.id)) formatInvalid(`表格 id 重复：${table.id}`);
-      seen.table.add(table.id);
-      tableIds.add(table.id);
+/** 单个记忆空间单元的完整性校验（云同步文件 data 复用；seen 由调用方传入）。 */
+export function validateSpaceBackupUnit(
+  unit: MemorySpaceBackup,
+  seen: BackupSeenIds,
+  label = "备份文件",
+): void {
+  const spaceId = unit.space.id;
+  if (seen.space.has(spaceId)) formatInvalid(`记忆空间 id 重复：${spaceId}`, label);
+  seen.space.add(spaceId);
+
+  const tableIds = new Set<string>();
+  for (const table of unit.tables) {
+    if (table.memorySpaceId !== spaceId) {
+      formatInvalid(`表格 ${table.id} 不属于空间 ${spaceId}（实际 ${table.memorySpaceId}）`, label);
     }
+    if (seen.table.has(table.id)) formatInvalid(`表格 id 重复：${table.id}`, label);
+    seen.table.add(table.id);
+    tableIds.add(table.id);
+  }
 
-    const fieldsByTable = new Map<string, Set<string>>();
-    for (const field of unit.fields) {
-      if (field.memorySpaceId !== spaceId) {
-        formatInvalid(`字段 ${field.id} 不属于空间 ${spaceId}（实际 ${field.memorySpaceId}）`);
-      }
-      if (!tableIds.has(field.tableId)) {
-        formatInvalid(`字段 ${field.id} 指向不存在的表格 ${field.tableId}`);
-      }
-      if (field.referenceTableId !== null && !tableIds.has(field.referenceTableId)) {
-        formatInvalid(`字段 ${field.id} 的引用目标表 ${field.referenceTableId} 不在单元内`);
-      }
-      if (seen.field.has(field.id)) formatInvalid(`字段 id 重复：${field.id}`);
-      seen.field.add(field.id);
-      let fieldIds = fieldsByTable.get(field.tableId);
-      if (!fieldIds) {
-        fieldIds = new Set<string>();
-        fieldsByTable.set(field.tableId, fieldIds);
-      }
-      fieldIds.add(field.id);
+  const fieldsByTable = new Map<string, Set<string>>();
+  for (const field of unit.fields) {
+    if (field.memorySpaceId !== spaceId) {
+      formatInvalid(`字段 ${field.id} 不属于空间 ${spaceId}（实际 ${field.memorySpaceId}）`, label);
     }
-
-    for (const record of unit.records) {
-      if (record.memorySpaceId !== spaceId) {
-        formatInvalid(`记录 ${record.id} 不属于空间 ${spaceId}（实际 ${record.memorySpaceId}）`);
-      }
-      if (!tableIds.has(record.tableId)) {
-        formatInvalid(`记录 ${record.id} 指向不存在的表格 ${record.tableId}`);
-      }
-      if (seen.record.has(record.id)) formatInvalid(`记录 id 重复：${record.id}`);
-      seen.record.add(record.id);
-      // 记录载荷与字段证据的键必须是其表格的字段；字段证据引用的证据必须在单元内
-      const tableFieldIds = fieldsByTable.get(record.tableId) ?? new Set<string>();
-      const unknownPayloadKey = Object.keys(record.payload).find(
-        (fieldId) => !tableFieldIds.has(fieldId),
-      );
-      if (unknownPayloadKey !== undefined) {
-        formatInvalid(`记录 ${record.id} 的字段值引用了不存在的字段 ${unknownPayloadKey}`);
-      }
-      const unknownEvidenceKey = Object.keys(record.fieldEvidence).find(
-        (fieldId) => !tableFieldIds.has(fieldId),
-      );
-      if (unknownEvidenceKey !== undefined) {
-        formatInvalid(`记录 ${record.id} 的字段证据引用了不存在的字段 ${unknownEvidenceKey}`);
-      }
+    if (!tableIds.has(field.tableId)) {
+      formatInvalid(`字段 ${field.id} 指向不存在的表格 ${field.tableId}`, label);
     }
-
-    for (const history of unit.history) {
-      if (history.memorySpaceId !== spaceId) {
-        formatInvalid(
-          `历史记录 ${history.id} 不属于空间 ${spaceId}（实际 ${history.memorySpaceId}）`,
-        );
-      }
-      if (!tableIds.has(history.tableId)) {
-        formatInvalid(`历史记录 ${history.id} 指向不存在的表格 ${history.tableId}`);
-      }
-      if (seen.history.has(history.id)) formatInvalid(`历史记录 id 重复：${history.id}`);
-      seen.history.add(history.id);
+    if (field.referenceTableId !== null && !tableIds.has(field.referenceTableId)) {
+      formatInvalid(`字段 ${field.id} 的引用目标表 ${field.referenceTableId} 不在单元内`, label);
     }
-
-    for (const evidence of unit.evidence) {
-      if (seen.evidence.has(evidence.evidence_id)) {
-        formatInvalid(`证据 id 重复：${evidence.evidence_id}`);
-      }
-      seen.evidence.add(evidence.evidence_id);
+    if (seen.field.has(field.id)) formatInvalid(`字段 id 重复：${field.id}`, label);
+    seen.field.add(field.id);
+    let fieldIds = fieldsByTable.get(field.tableId);
+    if (!fieldIds) {
+      fieldIds = new Set<string>();
+      fieldsByTable.set(field.tableId, fieldIds);
     }
+    fieldIds.add(field.id);
+  }
 
-    // 记录字段证据引用的证据条目必须存在于本单元（否则恢复出悬挂引用）
-    for (const record of unit.records) {
-      for (const evidenceList of Object.values(record.fieldEvidence)) {
-        const missing = evidenceList.find((entry) => !seen.evidence.has(entry.evidence_id));
-        if (missing) {
-          formatInvalid(`记录 ${record.id} 引用了不存在的证据 ${missing.evidence_id}`);
-        }
+  for (const record of unit.records) {
+    if (record.memorySpaceId !== spaceId) {
+      formatInvalid(`记录 ${record.id} 不属于空间 ${spaceId}（实际 ${record.memorySpaceId}）`, label);
+    }
+    if (!tableIds.has(record.tableId)) {
+      formatInvalid(`记录 ${record.id} 指向不存在的表格 ${record.tableId}`, label);
+    }
+    if (seen.record.has(record.id)) formatInvalid(`记录 id 重复：${record.id}`, label);
+    seen.record.add(record.id);
+    // 记录载荷与字段证据的键必须是其表格的字段；字段证据引用的证据必须在单元内
+    const tableFieldIds = fieldsByTable.get(record.tableId) ?? new Set<string>();
+    const unknownPayloadKey = Object.keys(record.payload).find(
+      (fieldId) => !tableFieldIds.has(fieldId),
+    );
+    if (unknownPayloadKey !== undefined) {
+      formatInvalid(`记录 ${record.id} 的字段值引用了不存在的字段 ${unknownPayloadKey}`, label);
+    }
+    const unknownEvidenceKey = Object.keys(record.fieldEvidence).find(
+      (fieldId) => !tableFieldIds.has(fieldId),
+    );
+    if (unknownEvidenceKey !== undefined) {
+      formatInvalid(`记录 ${record.id} 的字段证据引用了不存在的字段 ${unknownEvidenceKey}`, label);
+    }
+  }
+
+  for (const history of unit.history) {
+    if (history.memorySpaceId !== spaceId) {
+      formatInvalid(`历史记录 ${history.id} 不属于空间 ${spaceId}（实际 ${history.memorySpaceId}）`, label);
+    }
+    if (!tableIds.has(history.tableId)) {
+      formatInvalid(`历史记录 ${history.id} 指向不存在的表格 ${history.tableId}`, label);
+    }
+    if (seen.history.has(history.id)) formatInvalid(`历史记录 id 重复：${history.id}`, label);
+    seen.history.add(history.id);
+  }
+
+  for (const evidence of unit.evidence) {
+    if (seen.evidence.has(evidence.evidence_id)) {
+      formatInvalid(`证据 id 重复：${evidence.evidence_id}`, label);
+    }
+    seen.evidence.add(evidence.evidence_id);
+  }
+
+  // 记录字段证据引用的证据条目必须存在于本单元（否则恢复出悬挂引用）
+  for (const record of unit.records) {
+    for (const evidenceList of Object.values(record.fieldEvidence)) {
+      const missing = evidenceList.find((entry) => !seen.evidence.has(entry.evidence_id));
+      if (missing) {
+        formatInvalid(`记录 ${record.id} 引用了不存在的证据 ${missing.evidence_id}`, label);
       }
     }
   }

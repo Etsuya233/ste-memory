@@ -1,15 +1,16 @@
+import type { CloudSyncStatus } from "../cloud/sync-coordinator.ts";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
-import { isR2Configured } from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 
 /**
- * 面板头部空间信息（纯函数）：当前空间名称 + 同步状态占位。
- * 同步状态在 ticket 06 是占位（未配置/已配置 R2 的文案），ticket 08 接入
- * 真实同步状态（最近同步时间、失败提示）时只改这里与宿主渲染。
+ * 面板头部空间信息（纯函数）：当前空间名称 + 真实云同步状态（ticket 08：
+ * 最近同步时间、失败提示；ticket 06 的占位文案在此被替换）。
  */
 
 export const SYNC_NOT_CONFIGURED_LABEL = "云同步未配置";
-export const SYNC_CONFIGURED_LABEL = "云同步已配置（推送将在后续版本开放）";
+export const SYNC_SYNCING_LABEL = "云同步中…";
+export const SYNC_PENDING_LABEL = "云同步已开启（尚未同步）";
+export const SYNC_ERROR_PREFIX = "云同步失败：";
 
 export interface SpaceInfoViewModel {
   /** 主标题（空间名 / 状态短语） */
@@ -23,6 +24,7 @@ export interface SpaceInfoViewModel {
 export function buildSpaceInfo(
   status: SpaceContextStatus | undefined,
   settings: PluginSettings,
+  syncStatus: CloudSyncStatus,
 ): SpaceInfoViewModel {
   // 插件总开关优先：停用时面板头部直接给出停用提示（表格/同步均不工作）
   if (!settings.enabled) {
@@ -35,8 +37,8 @@ export function buildSpaceInfo(
     case "active":
       return {
         title: status.space.name,
-        detail: syncStatusLabel(settings),
-        tone: "normal",
+        detail: syncStatusDetail(syncStatus),
+        tone: syncStatus.kind === "error" ? "warning" : "normal",
       };
     case "unsaved-chat":
     case "space-missing":
@@ -45,9 +47,23 @@ export function buildSpaceInfo(
   }
 }
 
-/** 同步状态占位文案：R2 四项配置齐了才显示「已配置」（ticket 08 替换为真实状态） */
-export function syncStatusLabel(settings: PluginSettings): string {
-  return isR2Configured(settings) ? SYNC_CONFIGURED_LABEL : SYNC_NOT_CONFIGURED_LABEL;
+/** 云同步状态 → 面板副标题文案（未配置/同步中/失败提示/最近同步时间） */
+export function syncStatusDetail(sync: CloudSyncStatus): string {
+  switch (sync.kind) {
+    case "unconfigured":
+      return SYNC_NOT_CONFIGURED_LABEL;
+    case "syncing":
+      return SYNC_SYNCING_LABEL;
+    case "error":
+      return `${SYNC_ERROR_PREFIX}${sync.message}`;
+    case "idle":
+      return sync.lastSyncAt ? `最近同步 ${formatSyncTime(sync.lastSyncAt)}` : SYNC_PENDING_LABEL;
+  }
+}
+
+/** ISO 时间 → 展示文本（UTC，确定性切片；「YYYY-MM-DD HH:mm」） */
+export function formatSyncTime(iso: string): string {
+  return iso.slice(0, 16).replace("T", " ");
 }
 
 /** 设置面板「运行状态」行文案（基于当前空间上下文） */
@@ -62,5 +78,19 @@ export function runtimeStatusLabel(status: SpaceContextStatus | undefined): stri
       return "已加载 · 空间数据未就绪";
     case "binding-unrecognized":
       return "已加载 · 空间绑定无法识别";
+  }
+}
+
+/** 设置面板「云同步」组状态行文案（最近同步时间；未配置时提示配置） */
+export function syncStatusSummary(sync: CloudSyncStatus): string {
+  switch (sync.kind) {
+    case "unconfigured":
+      return "未配置（填写 R2 四项后自动启用）";
+    case "syncing":
+      return "同步中…";
+    case "idle":
+      return sync.lastSyncAt ? `最近同步 ${formatSyncTime(sync.lastSyncAt)}` : SYNC_PENDING_LABEL;
+    case "error":
+      return `失败：${sync.message}`;
   }
 }

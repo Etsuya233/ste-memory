@@ -6,6 +6,7 @@
     "./memory": "./src/memory/index.ts",
     "./memory/adapter": "./src/memory/adapter.ts",
     "./memory/export": "./src/memory/export/index.ts",
+    "./memory/cloud": "./src/memory/cloud/index.ts",
     "./memory/agent": "./src/memory/application/agent/index.ts"
   },
   "scripts": {

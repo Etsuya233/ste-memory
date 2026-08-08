@@ -9,14 +9,16 @@ import {
 import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
+import { CloudSyncCoordinator, R2CloudSyncAdapter } from "./cloud/index.ts";
 import {
   DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
+  DexieSyncChangeSource,
   SteMemoryDatabase,
 } from "./db/index.ts";
-import type { SettingsStore } from "./settings/plugin-settings.ts";
+import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
@@ -34,6 +36,8 @@ export interface SteMemoryRuntime {
   readonly backup: MemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
+  /** 云同步（ticket 08）：状态订阅 + 立即同步；R2 配置齐即自动防抖推送/空库拉取 */
+  readonly sync: CloudSyncCoordinator;
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
 }
@@ -111,6 +115,30 @@ export async function startSteMemory(
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
   });
 
+  // 云同步协调器：R2 配置齐全 + 插件总开关开启时生效（设置面板实时修改立即生效，
+  // 凭证经 getter 每次请求重取）；start 先于首次空间同步执行，保证空库拉取先落地
+  const sync = new CloudSyncCoordinator({
+    adapter: new R2CloudSyncAdapter(() => settings.read().r2, { now: () => new Date() }),
+    backup,
+    changes: new DexieSyncChangeSource(db),
+    isEnabled: () => settings.read().enabled && isR2Configured(settings.read()),
+    appVersion: () => options.version ?? "",
+    now: () => new Date(),
+    log: {
+      info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+    },
+    onRestored: () => {
+      // 拉取恢复后立即重同步当前对话的空间绑定（绑定在、空间缺失态 → active）
+      void manager.syncToCurrentChat().catch((error) => {
+        log.error(`[${PLUGIN_DISPLAY_NAME}] 拉取后恢复空间上下文失败`, error);
+      });
+    },
+  });
+  // 空库拉取必须先于空间创建完成（否则拉取恢复会覆盖启动期间新建的空间）
+  await sync.start();
+
   adapter.registerEventBridge({
     onChatChanged: () => {
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
@@ -134,6 +162,7 @@ export async function startSteMemory(
     fields,
     backup,
     settings,
+    sync,
     version: options.version ?? "",
   };
 }

@@ -49,6 +49,12 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       loadSnapshot: vi.fn(async () => ({ spaces: [] })),
       restoreSnapshot: vi.fn(async () => {}),
     },
+    sync: {
+      getStatus: () => ({ kind: "unconfigured" }),
+      onStatusChange: () => () => {},
+      syncNow: vi.fn(async () => {}),
+      kick: vi.fn(async () => {}),
+    },
     version: "0.1.0",
     ...overrides,
   };
@@ -104,7 +110,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-tab="settings"');
   });
 
-  it("设置 Tab：开关/版本/运行状态/R2 与宏占位（禁用 + 默认值）", () => {
+  it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏占位（禁用 + 默认值）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const html = renderShell(model);
@@ -117,6 +123,75 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-stm-field="macro-name"');
     expect(html).toContain('value="{{memoryContext}}"');
     expect(html).toContain("disabled");
+  });
+
+  it("设置 Tab：R2 配置输入可编辑（ticket 08 生效，非禁用）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    for (const field of ["r2-account-id", "r2-access-key-id", "r2-secret-access-key", "r2-bucket"]) {
+      // 每个 R2 输入都存在且不带 disabled 属性；密码框为 password 类型
+      expect(html).toContain(`data-stm-field="${field}"`);
+    }
+    const r2Inputs = [...html.matchAll(/<input[^>]*data-stm-field="r2-[^"]+"[^>]*>/g)].map(
+      (match) => match[0],
+    );
+    expect(r2Inputs).toHaveLength(4);
+    expect(r2Inputs.every((input) => !input.includes("disabled"))).toBe(true);
+    expect(html).toContain('type="password"');
+    // 宏输入仍是禁用占位（ticket 15 生效）
+    const macroInput = html.match(/<input[^>]*data-stm-field="macro-name"[^>]*>/)?.[0] ?? "";
+    expect(macroInput).toContain("disabled");
+  });
+
+  it("设置 Tab：云同步状态组（状态/最近同步/立即同步按钮）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("同步状态");
+    expect(html).toContain('data-stm-field="cloud-sync-status"');
+    expect(html).toContain('data-stm-field="cloud-sync-last"');
+    expect(html).toContain("尚未同步");
+    expect(html).toContain('data-action="sync-now"');
+  });
+
+  it("设置 Tab：同步失败时失败提示可见（含消息文本）", () => {
+    const runtime = fakeRuntime({
+      sync: {
+        getStatus: () => ({
+          kind: "error",
+          message: "R2 访问被拒绝（HTTP 403）",
+          lastSyncAt: undefined,
+        }),
+        onStatusChange: () => () => {},
+        syncNow: vi.fn(async () => {}),
+        kick: vi.fn(async () => {}),
+      },
+    });
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model, runtime);
+    expect(html).toContain("失败提示");
+    expect(html).toContain('data-stm-field="cloud-sync-error"');
+    expect(html).toContain("R2 访问被拒绝（HTTP 403）");
+    expect(html).toContain("云同步失败");
+  });
+
+  it("面板头部：同步失败时显示失败提示（ticket 08 替换占位文案）", () => {
+    const runtime = fakeRuntime({
+      sync: {
+        getStatus: () => ({
+          kind: "error",
+          message: "无法连接 R2",
+          lastSyncAt: "2026-08-09T00:00:00.000Z",
+        }),
+        onStatusChange: () => () => {},
+        syncNow: vi.fn(async () => {}),
+        kick: vi.fn(async () => {}),
+      },
+    });
+    const html = renderShell(new PanelModel(), runtime);
+    expect(html).toContain("云同步失败：无法连接 R2");
   });
 
   it("设置 Tab：数据备份组渲染导出/导入按钮与文件输入（验收脚本契约）", () => {

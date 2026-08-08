@@ -79,6 +79,8 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_backup_invalid_json: "备份文件不是有效的 JSON",
   memory_backup_format_invalid: "备份文件结构无效",
   memory_backup_version_unsupported: "备份文件版本不支持",
+  memory_cloud_format_invalid: "云同步文件结构无效",
+  memory_cloud_version_unsupported: "云同步文件版本不支持",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {

@@ -18,11 +18,22 @@ import {
 import type { MemoryBackupFile } from "@ste-memory/core/memory/export";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
+import type { CloudSyncStatus } from "../cloud/sync-coordinator.ts";
 import type { SteMemoryRuntime } from "../runtime.ts";
-import type { PluginSettings, SettingsStore } from "../settings/plugin-settings.ts";
+import {
+  isR2Configured,
+  type PluginSettings,
+  type R2Settings,
+  type SettingsStore,
+} from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
-import { buildSpaceInfo, runtimeStatusLabel } from "./space-info.ts";
+import {
+  buildSpaceInfo,
+  formatSyncTime,
+  runtimeStatusLabel,
+  syncStatusSummary,
+} from "./space-info.ts";
 import { buildTableListViewModel, type TableListItemViewModel } from "./table-list-model.ts";
 
 /** ST 全局 toastr（jquery-toast-plugin，ST 自带）；缺失时降级 console。 */
@@ -49,6 +60,11 @@ export interface PanelRuntime {
   readonly fields: Pick<SteMemoryRuntime["fields"], "list" | "update">;
   /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
   readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
+  /** 云同步（ticket 08）：状态订阅 + 立即同步 + 设置变化重新评估 */
+  readonly sync: Pick<
+    SteMemoryRuntime["sync"],
+    "getStatus" | "onStatusChange" | "syncNow" | "kick"
+  >;
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -145,10 +161,15 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
     () => props.runtime.manager.getStatus(),
     () => props.runtime.manager.getStatus(),
   );
+  const syncStatus = useSyncExternalStore(
+    (listener) => props.runtime.sync.onStatusChange(listener),
+    () => props.runtime.sync.getStatus(),
+    () => props.runtime.sync.getStatus(),
+  );
   // 设置只经本面板的开关写入（唯一写入口），组件本地 state 即最新值
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
 
-  const info = buildSpaceInfo(status, settings);
+  const info = buildSpaceInfo(status, settings, syncStatus);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
   const [dataVersion, setDataVersion] = useState(0);
   return (
@@ -218,6 +239,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
               runtime={props.runtime}
               status={status}
               settings={settings}
+              syncStatus={syncStatus}
               onSettingsChange={setSettings}
               onDataChanged={() => setDataVersion((version) => version + 1)}
             />
@@ -442,11 +464,14 @@ function SettingsTab(props: {
   readonly runtime: PanelRuntime;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
+  /** 云同步状态（ticket 08：最近同步时间、失败提示可见） */
+  readonly syncStatus: CloudSyncStatus;
   readonly onSettingsChange: (settings: PluginSettings) => void;
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
 }) {
   const r2 = props.settings.r2;
+  const configured = isR2Configured(props.settings);
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -457,6 +482,22 @@ function SettingsTab(props: {
     if (enabled) {
       // 重新启用立即恢复空间同步（关闭期间 CHAT_CHANGED 被门控跳过）
       void props.runtime.manager.syncToCurrentChat().catch(reportError);
+    }
+  }
+
+  /** 更新单个 R2 配置字段并持久化；配置变化即时生效（协调器 kick 重新评估） */
+  function updateR2Field(field: keyof R2Settings, value: string): void {
+    const next = { ...props.settings, r2: { ...props.settings.r2, [field]: value } };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    void props.runtime.sync.kick().catch(reportError);
+  }
+
+  async function syncNow(): Promise<void> {
+    try {
+      await props.runtime.sync.syncNow();
+    } catch (error) {
+      reportError(error);
     }
   }
 
@@ -570,14 +611,14 @@ function SettingsTab(props: {
         </div>
       </div>
       <div className="stm-setting-group">
-        <div className="stm-setting-group-title">R2 云同步（后续版本开放）</div>
+        <div className="stm-setting-group-title">云同步（Cloudflare R2）</div>
         <input
           className="stm-input"
           type="text"
           data-stm-field="r2-account-id"
           placeholder="Account ID"
           value={r2.accountId}
-          disabled
+          onChange={(event) => updateR2Field("accountId", event.target.value)}
         />
         <input
           className="stm-input"
@@ -585,7 +626,7 @@ function SettingsTab(props: {
           data-stm-field="r2-access-key-id"
           placeholder="Access Key ID"
           value={r2.accessKeyId}
-          disabled
+          onChange={(event) => updateR2Field("accessKeyId", event.target.value)}
         />
         <input
           className="stm-input"
@@ -593,7 +634,7 @@ function SettingsTab(props: {
           data-stm-field="r2-secret-access-key"
           placeholder="Secret Access Key"
           value={r2.secretAccessKey}
-          disabled
+          onChange={(event) => updateR2Field("secretAccessKey", event.target.value)}
         />
         <input
           className="stm-input"
@@ -601,9 +642,52 @@ function SettingsTab(props: {
           data-stm-field="r2-bucket"
           placeholder="Bucket"
           value={r2.bucket}
-          disabled
+          onChange={(event) => updateR2Field("bucket", event.target.value)}
         />
-        <div className="stm-setting-hint">配置后记忆数据将自动备份到 Cloudflare R2（即将开放）</div>
+        <div className="stm-setting-hint">
+          四项填齐即自动启用：数据变更防抖推送、空库启动自动拉取、较新版本胜出；Bucket
+          需配置 CORS（详见插件文档 R2 云同步配置）
+        </div>
+      </div>
+      <div className="stm-setting-group">
+        <div className="stm-setting-group-title">同步状态</div>
+        <div className="stm-setting-row">
+          <div className="stm-setting-name">状态</div>
+          <div className="stm-setting-value" data-stm-field="cloud-sync-status">
+            {syncStatusSummary(props.syncStatus)}
+          </div>
+        </div>
+        <div className="stm-setting-row">
+          <div className="stm-setting-name">最近同步</div>
+          <div className="stm-setting-value stm-mono" data-stm-field="cloud-sync-last">
+            {(props.syncStatus.kind === "idle" || props.syncStatus.kind === "error") &&
+            props.syncStatus.lastSyncAt
+              ? formatSyncTime(props.syncStatus.lastSyncAt)
+              : "尚未同步"}
+          </div>
+        </div>
+        {props.syncStatus.kind === "error" ? (
+          <div className="stm-setting-row">
+            <div className="stm-setting-name">失败提示</div>
+            <div className="stm-setting-value stm-sync-error" data-stm-field="cloud-sync-error">
+              {props.syncStatus.message}
+            </div>
+          </div>
+        ) : null}
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="sync-now"
+            disabled={!configured}
+            onClick={() => void syncNow()}
+          >
+            立即同步
+          </button>
+        </div>
+        <div className="stm-setting-hint">
+          断网或配置错误时这里显示失败提示，插件会按退避自动重试
+        </div>
       </div>
       <div className="stm-setting-group">
         <div className="stm-setting-group-title">记忆宏（后续版本开放）</div>

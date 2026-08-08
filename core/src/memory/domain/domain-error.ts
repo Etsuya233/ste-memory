@@ -164,6 +164,16 @@ export type DomainErrorData =
       readonly type: "memory_backup_version_unsupported";
       readonly param: { readonly version: unknown };
       readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_cloud_format_invalid";
+      readonly param: { readonly reason: string };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "memory_cloud_version_unsupported";
+      readonly param: { readonly version: unknown };
+      readonly humanMsg: string;
     };
 
 export type DomainErrorType = DomainErrorData["type"];
