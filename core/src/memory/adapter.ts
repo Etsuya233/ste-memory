@@ -7,3 +7,4 @@ export type {
   MemorySpaceRepository,
   MemoryTableRepository,
 } from "./application/index.ts";
+export type { MemoryBackupRepository } from "./export/index.ts";

@@ -45,6 +45,10 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       read: () => DEFAULT_SETTINGS,
       write: vi.fn(),
     },
+    backup: {
+      loadSnapshot: vi.fn(async () => ({ spaces: [] })),
+      restoreSnapshot: vi.fn(async () => {}),
+    },
     version: "0.1.0",
     ...overrides,
   };
@@ -113,6 +117,19 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-stm-field="macro-name"');
     expect(html).toContain('value="{{memoryContext}}"');
     expect(html).toContain("disabled");
+  });
+
+  it("设置 Tab：数据备份组渲染导出/导入按钮与文件输入（验收脚本契约）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("数据备份");
+    expect(html).toContain('data-action="export-backup"');
+    expect(html).toContain("导出备份");
+    expect(html).toContain('data-action="import-backup"');
+    expect(html).toContain("导入备份");
+    expect(html).toContain('data-stm-field="import-backup-file"');
+    expect(html).toContain('type="file"');
   });
 
   it("插件停用：头部提示 + 表格区块占位（设置优先于空间状态）", () => {

@@ -76,6 +76,9 @@ const domainErrorMessages: Record<DomainErrorType, string> = {
   memory_record_query_invalid: "记录查询参数无效",
   memory_record_unknown_field: "记录包含未知字段",
   memory_evidence_storage_mode_conflict: "同一来源不能使用不同的证据存储模式",
+  memory_backup_invalid_json: "备份文件不是有效的 JSON",
+  memory_backup_format_invalid: "备份文件结构无效",
+  memory_backup_version_unsupported: "备份文件版本不支持",
 };
 
 export async function buildServer(dependencies: ServerDependencies): Promise<FastifyInstance> {

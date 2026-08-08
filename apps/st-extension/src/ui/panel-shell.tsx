@@ -10,6 +10,12 @@
  * 定位元素），行为全部走 React 事件。
  */
 import type { MemoryFieldId, MemoryTableId } from "@ste-memory/core/memory";
+import {
+  createBackupFile,
+  parseBackupFile,
+  serializeBackupFile,
+} from "@ste-memory/core/memory/export";
+import type { MemoryBackupFile } from "@ste-memory/core/memory/export";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
 import type { SteMemoryRuntime } from "../runtime.ts";
@@ -25,6 +31,7 @@ declare global {
     | {
         error(message: string, title?: string): void;
         warning(message: string, title?: string): void;
+        success(message: string, title?: string): void;
       }
     | undefined;
 }
@@ -40,6 +47,8 @@ export interface PanelRuntime {
   >;
   readonly tables: Pick<SteMemoryRuntime["tables"], "list" | "update">;
   readonly fields: Pick<SteMemoryRuntime["fields"], "list" | "update">;
+  /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
+  readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -68,6 +77,29 @@ function reportWarning(message: string): void {
   } else {
     console.warn(`[${PLUGIN_DISPLAY_NAME}]`, message);
   }
+}
+
+function reportSuccess(message: string): void {
+  if (typeof toastr !== "undefined") {
+    toastr.success(message, PLUGIN_DISPLAY_NAME);
+  } else {
+    console.info(`[${PLUGIN_DISPLAY_NAME}]`, message);
+  }
+}
+
+/** 下载文本文件（导出备份）：Blob + 临时 object URL，触发后即释放。 */
+function downloadTextFile(text: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** 备份文件名：ste-memory-backup-<导出日期>.json（日期取信封 exportedAt）。 */
+function backupFilename(exportedAt: string): string {
+  return `ste-memory-backup-${exportedAt.slice(0, 10)}.json`;
 }
 
 function Placeholder(props: { readonly title: string; readonly hint: string }) {
@@ -117,6 +149,8 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
 
   const info = buildSpaceInfo(status, settings);
+  // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
+  const [dataVersion, setDataVersion] = useState(0);
   return (
     <aside
       id="stm-panel"
@@ -157,7 +191,12 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
       <main className="stm-panel-body">
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
-            <TablesTab runtime={props.runtime} status={status} settings={settings} />
+            <TablesTab
+              runtime={props.runtime}
+              status={status}
+              settings={settings}
+              dataVersion={dataVersion}
+            />
           </section>
         )}
         {state.tab === "records" && (
@@ -180,6 +219,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
               status={status}
               settings={settings}
               onSettingsChange={setSettings}
+              onDataChanged={() => setDataVersion((version) => version + 1)}
             />
           </section>
         )}
@@ -194,6 +234,8 @@ function TablesTab(props: {
   readonly runtime: PanelRuntime;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
+  /** 整库数据版本（导入备份后自增，驱动重取） */
+  readonly dataVersion: number;
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<MemoryTableId>>(new Set());
   const [tables, setTables] = useState<readonly TableListItemViewModel[] | undefined>(undefined);
@@ -236,7 +278,7 @@ function TablesTab(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.runtime, spaceId, reloadKey]);
+  }, [props.runtime, spaceId, reloadKey, props.dataVersion]);
 
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复表格展示与同步" />;
@@ -401,8 +443,12 @@ function SettingsTab(props: {
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
   readonly onSettingsChange: (settings: PluginSettings) => void;
+  /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
+  readonly onDataChanged: () => void;
 }) {
   const r2 = props.settings.r2;
+  // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   function togglePlugin(enabled: boolean): void {
     const next = { ...props.settings, enabled };
@@ -411,6 +457,49 @@ function SettingsTab(props: {
     if (enabled) {
       // 重新启用立即恢复空间同步（关闭期间 CHAT_CHANGED 被门控跳过）
       void props.runtime.manager.syncToCurrentChat().catch(reportError);
+    }
+  }
+
+  async function exportBackup(): Promise<void> {
+    try {
+      const snapshot = await props.runtime.backup.loadSnapshot();
+      const file = createBackupFile(snapshot, props.runtime.version, new Date().toISOString());
+      downloadTextFile(serializeBackupFile(file), backupFilename(file.exportedAt));
+      reportSuccess(`已导出 ${file.data.spaces.length} 个记忆空间`);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function importBackup(file: File): Promise<void> {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+    // 导入前校验（信封/结构/完整性）：失败报错且不触碰数据库
+    let decoded: MemoryBackupFile;
+    try {
+      decoded = parseBackupFile(text);
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+    const spaceCount = decoded.data.spaces.length;
+    if (!window.confirm(`导入将替换当前全部记忆数据（共 ${spaceCount} 个记忆空间），确定继续？`)) {
+      return;
+    }
+    try {
+      // 整体替换原子执行：任一步失败整体回滚，绝不产生半导入状态
+      await props.runtime.backup.restoreSnapshot(decoded.data);
+      reportSuccess(`已从备份恢复 ${spaceCount} 个记忆空间`);
+      props.onDataChanged();
+      // 恢复后立即重同步当前对话的空间绑定
+      await props.runtime.manager.syncToCurrentChat().catch(reportError);
+    } catch (error) {
+      reportError(error);
     }
   }
 
@@ -442,6 +531,42 @@ function SettingsTab(props: {
         <div className="stm-setting-row">
           <div className="stm-setting-name">运行状态</div>
           <div className="stm-setting-value">{runtimeStatusLabel(props.status)}</div>
+        </div>
+      </div>
+      <div className="stm-setting-group">
+        <div className="stm-setting-group-title">数据备份</div>
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="export-backup"
+            onClick={() => void exportBackup()}
+          >
+            导出备份
+          </button>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="import-backup"
+            onClick={() => importInputRef.current?.click()}
+          >
+            导入备份
+          </button>
+        </div>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          data-stm-field="import-backup-file"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void importBackup(file);
+            event.target.value = "";
+          }}
+        />
+        <div className="stm-setting-hint">
+          导出下载全库 JSON 备份文件；导入前校验文件并整体替换当前数据
         </div>
       </div>
       <div className="stm-setting-group">

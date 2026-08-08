@@ -14,6 +14,7 @@ import type {
   MemoryRecordRepository,
 } from "@ste-memory/core/memory/adapter";
 import type { SteMemoryDatabase } from "./database.ts";
+import { toDomainEvidence, toEvidenceRow } from "./evidence-conversion.ts";
 
 /** 事务内乐观锁失效（记录已被其他变更更新）：提交整体回滚，commit 返回 false。 */
 class StaleRecordError extends Error {}
@@ -169,18 +170,8 @@ export class DexieMemoryRecordRepository
       .equals([memorySpaceId, sourceType, sourceId])
       .first();
     if (!row) return undefined;
-    // 与参照实现同语义：快照证据缺少正文视为存储损坏
-    if (row.storage_mode === "snapshot" && row.content === null) {
-      throw new Error("快照证据缺少正文");
-    }
-    return {
-      evidence_id: row.id,
-      source_type: row.source_type,
-      source_id: row.source_id,
-      storage_mode: row.storage_mode,
-      ...(row.storage_mode === "snapshot" ? { content: row.content } : {}),
-      extraProps: row.extraProps,
-    } as MemoryEvidence;
+    // 与参照实现同语义：快照证据缺少正文视为存储损坏（toDomainEvidence 内置护栏）
+    return toDomainEvidence(row);
   }
 
   async #saveEvidence(
@@ -188,8 +179,7 @@ export class DexieMemoryRecordRepository
     evidenceEntries: readonly MemoryEvidence[],
   ): Promise<void> {
     for (const evidence of evidenceEntries) {
-      const { evidence_id: id, ...rest } = evidence;
-      await this.#db.memoryEvidence.add({ id, memorySpaceId, ...rest });
+      await this.#db.memoryEvidence.add(toEvidenceRow(memorySpaceId, evidence));
     }
   }
 }

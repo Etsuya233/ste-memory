@@ -6,9 +6,11 @@ import {
   type MemorySpaceId,
   type MemoryTableId,
 } from "@ste-memory/core/memory";
+import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import {
+  DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
@@ -28,6 +30,8 @@ export interface SteMemoryRuntime {
   readonly spaces: MemorySpaceService;
   readonly tables: MemoryTableService;
   readonly fields: MemoryFieldService;
+  /** 全库备份（导出/导入，ticket 07）：快照读取与整体还原 */
+  readonly backup: MemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
   /** 插件版本（构建时注入，设置面板展示） */
@@ -78,6 +82,7 @@ export async function startSteMemory(
   const spaceRepository = new DexieMemorySpaceRepository(db);
   const tableRepository = new DexieMemoryTableRepository(db);
   const fieldRepository = new DexieMemoryFieldRepository(db);
+  const backup = new DexieMemoryBackupRepository(db);
 
   const spaces = new MemorySpaceService(
     spaceRepository,
@@ -127,6 +132,7 @@ export async function startSteMemory(
     spaces,
     tables,
     fields,
+    backup,
     settings,
     version: options.version ?? "",
   };

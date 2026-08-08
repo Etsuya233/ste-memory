@@ -63,12 +63,16 @@ describe("architecture", () => {
   it("keeps the Agent engine dependencies confined to the memory agent sublayer", () => {
     const files = sourceFiles(new URL("../src/memory/", import.meta.url));
     const agentDir = fileURLToPath(new URL("../src/memory/application/agent/", import.meta.url));
+    // typebox 例外：ticket 07 备份文件 schema 校验（export 模块）与 agent 工具共用同一依赖；
+    // @earendil-works/pi-*（Agent 引擎）仍严格限制在 agent 子层内
+    const exportDir = fileURLToPath(new URL("../src/memory/export/", import.meta.url));
     const invalidImports = files.flatMap((file) =>
       importsOf(file)
         .filter(
           (value) =>
             (value.includes("@earendil-works/pi-") || value.includes("typebox")) &&
-            !file.startsWith(agentDir),
+            !file.startsWith(agentDir) &&
+            !(value.includes("typebox") && file.startsWith(exportDir)),
         )
         .map((value) => `${file}: ${value}`),
     );

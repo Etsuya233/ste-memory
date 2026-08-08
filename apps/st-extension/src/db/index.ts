@@ -5,3 +5,4 @@ export { DexieMemorySpaceRepository } from "./memory-space-repository.ts";
 export { DexieMemoryTableRepository } from "./memory-table-repository.ts";
 export { DexieMemoryFieldRepository } from "./memory-field-repository.ts";
 export { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
+export { DexieMemoryBackupRepository } from "./memory-backup-repository.ts";
