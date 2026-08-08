@@ -1,6 +1,7 @@
 import { getStContext } from "./st-globals.ts";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { startSteMemory } from "./runtime.ts";
+import { mountPanel } from "./ui/index.ts";
 
 export { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 
@@ -37,7 +38,14 @@ export function bootstrap(options: BootstrapOptions): BootstrapStatus {
     );
     return "unavailable";
   }
-  const start = options.start ?? ((getCtx) => startSteMemory(getCtx, { log }));
+  const start =
+    options.start ??
+    ((getCtx) =>
+      startSteMemory(getCtx, { log, version: options.version }).then((runtime) => {
+        // 面板挂载（非浏览器环境内部自守卫）；runtime 已含设置存储/服务/版本
+        mountPanel(runtime);
+        return runtime;
+      }));
   void start(getContext, log).catch((error) => {
     log.error(`[${PLUGIN_DISPLAY_NAME}] 运行时启动失败`, error);
   });

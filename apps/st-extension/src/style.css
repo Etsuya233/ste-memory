@@ -5,6 +5,7 @@
 :root {
   --stm-ink-bg: #171a20;
   --stm-surface: #21252e;
+  --stm-border: #2c313d;
   --stm-ink: #e7eaf0;
   --stm-ink-secondary: #98a0b2;
   --stm-accent: #6fa894;
@@ -38,5 +39,456 @@
 @media (prefers-reduced-motion: reduce) {
   .stm-floor-flash {
     animation: none;
+  }
+}
+
+/* ============================================================
+ * 面板骨架（ticket 06）：顶部按钮 + 抽屉/浮动面板 + 底部 Tab
+ * 移动端优先：默认 = 全屏底部抽屉；桌面（≥1001px，与 ST 移动断点一致）
+ * = 浮动面板。色板/字体全部走令牌；类名 stm- 前缀隔离，不依赖 ST 主题变量。
+ * 动效只留抽屉开合（spec UI 契约），尊重 reduced-motion。
+ * ============================================================ */
+
+/* 顶部工具栏按钮（插入 #top-settings-holder；自身完整自绘，仅借用容器位置） */
+.stm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.stm-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  color: var(--stm-ink);
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.stm-toolbar-button:hover {
+  opacity: 0.95;
+}
+
+.stm-toolbar-button[aria-pressed="true"] {
+  color: var(--stm-accent);
+  opacity: 1;
+}
+
+/* 面板：移动端 = 全屏底部抽屉（默认态，移动优先） */
+.stm-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3010;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--stm-surface);
+  color: var(--stm-ink);
+  font-family: var(--stm-font);
+  border-radius: 14px 14px 0 0;
+  border-top: 1px solid var(--stm-border);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+  visibility: hidden;
+  transform: translateY(100%);
+  transition:
+    transform 0.22s ease-out,
+    visibility 0.22s;
+}
+
+.stm-panel.stm-panel--open {
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.stm-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--stm-border);
+}
+
+.stm-space-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.stm-space-status {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+/* 收起按钮：触控目标 ≥44px */
+.stm-panel-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -8px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.stm-panel-close:hover {
+  color: var(--stm-ink);
+}
+
+/* 底部 Tab：触控目标 ≥44px；当前 Tab 铜绿下划线 */
+.stm-tabbar {
+  display: flex;
+  border-bottom: 1px solid var(--stm-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.stm-tab {
+  flex: 1;
+  min-height: 44px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 14px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+  position: relative;
+}
+
+.stm-tab:hover {
+  color: var(--stm-ink);
+}
+
+.stm-tab[aria-selected="true"] {
+  color: var(--stm-ink);
+  font-weight: 600;
+}
+
+.stm-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--stm-accent);
+}
+
+.stm-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+}
+
+.stm-tab-section {
+  display: none;
+}
+
+.stm-tab-section--active {
+  display: block;
+}
+
+/* 空状态（「空状态是邀请」风格） */
+.stm-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-empty-title {
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: var(--stm-ink);
+}
+
+.stm-empty-hint {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 表格列表（紧凑账本行） */
+.stm-table-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-table-card {
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stm-table-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 6px 10px 6px 4px;
+}
+
+/* 展开按钮：触控目标 44×44 */
+.stm-expand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stm-expand:hover {
+  color: var(--stm-ink);
+}
+
+.stm-table-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-table-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.stm-table-kind {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--stm-ink-secondary);
+  border: 1px solid var(--stm-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+
+.stm-table-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+}
+
+.stm-field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  border-top: 1px dashed var(--stm-border);
+}
+
+.stm-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 12px 4px 16px;
+}
+
+.stm-field-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-field-name {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.stm-field-required {
+  margin-left: 4px;
+  color: var(--stm-warning);
+}
+
+.stm-field-tag {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+}
+
+/* 自绘开关：label 触控目标 52×44（≥44px 契约），可视轨道 44×26 居中 */
+.stm-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  width: 52px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.stm-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.stm-switch-track {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 4px;
+  right: 4px;
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  background: var(--stm-ink-bg);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.stm-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--stm-ink-secondary);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.stm-switch input:checked + .stm-switch-track {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent);
+}
+
+.stm-switch input:checked + .stm-switch-track::after {
+  transform: translateX(18px);
+  background: var(--stm-ink-bg);
+}
+
+.stm-switch input:focus-visible + .stm-switch-track {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
+}
+
+/* 设置面板 */
+.stm-setting-group {
+  margin-bottom: 6px;
+}
+
+.stm-setting-group-title {
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--stm-border);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--stm-accent);
+}
+
+.stm-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 0;
+}
+
+.stm-setting-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-setting-name {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.stm-setting-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-setting-value {
+  font-size: 13px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+}
+
+.stm-input:disabled {
+  opacity: 0.55;
+}
+
+.stm-mono {
+  font-family: var(--stm-font-mono);
+}
+
+/* 桌面：浮动面板（与 ST 移动断点一致：≥1001px） */
+@media (min-width: 1001px) {
+  .stm-panel {
+    left: auto;
+    right: 16px;
+    bottom: auto;
+    top: 56px;
+    width: 400px;
+    max-width: calc(100vw - 32px);
+    height: auto;
+    max-height: calc(100dvh - 72px);
+    border-radius: 12px;
+    border: 1px solid var(--stm-border);
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  }
+
+  .stm-panel.stm-panel--open {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stm-panel {
+    transition: none;
+  }
+
+  .stm-switch-track,
+  .stm-switch-track::after {
+    transition: none;
   }
 }

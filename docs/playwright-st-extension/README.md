@@ -70,6 +70,39 @@ node verify.mjs
   扩展等待条件与 DOM 断言。
 - 截图对 AI 阅读不友好（本模型看不了图），DOM 断言才是主证据，截图只给人看。
 
+## ticket 06 验收脚本（verify-ui-shell.mjs）
+
+```bash
+node verify-ui-shell.mjs   # exit 0 = 全流程通过（23 项断言）
+```
+
+真实 ST 中走完「顶部按钮 → 面板骨架（移动抽屉/桌面浮动）→ 表格列表启停落库 → 设置面板
+持久化与插件开关」全流程：
+
+1. 插件加载（初始化日志）+ 打开测试角色对话自动建空间
+2. 顶部工具栏按钮就位（#top-settings-holder 内）
+3. 移动端（390px）全屏底部抽屉布局（computed style 断言）；桌面（1280px）浮动面板
+4. 面板骨架：空间名称 + 底部 Tab 四枚（表格/记录/任务/设置）+ 8 张系统表 + 首个表格默认展开字段
+5. 表格启停 → Dexie memoryTables.enabled 落库 + UI 开关反映
+6. 停用显示策略依赖字段 → core 保护规则 toastr 报错、不落库；停用普通字段 → 落库
+7. 记录 Tab 占位；设置 Tab：插件开关 + 版本 + 运行状态 + R2 占位（4 个禁用输入）+ 记忆宏占位（禁用 + 默认名）
+8. 插件总开关关闭 → extensionSettings.steMemory.enabled 持久化 + 头部「插件已停用」；
+   重新启用 → 恢复空间名
+9. 收起按钮关闭面板 + 按钮 aria-pressed 同步；全流程无插件相关页面错误
+
+踩过的坑（2026-08-08）：
+
+- **UI 首屏状态依赖对话绑定**：验收脚本必须先清掉测试角色的对话文件残留（含上次验收的
+  chatMetadata 绑定指针），否则打开对话走的是 space-missing 分支（绑定在、本地库空），
+  不会新建空间，表格列表无从渲染——与 verify-space-binding.mjs 同因。
+- **indexedDB getAll() 按主键（UUID）排序，不是 createdAt**：验证「停用第一个表格落库」
+  时不能从 getAll() 取 id 与 UI 首行对照，要从被点击的 DOM 元素 dataset 里取 id。
+- **字段启停第一行是显示策略字段**：系统表显示策略引用 fields[0]（模板固定），停用它触发
+  core 保护规则（memory_field_used_by_display_strategy）——验收脚本特意断言这条 toastr
+  报错路径，再停第二个字段验证正常落库。
+- **page.evaluate 谓词无法引用 Node 侧函数**：waitUntil 的谓词序列化进页面上下文，
+  Dexie 快照断言要用 Node 侧轮询（waitForDbState：Node 循环里反复 readSteMemoryDb）。
+
 ## ticket 05 验收脚本（verify-space-binding.mjs）
 
 ```bash

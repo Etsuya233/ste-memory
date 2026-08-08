@@ -14,14 +14,24 @@ import {
   DexieMemoryTableRepository,
   SteMemoryDatabase,
 } from "./db/index.ts";
+import type { SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
+import { StSettingsStore } from "./st/st-settings-store.ts";
 import type { PluginLog } from "./bootstrap.ts";
 
 /** 插件运行时（UI 与后续 ticket 的访问点） */
 export interface SteMemoryRuntime {
   readonly manager: ChatSpaceManager;
   readonly adapter: StChatAdapter;
+  /** core 服务（面板表格列表/启停等 UI 操作入口） */
+  readonly spaces: MemorySpaceService;
+  readonly tables: MemoryTableService;
+  readonly fields: MemoryFieldService;
+  /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
+  readonly settings: SettingsStore;
+  /** 插件版本（构建时注入，设置面板展示） */
+  readonly version: string;
 }
 
 export interface StartSteMemoryOptions {
@@ -32,6 +42,10 @@ export interface StartSteMemoryOptions {
   readonly createId?: (prefix: string) => string;
   /** Dexie 库工厂；缺省 = 默认库（测试注入临时库） */
   readonly createDb?: () => SteMemoryDatabase;
+  /** 设置存储；缺省 = ST extension_settings 宿主（测试注入固定值） */
+  readonly settingsStore?: SettingsStore;
+  /** 插件版本（构建时注入；缺省空串，设置面板显示 v） */
+  readonly version?: string;
 }
 
 /**
@@ -59,6 +73,7 @@ export async function startSteMemory(
   const now = options.now ?? (() => new Date().toISOString());
   const createId = options.createId ?? defaultIdFactory;
   const db = options.createDb ? options.createDb() : new SteMemoryDatabase();
+  const settings = options.settingsStore ?? new StSettingsStore(() => getContext() as StContext);
 
   const spaceRepository = new DexieMemorySpaceRepository(db);
   const tableRepository = new DexieMemoryTableRepository(db);
@@ -93,6 +108,8 @@ export async function startSteMemory(
 
   adapter.registerEventBridge({
     onChatChanged: () => {
+      // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
+      if (!settings.read().enabled) return;
       void manager.syncToCurrentChat().catch((error) => {
         log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
       });
@@ -101,6 +118,16 @@ export async function startSteMemory(
     onMessageEvent: () => {},
   });
 
-  await manager.syncToCurrentChat();
-  return { manager, adapter };
+  if (settings.read().enabled) {
+    await manager.syncToCurrentChat();
+  }
+  return {
+    manager,
+    adapter,
+    spaces,
+    tables,
+    fields,
+    settings,
+    version: options.version ?? "",
+  };
 }

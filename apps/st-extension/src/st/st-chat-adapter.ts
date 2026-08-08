@@ -26,6 +26,13 @@ export interface StContext {
   chatMetadata?: Record<string, unknown>;
   /** 防抖持久化 chatMetadata（script.js saveMetadataDebounced） */
   saveMetadataDebounced?: () => void;
+  /**
+   * ST 全局扩展设置对象（extensions.js extension_settings，随 settings.json
+   * 持久化）。插件设置写在该对象的 steMemory 命名空间下（见 settings/）。
+   */
+  extensionSettings?: Record<string, unknown>;
+  /** 防抖持久化 extension_settings（script.js saveSettingsDebounced） */
+  saveSettingsDebounced?: () => void;
   eventSource?: {
     readonly on: (event: string, handler: (...args: unknown[]) => void) => void;
   };

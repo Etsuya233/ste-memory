@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTestDatabase } from "./db/test-support.ts";
 import { DexieMemorySpaceRepository, DexieMemoryTableRepository } from "./db/index.ts";
 import { startSteMemory } from "./runtime.ts";
+import { DEFAULT_SETTINGS, type SettingsStore } from "./settings/plugin-settings.ts";
 import { CHAT_METADATA_BINDING_KEY, type StContext } from "./st/st-chat-adapter.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./space-binding/chat-space-manager.ts";
 
@@ -109,5 +110,69 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined();
     expect(await new DexieMemorySpaceRepository(db).list()).toHaveLength(0);
+  });
+
+  it("运行时暴露 core 服务、设置存储与版本（面板 UI 的访问点）", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const runtime = await startSteMemory(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      version: "9.9.9",
+    });
+
+    expect(runtime.version).toBe("9.9.9");
+    expect(runtime.settings.read()).toEqual(DEFAULT_SETTINGS);
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+    // 服务可列出系统表与字段（面板表格列表的数据来源）；系统表均带预置字段
+    const tables = await runtime.tables.list(status.space.id);
+    expect(tables.length).toBeGreaterThan(0);
+    const firstTable = tables[0]!;
+    expect((await runtime.fields.list(status.space.id, firstTable.id)).length).toBeGreaterThan(0);
+  });
+
+  it("插件总开关停用：启动不建空间、CHAT_CHANGED 不响应；重新启用后恢复同步", async () => {
+    const db = createTestDatabase();
+    const { context, handlers, chatMetadata } = fakeStContext();
+    const spaceRepository = new DexieMemorySpaceRepository(db);
+    let settings = { ...DEFAULT_SETTINGS, enabled: false };
+    const settingsStore: SettingsStore = {
+      read: () => settings,
+      write: (next) => {
+        settings = next;
+      },
+    };
+
+    const runtime = await startSteMemory(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore,
+    });
+
+    // 停用：无空间、无绑定、状态未发布
+    expect(runtime.manager.getStatus()).toBeUndefined();
+    expect(await spaceRepository.list()).toHaveLength(0);
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined();
+
+    // 停用期间 CHAT_CHANGED 被门控跳过（事件桥不排队同步，状态不发布）
+    handlers.get("chat_id_changed")!("other");
+    expect(runtime.manager.getStatus()).toBeUndefined();
+    expect(await spaceRepository.list()).toHaveLength(0);
+
+    // 设置面板重新启用（写存储后触发同步，等价宿主行为）
+    settingsStore.write({ ...settings, enabled: true });
+    await runtime.manager.syncToCurrentChat();
+    const status = runtime.manager.getStatus();
+    expect(status?.kind).toBe("active");
+    expect(await spaceRepository.list()).toHaveLength(1);
+
+    // 启用后 CHAT_CHANGED 恢复响应
+    context.chatId = "other";
+    context.chatMetadata = {};
+    handlers.get("chat_id_changed")!("other");
+    await runtime.manager.syncToCurrentChat();
+    expect(runtime.manager.getStatus()?.kind).toBe("active");
+    expect(await spaceRepository.list()).toHaveLength(2);
   });
 });
