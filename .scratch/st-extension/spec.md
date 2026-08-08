@@ -88,8 +88,8 @@ Status: ready-for-agent
 1. **形态与边界（ADR 0001）**：UI Extension，manifest + esbuild 单文件 bundle；只复用 core（打包进浏览器），不依赖、不调用 apps/api 与 apps/web。api/web 保持为实验工作台。Server Plugin 是未来路线，且覆盖不了 TauriTavern（Rust 后端不支持 Node 服务器插件）。
 2. **LLM 路径（ADR 0018 延伸）**：Agent 的 streamFn 实现为 fetch ST 同源代理 `POST /api/backends/chat-completions/generate`（`getRequestHeaders()` CSRF 头，无 CORS，复用用户配置，支持 tools 透传）。该端点是未文档化内部 API——封装在适配器内隔离版本漂移风险。
 3. **空间模型（core 词汇表）**：每 ST 对话一个记忆空间；首次打开自动创建并安装七张系统表（模板来自共享包）；空间名 = 角色名 - 对话文件名。
-4. **同步身份（ADR 0003）**：同步楼层 = ST 消息数组下标作来源 ID；MESSAGE_SENT / MESSAGE_RECEIVED 事件后追加新楼层，CHAT_CHANGED 时对账；swipe/重生成/删除的漂移 v1 不传播；消息全文不落库（ST 即消息源），证据对比 = 楼层跳转。
-5. **存储分层（ADR 0002）**：Dexie（IndexedDB）本地事实源，实现 core 各端口 repository（空间/表格/字段/记录/修订历史/证据/任务）；chatMetadata 只存小指针（记忆空间绑定 + 同步游标）；云同步 = CloudSyncAdapter 接口 + Cloudflare R2 实现（每空间一个 JSON 文件 + 索引文件，last-write-wins）。R2 密钥明文存浏览器设置（本地单用户，ADR 0017 精神）。未来实现候选（先不做，仅记录）：ChatMetadata 同步器——小数据镜像进 chatMetadata 随聊天文件同步（参考插件 ST-Memory-Context 的做法，数据量小才可行）。
+4. **同步身份（ADR 0003）**：同步楼层 = ST 消息数组下标作来源 ID；swipe/重生成/删除的漂移 v1 不传播；消息全文不落库（ST 即消息源），楼层范围随时从 ST 对话实时读取，**无同步游标**——「哪些楼层已填表」由填表任务的楼层进度台账（untracked/processed/error）记录；CHAT_CHANGED 事件用于切换空间上下文；MESSAGE_SENT / MESSAGE_RECEIVED 仅注册为未来自动填表的触发点（当前无消费方）；证据对比 = 楼层跳转。
+5. **存储分层（ADR 0002）**：Dexie（IndexedDB）本地事实源，实现 core 各端口 repository（空间/表格/字段/记录/修订历史/证据/任务）；chatMetadata 只存小指针（记忆空间绑定，随对话文件走，重命名自动跟随）；云同步 = CloudSyncAdapter 接口 + Cloudflare R2 实现（每空间一个 JSON 文件 + 索引文件，last-write-wins）。R2 密钥明文存浏览器设置（本地单用户，ADR 0017 精神）。未来实现候选（先不做，仅记录）：ChatMetadata 同步器——小数据镜像进 chatMetadata 随聊天文件同步（参考插件 ST-Memory-Context 的做法，数据量小才可行）。
 
 **序列化文件信封**（导出与云同步共用）：`{ format: "ste-memory-backup", version: 1, exportedAt, appVersion, data }`；每空间云文件同信封 + spaceId，索引文件同信封含空间清单（spaceId + 更新时间）；导入/拉取先校验 format/version，未知版本明确报错绝不半导入；未来 schema 演进 = version 递增 + 迁移路径（v1 不实现迁移器，仅留此决策）。
 6. **同步模型**：本地优先（本地库存在则用本地）；数据变更防抖周期推送；启动时本地库为空则云端拉全量。
@@ -106,7 +106,7 @@ Status: ready-for-agent
 - **原则**：只测外部行为（端口契约、纯函数输入输出、序列化往返），不测实现细节（不测 IndexedDB 内部、不测 ST DOM）。
 - **唯一新 seam = 插件的纯逻辑层**：不依赖 ST `getContext()` 与浏览器 IndexedDB 的模块。ST 环境访问抽象为注入端口（ST 事件/上下文适配器，测试时用 fake 实现）。理想 seam 数量为 1——所有自动化测试在此层进行。
 - **Dexie repository 实现**：用 `fake-indexeddb` 在 Node 环境测，验证满足 core 端口契约（空间/表格/字段/记录/修订/证据/任务各 repository 的行为与现有 core/api 测试同语义）。
-- **纯函数直接测**：同步对账（游标推进、追加、CHAT_CHANGED 对账）、快照组装（表分组 + 显示文本 + 上限截断）、云同步序列化/索引/冲突（LWW）、R2 适配器（mock fetch，验证请求形状与错误处理）。
+- **纯函数直接测**：快照组装（表分组 + 显示文本 + 上限截断）、楼层进度台账（untracked/processed/error 推进）、云同步序列化/索引/冲突（LWW）、R2 适配器（mock fetch，验证请求形状与错误处理）。
 - **手动验收路径**（不进 CI）：浏览器（云酒馆）+ TauriTavern 双端安装、事件同步、宏注入展开、R2 真实同步往返、iOS 清存储后恢复——沿用 apps/web 浏览器验收先例。
 - **先例**：apps/web 纯逻辑测试（无 jsdom/组件测试基建）、apps/api 服务与纯函数测试、core 端口测试。
 

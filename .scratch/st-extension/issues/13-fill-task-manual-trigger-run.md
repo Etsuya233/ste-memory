@@ -4,6 +4,8 @@
 
 **块处理以 apps/api 填表实现为行为基准**（`fill-task-service.ts`：块循环 [from, to] 闭区间、默认块大小 20、块失败 → 任务 failed 且出错块标记可重试、已提交块保留、块边界安全检查点）；任务输入 = 原始消息内容（不套清洗规则，ST Regex 由用户自行负责）。
 
+**楼层进度台账由本票维护**：按（记忆空间, 同步楼层）记录 untracked / processed / error——块成功 markProcessed、块失败 markError，与 api 的 markProcessed/markError 同语义；任务触发 UI 的「未处理范围」提示与覆盖视图（14）都从台账计算。
+
 **Blocked by:** 04 — Dexie 持久层（二）；06 — 基础 UI 壳与设置面板；12 — LLM 适配器（ST backends 同源代理）
 
 **Status:** ready-for-agent
