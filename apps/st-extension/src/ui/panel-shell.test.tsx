@@ -37,10 +37,14 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     tables: {
       list: vi.fn(async () => []),
       update: vi.fn(async () => undefined),
+      create: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
     },
     fields: {
       list: vi.fn(async () => []),
       update: vi.fn(async () => undefined),
+      create: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
     },
     settings: {
       read: () => DEFAULT_SETTINGS,

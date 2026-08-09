@@ -300,6 +300,7 @@
 
 .stm-field-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 44px;
@@ -491,6 +492,244 @@
   line-height: 1.5;
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+/* ============================================================
+ * 表格/字段编辑器与卡片操作（ticket 09）
+ * 色板/字体全部走令牌；操作按钮保持触控友好（≥36px，行高 44px）
+ * ============================================================ */
+
+.stm-button--primary {
+  background: var(--stm-accent);
+  border-color: var(--stm-accent);
+  color: var(--stm-ink-bg);
+  font-weight: 600;
+}
+
+.stm-button--primary:hover {
+  border-color: var(--stm-accent);
+  filter: brightness(1.08);
+}
+
+/* 顶部操作行（建表入口）与卡片内操作行 */
+.stm-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px 10px 6px;
+}
+
+.stm-table-actions--top {
+  padding: 0 0 8px;
+  justify-content: flex-end;
+}
+
+.stm-table-action {
+  /* spec §11 触控目标 ≥44px（桌面文字按钮亦不缩小） */
+  min-height: 44px;
+  padding: 6px 12px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-table-action:hover {
+  color: var(--stm-ink);
+  border-color: var(--stm-border);
+}
+
+.stm-table-action[aria-pressed="true"] {
+  color: var(--stm-accent);
+}
+
+.stm-table-action--danger {
+  color: var(--stm-danger);
+}
+
+.stm-table-action--danger:hover {
+  color: var(--stm-danger);
+  border-color: var(--stm-danger);
+}
+
+.stm-table-action--hint {
+  cursor: default;
+  color: var(--stm-ink-secondary);
+  opacity: 0.7;
+}
+
+.stm-table-action--hint:hover {
+  color: var(--stm-ink-secondary);
+  border-color: transparent;
+}
+
+/* 字段管理模式入口（卡片展开区顶部） */
+.stm-field-edit-toggle {
+  padding: 4px 10px 2px;
+  border-top: 1px dashed var(--stm-border);
+}
+
+/* 字段管理操作行（图标按钮，触控目标 44×44）；窄屏自动换行到第二行 */
+.stm-field-edit-row {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.stm-field-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stm-field-action:hover:not(:disabled) {
+  color: var(--stm-ink);
+  border-color: var(--stm-border);
+}
+
+.stm-field-action:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.stm-field-action--danger {
+  color: var(--stm-danger);
+}
+
+/* 内联编辑器（建表 / 编辑表 / 字段定义） */
+.stm-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 10px 10px;
+  padding: 10px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+}
+
+.stm-editor-title {
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-accent);
+}
+
+.stm-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0;
+}
+
+.stm-form-row--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+
+.stm-form-label {
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-form-required-mark {
+  font-style: normal;
+  color: var(--stm-warning);
+}
+
+.stm-form-error {
+  font-size: 12px;
+  color: var(--stm-danger);
+}
+
+.stm-form-hint {
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+  opacity: 0.75;
+}
+
+.stm-form-hint--inline {
+  margin-left: 6px;
+}
+
+.stm-form-warning {
+  font-size: 12px;
+  color: var(--stm-warning);
+}
+
+.stm-form-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.stm-form-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--stm-accent);
+  cursor: pointer;
+}
+
+.stm-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.stm-textarea:disabled {
+  opacity: 0.55;
+}
+
+.stm-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+}
+
+.stm-select:disabled {
+  opacity: 0.55;
+}
+
+.stm-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 /* 桌面：浮动面板（与 ST 移动断点一致：≥1001px） */
