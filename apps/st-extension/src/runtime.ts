@@ -1,8 +1,13 @@
 import {
   MemoryFieldService,
+  MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  type MemoryEvidenceId,
   type MemoryFieldId,
+  type MemoryRecordHistoryId,
+  type MemoryRecordId,
+  type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTableId,
 } from "@ste-memory/core/memory";
@@ -14,6 +19,7 @@ import { ChatMetadataMirrorSync } from "./chat-mirror/chat-metadata-mirror-sync.
 import {
   DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
+  DexieMemoryRecordRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
   DexieSyncChangeSource,
@@ -33,6 +39,8 @@ export interface SteMemoryRuntime {
   readonly spaces: MemorySpaceService;
   readonly tables: MemoryTableService;
   readonly fields: MemoryFieldService;
+  /** 记忆记录（ticket 10/11）：显示文本预览、列表/搜索分页、手动增删改入口 */
+  readonly records: MemoryRecordService;
   /** 全库备份（导出/导入，ticket 07）：快照读取与整体还原 */
   readonly backup: MemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
@@ -89,6 +97,7 @@ export async function startSteMemory(
   const spaceRepository = new DexieMemorySpaceRepository(db);
   const tableRepository = new DexieMemoryTableRepository(db);
   const fieldRepository = new DexieMemoryFieldRepository(db);
+  const recordRepository = new DexieMemoryRecordRepository(db);
   const backup = new DexieMemoryBackupRepository(db);
 
   const spaces = new MemorySpaceService(
@@ -107,6 +116,17 @@ export async function startSteMemory(
     fieldRepository,
     () => createId("field") as MemoryFieldId,
     now,
+  );
+  const records = new MemoryRecordService(
+    tableRepository,
+    fieldRepository,
+    recordRepository,
+    () => createId("record") as MemoryRecordId,
+    () => createId("record-history") as MemoryRecordHistoryId,
+    () => createId("revision") as MemoryRevisionId,
+    now,
+    recordRepository,
+    () => createId("evidence") as MemoryEvidenceId,
   );
 
   const adapter = new StChatAdapter(() => getContext() as StContext);
@@ -185,6 +205,7 @@ export async function startSteMemory(
     spaces,
     tables,
     fields,
+    records,
     backup,
     settings,
     sync,

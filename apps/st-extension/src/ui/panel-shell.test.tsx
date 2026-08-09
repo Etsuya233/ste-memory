@@ -45,6 +45,11 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       update: vi.fn(async () => undefined),
       create: vi.fn(async () => undefined),
       delete: vi.fn(async () => false),
+      setDisplayStrategy: vi.fn(async () => undefined),
+    },
+    records: {
+      list: vi.fn(async () => undefined),
+      previewDisplayText: vi.fn(async () => ""),
     },
     settings: {
       read: () => DEFAULT_SETTINGS,

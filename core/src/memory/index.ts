@@ -56,10 +56,12 @@ export type {
 } from "./application/index.ts";
 export {
   DomainError,
+  derivedDisplayTemplate,
   memoryFieldName,
   memoryFieldPosition,
   memoryFieldKey,
   memorySpaceName,
+  memoryTableDisplayFieldIds,
   memoryTableName,
   memoryTableKey,
 } from "./domain/index.ts";

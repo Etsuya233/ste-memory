@@ -1,4 +1,5 @@
 import {
+  derivedDisplayTemplate,
   DomainError,
   type MemoryEvidence,
   type MemoryEvidenceId,
@@ -7,10 +8,12 @@ import {
   type MemoryRecord,
   type MemoryRecordHistory,
   type MemoryRecordId,
+  type MemoryRecordPayload,
   type MemoryRecordSource,
   type MemoryRevisionId,
   type MemoryRevisionSource,
   type MemorySpaceId,
+  type MemoryTableDisplayStrategy,
   type MemoryTableId,
 } from "../domain/index.ts";
 import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
@@ -226,6 +229,48 @@ export class MemoryRecordService {
     query: Omit<MemoryRecordHistoryQuery, "memorySpaceId">,
   ): Promise<readonly MemoryRecordHistory[]> {
     return this.records.listHistory({ ...query, memorySpaceId });
+  }
+
+  /**
+   * 显示文本预览（ticket 10）：以「给定策略」计算一条 payload 的显示文本，只读不落库。
+   * 策略合法性校验与 MemoryFieldService.setDisplayStrategy 同语义（违规抛
+   * memory_table_display_strategy_invalid），保证 UI 预览不会因无效草稿策略崩溃
+   * （computeMemoryRecordDisplayText 对模板中不存在的字段引用会直接抛 TypeError）。
+   */
+  async previewDisplayText(
+    memorySpaceId: MemorySpaceId,
+    tableId: MemoryTableId,
+    strategy: MemoryTableDisplayStrategy,
+    payload: MemoryRecordPayload,
+  ): Promise<string> {
+    const table = await this.tables.find(memorySpaceId, tableId);
+    if (!table) return "";
+    const fields = await this.fields.list(memorySpaceId, tableId);
+    const fieldsById = new Map(fields.map((field) => [field.id, field]));
+    if (strategy.type === "field") {
+      const field = fieldsById.get(strategy.fieldId);
+      if (!field || field.type !== "short_text" || !field.enabled) {
+        throw new DomainError({
+          type: "memory_table_display_strategy_invalid",
+          humanMsg: "显示字段必须是当前表中的短文本字段",
+        });
+      }
+    } else {
+      const template = derivedDisplayTemplate(strategy.template);
+      if (template.fieldIds.some((fieldId) => !fieldsById.get(fieldId)?.enabled)) {
+        throw new DomainError({
+          type: "memory_table_display_strategy_invalid",
+          humanMsg: "显示模板只能引用当前表中的字段",
+        });
+      }
+    }
+    return computeMemoryRecordDisplayText(
+      this.records,
+      memorySpaceId,
+      { ...table, displayStrategy: strategy },
+      fields,
+      payload,
+    );
   }
 
   async list(

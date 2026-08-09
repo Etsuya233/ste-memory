@@ -287,20 +287,18 @@ async function main() {
     });
     check("表格停用：Dexie 落库 + UI 开关反映", tableRowState === false);
 
-    // 6. 字段启停落库：停用第一个字段（显示策略依赖 → 保护性报错）与第二个字段（正常落库）
-    // 系统表显示策略引用第一个字段（模板 fields[0]），停用会触发 core 保护规则
-    await page.evaluate(() => {
-      window.__toasts = [];
-      const orig = toastr.error.bind(toastr);
-      toastr.error = (m, t) => { window.__toasts.push({ type: "error", m, t }); return orig(m, t); };
-      document.querySelectorAll('#stm-panel input[data-action="toggle-field"]')[0]?.click();
-    });
-    await waitMs(800);
-    const displayFieldToast = await page.evaluate(() => window.__toasts.map((t) => `${t.type}:${t.m}`));
+    // 6. 字段启停落库：第一个字段（显示策略依赖，ticket 10 UI 前置禁用）与第二个字段（正常落库）
+    // 系统表显示策略引用第一个字段（模板 fields[0]）；UI 对依赖字段禁用启停开关（
+    // core memory_field_used_by_display_strategy 仍作为编程路径兜底，见单元测试）
+    const dependentToggleDisabled = await page.evaluate(
+      () =>
+        document.querySelectorAll('#stm-panel input[data-action="toggle-field"]')[0]?.disabled ??
+        null,
+    );
     check(
-      "停用显示策略依赖字段：core 保护规则报错、不落库",
-      displayFieldToast.some((t) => t.includes("memory_field_used_by_display_strategy") || t.includes("显示策略")),
-      JSON.stringify(displayFieldToast),
+      "停用显示策略依赖字段：开关被禁用（UI 前置保护，不落库）",
+      dependentToggleDisabled === true,
+      `disabled=${dependentToggleDisabled}`,
     );
 
     const firstFieldId = await page.evaluate(

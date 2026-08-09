@@ -289,6 +289,9 @@
   font-size: 12px;
   color: var(--stm-ink-secondary);
   font-family: var(--stm-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stm-field-list {
@@ -607,6 +610,96 @@
 
 .stm-field-action--danger {
   color: var(--stm-danger);
+}
+
+/* 显示策略依赖角标（ticket 10）：铜绿描边，策略字段在字段列表中可见 */
+.stm-field-dep {
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--stm-accent);
+  border: 1px solid var(--stm-accent);
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+
+/* 显示策略编辑器（ticket 10）：引用 chip 行与效果预览 */
+.stm-strategy-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.stm-strategy-chips-label {
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-strategy-chip {
+  /* spec §11 触控目标 ≥44px（可点按插入引用） */
+  min-height: 44px;
+  padding: 4px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  color: var(--stm-ink);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-strategy-chip:hover {
+  border-color: var(--stm-accent);
+  color: var(--stm-accent);
+}
+
+.stm-strategy-preview {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+}
+
+.stm-strategy-preview-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--stm-accent);
+}
+
+.stm-strategy-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stm-strategy-preview-row {
+  padding: 6px 8px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+}
+
+.stm-strategy-preview-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+}
+
+.stm-strategy-preview-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 内联编辑器（建表 / 编辑表 / 字段定义） */
