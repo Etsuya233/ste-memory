@@ -324,15 +324,29 @@ async function main() {
       "现场恢复：表格与字段重新启用",
     );
 
-    // 7. 记录/任务 Tab 占位；设置 Tab 内容与插件开关持久化
+    // 7. 记录/任务 Tab：记录视图（ticket 11 替换占位）；设置 Tab 内容与插件开关持久化
     await page.evaluate(() => {
       document.querySelector('#stm-panel .stm-tab[data-tab="records"]')?.click();
     });
-    const recordsText = await page.evaluate(() => {
+    await waitUntil(
+      page,
+      () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'),
+      "记录 Tab 表选择器就位",
+    );
+    const recordsTab = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="records"]');
-      return section?.textContent?.trim() ?? "";
+      const select = section?.querySelector('select[data-action="record-table-select"]');
+      return {
+        optionCount: select?.options.length ?? 0,
+        hasSearch: !!section?.querySelector('input[data-action="record-search"]'),
+        hasCreate: !!section?.querySelector('button[data-action="create-record"]'),
+      };
     });
-    check("记录 Tab 占位文案", recordsText.includes("记录视图即将开放"), recordsText.slice(0, 40));
+    check(
+      "记录 Tab：表选择器（8 张系统表）+ 搜索 + 新建记录入口",
+      recordsTab.optionCount >= 8 && recordsTab.hasSearch && recordsTab.hasCreate,
+      JSON.stringify(recordsTab),
+    );
 
     await page.evaluate(() => {
       document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();

@@ -38,6 +38,13 @@ import {
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
 import {
+  activeStatus,
+  Placeholder,
+  reportError,
+  reportSuccess,
+  reportWarning,
+} from "./ui-helpers.tsx";
+import {
   buildSpaceInfo,
   formatSyncTime,
   mirrorStatusSummary,
@@ -53,6 +60,7 @@ import {
   emptyDisplayStrategyDraft,
 } from "./display-strategy-model.ts";
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
+import { RecordsTab } from "./record-view.tsx";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -62,16 +70,7 @@ import {
   type FieldDraft,
 } from "./field-editor-model.ts";
 
-/** ST 全局 toastr（jquery-toast-plugin，ST 自带）；缺失时降级 console。 */
-declare global {
-  var toastr:
-    | {
-        error(message: string, title?: string): void;
-        warning(message: string, title?: string): void;
-        success(message: string, title?: string): void;
-      }
-    | undefined;
-}
+/** ST 全局 toastr 声明见 ui-helpers.ts（ticket 11 抽取共享工具避免循环依赖）。 */
 
 /**
  * 面板组件端口：组件只依赖运行时子集（测试注入 fake 用），完整 SteMemoryRuntime
@@ -88,7 +87,12 @@ export interface PanelRuntime {
     "list" | "update" | "create" | "delete" | "setDisplayStrategy"
   >;
   /** 记忆记录（ticket 10 显示策略预览；ticket 11 记录视图/CRUD） */
-  readonly records: Pick<SteMemoryRuntime["records"], "list" | "previewDisplayText">;
+  readonly records: Pick<
+    SteMemoryRuntime["records"],
+    "list" | "previewDisplayText" | "create" | "update" | "delete" | "find" | "listHistory"
+  >;
+  /** ST 适配器子集（ticket 11 证据楼层 chip：跳转 + 原文摘录） */
+  readonly st: Pick<SteMemoryRuntime["adapter"], "scrollToFloor" | "getMessageAt">;
   /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
   readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
   /** 云同步（ticket 08）：状态订阅 + 立即同步 + 设置变化重新评估 */
@@ -103,38 +107,8 @@ export interface PanelRuntime {
 }
 
 /** 活动空间状态（表格列表只在该状态下渲染） */
-type ActiveStatus = Extract<SpaceContextStatus, { kind: "active" }>;
 
 // ---- 工具 ----
-
-function activeStatus(status: SpaceContextStatus | undefined): ActiveStatus | undefined {
-  return status?.kind === "active" ? status : undefined;
-}
-
-function reportError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  if (typeof toastr !== "undefined") {
-    toastr.error(message, PLUGIN_DISPLAY_NAME);
-  } else {
-    console.error(`[${PLUGIN_DISPLAY_NAME}]`, error);
-  }
-}
-
-function reportWarning(message: string): void {
-  if (typeof toastr !== "undefined") {
-    toastr.warning(message, PLUGIN_DISPLAY_NAME);
-  } else {
-    console.warn(`[${PLUGIN_DISPLAY_NAME}]`, message);
-  }
-}
-
-function reportSuccess(message: string): void {
-  if (typeof toastr !== "undefined") {
-    toastr.success(message, PLUGIN_DISPLAY_NAME);
-  } else {
-    console.info(`[${PLUGIN_DISPLAY_NAME}]`, message);
-  }
-}
 
 /** 下载文本文件（导出备份）：Blob + 临时 object URL，触发后即释放。 */
 function downloadTextFile(text: string, filename: string): void {
@@ -149,15 +123,6 @@ function downloadTextFile(text: string, filename: string): void {
 /** 备份文件名：ste-memory-backup-<导出日期>.json（日期取信封 exportedAt）。 */
 function backupFilename(exportedAt: string): string {
   return `ste-memory-backup-${exportedAt.slice(0, 10)}.json`;
-}
-
-function Placeholder(props: { readonly title: string; readonly hint: string }) {
-  return (
-    <div className="stm-empty">
-      <div className="stm-empty-title">{props.title}</div>
-      <div className="stm-empty-hint">{props.hint}</div>
-    </div>
-  );
 }
 
 // ---- 顶部工具栏按钮 ----
@@ -260,9 +225,11 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
         )}
         {state.tab === "records" && (
           <section className="stm-tab-section" data-stm-section="records" role="tabpanel">
-            <Placeholder
-              title="记录视图即将开放"
-              hint="在这里按表格查看记忆记录、字段值与证据楼层"
+            <RecordsTab
+              runtime={props.runtime}
+              status={status}
+              settings={settings}
+              dataVersion={dataVersion}
             />
           </section>
         )}

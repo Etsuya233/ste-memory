@@ -23,5 +23,5 @@ export function mountPanel(runtime: SteMemoryRuntime): void {
   panelHost.className = "stm-panel-host";
   document.body.appendChild(panelHost);
   const panelRoot: Root = createRoot(panelHost);
-  panelRoot.render(<PanelShell runtime={runtime} model={model} />);
+  panelRoot.render(<PanelShell runtime={{ ...runtime, st: runtime.adapter }} model={model} />);
 }

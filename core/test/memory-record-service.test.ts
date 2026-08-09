@@ -12,6 +12,7 @@ import {
 } from "../src/memory/index.ts";
 import type {
   MemoryFieldRepository,
+  MemoryRecordMutation,
   MemoryRecordRepository,
   MemoryTableRepository,
 } from "../src/memory/adapter.ts";
@@ -84,7 +85,18 @@ class Records implements MemoryRecordRepository {
       (record) => record.memorySpaceId === memorySpaceId && record.tableId === tableId,
     );
   }
-  async commit(): Promise<boolean> {
+  async commit(mutations: readonly MemoryRecordMutation[]): Promise<boolean> {
+    for (const mutation of mutations) {
+      if (mutation.kind === "create") {
+        this.values.push(mutation.current);
+      } else if (mutation.current) {
+        const index = this.values.findIndex((record) => record.id === mutation.previous.id);
+        if (index >= 0) this.values[index] = mutation.current;
+      } else {
+        const index = this.values.findIndex((record) => record.id === mutation.previous.id);
+        if (index >= 0) this.values.splice(index, 1);
+      }
+    }
     return true;
   }
   async listHistory() {
@@ -297,6 +309,120 @@ describe("MemoryRecordService", () => {
     await expect(
       setup.service.create(spaceId, characterTableId, {
         payload: { [nameId]: "林夏", [birthdayId]: "2026-02-28T10:00:00" },
+      }),
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
+  });
+});
+
+describe("字段定义漂移后的读路径与更新路径（ticket 11 修复）", () => {
+  it("删除字段后：记录仍可读，孤儿键从读路径投影中剔除", async () => {
+    const setup = createService();
+    await setup.service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "林夏", [ageId]: 28 },
+    });
+    // 模拟 ticket 09 删字段：字段定义移除，记录 payload 仍带孤儿键
+    // （原地变更：repository 闭包捕获数组引用，替换数组不生效）
+    const ageIndex = setup.fields.findIndex((item) => item.id === ageId);
+    setup.fields.splice(ageIndex, 1);
+
+    const found = await setup.service.find(spaceId, characterTableId, "record-1" as MemoryRecordId);
+    expect(found?.payload).toEqual({ [nameId]: "林夏" });
+    const page = await setup.service.list(spaceId, characterTableId, {
+      page: 1,
+      pageSize: 10,
+    });
+    expect(page?.records[0]?.payload).toEqual({ [nameId]: "林夏" });
+  });
+
+  it("新增必填字段后：旧记录仍可读（不抛必填缺失）", async () => {
+    const setup = createService();
+    await setup.service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "林夏" },
+    });
+    const roleIndex = setup.fields.findIndex((item) => item.id === roleId);
+    setup.fields[roleIndex] = { ...setup.fields[roleIndex]!, required: true };
+
+    await expect(
+      setup.service.find(spaceId, characterTableId, "record-1" as MemoryRecordId),
+    ).resolves.toMatchObject({ id: "record-1" });
+  });
+
+  it("选项变更后：旧值仍可读；编辑其他字段不受影响且旧值被携带", async () => {
+    const setup = createService();
+    await setup.service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "林夏", [roleId]: "主角" },
+    });
+    const roleIndex = setup.fields.findIndex((item) => item.id === roleId);
+    setup.fields[roleIndex] = { ...setup.fields[roleIndex]!, options: ["A", "B"] };
+
+    const found = await setup.service.find(spaceId, characterTableId, "record-1" as MemoryRecordId);
+    expect(found?.payload).toEqual({ [nameId]: "林夏", [roleId]: "主角" });
+
+    await setup.service.update(spaceId, characterTableId, "record-1" as MemoryRecordId, {
+      expectedRevisionId: found!.revisionId,
+      revisionSource: "user",
+      patch: { [nameId]: "周遥" },
+    });
+    const updated = await setup.service.find(
+      spaceId,
+      characterTableId,
+      "record-1" as MemoryRecordId,
+    );
+    expect(updated?.payload).toEqual({ [nameId]: "周遥", [roleId]: "主角" });
+  });
+
+  it("引用目标表删除后：悬空引用记录仍可读，无关字段编辑不被阻断", async () => {
+    const setup = createService();
+    await setup.service.create(spaceId, locationTableId, { payload: { [nameId]: "京都" } });
+    await setup.service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "林夏", [locationId]: "record-1" },
+    });
+    // 模拟删除目标表：表定义移除（级联删记录），引用字段定义仍在
+    // （原地变更：repository 闭包捕获数组引用，替换数组不生效）
+    for (let index = setup.fields.length - 1; index >= 0; index--) {
+      if (setup.fields[index]!.tableId === locationTableId) setup.fields.splice(index, 1);
+    }
+    for (let index = setup.records.values.length - 1; index >= 0; index--) {
+      if (setup.records.values[index]!.tableId === locationTableId) {
+        setup.records.values.splice(index, 1);
+      }
+    }
+
+    const found = await setup.service.find(spaceId, characterTableId, "record-2" as MemoryRecordId);
+    expect(found?.payload).toEqual({ [nameId]: "林夏", [locationId]: "record-1" });
+
+    await setup.service.update(spaceId, characterTableId, "record-2" as MemoryRecordId, {
+      expectedRevisionId: found!.revisionId,
+      revisionSource: "user",
+      patch: { [nameId]: "周遥" },
+    });
+    const updated = await setup.service.find(
+      spaceId,
+      characterTableId,
+      "record-2" as MemoryRecordId,
+    );
+    expect(updated?.payload).toEqual({ [nameId]: "周遥", [locationId]: "record-1" });
+  });
+
+  it("更新路径严格性保留：未知键仍拒绝、清空必填字段仍拒绝", async () => {
+    const setup = createService();
+    const created = await setup.service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "林夏" },
+    });
+
+    await expect(
+      setup.service.update(spaceId, characterTableId, created!.id, {
+        expectedRevisionId: created!.revisionId,
+        revisionSource: "user",
+        patch: { ghost: "x" },
+      }),
+    ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_unknown_field" }));
+
+    await expect(
+      setup.service.update(spaceId, characterTableId, created!.id, {
+        expectedRevisionId: created!.revisionId,
+        revisionSource: "user",
+        patch: { [nameId]: "" },
       }),
     ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
   });

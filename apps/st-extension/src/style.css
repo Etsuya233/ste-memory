@@ -862,3 +862,418 @@
     transition: none;
   }
 }
+
+/* ============================================================
+ * 记录视图（ticket 11）：列表/详情/表单/证据楼层 chip
+ * 证据楼层 chip 是全插件唯一签名元素（spec §11）：铜绿 + 等宽 #N
+ * ============================================================ */
+
+.stm-record-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 工具栏：表选择 + 搜索 + 新建（移动端换行，桌面单行） */
+.stm-record-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.stm-record-select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.stm-record-search {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.stm-record-toolbar .stm-button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.stm-record-table-meta {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+/* 记录列表行：显示文本（主）+ 来源徽标 */
+.stm-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stm-record-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  padding: 6px 8px 6px 12px;
+}
+
+.stm-record-display {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.stm-record-display:hover {
+  color: var(--stm-accent);
+}
+
+.stm-source-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 999px;
+}
+
+.stm-source-badge--manual {
+  color: var(--stm-ink-secondary);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+.stm-source-badge--agent {
+  color: var(--stm-ink-bg);
+  background: var(--stm-accent);
+}
+
+/* 分页 */
+.stm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.stm-page-button {
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-page-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stm-pagination-info {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+/* 记录详情 */
+.stm-record-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-record-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stm-record-detail-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.stm-record-display-large {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+}
+
+.stm-record-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stm-record-meta-time {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+.stm-record-revision {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+.stm-no-evidence {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-style: italic;
+  padding: 6px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+}
+
+/* 详情字段值 */
+.stm-record-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-record-field {
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.stm-record-field-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.stm-record-field-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-field-disabled {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--stm-warning);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+.stm-record-field-value {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+}
+
+/* 证据楼层 chip（签名元素）：铜绿 + 等宽 #N */
+.stm-evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stm-evidence-chip-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.stm-evidence-chip {
+  /* spec §11 触控目标 ≥44px（签名元素：点按跳转 + 长按摘录） */
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stm-border);
+  background: var(--stm-ink-bg);
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+  cursor: default;
+}
+
+.stm-evidence-chip--floor {
+  background: var(--stm-accent);
+  border-color: var(--stm-accent);
+  color: var(--stm-ink-bg);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.stm-evidence-chip--floor:hover {
+  filter: brightness(1.1);
+}
+
+.stm-evidence-chip-floor {
+  font-family: var(--stm-font-mono);
+}
+
+/* 悬停/长按浮出的原文摘录 */
+.stm-evidence-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 260px;
+  max-width: 70vw;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  padding: 8px 10px;
+  pointer-events: none;
+}
+
+.stm-evidence-popover-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.stm-evidence-popover-floor {
+  color: var(--stm-accent);
+  font-family: var(--stm-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.stm-evidence-popover-name {
+  color: var(--stm-ink-secondary);
+  font-size: 11px;
+}
+
+.stm-evidence-popover-content {
+  color: var(--stm-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+/* 记录创建/编辑表单 */
+.stm-record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.stm-record-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-record-form-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stm-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stm-form-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stm-form-field-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-form-field-type {
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-form-field-readonly {
+  font-size: 13px;
+  color: var(--stm-ink-secondary);
+  background: var(--stm-ink-bg);
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.stm-form-error {
+  color: var(--stm-danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stm-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.stm-form-actions .stm-button {
+  margin: 0;
+}
+
+.stm-option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stm-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--stm-ink);
+  cursor: pointer;
+}
+
+.stm-input--textarea {
+  resize: vertical;
+  min-height: 72px;
+  font-family: var(--stm-font);
+}

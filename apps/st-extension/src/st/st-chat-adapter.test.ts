@@ -245,3 +245,46 @@ describe("StChatAdapter.scrollToFloor（楼层跳转）", () => {
     expect(adapter.scrollToFloor(0)).toEqual({ kind: "out-of-range", chatLength: 0 });
   });
 });
+
+describe("StChatAdapter.getMessageAt（楼层消息读取，ticket 11）", () => {
+  it("映射 ST 消息 mes/name/is_user → content/name/isUser（含用户消息）", () => {
+    const { adapter } = stableAdapter({
+      chat: [
+        { mes: "你好", name: "User", is_user: true },
+        { mes: "你好呀，今天过得怎么样？", name: "爱丽丝", is_user: false },
+      ],
+    });
+    expect(adapter.getMessageAt(0)).toEqual({
+      floor: 0,
+      content: "你好",
+      name: "User",
+      isUser: true,
+    });
+    expect(adapter.getMessageAt(1)).toEqual({
+      floor: 1,
+      content: "你好呀，今天过得怎么样？",
+      name: "爱丽丝",
+      isUser: false,
+    });
+  });
+
+  it("楼层越界 / 负楼层 / 非整数 → undefined", () => {
+    const { adapter } = stableAdapter({ chat: [{ mes: "hi" }] });
+    expect(adapter.getMessageAt(1)).toBeUndefined();
+    expect(adapter.getMessageAt(-1)).toBeUndefined();
+    expect(adapter.getMessageAt(0.5)).toBeUndefined();
+  });
+
+  it("chat 缺失 / 非数组 / 消息缺 mes 正文 → undefined（不抛错）", () => {
+    const { adapter: noChat } = stableAdapter({ chat: undefined });
+    expect(noChat.getMessageAt(0)).toBeUndefined();
+
+    const { adapter: empty } = stableAdapter({ chat: [] });
+    expect(empty.getMessageAt(0)).toBeUndefined();
+
+    const { adapter: noMes } = stableAdapter({ chat: [{ name: "x" }, null, "text"] });
+    expect(noMes.getMessageAt(0)).toBeUndefined();
+    expect(noMes.getMessageAt(1)).toBeUndefined();
+    expect(noMes.getMessageAt(2)).toBeUndefined();
+  });
+});

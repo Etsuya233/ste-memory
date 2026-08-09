@@ -3,6 +3,7 @@ import type {
   MemoryRecord,
   MemoryRecordHistory,
   MemoryRecordId,
+  MemoryRecordPayload,
   MemorySpaceId,
   MemoryTableId,
   MemoryRevisionId,
@@ -28,6 +29,9 @@ export type MemoryRecordMutation =
       readonly previous: MemoryRecord;
       readonly current?: MemoryRecord;
       readonly history: MemoryRecordHistory;
+      /** update 操作严格校验后的 patch（仅本次写入的键）：引用最终校验只针对它，
+       * 未改动的拖尾引用（引用目标已删）不阻断无关编辑。 */
+      readonly patchPayload?: MemoryRecordPayload;
     };
 
 export interface MemoryRecordHistoryQuery {

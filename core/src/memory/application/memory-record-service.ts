@@ -23,7 +23,10 @@ import type {
 } from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import type { MemoryEvidenceRepository } from "./ports/memory-record-repository.ts";
-import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
+import {
+  projectStoredMemoryRecordPayload,
+  validatedMemoryRecordPayload,
+} from "./memory-record-validation.ts";
 import { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
 import { validateMemoryRecordReferences } from "./memory-record-reference-validation.ts";
 import {
@@ -310,11 +313,9 @@ export class MemoryRecordService {
 
   private async validatedRecord(record: MemoryRecord): Promise<MemoryRecord> {
     const fields = await this.fields.list(record.memorySpaceId, record.tableId);
-    const payload = validatedMemoryRecordPayload(fields, record.payload);
-    await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
-      this.records.find(record.memorySpaceId, targetTableId, recordId),
-    );
-    return { ...record, payload };
+    // 读路径宽松投影：字段定义漂移（删除字段/新增必填/选项变更/目标表删除）后存储
+    // 的旧值仍可读，不抛错；写路径（create / update patch）仍严格校验
+    return { ...record, payload: projectStoredMemoryRecordPayload(fields, record.payload) };
   }
 
   private async resolveFieldEvidence(

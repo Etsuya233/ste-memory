@@ -68,6 +68,18 @@ export type FloorJumpResult =
   | { readonly kind: "out-of-range"; readonly chatLength: number }
   | { readonly kind: "not-loaded" };
 
+/** 按同步楼层读出的 ST 消息子集（证据 chip 悬停/长按摘录用；ST DOM 不测，薄层映射） */
+export interface StChatMessage {
+  /** 同步楼层（= 消息数组下标，ADR 0003） */
+  readonly floor: number;
+  /** 消息正文（ST mes 字段，含格式化标记的原文） */
+  readonly content: string;
+  /** 发送者名（角色名 / 用户侧显示名；缺失为空串） */
+  readonly name: string;
+  /** 是否用户消息（ST is_user） */
+  readonly isUser: boolean;
+}
+
 /**
  * ST 环境适配器：把 ST getContext() 包装成插件逻辑层（ChatSpaceManager）
  * 可用的端口（快照 / 绑定读写 / 事件桥 / 楼层跳转）。这是宿主侧薄层——
@@ -145,6 +157,29 @@ export class StChatAdapter {
     const decision = resolveFloorJump(floor, chatLength);
     if (decision.kind !== "ok") return decision;
     return scrollToMessageElement(floor);
+  }
+
+  /**
+   * 按同步楼层读取 ST 消息子集（证据 chip 的原文摘录数据源）。
+   * 楼层越界 / 消息对象缺失 / 正文非字符串 → undefined（由 UI 决定提示）。
+   * ST 1.18 消息对象形状（public/scripts 已核实）：{ mes: string, name: string,
+   * is_user: boolean, ... }——此处只做字段映射，不校验其余属性。
+   */
+  getMessageAt(floor: number): StChatMessage | undefined {
+    const chat = this.#getContext().chat;
+    if (!Array.isArray(chat) || !Number.isInteger(floor) || floor < 0 || floor >= chat.length) {
+      return undefined;
+    }
+    const message = chat[floor];
+    if (typeof message !== "object" || message === null) return undefined;
+    const record = message as Record<string, unknown>;
+    if (typeof record.mes !== "string") return undefined;
+    return {
+      floor,
+      content: record.mes,
+      name: typeof record.name === "string" ? record.name : "",
+      isUser: record.is_user === true,
+    };
   }
 }
 

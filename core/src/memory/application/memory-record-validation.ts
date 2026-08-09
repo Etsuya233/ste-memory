@@ -174,3 +174,96 @@ export function validatedMemoryRecordPayload(
     ]),
   );
 }
+
+/**
+ * 读路径的宽松投影：字段定义漂移（删除字段、新增必填、选项变更、引用目标表删除）
+ * 后，存储的旧值仍可读、可携带，不抛错。只保留当前仍存在的字段键，值经
+ * 「类型级校验」后原样保留——字段类型不可变，类型损坏必为外部篡改/存储损坏，
+ * 仍拒绝；漂移相关的检查（必填、选项成员、长度/格式模式）在读路径跳过。
+ * 写路径（create / update patch）仍严格校验。
+ */
+export function projectStoredMemoryRecordPayload(
+  fields: readonly MemoryField[],
+  input: Readonly<Record<string, unknown>>,
+): MemoryRecordPayload {
+  const fieldsById = new Map(fields.map((field) => [field.id as string, field]));
+  return Object.fromEntries(
+    Object.entries(input)
+      .filter(([fieldId]) => fieldsById.has(fieldId))
+      .map(([fieldId, value]) => [
+        fieldId,
+        validateStoredMemoryFieldValue(fieldsById.get(fieldId)!, value),
+      ]),
+  );
+}
+
+/**
+ * 读路径的类型级值校验（与 validateMemoryFieldValue 的开关结构有意镜像，注释见
+ * projectStoredMemoryRecordPayload）：只保留「类型不可变」层面的检查。
+ */
+function validateStoredMemoryFieldValue(field: MemoryField, value: unknown): MemoryFieldValue {
+  if (value === null) return null;
+  switch (field.type) {
+    case "short_text":
+    case "long_text":
+      if (typeof value !== "string") invalid(field);
+      return value;
+    case "short_text_list":
+      if (!isDistinctStrings(value)) invalid(field);
+      return value;
+    case "integer":
+      if (typeof value !== "number" || !Number.isInteger(value)) invalid(field);
+      return value;
+    case "decimal":
+      if (typeof value !== "number" || !Number.isFinite(value)) invalid(field);
+      return value;
+    case "boolean":
+      if (typeof value !== "boolean") invalid(field);
+      return value;
+    case "date":
+      if (typeof value !== "string" || !isDate(value)) invalid(field);
+      return value;
+    case "datetime":
+      if (typeof value !== "string" || !isDateTime(value)) invalid(field);
+      return value;
+    case "single_select":
+      if (typeof value !== "string") invalid(field);
+      return value;
+    case "multi_select":
+      if (!isDistinctStrings(value)) invalid(field);
+      return value;
+    case "single_reference":
+      if (typeof value !== "string" || value.length === 0) invalid(field);
+      return value;
+    case "multi_reference":
+      if (!isDistinctStrings(value)) invalid(field);
+      return value;
+  }
+}
+
+/**
+ * 部分更新（patch）的严格校验：只校验 patch 携带的键（未知键拒绝，类型/选项/
+ * 格式/长度/模式逐值校验），不做必填完整性检查——patch 允许只改部分字段，且
+ * 读路径漂移容忍语义下旧记录可能缺必填字段值；必填约束由 create 与 UI 前置
+ * 校验兜底。
+ */
+export function validateMemoryRecordPatch(
+  fields: readonly MemoryField[],
+  patch: Readonly<Record<string, unknown>>,
+): MemoryRecordPayload {
+  const fieldsById = new Map(fields.map((field) => [field.id as string, field]));
+  const unknownFieldId = Object.keys(patch).find((fieldId) => !fieldsById.has(fieldId));
+  if (unknownFieldId) {
+    throw new DomainError({
+      type: "memory_record_unknown_field",
+      param: { fieldId: unknownFieldId },
+      humanMsg: "记录包含不属于当前表格的字段",
+    });
+  }
+  return Object.fromEntries(
+    Object.entries(patch).map(([fieldId, value]) => [
+      fieldId,
+      validateMemoryFieldValue(fieldsById.get(fieldId)!, value),
+    ]),
+  );
+}

@@ -50,6 +50,15 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     records: {
       list: vi.fn(async () => undefined),
       previewDisplayText: vi.fn(async () => ""),
+      create: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
+      find: vi.fn(async () => undefined),
+      listHistory: vi.fn(async () => []),
+    },
+    st: {
+      scrollToFloor: vi.fn(() => ({ kind: "jumped" }) as const),
+      getMessageAt: vi.fn(() => undefined),
     },
     settings: {
       read: () => DEFAULT_SETTINGS,
@@ -293,10 +302,14 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).not.toContain("爱丽丝 - story");
   });
 
-  it("记录/任务 Tab 占位文案（验收脚本契约）", () => {
+  it("记录/任务 Tab：记录视图加载态 + 任务占位文案（验收脚本契约）", () => {
     const model = new PanelModel();
     model.setTab("records");
-    expect(renderShell(model)).toContain("记录视图即将开放");
+    const recordsHtml = renderShell(model);
+    expect(recordsHtml).toContain('data-stm-section="records"');
+    // SSR 不执行异步加载：记录视图呈现加载态（ticket 11 替换占位）
+    expect(recordsHtml).toContain("正在加载");
+    expect(recordsHtml).not.toContain("记录视图即将开放");
 
     model.setTab("tasks");
     expect(renderShell(model)).toContain("任务状态即将开放");

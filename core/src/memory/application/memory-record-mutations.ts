@@ -27,7 +27,11 @@ import {
   findMemoryRecordReferenceLocations,
   validateMemoryRecordReferences,
 } from "./memory-record-reference-validation.ts";
-import { validatedMemoryRecordPayload } from "./memory-record-validation.ts";
+import {
+  projectStoredMemoryRecordPayload,
+  validateMemoryRecordPatch,
+  validatedMemoryRecordPayload,
+} from "./memory-record-validation.ts";
 
 export type MemoryRecordMutationOperation =
   | {
@@ -128,13 +132,17 @@ export async function commitMemoryRecordMutationBatch(
     }
     if (previous.revisionId !== operation.expectedRevisionId) revisionConflict(previous.id);
     let current: MemoryRecord | undefined;
+    let patchPayload: MemoryRecordPayload | undefined;
     if (operation.type === "update") {
       const fields = await context.fields.list(memorySpaceId, operation.tableId);
       const patch = resolveTempReferences(fields, operation.patch, tempIdToRecordId);
-      const payload = validatedMemoryRecordPayload(fields, {
-        ...previous.payload,
-        ...patch,
-      });
+      // patch 严格校验（只校验本次写入的键）；与读路径宽松投影后的旧值合并——
+      // 字段定义漂移（删除字段/新增必填/选项变更）不阻断无关字段的编辑
+      patchPayload = validateMemoryRecordPatch(fields, patch);
+      const payload = {
+        ...projectStoredMemoryRecordPayload(fields, previous.payload),
+        ...patchPayload,
+      };
       const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
       const displayText = await context.displayText(table, fields, payload);
       if (
@@ -157,6 +165,7 @@ export async function commitMemoryRecordMutationBatch(
       kind: "replace",
       previous,
       current,
+      patchPayload: operation.type === "update" ? patchPayload : undefined,
       history: historySnapshot(
         context.createHistoryId(),
         previous,
@@ -317,10 +326,18 @@ async function validateFinalReferences(
   for (const mutation of mutations) {
     if (mutation.kind === "replace" && !mutation.current) continue;
     const current = mutation.current!;
+    // update 只校验本次写入键的引用（patchPayload）；未改动的拖尾引用由读路径宽松
+    // 投影容忍，不阻断无关字段的编辑。create / 全量合并路径仍校验完整 payload。
+    const payload =
+      mutation.kind === "replace" && mutation.patchPayload
+        ? mutation.patchPayload
+        : current.payload;
     await validateMemoryRecordReferences(
       fieldsByTable.get(current.tableId)!,
-      current.payload,
-      async (tableId, recordId) => finalRecords.get(tableId)!.get(recordId),
+      payload,
+      // 目标表已删时查找返回 undefined → validateMemoryRecordReferences 抛
+      // memory_record_reference_invalid（DomainError），不裸 TypeError
+      async (tableId, recordId) => finalRecords.get(tableId)?.get(recordId),
     );
   }
 }
