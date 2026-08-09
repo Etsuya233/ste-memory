@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { createChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
+import type { MemorySpaceBackup } from "@ste-memory/core/memory/export";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { ChatSpaceBinding } from "../space-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
+  CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
   type StContext,
   type StEventBridge,
@@ -106,14 +109,75 @@ describe("StChatAdapter.bindingStore（chatMetadata 绑定读写）", () => {
   });
 });
 
+describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）", () => {
+  it("读返回原始值（无 = undefined）；写入即触发 saveMetadataDebounced 且键独立于绑定键", () => {
+    const saveMetadataDebounced = vi.fn();
+    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
+    const mirror = createChatMirrorFile(
+      {
+        space: {
+          id: "space-1" as MemorySpaceId,
+          name: "爱丽丝 - story",
+          createdAt: "2026-08-10T00:00:00.000Z",
+          updatedAt: "2026-08-10T01:00:00.000Z",
+        },
+        tables: [],
+        fields: [],
+        records: [],
+        history: [],
+        evidence: [],
+      } as MemorySpaceBackup,
+      "space-1",
+      "2026-08-10T01:00:00.000Z",
+      "0.1.0",
+    );
+
+    expect(adapter.mirrorStore.read()).toBeUndefined();
+    adapter.mirrorStore.write(mirror);
+
+    expect(context.chatMetadata[CHAT_METADATA_MIRROR_KEY]).toBe(mirror);
+    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
+    expect(adapter.mirrorStore.read()).toBe(mirror);
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
+  });
+
+  it("无 chatMetadata / 无 saveMetadataDebounced 时不报错", () => {
+    const { adapter } = stableAdapter({ chatMetadata: undefined });
+    expect(() => {
+      adapter.mirrorStore.write(
+        createChatMirrorFile(
+          {
+            space: {
+              id: "space-1" as MemorySpaceId,
+              name: "爱丽丝 - story",
+              createdAt: "2026-08-10T00:00:00.000Z",
+              updatedAt: "2026-08-10T01:00:00.000Z",
+            },
+            tables: [],
+            fields: [],
+            records: [],
+            history: [],
+            evidence: [],
+          } as MemorySpaceBackup,
+          "space-1",
+          "2026-08-10T01:00:00.000Z",
+          "0.1.0",
+        ),
+      );
+      adapter.mirrorStore.read();
+    }).not.toThrow();
+  });
+});
+
 describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   function fakeEventSource() {
     const handlers = new Map<string, (...args: unknown[]) => void>();
     return {
       handlers,
       eventSource: {
-        on: vi.fn((event: string, handler: (...args: unknown[]) => void) =>
-          void handlers.set(event, handler),
+        on: vi.fn(
+          (event: string, handler: (...args: unknown[]) => void) =>
+            void handlers.set(event, handler),
         ),
       },
       eventTypes: {

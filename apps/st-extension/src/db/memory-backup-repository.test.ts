@@ -147,6 +147,75 @@ describe("Dexie memory backup repository", () => {
     expect(after.spaces[0]!.history).toEqual([]);
   });
 
+  it("restoreSpace 只替换目标空间：其他空间六表数据不受影响", async () => {
+    const db = createTestDatabase();
+    const { services, space } = await seedDatabase(db);
+    const other = await services.spaces.create("另一会话");
+    await new SystemMemoryTableInstaller(services.tables, services.fields).install(other.id);
+    const repo = new DexieMemoryBackupRepository(db);
+
+    const before = await repo.loadSnapshot();
+    const otherUnit = before.spaces.find((unit) => unit.space.id === other.id)!;
+
+    // 目标空间整体替换为空结构（只有空间行）——镜像恢复的语义
+    await repo.restoreSpace({
+      ...before.spaces.find((unit) => unit.space.id === space.id)!,
+      tables: [],
+      fields: [],
+      records: [],
+      history: [],
+      evidence: [],
+    });
+
+    const after = await repo.loadSnapshot();
+    expect(after.spaces).toHaveLength(2);
+    const afterTarget = after.spaces.find((unit) => unit.space.id === space.id)!;
+    expect(afterTarget.tables).toEqual([]);
+    expect(afterTarget.records).toEqual([]);
+    expect(afterTarget.history).toEqual([]);
+    expect(afterTarget.evidence).toEqual([]);
+    // 其他空间完全不受影响
+    expect(after.spaces.find((unit) => unit.space.id === other.id)).toEqual(otherUnit);
+  });
+
+  it("restoreSpace 恢复完整单元（含记录/历史/证据）后与快照一致", async () => {
+    const db = createTestDatabase();
+    await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const unit = (await repo.loadSnapshot()).spaces[0]!;
+
+    // 先破坏（清空该空间），再整体恢复
+    await repo.restoreSpace({
+      ...unit,
+      tables: [],
+      fields: [],
+      records: [],
+      history: [],
+      evidence: [],
+    });
+    expect((await repo.loadSnapshot()).spaces[0]!.records).toEqual([]);
+
+    await repo.restoreSpace(unit);
+    expect(await repo.loadSnapshot()).toEqual({ spaces: [unit] });
+  });
+
+  it("restoreSpace 失败时原子回滚（不产生半恢复状态，其他空间不受伤）", async () => {
+    const db = createTestDatabase();
+    const { services, space } = await seedDatabase(db);
+    const other = await services.spaces.create("另一会话");
+    await new SystemMemoryTableInstaller(services.tables, services.fields).install(other.id);
+    const repo = new DexieMemoryBackupRepository(db);
+    const before = await repo.loadSnapshot();
+    const target = before.spaces.find((unit) => unit.space.id === space.id)!;
+
+    // 绕过 codec 校验的损坏单元：同一条记录出现两次（id 撞主键）
+    const corrupt = { ...target, records: [target.records[0]!, target.records[0]!] };
+    await expect(repo.restoreSpace(corrupt)).rejects.toThrow();
+
+    // 整体回滚：数据库与恢复前完全一致（无半恢复残留）
+    expect(await repo.loadSnapshot()).toEqual(before);
+  });
+
   it("restoreSnapshot 失败时原子回滚（不产生半导入状态）", async () => {
     const db = createTestDatabase();
     await seedDatabase(db);

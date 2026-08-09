@@ -34,6 +34,15 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(merged.r2.secretAccessKey).toBe("");
   });
 
+  it("镜像设置缺失/部分缺失：补默认值（旧数据向前兼容）", () => {
+    const merged = mergeSettings({ enabled: true });
+    expect(merged.mirror).toEqual(DEFAULT_SETTINGS.mirror);
+    const partial = mergeSettings({ mirror: { includeHistory: false } });
+    expect(partial.mirror.includeHistory).toBe(false);
+    expect(partial.mirror.enabled).toBe(true);
+    expect(mergeSettings({ mirror: "oops" }).mirror).toEqual(DEFAULT_SETTINGS.mirror);
+  });
+
   it("类型不符的键：回退默认值（损坏数据不崩）", () => {
     const merged = mergeSettings({ enabled: "yes", macroName: 7, r2: "nope" });
     expect(merged).toEqual(DEFAULT_SETTINGS);
@@ -57,6 +66,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       enabled: false,
       r2: r2({ accountId: "a", accessKeyId: "b", secretAccessKey: "c", bucket: "d" }),
       macroName: "{{ctx}}",
+      mirror: { enabled: false, includeHistory: false },
     };
     expect(mergeSettings(settings)).toEqual(settings);
   });

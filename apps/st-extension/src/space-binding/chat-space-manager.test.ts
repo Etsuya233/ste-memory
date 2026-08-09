@@ -1,4 +1,5 @@
 import { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
+import type { MemorySpaceId } from "@ste-memory/core/memory";
 import { describe, expect, it, vi } from "vitest";
 import { createServices, createTestDatabase } from "../db/test-support.ts";
 import { StChatAdapter, CHAT_METADATA_BINDING_KEY, type StContext } from "../st/st-chat-adapter.ts";
@@ -45,7 +46,11 @@ function createHarness() {
     /** 同一套 Dexie 服务上再建一个 manager（模拟刷新/另一角色等场景） */
     createManager(
       context: StContext,
-      options: { installer?: SystemTableInstallerPort; log?: ChatSpaceManagerPorts["log"] } = {},
+      options: {
+        installer?: SystemTableInstallerPort;
+        log?: ChatSpaceManagerPorts["log"];
+        mirrorRestore?: ChatSpaceManagerPorts["mirrorRestore"];
+      } = {},
     ) {
       // adapter 持有 getContext 工厂：模拟 ST 每次调用构造新上下文（切对话重取）
       const adapter = new StChatAdapter(() => context);
@@ -54,6 +59,7 @@ function createHarness() {
         bindingStore: adapter.bindingStore,
         spaces: services.spaces,
         installer: options.installer ?? installer,
+        mirrorRestore: options.mirrorRestore,
         log: options.log,
       });
       return { adapter, manager };
@@ -109,8 +115,10 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     if (status.kind !== "active") return;
     expect(status.created).toBe(false);
     expect(status.space.id).toBe(first.space.id);
-    expect((await h.services.spaces.list())).toHaveLength(1);
-    expect(await h.services.tables.list(status.space.id)).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
+    expect(await h.services.spaces.list()).toHaveLength(1);
+    expect(await h.services.tables.list(status.space.id)).toHaveLength(
+      SYSTEM_TABLE_TEMPLATES.length,
+    );
   });
 
   it("对话重命名后绑定不丢：同 spaceId，空间显示名保持创建时值", async () => {
@@ -203,6 +211,81 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     expect(await h.services.spaces.list()).toHaveLength(0);
   });
 
+  it("绑定在、空间缺失、镜像恢复成功：active(restored)，空间数据落地", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
+    // 镜像恢复端口：落地一个空间（模拟 restoreSpace 写入）后返回 true
+    const restore = vi.fn(async () => {
+      await h.db.memorySpaces.add({
+        id: "space-ghost" as MemorySpaceId,
+        name: "爱丽丝 - story",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      });
+      return true;
+    });
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(restore).toHaveBeenCalledWith({ version: 1, spaceId: "space-ghost" });
+    expect(status.kind).toBe("active");
+    if (status.kind !== "active") return;
+    expect(status.restored).toBe(true);
+    expect(status.created).toBe(false);
+    expect(status.space.id).toBe("space-ghost");
+    // 绑定原样保留，不重复建空间
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+  });
+
+  it("绑定在、空间缺失、镜像恢复失败：维持 space-missing（不报错）", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
+    const restore = vi.fn(async () => false);
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(restore).toHaveBeenCalled();
+    if (status.kind !== "space-missing") {
+      expect.fail(`预期 space-missing，实际 ${status.kind}`);
+      return;
+    }
+    expect(status.humanMsg).toBe(SPACE_MISSING_MESSAGE);
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+    expect(await h.services.spaces.list()).toHaveLength(0);
+  });
+
+  it("镜像恢复成功但同步期间切走对话：不发布 active（结果属于旧对话）", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
+    const gate = deferred<boolean>();
+    const restore = vi.fn(async () => {
+      await gate.promise;
+      await h.db.memorySpaces.add({
+        id: "space-ghost" as MemorySpaceId,
+        name: "爱丽丝 - story",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      });
+      return true;
+    });
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    const pending = manager.syncToCurrentChat();
+    // 等恢复端口被调用（入口快照已捕获、恢复挂起中）再切走
+    await vi.waitFor(() => expect(restore).toHaveBeenCalled());
+    context.chatId = "other"; // 恢复期间切走
+    gate.resolve(true);
+    await pending;
+
+    expect(restore).toHaveBeenCalled();
+    expect(manager.getStatus()).toBeUndefined(); // 未发布（结果属于旧对话，新对话的同步已在队列）
+  });
+
   it("绑定值无法识别（损坏/未来版本）：原样保留、不新建覆盖", async () => {
     const h = createHarness();
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
@@ -217,7 +300,10 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     }
     expect(status.humanMsg).toBe(BINDING_UNRECOGNIZED_MESSAGE);
     // 原值不动：新建覆盖会丢掉未来版本/损坏的绑定指针（如插件降级场景）
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "future-space" });
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
+      version: 2,
+      spaceId: "future-space",
+    });
     expect(await h.services.spaces.list()).toHaveLength(0);
   });
 

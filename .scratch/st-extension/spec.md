@@ -89,7 +89,7 @@ Status: ready-for-agent
 2. **LLM 路径（ADR 0018 延伸）**：Agent 的 streamFn 实现为 fetch ST 同源代理 `POST /api/backends/chat-completions/generate`（`getRequestHeaders()` CSRF 头，无 CORS，复用用户配置，支持 tools 透传）。该端点是未文档化内部 API——封装在适配器内隔离版本漂移风险。
 3. **空间模型（core 词汇表）**：每 ST 对话一个记忆空间；首次打开自动创建并安装七张系统表（模板来自共享包）；空间名 = 角色名 - 对话文件名。
 4. **同步身份（ADR 0003）**：同步楼层 = ST 消息数组下标作来源 ID；swipe/重生成/删除的漂移 v1 不传播；消息全文不落库（ST 即消息源），楼层范围随时从 ST 对话实时读取，**无同步游标**——「哪些楼层已填表」由填表任务的楼层进度台账（untracked/processed/error）记录；CHAT_CHANGED 事件用于切换空间上下文；MESSAGE_SENT / MESSAGE_RECEIVED 仅注册为未来自动填表的触发点（当前无消费方）；证据对比 = 楼层跳转。
-5. **存储分层（ADR 0002）**：Dexie（IndexedDB）本地事实源，实现 core 各端口 repository（空间/表格/字段/记录/修订历史/证据/任务）；chatMetadata 只存小指针（记忆空间绑定，随对话文件走，重命名自动跟随）；云同步 = CloudSyncAdapter 接口 + Cloudflare R2 实现（每空间一个 JSON 文件 + 索引文件，last-write-wins）。R2 密钥明文存浏览器设置（本地单用户，ADR 0017 精神）。未来实现候选（先不做，仅记录）：ChatMetadata 同步器——小数据镜像进 chatMetadata 随聊天文件同步（参考插件 ST-Memory-Context 的做法，数据量小才可行）。
+5. **存储分层（ADR 0002 + 0023）**：Dexie（IndexedDB）本地事实源，实现 core 各端口 repository（空间/表格/字段/记录/修订历史/证据/任务）；chatMetadata 存小指针（记忆空间绑定，随对话文件走，重命名自动跟随）+ 对话文件镜像（ticket 16：完整快照随聊天文件走，只作恢复源，独立键 `steMemoryMirror` 不动绑定键）；云同步 = CloudSyncAdapter 接口 + Cloudflare R2 实现（每空间一个 JSON 文件 + 索引文件，last-write-wins）。R2 密钥明文存浏览器设置（本地单用户，ADR 0017 精神）。镜像与 R2 是两条独立通道，**不做跨服务协调**（各自本地优先天然组合）。
 
 **序列化文件信封**（导出与云同步共用）：`{ format: "ste-memory-backup", version: 1, exportedAt, appVersion, data }`；每空间云文件同信封 + spaceId，索引文件同信封含空间清单（spaceId + 更新时间）；导入/拉取先校验 format/version，未知版本明确报错绝不半导入；未来 schema 演进 = version 递增 + 迁移路径（v1 不实现迁移器，仅留此决策）。
 6. **同步模型**：本地优先（本地库存在则用本地）；数据变更防抖周期推送；启动时本地库为空则云端拉全量。
@@ -98,7 +98,7 @@ Status: ready-for-agent
 9. **清洗规则不移植**：ST 自带 Regex 扩展承担消息变换职责；填表输入使用原始消息内容。
 10. **工程（ADR 0020）**：新包 `apps/st-extension`（TS + esbuild，dev watch 拷贝进 ST `extensions/third-party/`）；发版拉 `sillytavern-release` 分支、manifest 放仓库根目录（支持 ST 按 URL 安装）。系统表模板收进 `packages/` 共享包，apps/api 与插件共用。
 11. **UI 风格契约（「记忆账本」方向）**：顶部工具栏按钮 + 自绘浮层面板（ST 已无侧栏面板 API）。**自包含视觉**：React 组件（esbuild 打进单文件 bundle，ADR 0005；纯逻辑 seam 与测试策略不变），不依赖 ST 主题变量，类名前缀 `stm-` 隔离；深色为默认主题，浅色模式后置。**色板全部走 CSS 自定义属性**（`--stm-*` 设计令牌，集中一处定义：墨底 `#171A20`、浮面 `#21252E`、墨字 `#E7EAF0`、次字 `#98A0B2`、签名色铜绿 `#6FA894`、成功 `#7FB08A`、危险 `#C96A6A`、警示 `#D9A25F`），后续调色/加浅色模式/主题设置只改令牌区块。**字体**：正文系统 CJK 栈，楼层号/时间/计数用等宽数字。**布局移动端优先**：手机（TauriTavern）全屏底部抽屉 + 底部 Tab（表格/记录/任务/设置）、触控目标 ≥44px、操作一步到位；桌面为浮动面板，同一套 Tab 结构；表格自绘紧凑账本行（字段值 + 证据 chip 同排）。**签名元素**：证据楼层 chip（铜绿 + 等宽 `#N`，点按跳转 ST 对应消息，悬停/长按浮出原文摘录）——全插件唯一的花哨点。动效只留抽屉开合与同步状态变化，尊重 reduced-motion；文案「空状态是邀请」风格。面板包含：空间信息（名称 + 同步状态）、表格列表（启停）、记录视图、任务状态、设置入口。
-12. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 → Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → 后期（自动回填/自动填表、交互式填写 Agent、Google Drive 适配器、ChatMetadata 同步器候选、Server Plugin）。
+12. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 + 对话文件镜像（ticket 16）→ Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → 后期（自动回填/自动填表、交互式填写 Agent、Google Drive 适配器、Server Plugin）。
 13. **术语**：同步楼层、记忆宏、记忆空间绑定（apps/st-extension/CONTEXT.md）。
 
 ## Testing Decisions
@@ -115,7 +115,7 @@ Status: ready-for-agent
 - 复用 api/web 的代码；清洗规则移植（ST Regex 替代）
 - 消息全文存储；自动回填/自动填表触发；交互式填写 Agent 面板（含硬闸门确认）
 - 认证与密钥安全加固（本地单用户，密钥明文存浏览器）
-- Google Drive 适配器（OAuth）；Server Plugin；ChatMetadata 同步器（仅记录为未来候选）；多设备并发冲突解决（LWW 足够）
+- Google Drive 适配器（OAuth）；Server Plugin；镜像与 R2 的跨服务协调（单通道，各自本地优先）；多设备并发冲突解决（LWW 足够）
 - TauriTavern 原生桥（`window.__TAURI__` 文件系统直连）——留作未来评估
 
 ## Further Notes
@@ -124,5 +124,5 @@ Status: ready-for-agent
 - `/api/backends/chat-completions/generate` 未文档化，ST 版本升级可能变更请求格式——适配器需集中隔离该契约（本地 tmp/ 有 release 1.18.0 源码可对照）。
 - 坚果云等 WebDAV 无 CORS 头，浏览器直连不可行，已排除；Google Drive 只有 OAuth（无 API Key 模式），留作后续适配器。
 - 空间绑定存 chatMetadata 意味着换设备后绑定随聊天文件同步，但记忆数据库需等云同步拉取后才有数据——空库期间面板应显示「同步中/未配置云同步」状态而非报错。
-- ChatMetadata 同步器（未来候选）：把记忆镜像序列化进 chatMetadata 随聊天文件走，是参考插件 ST-Memory-Context 的同步方式；仅在数据量小（如仅同步结构/摘要）时合理，主数据库仍留在 Dexie + R2。
+- 对话文件镜像（ticket 16，ADR 0023）：把记忆快照（结构 + 记录 + 修订历史 + 证据）写进 chat_metadata.steMemoryMirror 随聊天文件走，是参考插件 ST-Memory-Context 的同步方式；只作恢复源（本地空间缺失时恢复，绝不覆盖本地），v1 不设体积上限，以设置项（修订历史开关）+ 状态展示（体积/上次写回）兜底。
 - 开工前必读清单见 `.scratch/st-extension/session-record.md` §9。

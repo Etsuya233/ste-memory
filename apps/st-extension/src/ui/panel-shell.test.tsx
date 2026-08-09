@@ -23,6 +23,7 @@ function activeStatus(): SpaceContextStatus {
       updatedAt: "2026-07-28T00:00:00.000Z",
     },
     created: false,
+    restored: false,
   };
 }
 
@@ -53,6 +54,11 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getStatus: () => ({ kind: "unconfigured" }),
       onStatusChange: () => () => {},
       syncNow: vi.fn(async () => {}),
+      kick: vi.fn(async () => {}),
+    },
+    mirror: {
+      getStatus: () => ({ kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
+      onStatusChange: () => () => {},
       kick: vi.fn(async () => {}),
     },
     version: "0.1.0",
@@ -129,7 +135,12 @@ describe("PanelShell（面板骨架投影）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const html = renderShell(model);
-    for (const field of ["r2-account-id", "r2-access-key-id", "r2-secret-access-key", "r2-bucket"]) {
+    for (const field of [
+      "r2-account-id",
+      "r2-access-key-id",
+      "r2-secret-access-key",
+      "r2-bucket",
+    ]) {
       // 每个 R2 输入都存在且不带 disabled 属性；密码框为 password 类型
       expect(html).toContain(`data-stm-field="${field}"`);
     }
@@ -192,6 +203,60 @@ describe("PanelShell（面板骨架投影）", () => {
     });
     const html = renderShell(new PanelModel(), runtime);
     expect(html).toContain("云同步失败：无法连接 R2");
+  });
+
+  it("设置 Tab：对话文件镜像组（开关 + 包含修订历史 + 状态展示）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("对话文件镜像");
+    expect(html).toContain('data-action="toggle-mirror"');
+    expect(html).toContain('data-action="toggle-mirror-history"');
+    expect(html).toContain('data-stm-field="mirror-status"');
+    expect(html).toContain("已启用（尚未写回）");
+  });
+
+  it("设置 Tab：镜像已写回时状态行展示时间与体积", () => {
+    const runtime = fakeRuntime({
+      mirror: {
+        getStatus: () => ({
+          kind: "idle",
+          lastWrittenAt: "2026-08-10T01:02:03.000Z",
+          sizeBytes: 15360,
+        }),
+        onStatusChange: () => () => {},
+        kick: vi.fn(async () => {}),
+      },
+    });
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model, runtime);
+    expect(html).toContain("上次写回 2026-08-10 01:02");
+    expect(html).toContain("15.0 KB");
+  });
+
+  it("面板头部：从文件镜像恢复时展示恢复标记", () => {
+    const status: SpaceContextStatus = {
+      kind: "active",
+      binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+      space: {
+        id: "space-1" as MemorySpaceId,
+        name: "爱丽丝 - story",
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:00.000Z",
+      },
+      created: false,
+      restored: true,
+    };
+    const runtime = fakeRuntime({
+      manager: {
+        getStatus: () => status,
+        onStatusChange: () => () => {},
+        syncToCurrentChat: vi.fn(async () => status),
+      },
+    });
+    const html = renderShell(new PanelModel(), runtime);
+    expect(html).toContain("已从文件镜像恢复");
   });
 
   it("设置 Tab：数据备份组渲染导出/导入按钮与文件输入（验收脚本契约）", () => {

@@ -19,6 +19,7 @@ import type { MemoryBackupFile } from "@ste-memory/core/memory/export";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
 import type { CloudSyncStatus } from "../cloud/sync-coordinator.ts";
+import type { ChatMirrorStatus } from "../chat-mirror/chat-metadata-mirror-sync.ts";
 import type { SteMemoryRuntime } from "../runtime.ts";
 import {
   isR2Configured,
@@ -31,6 +32,7 @@ import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts"
 import {
   buildSpaceInfo,
   formatSyncTime,
+  mirrorStatusSummary,
   runtimeStatusLabel,
   syncStatusSummary,
 } from "./space-info.ts";
@@ -65,6 +67,8 @@ export interface PanelRuntime {
     SteMemoryRuntime["sync"],
     "getStatus" | "onStatusChange" | "syncNow" | "kick"
   >;
+  /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
+  readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -166,6 +170,11 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
     () => props.runtime.sync.getStatus(),
     () => props.runtime.sync.getStatus(),
   );
+  const mirrorStatus = useSyncExternalStore(
+    (listener) => props.runtime.mirror.onStatusChange(listener),
+    () => props.runtime.mirror.getStatus(),
+    () => props.runtime.mirror.getStatus(),
+  );
   // 设置只经本面板的开关写入（唯一写入口），组件本地 state 即最新值
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
 
@@ -240,6 +249,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
               status={status}
               settings={settings}
               syncStatus={syncStatus}
+              mirrorStatus={mirrorStatus}
               onSettingsChange={setSettings}
               onDataChanged={() => setDataVersion((version) => version + 1)}
             />
@@ -466,6 +476,8 @@ function SettingsTab(props: {
   readonly settings: PluginSettings;
   /** 云同步状态（ticket 08：最近同步时间、失败提示可见） */
   readonly syncStatus: CloudSyncStatus;
+  /** 对话文件镜像状态（ticket 16：体积 + 上次写回时间） */
+  readonly mirrorStatus: ChatMirrorStatus;
   readonly onSettingsChange: (settings: PluginSettings) => void;
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
@@ -491,6 +503,22 @@ function SettingsTab(props: {
     props.runtime.settings.write(next);
     props.onSettingsChange(next);
     void props.runtime.sync.kick().catch(reportError);
+  }
+
+  /** 镜像开关切换：写设置 + kick（开关即时生效） */
+  function toggleMirror(enabled: boolean): void {
+    const next = { ...props.settings, mirror: { ...props.settings.mirror, enabled } };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    void props.runtime.mirror.kick().catch(reportError);
+  }
+
+  /** 镜像包含修订历史开关切换：写设置 + kick（后续写回按新内容裁剪） */
+  function toggleMirrorHistory(includeHistory: boolean): void {
+    const next = { ...props.settings, mirror: { ...props.settings.mirror, includeHistory } };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    void props.runtime.mirror.kick().catch(reportError);
   }
 
   async function syncNow(): Promise<void> {
@@ -645,8 +673,8 @@ function SettingsTab(props: {
           onChange={(event) => updateR2Field("bucket", event.target.value)}
         />
         <div className="stm-setting-hint">
-          四项填齐即自动启用：数据变更防抖推送、空库启动自动拉取、较新版本胜出；Bucket
-          需配置 CORS（详见插件文档 R2 云同步配置）
+          四项填齐即自动启用：数据变更防抖推送、空库启动自动拉取、较新版本胜出；Bucket 需配置
+          CORS（详见插件文档 R2 云同步配置）
         </div>
       </div>
       <div className="stm-setting-group">
@@ -687,6 +715,47 @@ function SettingsTab(props: {
         </div>
         <div className="stm-setting-hint">
           断网或配置错误时这里显示失败提示，插件会按退避自动重试
+        </div>
+      </div>
+      <div className="stm-setting-group">
+        <div className="stm-setting-group-title">对话文件镜像</div>
+        <div className="stm-setting-row">
+          <div className="stm-setting-label">
+            <div className="stm-setting-name">随对话文件同步记忆镜像</div>
+            <div className="stm-setting-hint">
+              记忆快照写入聊天文件随对话走；换设备或本地库被清时自动恢复
+            </div>
+          </div>
+          <label className="stm-switch">
+            <input
+              type="checkbox"
+              data-action="toggle-mirror"
+              checked={props.settings.mirror.enabled}
+              onChange={(event) => toggleMirror(event.target.checked)}
+            />
+            <span className="stm-switch-track" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div className="stm-setting-row">
+          <div className="stm-setting-label">
+            <div className="stm-setting-name">镜像包含修订历史</div>
+            <div className="stm-setting-hint">关闭后镜像不含修订记录，体积更小</div>
+          </div>
+          <label className="stm-switch">
+            <input
+              type="checkbox"
+              data-action="toggle-mirror-history"
+              checked={props.settings.mirror.includeHistory}
+              onChange={(event) => toggleMirrorHistory(event.target.checked)}
+            />
+            <span className="stm-switch-track" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div className="stm-setting-row">
+          <div className="stm-setting-name">镜像状态</div>
+          <div className="stm-setting-value" data-stm-field="mirror-status">
+            {mirrorStatusSummary(props.mirrorStatus)}
+          </div>
         </div>
       </div>
       <div className="stm-setting-group">

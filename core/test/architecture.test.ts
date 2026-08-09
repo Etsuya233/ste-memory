@@ -65,9 +65,11 @@ describe("architecture", () => {
     const agentDir = fileURLToPath(new URL("../src/memory/application/agent/", import.meta.url));
     // typebox 例外：ticket 07 备份文件 schema 校验（export 模块）与 agent 工具共用同一依赖；
     // ticket 08 云同步文件与备份同信封（cloud 模块），同样例外；
+    // ticket 16 对话文件镜像与备份单元同构（chat-mirror 模块），同样例外；
     // @earendil-works/pi-*（Agent 引擎）仍严格限制在 agent 子层内
     const exportDir = fileURLToPath(new URL("../src/memory/export/", import.meta.url));
     const cloudDir = fileURLToPath(new URL("../src/memory/cloud/", import.meta.url));
+    const chatMirrorDir = fileURLToPath(new URL("../src/memory/chat-mirror/", import.meta.url));
     const invalidImports = files.flatMap((file) =>
       importsOf(file)
         .filter(
@@ -75,7 +77,8 @@ describe("architecture", () => {
             (value.includes("@earendil-works/pi-") || value.includes("typebox")) &&
             !file.startsWith(agentDir) &&
             !(value.includes("typebox") && file.startsWith(exportDir)) &&
-            !(value.includes("typebox") && file.startsWith(cloudDir)),
+            !(value.includes("typebox") && file.startsWith(cloudDir)) &&
+            !(value.includes("typebox") && file.startsWith(chatMirrorDir)),
         )
         .map((value) => `${file}: ${value}`),
     );

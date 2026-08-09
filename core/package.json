@@ -7,7 +7,8 @@
     "./memory/adapter": "./src/memory/adapter.ts",
     "./memory/export": "./src/memory/export/index.ts",
     "./memory/cloud": "./src/memory/cloud/index.ts",
-    "./memory/agent": "./src/memory/application/agent/index.ts"
+    "./memory/agent": "./src/memory/application/agent/index.ts",
+    "./memory/chat-mirror": "./src/memory/chat-mirror/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

@@ -1,4 +1,4 @@
-import type { MemoryBackupData } from "./backup-file.ts";
+import type { MemoryBackupData, MemorySpaceBackup } from "./backup-file.ts";
 
 /** 全库快照（备份 port 的载荷）：与备份文件 data 部分同构。 */
 export type MemoryBackupSnapshot = MemoryBackupData;
@@ -10,8 +10,11 @@ export type MemoryBackupSnapshot = MemoryBackupData;
  * - loadSnapshot：读取全库（空间/表格/字段/记录/修订历史/证据），按空间分组。
  * - restoreSnapshot：以快照整体替换当前库；实现必须原子（任一步失败整体回滚，
  *   绝不产生半导入状态）。
+ * - restoreSpace：按空间恢复单个单元（对话文件镜像恢复用，ADR 0023）——只
+ *   替换该空间在六张表里的数据，其他空间不受影响；同样必须原子。
  */
 export interface MemoryBackupRepository {
   loadSnapshot(): Promise<MemoryBackupSnapshot>;
   restoreSnapshot(snapshot: MemoryBackupSnapshot): Promise<void>;
+  restoreSpace(unit: MemorySpaceBackup): Promise<void>;
 }

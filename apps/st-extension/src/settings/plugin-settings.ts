@@ -14,6 +14,14 @@ export interface R2Settings {
   readonly bucket: string;
 }
 
+/** 对话文件镜像设置（ticket 16）：随聊天文件同步记忆快照的开关与内容范围 */
+export interface ChatMirrorSettings {
+  /** 镜像总开关（默认开，跟随插件总开关） */
+  readonly enabled: boolean;
+  /** 镜像是否包含修订历史（默认开；关闭时 data.history 裁空，体积主要来源） */
+  readonly includeHistory: boolean;
+}
+
 export interface PluginSettings {
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关，ticket 06 起生效） */
   readonly enabled: boolean;
@@ -21,6 +29,8 @@ export interface PluginSettings {
   readonly r2: R2Settings;
   /** 记忆宏名（ticket 15 生效；ticket 06 仅占位展示；默认建议 {{memoryContext}}） */
   readonly macroName: string;
+  /** 对话文件镜像（ticket 16 生效） */
+  readonly mirror: ChatMirrorSettings;
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -30,6 +40,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   enabled: true,
   r2: { accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "" },
   macroName: "{{memoryContext}}",
+  mirror: { enabled: true, includeHistory: true },
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -48,6 +59,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     r2: mergeR2(source.r2),
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
+    mirror: mergeMirror(source.mirror),
   };
 }
 
@@ -73,6 +85,16 @@ function mergeR2(raw: unknown): R2Settings {
         ? source.secretAccessKey
         : defaults.secretAccessKey,
     bucket: typeof source.bucket === "string" ? source.bucket : defaults.bucket,
+  };
+}
+
+function mergeMirror(raw: unknown): ChatMirrorSettings {
+  const source = isRecord(raw) ? raw : {};
+  const defaults = DEFAULT_SETTINGS.mirror;
+  return {
+    enabled: typeof source.enabled === "boolean" ? source.enabled : defaults.enabled,
+    includeHistory:
+      typeof source.includeHistory === "boolean" ? source.includeHistory : defaults.includeHistory,
   };
 }
 

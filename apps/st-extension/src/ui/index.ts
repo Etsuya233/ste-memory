@@ -10,6 +10,7 @@ export {
   SYNC_SYNCING_LABEL,
   buildSpaceInfo,
   formatSyncTime,
+  mirrorStatusSummary,
   runtimeStatusLabel,
   syncStatusDetail,
   syncStatusSummary,

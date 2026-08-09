@@ -1,4 +1,8 @@
-import type { MemoryBackupRepository, MemoryBackupSnapshot } from "@ste-memory/core/memory/export";
+import type {
+  MemoryBackupRepository,
+  MemoryBackupSnapshot,
+  MemorySpaceBackup,
+} from "@ste-memory/core/memory/export";
 import type { SteMemoryDatabase } from "./database.ts";
 import { toDomainEvidence, toEvidenceRow } from "./evidence-conversion.ts";
 
@@ -70,20 +74,58 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           this.#db.memoryEvidence.clear(),
         ]);
         for (const unit of snapshot.spaces) {
-          await this.#db.memorySpaces.add(unit.space);
-          if (unit.tables.length > 0) await this.#db.memoryTables.bulkAdd([...unit.tables]);
-          if (unit.fields.length > 0) await this.#db.memoryFields.bulkAdd([...unit.fields]);
-          if (unit.records.length > 0) await this.#db.memoryRecords.bulkAdd([...unit.records]);
-          if (unit.history.length > 0) {
-            await this.#db.memoryRecordHistory.bulkAdd([...unit.history]);
-          }
-          if (unit.evidence.length > 0) {
-            await this.#db.memoryEvidence.bulkAdd(
-              unit.evidence.map((evidence) => toEvidenceRow(unit.space.id, evidence)),
-            );
-          }
+          await this.#writeUnit(unit);
         }
       },
     );
+  }
+
+  /**
+   * 按空间恢复单个单元（镜像恢复，ADR 0023）：先删该空间在六张表的全部行，
+   * 再写入单元数据——只影响目标空间，其他空间原样保留；与 restoreSnapshot
+   * 同事务语义：任一步失败整体回滚。
+   */
+  async restoreSpace(unit: MemorySpaceBackup): Promise<void> {
+    const spaceId = unit.space.id;
+    await this.#db.transaction(
+      "rw",
+      [
+        this.#db.memorySpaces,
+        this.#db.memoryTables,
+        this.#db.memoryFields,
+        this.#db.memoryRecords,
+        this.#db.memoryRecordHistory,
+        this.#db.memoryEvidence,
+      ],
+      async () => {
+        await Promise.all([
+          this.#db.memorySpaces.where("id").equals(spaceId).delete(),
+          this.#db.memoryTables.where("memorySpaceId").equals(spaceId).delete(),
+          // memoryFields 无 memorySpaceId 索引：filter 删除（字段行数少，与
+          // DexieSyncChangeSource 同口径，v1 可接受）
+          this.#db.memoryFields.filter((field) => field.memorySpaceId === spaceId).delete(),
+          this.#db.memoryRecords.where("memorySpaceId").equals(spaceId).delete(),
+          this.#db.memoryRecordHistory.where("memorySpaceId").equals(spaceId).delete(),
+          this.#db.memoryEvidence.where("memorySpaceId").equals(spaceId).delete(),
+        ]);
+        await this.#writeUnit(unit);
+      },
+    );
+  }
+
+  /** 写入单个空间单元（restoreSnapshot / restoreSpace 共用；调用方已包事务）。 */
+  async #writeUnit(unit: MemorySpaceBackup): Promise<void> {
+    await this.#db.memorySpaces.add(unit.space);
+    if (unit.tables.length > 0) await this.#db.memoryTables.bulkAdd([...unit.tables]);
+    if (unit.fields.length > 0) await this.#db.memoryFields.bulkAdd([...unit.fields]);
+    if (unit.records.length > 0) await this.#db.memoryRecords.bulkAdd([...unit.records]);
+    if (unit.history.length > 0) {
+      await this.#db.memoryRecordHistory.bulkAdd([...unit.history]);
+    }
+    if (unit.evidence.length > 0) {
+      await this.#db.memoryEvidence.bulkAdd(
+        unit.evidence.map((evidence) => toEvidenceRow(unit.space.id, evidence)),
+      );
+    }
   }
 }

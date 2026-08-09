@@ -6,7 +6,14 @@ import { createTestDatabase } from "./db/test-support.ts";
 import { DexieMemorySpaceRepository, DexieMemoryTableRepository } from "./db/index.ts";
 import { startSteMemory } from "./runtime.ts";
 import { DEFAULT_SETTINGS, type SettingsStore } from "./settings/plugin-settings.ts";
-import { CHAT_METADATA_BINDING_KEY, type StContext } from "./st/st-chat-adapter.ts";
+import {
+  CHAT_METADATA_BINDING_KEY,
+  CHAT_METADATA_MIRROR_KEY,
+  type StContext,
+} from "./st/st-chat-adapter.ts";
+import { createChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
+import type { MemorySpaceBackup } from "@ste-memory/core/memory/export";
+import type { MemorySpaceId } from "@ste-memory/core/memory";
 import { UNSAVED_CHAT_MESSAGE } from "./space-binding/chat-space-manager.ts";
 
 function fakeLog() {
@@ -176,5 +183,82 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     await runtime.manager.syncToCurrentChat();
     expect(runtime.manager.getStatus()?.kind).toBe("active");
     expect(await spaceRepository.list()).toHaveLength(2);
+  });
+
+  it("对话文件镜像：默认启用（idle 状态），设置关闭后 disabled 且不写", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    let settings = { ...DEFAULT_SETTINGS };
+    const settingsStore: SettingsStore = {
+      read: () => settings,
+      write: (next) => {
+        settings = next;
+      },
+    };
+    const runtime = await startSteMemory(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore,
+    });
+
+    // 默认设置镜像启用：启动评估后为 idle（尚未写回），写回由轮询+防抖驱动（seam 已测）
+    const status = runtime.mirror.getStatus();
+    expect(status.kind).toBe("idle");
+    if (status.kind !== "idle") return;
+    expect(status.lastWrittenAt).toBeUndefined();
+
+    // 设置关闭镜像：kick 后回到 disabled
+    settingsStore.write({ ...settings, mirror: { enabled: false, includeHistory: true } });
+    await runtime.mirror.kick();
+    expect(runtime.mirror.getStatus()).toEqual({ kind: "disabled" });
+  });
+
+  it("绑定在、空间缺失、文件里有有效镜像：启动即从镜像恢复（active/restored，数据落地）", async () => {
+    const db = createTestDatabase();
+    const unit: MemorySpaceBackup = {
+      space: {
+        id: "space-ghost" as MemorySpaceId,
+        name: "爱丽丝 - story",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      },
+      tables: [],
+      fields: [],
+      records: [],
+      history: [],
+      evidence: [],
+    };
+    const { context, chatMetadata } = fakeStContext();
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
+    chatMetadata[CHAT_METADATA_MIRROR_KEY] = createChatMirrorFile(
+      unit,
+      "space-ghost",
+      "2026-08-10T00:00:00.000Z",
+      "0.1.0",
+    );
+
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+
+    const status = runtime.manager.getStatus();
+    expect(status?.kind).toBe("active");
+    if (status?.kind !== "active") return;
+    expect(status.restored).toBe(true);
+    expect(status.space.id).toBe("space-ghost");
+    // 数据真实落地（restoreSpace 写入），绑定原样保留
+    const spaceRepository = new DexieMemorySpaceRepository(db);
+    expect(await spaceRepository.list()).toHaveLength(1);
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+  });
+
+  it("绑定在、空间缺失、文件里无有效镜像：保持 space-missing（等待云同步/用户处理）", async () => {
+    const db = createTestDatabase();
+    const { context, chatMetadata } = fakeStContext();
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
+
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+
+    expect(runtime.manager.getStatus()?.kind).toBe("space-missing");
+    const spaceRepository = new DexieMemorySpaceRepository(db);
+    expect(await spaceRepository.list()).toHaveLength(0);
   });
 });

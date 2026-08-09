@@ -92,6 +92,7 @@ class FakeBackup implements MemoryBackupRepository {
     this.restores.push(snapshot);
     this.snapshot = snapshot;
   }
+  async restoreSpace(_unit: MemorySpaceBackup) {}
 }
 
 function createHarness(overrides: Partial<SyncCoordinatorPorts> = {}) {
@@ -133,7 +134,13 @@ function seedCloud(
     adapter.objects.set(
       `spaces/${entry.spaceId}.json`,
       JSON.stringify(
-        createCloudSpaceFile(unit(entry.spaceId, entry.updatedAt), entry.spaceId, entry.updatedAt, "0.1.0", BASE_TIME),
+        createCloudSpaceFile(
+          unit(entry.spaceId, entry.updatedAt),
+          entry.spaceId,
+          entry.updatedAt,
+          "0.1.0",
+          BASE_TIME,
+        ),
       ),
     );
   }
@@ -165,7 +172,10 @@ describe("空库拉取（本地优先：仅本地为空时）", () => {
 
   it("空库 + 云端索引未知版本：明确报错（版本不支持），不恢复任何数据", async () => {
     const h = createHarness();
-    h.adapter.objects.set("index.json", JSON.stringify({ format: "ste-memory-backup", version: 99 }));
+    h.adapter.objects.set(
+      "index.json",
+      JSON.stringify({ format: "ste-memory-backup", version: 99 }),
+    );
 
     await h.coordinator.start();
 
@@ -179,7 +189,9 @@ describe("空库拉取（本地优先：仅本地为空时）", () => {
     const h = createHarness();
     h.adapter.objects.set(
       "index.json",
-      JSON.stringify(createCloudIndexFile([{ spaceId: "space-1", updatedAt: BASE_TIME }], "0.1.0", BASE_TIME)),
+      JSON.stringify(
+        createCloudIndexFile([{ spaceId: "space-1", updatedAt: BASE_TIME }], "0.1.0", BASE_TIME),
+      ),
     );
     h.adapter.objects.set(
       "spaces/space-1.json",
@@ -250,10 +262,7 @@ describe("变更推送 + 防抖", () => {
 
     await h.coordinator.start();
 
-    expect(h.adapter.puts.map((p) => p.key)).toEqual([
-      "spaces/space-1.json",
-      "index.json",
-    ]);
+    expect(h.adapter.puts.map((p) => p.key)).toEqual(["spaces/space-1.json", "index.json"]);
     expect(h.coordinator.getStatus().kind).toBe("idle");
     const index = JSON.parse(h.adapter.objects.get("index.json")!) as {
       spaces: { spaceId: string; updatedAt: string }[];
@@ -360,7 +369,10 @@ describe("失败处理与重试", () => {
     const h = createHarness();
     h.backup.snapshot = { spaces: [unit("space-1")] };
     h.changes.fingerprints.set("space-1", fingerprint(BASE_TIME));
-    h.adapter.failures.push({ key: "spaces/space-1.json", error: new Error("R2 请求失败（HTTP 500）") });
+    h.adapter.failures.push({
+      key: "spaces/space-1.json",
+      error: new Error("R2 请求失败（HTTP 500）"),
+    });
 
     await h.coordinator.start();
     const status = h.coordinator.getStatus() as Extract<CloudSyncStatus, { kind: "error" }>;

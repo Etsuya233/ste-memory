@@ -4,6 +4,8 @@ import type {
   ChatSnapshot,
   ChatSpaceBinding,
 } from "../space-binding/chat-space-manager.ts";
+import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.ts";
+import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
 import { resolveFloorJump } from "./floor-jump.ts";
 /**
  * ST 1.18 getContext() 返回对象的插件所需子集（public/scripts/st-context.js 已核实）。
@@ -49,6 +51,9 @@ export interface StContext {
  * 无冲突；命名空间化的值对象 { version, spaceId } 便于未来演进。
  */
 export const CHAT_METADATA_BINDING_KEY = "steMemory";
+/** 记忆镜像在 chatMetadata 里的键（ticket 16 / ADR 0023）：独立键，不动绑定键——
+ * 旧版本插件忽略新键（降级安全），绑定读取路径（三态 + unrecognized 防御）零改动。 */
+export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
 
 /** ST 事件桥（ticket 05）：CHAT_CHANGED 切换空间上下文；消息事件仅注册为未来触发点 */
 export interface StEventBridge {
@@ -105,6 +110,20 @@ export class StChatAdapter {
     };
   }
 
+  /** chatMetadata 镜像读写端口（ticket 16）：写即触发防抖持久化（随聊天文件走） */
+  get mirrorStore(): ChatMirrorStore {
+    return {
+      read: () => this.#getContext().chatMetadata?.[CHAT_METADATA_MIRROR_KEY],
+      write: (file: ChatMirrorFile) => {
+        const context = this.#getContext();
+        const metadata = context.chatMetadata;
+        if (!metadata) return;
+        metadata[CHAT_METADATA_MIRROR_KEY] = file;
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
   /** 注册事件桥：CHAT_CHANGED 用于切换空间上下文；消息事件仅注册（未来触发点） */
   registerEventBridge(bridge: StEventBridge): void {
     const context = this.#getContext();
@@ -130,9 +149,7 @@ export class StChatAdapter {
 }
 
 /** 读取 chatMetadata 里的绑定：键缺失 = none；键存在但值无法识别（损坏/未来版本）= unrecognized */
-function readChatSpaceBinding(
-  metadata: Record<string, unknown> | undefined,
-): ChatBindingStoreRead {
+function readChatSpaceBinding(metadata: Record<string, unknown> | undefined): ChatBindingStoreRead {
   const raw = metadata?.[CHAT_METADATA_BINDING_KEY];
   if (raw === undefined) return { kind: "none" };
   if (isChatSpaceBinding(raw)) return { kind: "bound", binding: raw };

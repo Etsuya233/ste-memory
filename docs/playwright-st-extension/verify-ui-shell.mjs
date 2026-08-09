@@ -357,12 +357,17 @@ async function main() {
           && !!section?.querySelector('input[data-stm-field="import-backup-file"]'),
         hasSyncStatus: !!section?.querySelector('[data-stm-field="cloud-sync-status"]')
           && !!section?.querySelector('button[data-action="sync-now"]'),
+        // ticket 16：对话文件镜像组（开关 + 包含修订历史 + 状态行）
+        hasMirror: !!section?.querySelector('input[data-action="toggle-mirror"]')
+          && !!section?.querySelector('input[data-action="toggle-mirror-history"]')
+          && !!section?.querySelector('[data-stm-field="mirror-status"]'),
       };
     });
     check("设置 Tab：插件开关 + 版本 + 运行状态", settings.hasPluginSwitch && settings.hasStatus, JSON.stringify(settings));
     check("设置 Tab：版本号展示", settings.version === "v0.1.0", settings.version);
     check("设置 Tab：R2 配置可编辑（4 个输入，ticket 08 生效）", settings.r2Editable);
     check("设置 Tab：同步状态组（状态行 + 立即同步按钮）", settings.hasSyncStatus);
+    check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
     check("设置 Tab：记忆宏占位（禁用 + 默认名 {{memoryContext}}）", settings.macroDisabled);
     check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);
 

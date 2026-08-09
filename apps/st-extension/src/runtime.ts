@@ -10,6 +10,7 @@ import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { CloudSyncCoordinator, R2CloudSyncAdapter } from "./cloud/index.ts";
+import { ChatMetadataMirrorSync } from "./chat-mirror/chat-metadata-mirror-sync.ts";
 import {
   DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
@@ -38,6 +39,8 @@ export interface SteMemoryRuntime {
   readonly settings: SettingsStore;
   /** 云同步（ticket 08）：状态订阅 + 立即同步；R2 配置齐即自动防抖推送/空库拉取 */
   readonly sync: CloudSyncCoordinator;
+  /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
+  readonly mirror: ChatMetadataMirrorSync;
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
 }
@@ -107,11 +110,31 @@ export async function startSteMemory(
   );
 
   const adapter = new StChatAdapter(() => getContext() as StContext);
+  const mirror = new ChatMetadataMirrorSync({
+    getChat: () => adapter.getChatSnapshot(),
+    bindingStore: adapter.bindingStore,
+    mirrorStore: adapter.mirrorStore,
+    backup,
+    changes: new DexieSyncChangeSource(db),
+    isEnabled: () => settings.read().enabled && settings.read().mirror.enabled,
+    includeHistory: () => settings.read().mirror.includeHistory,
+    appVersion: () => options.version ?? "",
+    now: () => new Date(),
+    log: {
+      info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+    },
+  });
   const manager = new ChatSpaceManager({
     getChat: () => adapter.getChatSnapshot(),
     bindingStore: adapter.bindingStore,
     spaces,
     installer: new SystemMemoryTableInstaller(tables, fields),
+    mirrorRestore: {
+      // 空间缺失时从对话文件镜像恢复（镜像有效 + spaceId 与绑定一致才恢复）
+      restore: (binding) => mirror.restoreFromMirror(binding),
+    },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
   });
 
@@ -138,6 +161,8 @@ export async function startSteMemory(
   });
   // 空库拉取必须先于空间创建完成（否则拉取恢复会覆盖启动期间新建的空间）
   await sync.start();
+  // 镜像同步在 R2 拉取之后启动：拉取恢复的数据会在轮询中回填进对话文件（文件自洽）
+  await mirror.start();
 
   adapter.registerEventBridge({
     onChatChanged: () => {
@@ -163,6 +188,7 @@ export async function startSteMemory(
     backup,
     settings,
     sync,
+    mirror,
     version: options.version ?? "",
   };
 }

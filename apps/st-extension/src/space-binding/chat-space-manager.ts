@@ -1,8 +1,4 @@
-import type {
-  MemorySpace,
-  MemorySpaceId,
-  MemorySpaceService,
-} from "@ste-memory/core/memory";
+import type { MemorySpace, MemorySpaceId, MemorySpaceService } from "@ste-memory/core/memory";
 
 /**
  * 对话 → 记忆空间的上下文管理器（插件的纯逻辑层 seam，spec 测试决策）。
@@ -68,6 +64,8 @@ export interface ChatSpaceManagerPorts {
   readonly bindingStore: ChatBindingStore;
   readonly spaces: MemorySpaceService;
   readonly installer: SystemTableInstallerPort;
+  /** 镜像恢复端口（可选；宿主 = ChatMetadataMirrorSync.restoreFromMirror，ticket 16） */
+  readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
   /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
   readonly log?: { info(message: string): void };
 }
@@ -79,6 +77,8 @@ export type SpaceContextStatus =
       readonly space: MemorySpace;
       /** 本次同步是否新建了空间（首次打开自动创建） */
       readonly created: boolean;
+      /** 本次同步是否从对话文件镜像恢复（ticket 16；面板可区分「从文件镜像恢复」） */
+      readonly restored: boolean;
     }
   | { readonly kind: "unsaved-chat"; readonly humanMsg: string }
   | {
@@ -100,17 +100,15 @@ export const BINDING_UNRECOGNIZED_MESSAGE =
  * 保证空间一定能创建；可能切断代理对，显示层可容忍。 */
 export function buildChatSpaceName(chat: ChatSnapshot): string {
   const prefix =
-    chat.groupId != null
-      ? "群聊 - "
-      : chat.characterName
-        ? `${chat.characterName} - `
-        : "对话 - ";
+    chat.groupId != null ? "群聊 - " : chat.characterName ? `${chat.characterName} - ` : "对话 - ";
   const full = `${prefix}${chat.chatId ?? ""}`;
   return full.length > 120 ? full.slice(0, 120) : full;
 }
 
-/** 对话身份：群聊与单人对话可存在同名对话文件，身份必须区分（groupId / characterId 双轨） */
-function chatIdentity(chat: ChatSnapshot): string | undefined {
+/** 对话身份键：群聊与单人对话可存在同名对话文件，身份必须区分（groupId / characterId 双轨）；
+ * 临时/未保存对话（chatId 无值）→ undefined。镜像写侧用同一键跟踪「每个文件最后写回」
+ * （复制的对话文件可共享同一空间，跟踪键必须是文件身份而非空间）。 */
+export function chatIdentityKey(chat: ChatSnapshot): string | undefined {
   if (chat.chatId === undefined) return undefined;
   return chat.groupId != null
     ? `group:${String(chat.groupId)}:${chat.chatId}`
@@ -164,10 +162,30 @@ export class ChatSpaceManager {
     const read = this.#ports.bindingStore.read();
     if (read.kind === "unrecognized") {
       // 绑定值存在但无法识别：原样保留（不新建覆盖），状态给面板提示
-      return this.#publish({ kind: "binding-unrecognized", humanMsg: BINDING_UNRECOGNIZED_MESSAGE });
+      return this.#publish({
+        kind: "binding-unrecognized",
+        humanMsg: BINDING_UNRECOGNIZED_MESSAGE,
+      });
     }
     if (read.kind === "bound") {
       const space = await this.#ports.spaces.find(read.binding.spaceId);
+      if (!space && this.#ports.mirrorRestore) {
+        // 空间缺失（新设备/本地库被清）：先试从对话文件镜像恢复（ticket 16）——
+        // 恢复成功且仍是当前对话 → active(restored)，否则维持 space-missing
+        const restored = await this.#ports.mirrorRestore.restore(read.binding);
+        if (restored) {
+          const restoredSpace = await this.#ports.spaces.find(read.binding.spaceId);
+          if (restoredSpace && this.#isCurrentChat(chat)) {
+            return this.#publish({
+              kind: "active",
+              binding: read.binding,
+              space: restoredSpace,
+              created: false,
+              restored: true,
+            });
+          }
+        }
+      }
       const status = deriveSpaceStatus(read.binding, space);
       if (!this.#isCurrentChat(chat)) {
         // 同步期间用户已切走：结果属于旧对话，不发布（新对话的同步已在队列里）
@@ -189,15 +207,21 @@ export class ChatSpaceManager {
     if (!this.#isCurrentChat(chat)) {
       // 同步期间切走：不能把旧对话的绑定写进新对话的 chatMetadata，也不留孤儿空间
       await this.#ports.spaces.delete(space.id);
-      return { kind: "active", binding: createdBinding, space, created: true };
+      return { kind: "active", binding: createdBinding, space, created: true, restored: false };
     }
     this.#ports.bindingStore.write(createdBinding);
     this.#ports.log?.info(`已为对话「${chat.chatId}」创建记忆空间「${space.name}」（${space.id}）`);
-    return this.#publish({ kind: "active", binding: createdBinding, space, created: true });
+    return this.#publish({
+      kind: "active",
+      binding: createdBinding,
+      space,
+      created: true,
+      restored: false,
+    });
   }
 
   #isCurrentChat(chat: ChatSnapshot): boolean {
-    return chatIdentity(this.#ports.getChat()) === chatIdentity(chat);
+    return chatIdentityKey(this.#ports.getChat()) === chatIdentityKey(chat);
   }
 
   #publish(status: SpaceContextStatus): SpaceContextStatus {
@@ -212,8 +236,8 @@ function deriveSpaceStatus(
   space: MemorySpace | undefined,
 ): SpaceContextStatus {
   if (!space) {
-    // 绑定在、空间不在本地库：不重建（云同步会恢复），保持绑定
+    // 绑定在、空间不在本地库：不重建（云同步/镜像恢复会恢复），保持绑定
     return { kind: "space-missing", binding, humanMsg: SPACE_MISSING_MESSAGE };
   }
-  return { kind: "active", binding, space, created: false };
+  return { kind: "active", binding, space, created: false, restored: false };
 }
