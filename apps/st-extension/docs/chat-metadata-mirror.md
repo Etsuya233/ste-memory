@@ -36,6 +36,8 @@ R2 云同步之外的第二条通道——**不做跨服务协调**，镜像只�
 
 ## 手动验收步骤（真实 ST，双端）
 
+已自动化：`docs/playwright-st-extension/verify-chat-metadata-mirror.mjs`（17 项断言，2026-08-10 真机 headless 全绿）覆盖步骤 1/3/4/5/6/7；步骤 2（修订历史开关）当前只能验证开关存在与写回正常——无记录时 history 恒为空数组，深度验证待记录 CRUD（ticket 11）就绪后补充。
+
 1. **写入**：打开对话（自动建空间）→ 面板手动新建一条记录 → 等待约 5s →
    打开聊天文件 JSONL，第一行 `chat_metadata.steMemoryMirror` 存在且
    `spaceId` 与绑定一致、`data` 含新记录；设置面板镜像状态显示「上次写回 … · N KB」。

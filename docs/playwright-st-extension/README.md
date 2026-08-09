@@ -137,3 +137,38 @@ node verify-space-binding.mjs   # exit 0 = 全流程通过（14 项断言）
   一律用轮询断言（chatId / 绑定值），不要依赖固定 sleep 或一次性调用。
 - **日志断言要按「新日志计数」**：`waitForSteLog` 会匹配到历史日志，须记录操作前的
   日志总数再等新条目。
+
+## ticket 16 验收脚本（verify-chat-metadata-mirror.mjs）
+
+```bash
+node verify-chat-metadata-mirror.mjs   # exit 0 = 全流程通过（17 项断言）
+```
+
+真实 ST 中走完「镜像写入 → 文件持久化 → 设置开关 → LWW/未知版本守卫 → 清库恢复 →
+按空间恢复」全流程（2026-08-10 首次全绿，headless chromium）：
+
+1. 打开对话建空间 → 镜像自动写回（27 KB 级：8 表 + 字段结构）→ 信封/spaceId/单元
+   完整 + JSONL 首行落盘
+2. 设置面板镜像组：状态行「上次写回 · N KB」+ 两个开关默认开启
+3. 第二个对话：各自空间各自镜像（文件身份跟踪）
+4. LWW：镜像 updatedAt 改为未来值 → 本地变更不覆盖 + warn「比本地数据新」
+5. 未知版本（version 99）→ 原样保留 + warn「无法识别」
+6. 镜像开关关闭 → 变更不写回（磁盘镜像 unchanged）；清库后打开对话不恢复
+   （space-missing「数据未就绪」）；重新开启 → 恢复 + 头部标记
+7. 按空间恢复：清库后先开对话 A 只恢复 A（B 不受伤），再开 B → 两空间并存
+8. 全程无插件相关页面错误
+
+踩过的坑（2026-08-10）：
+
+- **indexedDB.deleteDatabase 会被插件活跃连接 blocked**：请求随页面销毁被丢弃，
+  库根本没删。清库必须用事务内逐 store `clear()`（等价「本地库被清」，不受连接阻塞）。
+- **evaluate 写设置 + 立即 reload 会丢设置**：saveSettingsDebounced 是 1s 防抖，
+  reload 打断防抖 → 写入丢失（settings.json 里 steMemory 缺失，插件回退默认值，
+  后续断言全部错位）。所有设置写入点必须等 2.5s 落盘再 reload。
+- **面板 Tab 是条件渲染**：`toggleFirstTable` 会把面板切到表格 Tab，此时设置区块
+  的 `toggle-mirror` 不存在，`?.click()` 静默空操作。切 Tab 操作前必须先切回目标 Tab
+  并等目标元素出现。
+- **restored 标记是瞬态**：`openChat` 触发的后续同步会把「已从文件镜像恢复」覆盖
+  成普通状态（标记属于恢复那一次同步，与 created 同语义）。头部断言必须用
+  MutationObserver 在 DOM 更新瞬间记录，不能事后读文本。另核实：reload 后 ST
+  **不会**自动打开最后对话（boot 不触发恢复，恢复日志来自 openChat）。
