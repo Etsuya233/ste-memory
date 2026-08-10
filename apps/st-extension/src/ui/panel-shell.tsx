@@ -26,6 +26,15 @@ import {
 import type { MemoryBackupFile } from "@ste-memory/core/memory/export";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
+import {
+  DESKTOP_MEDIA_QUERY,
+  clampGeometry,
+  loadGeometry,
+  safeLocalStorage,
+  saveGeometry,
+  type PanelGeometry,
+  type ViewportSize,
+} from "./panel-window.ts";
 import type { CloudSyncStatus } from "../cloud/sync-coordinator.ts";
 import type { ChatMirrorStatus } from "../chat-mirror/chat-metadata-mirror-sync.ts";
 import type { SteMemoryRuntime } from "../runtime.ts";
@@ -146,6 +155,13 @@ export function ToolbarButton(props: { readonly model: PanelModel }) {
   );
 }
 
+// ---- 桌面浮动窗口几何（顶栏拖拽移动 + 右下角缩放；移动端不启用） ----
+
+/** 当前视口尺寸（拖拽/缩放钳制基准） */
+function viewportSize(): ViewportSize {
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
 // ---- 面板骨架 ----
 
 export function PanelShell(props: { readonly runtime: PanelRuntime; readonly model: PanelModel }) {
@@ -175,13 +191,158 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
   const info = buildSpaceInfo(status, settings, syncStatus);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
   const [dataVersion, setDataVersion] = useState(0);
+
+  // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
+  const panelRef = useRef<HTMLElement | null>(null);
+  const geometryRef = useRef<PanelGeometry | null>(null);
+
+  /** 读取当前几何；首次交互时以实际盒子尺寸为基准（尺寸用像素固化，之后不再回退 CSS 默认） */
+  function currentGeometry(): PanelGeometry {
+    const existing = geometryRef.current;
+    if (existing) return existing;
+    const rect = panelRef.current?.getBoundingClientRect();
+    const geometry: PanelGeometry = {
+      x: null,
+      y: null,
+      width: Math.round(rect?.width ?? 720),
+      height: Math.round(rect?.height ?? 680),
+    };
+    geometryRef.current = geometry;
+    return geometry;
+  }
+
+  /** 把几何写到面板元素的 CSS 变量（仅桌面媒体查询消费；居中态移除位置变量回退默认） */
+  function applyGeometry(geometry: PanelGeometry): void {
+    const style = panelRef.current?.style;
+    if (!style) return;
+    if (geometry.x === null) {
+      style.removeProperty("--stm-x");
+      style.removeProperty("--stm-tx");
+    } else {
+      style.setProperty("--stm-x", `${geometry.x}px`);
+      style.setProperty("--stm-tx", "0px");
+    }
+    if (geometry.y === null) {
+      style.removeProperty("--stm-y");
+      style.removeProperty("--stm-ty");
+    } else {
+      style.setProperty("--stm-y", `${geometry.y}px`);
+      style.setProperty("--stm-ty", "0px");
+    }
+    style.setProperty("--stm-w", `${geometry.width}px`);
+    style.setProperty("--stm-h", `${geometry.height}px`);
+  }
+
+  // 恢复持久化几何：挂载时 + 每次跨入桌面断点时（移动端几何变量惰性，恢复对移动端无影响）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const applySaved = (): void => {
+      if (!media.matches || !panelRef.current) return;
+      const saved = loadGeometry(safeLocalStorage());
+      if (!saved) return;
+      const geometry = clampGeometry(saved, viewportSize());
+      geometryRef.current = geometry;
+      applyGeometry(geometry);
+    };
+    applySaved();
+    media.addEventListener("change", applySaved);
+    return () => media.removeEventListener("change", applySaved);
+  }, []);
+
+  /** 拖拽/缩放收尾：摘监听 + 持久化几何（localStorage，UI 窗口状态） */
+  function endWindowGesture(panel: HTMLElement): void {
+    panel.classList.remove("stm-panel--dragging");
+    saveGeometry(safeLocalStorage(), currentGeometry());
+  }
+
+  /** 顶栏拖拽移动：排除交互元素（按钮/输入等保持点按目标），捕获指针后随移动写几何 */
+  function beginHeaderDrag(event: React.PointerEvent<HTMLElement>): void {
+    if (event.button !== 0) return;
+    if (!window.matchMedia(DESKTOP_MEDIA_QUERY).matches) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, input, select, a, label, textarea")) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    event.preventDefault();
+    const geometry = currentGeometry();
+    const rect = panel.getBoundingClientRect();
+    const grabOffsetX = event.clientX - rect.left;
+    const grabOffsetY = event.clientY - rect.top;
+    panel.classList.add("stm-panel--dragging");
+    panel.setPointerCapture(event.pointerId);
+    const onMove = (move: PointerEvent): void => {
+      const next = clampGeometry(
+        {
+          x: move.clientX - grabOffsetX,
+          y: move.clientY - grabOffsetY,
+          width: geometry.width,
+          height: geometry.height,
+        },
+        viewportSize(),
+      );
+      geometryRef.current = next;
+      applyGeometry(next);
+    };
+    const onEnd = (): void => {
+      panel.removeEventListener("pointermove", onMove);
+      panel.removeEventListener("pointerup", onEnd);
+      panel.removeEventListener("pointercancel", onEnd);
+      endWindowGesture(panel);
+    };
+    panel.addEventListener("pointermove", onMove);
+    panel.addEventListener("pointerup", onEnd);
+    panel.addEventListener("pointercancel", onEnd);
+  }
+
+  /** 右下角缩放：从按下时的尺寸增量计算，钳制在最小尺寸与视口内；位置保持不变 */
+  function beginPanelResize(event: React.PointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0) return;
+    if (!window.matchMedia(DESKTOP_MEDIA_QUERY).matches) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    event.preventDefault();
+    const geometry = currentGeometry();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    panel.classList.add("stm-panel--dragging");
+    panel.setPointerCapture(event.pointerId);
+    const onMove = (move: PointerEvent): void => {
+      const next = clampGeometry(
+        {
+          x: geometry.x,
+          y: geometry.y,
+          width: geometry.width + (move.clientX - startX),
+          height: geometry.height + (move.clientY - startY),
+        },
+        viewportSize(),
+      );
+      geometryRef.current = next;
+      applyGeometry(next);
+    };
+    const onEnd = (): void => {
+      panel.removeEventListener("pointermove", onMove);
+      panel.removeEventListener("pointerup", onEnd);
+      panel.removeEventListener("pointercancel", onEnd);
+      endWindowGesture(panel);
+    };
+    panel.addEventListener("pointermove", onMove);
+    panel.addEventListener("pointerup", onEnd);
+    panel.addEventListener("pointercancel", onEnd);
+  }
+
   return (
     <aside
       id="stm-panel"
+      ref={panelRef}
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      <header className="stm-panel-header">
+      <header
+        className="stm-panel-header"
+        data-action="drag-panel"
+        onPointerDown={beginHeaderDrag}
+      >
         <div className="stm-space-info">
           <div className="stm-space-title">{info.title}</div>
           {info.detail ? <div className="stm-space-status">{info.detail}</div> : null}
@@ -252,6 +413,13 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
           </section>
         )}
       </main>
+      {/* 桌面浮动窗口：右下角缩放手柄（移动端隐藏；data-action 为验收脚本契约） */}
+      <div
+        className="stm-panel-resize"
+        data-action="resize-panel"
+        aria-hidden="true"
+        onPointerDown={beginPanelResize}
+      />
     </aside>
   );
 }

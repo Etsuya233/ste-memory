@@ -1,5 +1,5 @@
-// ticket 06 手动验收：真实 ST 中「顶部按钮 → 面板骨架（移动抽屉/桌面浮动）→ 表格列表启停落库
-// → 设置面板持久化与插件开关」全流程。
+// ticket 06 手动验收：真实 ST 中「顶部按钮 → 面板骨架（移动抽屉/桌面居中浮动窗口，
+// 含顶栏拖拽与右下角缩放）→ 表格列表启停落库 → 设置面板持久化与插件开关」全流程。
 /* global SillyTavern, document, indexedDB, window, toastr, getComputedStyle */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-ui-shell.mjs（exit 0 = 全流程通过）
@@ -426,7 +426,7 @@ async function main() {
     const pressed = await page.evaluate(() => document.querySelector("#top-settings-holder .stm-toolbar-button")?.getAttribute("aria-pressed"));
     check("按钮 aria-pressed 同步为 false", pressed === "false");
 
-    // 9. 桌面视口：浮动面板布局
+    // 9. 桌面视口：居中大尺寸浮动窗口（顶栏拖拽移动 + 右下角缩放 + 几何持久化）
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => {
       document.querySelector("#top-settings-holder .stm-toolbar-button")?.click();
@@ -436,38 +436,135 @@ async function main() {
       () => document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
       "桌面面板打开",
     );
-    await waitMs(300); // 等浮动面板过渡结束再量绘制位置
+    await waitMs(300); // 等浮动窗口过渡结束再量绘制位置
     const desktopStyle = await page.evaluate(() => {
       const panel = document.getElementById("stm-panel");
       const style = getComputedStyle(panel);
       const rect = panel.getBoundingClientRect();
       return {
         position: style.position,
-        top: style.top,
-        right: style.right,
-        width: style.width,
-        radius: style.borderRadius,
-        rect: { top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        centerX: Math.round(rect.left + rect.width / 2),
+        centerY: Math.round(rect.top + rect.height / 2),
+        rect: { left: Math.round(rect.left), top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
+        innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
       };
     });
     check(
-      "桌面（1280px）：浮动面板且位于视口内",
+      "桌面（1280px）：浮动窗口居中且为大尺寸（720×680）",
       desktopStyle.position === "fixed" &&
-        desktopStyle.top === "56px" &&
-        desktopStyle.right === "16px" &&
-        parseFloat(desktopStyle.width) === 400 &&
-        desktopStyle.rect.top === 56 &&
+        desktopStyle.width === 720 &&
+        desktopStyle.height === 680 &&
+        Math.abs(desktopStyle.centerX - desktopStyle.innerWidth / 2) <= 1 &&
+        Math.abs(desktopStyle.centerY - desktopStyle.innerHeight / 2) <= 1 &&
+        desktopStyle.rect.left >= 0 &&
         desktopStyle.rect.bottom <= desktopStyle.innerHeight,
       JSON.stringify(desktopStyle),
     );
+
+    // 顶栏拖拽移动：抓头部非交互区域（避开关闭按钮），向右下方拖动
+    const headerPoint = await page.evaluate(() => {
+      const header = document.querySelector("#stm-panel .stm-panel-header");
+      const r = header.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width * 0.6), y: Math.round(r.top + r.height / 2) };
+    });
+    await page.mouse.move(headerPoint.x, headerPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(headerPoint.x + 180, headerPoint.y + 16, { steps: 8 });
+    await page.mouse.up();
+    await waitMs(200);
+    const draggedRect = await page.evaluate(() => {
+      const rect = document.getElementById("stm-panel").getBoundingClientRect();
+      return { left: Math.round(rect.left), top: Math.round(rect.top) };
+    });
+    check(
+      "顶栏拖拽移动面板（280,60 → 460,76，视口内钳制）",
+      draggedRect.left === 460 && draggedRect.top === 76,
+      JSON.stringify(draggedRect),
+    );
+
+    // 右下角缩放：抓缩放手柄向右下方拖动（+80×+50）
+    const handlePoint = await page.evaluate(() => {
+      const rect = document.getElementById("stm-panel").getBoundingClientRect();
+      return { x: Math.round(rect.right - 6), y: Math.round(rect.bottom - 6) };
+    });
+    await page.mouse.move(handlePoint.x, handlePoint.y);
+    await page.mouse.down();
+    await page.mouse.move(handlePoint.x + 80, handlePoint.y + 50, { steps: 8 });
+    await page.mouse.up();
+    await waitMs(200);
+    const resizedRect = await page.evaluate(() => {
+      const rect = document.getElementById("stm-panel").getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    });
+    check(
+      "右下角拖拽缩放面板（720×680 → 800×730；尺寸增长时位置重钳制进视口 → 456,46）",
+      resizedRect.width === 800 && resizedRect.height === 730 && resizedRect.left === 456 && resizedRect.top === 46,
+      JSON.stringify(resizedRect),
+    );
+
+    // 几何持久化：拖拽/缩放结束后写入 localStorage
+    const savedGeometry = await page.evaluate(() => localStorage.getItem("steMemory.panelGeometry"));
+    const savedParsed = JSON.parse(savedGeometry ?? "null");
+    check(
+      "几何持久化写入 localStorage",
+      savedParsed?.width === 800 && savedParsed?.height === 730 && savedParsed?.x === 456 && savedParsed?.y === 46,
+      savedGeometry ?? "null",
+    );
+
+    // 收起 → 缩回移动端 → 再进桌面：持久化几何在跨断点时恢复
+    await page.evaluate(() => {
+      document.querySelector('#stm-panel [data-action="close-panel"]')?.click();
+    });
+    await waitUntil(
+      page,
+      () => !document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
+      "桌面面板收起（拖拽后）",
+    );
+    await page.evaluate(() => {
+      localStorage.setItem("steMemory.panelGeometry", JSON.stringify({ x: 200, y: 50, width: 700, height: 600 }));
+    });
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => {
       document.querySelector("#top-settings-holder .stm-toolbar-button")?.click();
     });
     await waitUntil(
       page,
+      () => document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
+      "恢复几何后面板打开",
+    );
+    await waitMs(300);
+    const restoredRect = await page.evaluate(() => {
+      const rect = document.getElementById("stm-panel").getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    });
+    check(
+      "重新进入桌面断点恢复持久化几何（200,50 700×600）",
+      restoredRect.left === 200 && restoredRect.top === 50 && restoredRect.width === 700 && restoredRect.height === 600,
+      JSON.stringify(restoredRect),
+    );
+    // 清理测试几何并收起，恢复默认居中（后续步骤不受影响）
+    await page.evaluate(() => localStorage.removeItem("steMemory.panelGeometry"));
+    await page.evaluate(() => {
+      document.querySelector('#stm-panel [data-action="close-panel"]')?.click();
+    });
+    await waitUntil(
+      page,
       () => !document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
-      "桌面面板收起",
+      "桌面面板最终收起",
     );
 
     // 10. 优化项 1 回归：存量聊天（无绑定）打开即自动创建空间

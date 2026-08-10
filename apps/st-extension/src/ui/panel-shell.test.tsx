@@ -105,6 +105,15 @@ describe("ToolbarButton（顶部按钮投影）", () => {
 });
 
 describe("PanelShell（面板骨架投影）", () => {
+  it("桌面浮动窗口：顶栏拖拽与右下角缩放手柄就位（验收脚本契约）", () => {
+    const html = renderShell(new PanelModel());
+    // 头部带拖拽入口；缩放是独立手柄（移动端隐藏由 CSS 控制，DOM 恒在）
+    expect(html).toContain('class="stm-panel-header"');
+    expect(html).toContain('data-action="drag-panel"');
+    expect(html).toContain('class="stm-panel-resize"');
+    expect(html).toContain('data-action="resize-panel"');
+  });
+
   it("初始：收起态（aria-hidden）+ 空间名 + 四 Tab + 表格区块", () => {
     const html = renderShell(new PanelModel());
     expect(html).toContain('aria-hidden="true"');

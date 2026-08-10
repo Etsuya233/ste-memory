@@ -45,8 +45,9 @@
 /* ============================================================
  * 面板骨架（ticket 06）：顶部按钮 + 抽屉/浮动面板 + 底部 Tab
  * 移动端优先：默认 = 全屏底部抽屉；桌面（≥1001px，与 ST 移动断点一致）
- * = 浮动面板。色板/字体全部走令牌；类名 stm- 前缀隔离，不依赖 ST 主题变量。
- * 动效只留抽屉开合（spec UI 契约），尊重 reduced-motion。
+ * = 居中大尺寸浮动窗口：顶栏拖拽移动 + 右下角缩放手柄（几何走 CSS 变量，
+ * 只被桌面媒体查询消费）。色板/字体全部走令牌；类名 stm- 前缀隔离，
+ * 不依赖 ST 主题变量。动效只留抽屉开合（spec UI 契约），尊重 reduced-motion。
  * ============================================================ */
 
 /* 顶部工具栏按钮（插入 #top-settings-holder；自身完整自绘，仅借用容器位置） */
@@ -198,6 +199,37 @@
   flex: 1;
   overflow-y: auto;
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+}
+
+/* 桌面浮动窗口缩放手柄：右下角双斜线把手（视觉签名）；移动端全屏抽屉隐藏 */
+.stm-panel-resize {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+.stm-panel-resize::before {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid var(--stm-ink-secondary);
+  border-bottom: 2px solid var(--stm-ink-secondary);
+  border-bottom-right-radius: 2px;
+  opacity: 0.55;
+}
+
+.stm-panel-resize:hover::before {
+  border-color: var(--stm-accent);
+  opacity: 1;
 }
 
 /* 空状态（「空状态是邀请」风格） */
@@ -825,21 +857,27 @@
   margin-top: 6px;
 }
 
-/* 桌面：浮动面板（与 ST 移动断点一致：≥1001px） */
+/* 桌面（与 ST 移动断点一致：≥1001px）：居中大尺寸浮动窗口。
+ * 几何全部走 CSS 变量（--stm-x/y/w/h/tx/ty）：默认居中 + 720×680；
+ * 顶栏拖拽 / 右下角缩放由 JS 写变量（panel-window.ts + panel-shell.tsx），
+ * 变量只在桌面媒体查询消费——移动端抽屉布局对它们完全惰性。
+ * translate 同时承担居中（-50%,-50%）与开合微动效（收起时上移 6px）；
+ * 拖拽后位置变量生效、tx/ty 归零，微动效退化为纯淡入淡出。 */
 @media (min-width: 1001px) {
   .stm-panel {
-    left: auto;
-    right: 16px;
+    left: var(--stm-x, 50%);
+    top: var(--stm-y, 50%);
+    right: auto;
     bottom: auto;
-    top: 56px;
-    width: 400px;
+    width: var(--stm-w, min(720px, calc(100vw - 64px)));
+    height: var(--stm-h, min(680px, calc(100dvh - 64px)));
     max-width: calc(100vw - 32px);
-    height: auto;
-    max-height: calc(100dvh - 72px);
+    max-height: calc(100dvh - 32px);
     border-radius: 12px;
     border: 1px solid var(--stm-border);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translate(var(--stm-tx, -50%), calc(var(--stm-ty, -50%) - 6px));
     transition:
       opacity 0.18s ease,
       transform 0.18s ease,
@@ -848,7 +886,26 @@
 
   .stm-panel.stm-panel--open {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(var(--stm-tx, -50%), var(--stm-ty, -50%));
+  }
+
+  /* 拖拽/缩放进行中：关闭过渡，避免尺寸/平移变化被 0.18s 动画拖尾 */
+  .stm-panel.stm-panel--dragging {
+    transition: none;
+  }
+
+  /* 顶栏 = 拖拽手柄（交互元素保持自身光标）；缩放手柄在桌面显示 */
+  .stm-panel-header {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .stm-panel.stm-panel--dragging .stm-panel-header {
+    cursor: grabbing;
+  }
+
+  .stm-panel-resize {
+    display: block;
   }
 }
 
