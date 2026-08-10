@@ -31,12 +31,12 @@ export interface GridColumnWidths {
   readonly fields: Readonly<Record<string, number>>;
 }
 
-/** 行号列默认宽 / 字段列默认宽 */
-export const GRID_ROW_NUMBER_WIDTH = 48;
-export const GRID_FIELD_WIDTH = 168;
+/** 行号列默认宽 / 字段列默认宽（紧凑：移动端一屏可见更多列） */
+export const GRID_ROW_NUMBER_WIDTH = 40;
+export const GRID_FIELD_WIDTH = 120;
 /** 列宽可调范围 */
-export const GRID_ROW_NUMBER_MIN_WIDTH = 36;
-export const GRID_FIELD_MIN_WIDTH = 88;
+export const GRID_ROW_NUMBER_MIN_WIDTH = 32;
+export const GRID_FIELD_MIN_WIDTH = 72;
 export const GRID_COLUMN_MAX_WIDTH = 480;
 
 export function defaultGridColumnWidths(_fields: readonly MemoryField[]): GridColumnWidths {

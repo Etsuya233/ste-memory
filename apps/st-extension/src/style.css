@@ -906,7 +906,7 @@
 /* 记录网格（表格填写视图）：行 = 记录、列 = 字段；冻结表头 + 冻结行号列 + 可调列宽 */
 .stm-grid-scroll {
   overflow: auto;
-  max-height: 52vh;
+  max-height: 62vh;
   border: 1px solid var(--stm-border);
   border-radius: 12px;
   background: var(--stm-surface);
@@ -917,10 +917,11 @@
   min-width: max-content;
 }
 
-/* 单元格：默认上下居中；输入单元格改块级布局（控件铺满） */
+/* 单元格：默认上下居中；输入单元格改块级布局（控件铺满）。紧凑行高优先，
+   移动端一屏可见更多行 */
 .stm-grid-cell {
-  min-height: 44px;
-  padding: 6px 8px;
+  min-height: 32px;
+  padding: 2px 4px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--stm-border);
   border-right: 1px solid var(--stm-border);
@@ -1036,7 +1037,7 @@
 .stm-grid-cell select,
 .stm-grid-cell textarea {
   width: 100%;
-  min-height: 32px;
+  min-height: 26px;
   padding: 0;
   border: none;
   background: transparent;
@@ -1047,7 +1048,7 @@
 
 .stm-grid-cell textarea {
   resize: none;
-  min-height: 44px;
+  min-height: 32px;
   line-height: 1.5;
 }
 
