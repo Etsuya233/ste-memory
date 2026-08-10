@@ -29,6 +29,8 @@ import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.t
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
+import { createStLlmPort } from "./llm/st-backends-llm.ts";
+import type { LlmPort } from "@ste-memory/core/memory/agent";
 import type { PluginLog } from "./bootstrap.ts";
 
 /** 插件运行时（UI 与后续 ticket 的访问点） */
@@ -49,6 +51,9 @@ export interface SteMemoryRuntime {
   readonly sync: CloudSyncCoordinator;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
   readonly mirror: ChatMetadataMirrorSync;
+  /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
+   * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
+  readonly createLlm: () => LlmPort;
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
 }
@@ -210,6 +215,7 @@ export async function startSteMemory(
     settings,
     sync,
     mirror,
+    createLlm: () => createStLlmPort(() => getContext() as StContext),
     version: options.version ?? "",
   };
 }

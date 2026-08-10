@@ -262,3 +262,28 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await spaceRepository.list()).toHaveLength(0);
   });
 });
+
+describe("startSteMemory → createLlm（ticket 12 接线）", () => {
+  it("端口读 ST 当前配置：模型名/source 与 getChatCompletionModel 映射一致", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      chatCompletionSettings: {
+        chat_completion_source: "custom",
+        temp_openai: 0.6,
+        openai_max_tokens: 1500,
+        openai_max_context: 16_384,
+      },
+      getChatCompletionModel: (settings) =>
+        settings.chat_completion_source === "custom" ? "my-model" : "",
+    });
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const port = runtime.createLlm();
+    expect(port.model.id).toBe("my-model");
+    expect(port.model.contextWindow).toBe(16_384);
+    expect(port.model.maxTokens).toBe(1500);
+    // ST 配置缺失（非 ST 环境）→ 端口构造抛中文错误而非静默
+    const bare = fakeStContext({ chatCompletionSettings: undefined });
+    const runtimeBare = await startSteMemory(() => bare.context, { createDb: () => db, log: fakeLog() });
+    expect(() => runtimeBare.createLlm()).toThrow(/Chat Completion 源未知/);
+  });
+});

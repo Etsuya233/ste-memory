@@ -33,6 +33,12 @@ export interface StContext {
    * 持久化）。插件设置写在该对象的 steMemory 命名空间下（见 settings/）。
    */
   extensionSettings?: Record<string, unknown>;
+  /** ST 当前对话生成配置（openai.js oai_settings，st-context.js chatCompletionSettings）——
+   * LLM 适配器（ticket 12）据此复用 ST 当前模型/密钥（密钥在服务端，插件永不见 key） */
+  chatCompletionSettings?: Record<string, unknown>;
+  /** ST getChatCompletionModel(settings)：按当前 source 返回模型名（st-context.js 暴露，
+   * 映射表集中在 ST 侧，插件不复制 26 个 source 的模型字段映射） */
+  getChatCompletionModel?: (settings: Record<string, unknown>) => string;
   /** 防抖持久化 extension_settings（script.js saveSettingsDebounced） */
   saveSettingsDebounced?: () => void;
   eventSource?: {

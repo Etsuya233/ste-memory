@@ -42,6 +42,9 @@ export function bootstrap(options: BootstrapOptions): BootstrapStatus {
     options.start ??
     ((getCtx) =>
       startSteMemory(getCtx, { log, version: options.version }).then((runtime) => {
+        // 调试/真机验收入口（非公开 API，勿在产品代码依赖）：
+        // 暴露运行时与 LLM 端口工厂，供 docs/playwright-st-extension 验收脚本调用
+        (globalThis as Record<string, unknown>).__STE_MEMORY_RUNTIME__ = runtime;
         // 面板挂载（非浏览器环境内部自守卫）；runtime 已含设置存储/服务/版本
         mountPanel(runtime);
         return runtime;

@@ -16,9 +16,12 @@
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.0.0",
+    "typebox": "^1.3.10",
     "vitest": "^4.0.0"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.83.0",
+    "@earendil-works/pi-ai": "^0.83.0",
     "@ste-memory/core": "workspace:*",
     "@ste-memory/memory-host-shared": "workspace:*",
     "dexie": "^4.4.4",
