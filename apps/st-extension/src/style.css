@@ -903,42 +903,174 @@
   font-family: var(--stm-font-mono);
 }
 
-/* 记录列表行：显示文本（主）+ 来源徽标 */
-.stm-record-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* 记录网格（表格填写视图）：行 = 记录、列 = 字段；冻结表头 + 冻结行号列 + 可调列宽 */
+.stm-grid-scroll {
+  overflow: auto;
+  max-height: 52vh;
+  border: 1px solid var(--stm-border);
+  border-radius: 12px;
+  background: var(--stm-surface);
 }
 
-.stm-record-row {
+.stm-grid {
+  display: grid;
+  min-width: max-content;
+}
+
+/* 单元格：默认上下居中；输入单元格改块级布局（控件铺满） */
+.stm-grid-cell {
+  min-height: 44px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--stm-border);
+  border-right: 1px solid var(--stm-border);
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--stm-surface);
-  border: 1px solid var(--stm-border);
-  border-radius: 10px;
-  padding: 6px 8px 6px 12px;
+  gap: 4px;
 }
 
-.stm-record-display {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 0;
-  background: none;
-  border: none;
+.stm-grid-cell--input {
+  display: block;
+}
+
+/* 表头行：纵向滚动冻结；字段名 + 必填标记 + 停用徽标 */
+.stm-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--stm-surface);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--stm-ink);
-  font-size: 14px;
-  font-family: var(--stm-font);
-  text-align: left;
-  cursor: pointer;
+}
+
+.stm-grid-head-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.stm-record-display:hover {
+.stm-grid-head-disabled {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 999px;
+  color: var(--stm-warning);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+/* 行号列：横向滚动冻结（行号按钮点按进详情） */
+.stm-grid-rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--stm-ink-bg);
+  justify-content: center;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+
+/* 表头行号交叉单元格：两个方向都冻结，压在最上层 */
+.stm-grid-head.stm-grid-rownum {
+  z-index: 3;
+}
+
+.stm-grid-rownum--new {
   color: var(--stm-accent);
+  font-weight: 600;
+}
+
+.stm-grid-rownum-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stm-grid-rownum-btn:hover {
+  color: var(--stm-accent);
+}
+
+/* 列宽拖拽把手（表头单元格右缘；sticky 表头即定位祖先） */
+.stm-grid-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 4;
+}
+
+.stm-grid-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.stm-grid-resize:hover::after,
+.stm-grid-resize:focus-visible::after {
+  background: var(--stm-accent);
+}
+
+/* 单元格输入：铺满、透明底、无边框（网格边框由单元格承担） */
+.stm-grid-cell input[type="text"],
+.stm-grid-cell input[type="number"],
+.stm-grid-cell input[type="date"],
+.stm-grid-cell input[type="datetime-local"],
+.stm-grid-cell select,
+.stm-grid-cell textarea {
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--stm-ink);
+  font-size: 13px;
+  font-family: var(--stm-font);
+}
+
+.stm-grid-cell textarea {
+  resize: none;
+  min-height: 44px;
+  line-height: 1.5;
+}
+
+.stm-grid-cell .stm-switch {
+  margin: 0;
+}
+
+.stm-grid-readonly {
+  font-size: 13px;
+  color: var(--stm-ink-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 单元格校验错误：就地显示在单元格内 */
+.stm-grid-cell--error {
+  background: var(--stm-ink-bg);
+}
+
+.stm-grid-error {
+  color: var(--stm-danger);
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 2px;
 }
 
 .stm-source-badge {
@@ -1181,80 +1313,19 @@
   overflow-y: auto;
 }
 
-/* 记录创建/编辑表单 */
-.stm-record-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--stm-surface);
-  border: 1px solid var(--stm-border);
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.stm-record-form-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--stm-ink);
-}
-
-.stm-record-form-fields {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.stm-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stm-form-field-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stm-form-field-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--stm-ink);
-}
-
-.stm-form-field-type {
-  font-size: 11px;
-  color: var(--stm-ink-secondary);
-}
-
-.stm-form-field-readonly {
-  font-size: 13px;
-  color: var(--stm-ink-secondary);
+/* 单元格校验错误：就地显示在单元格内 */
+.stm-grid-cell--error {
   background: var(--stm-ink-bg);
-  border: 1px dashed var(--stm-border);
-  border-radius: 8px;
-  padding: 10px 12px;
 }
 
-.stm-form-error {
+.stm-grid-error {
   color: var(--stm-danger);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
+  margin-top: 2px;
 }
 
-.stm-form-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.stm-form-actions .stm-button {
-  margin: 0;
-}
-
+/* 多选/多引用勾选组（单元格内换行） */
 .stm-option-group {
   display: flex;
   flex-wrap: wrap;

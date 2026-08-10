@@ -339,12 +339,13 @@ async function main() {
       return {
         optionCount: select?.options.length ?? 0,
         hasSearch: !!section?.querySelector('input[data-action="record-search"]'),
-        hasCreate: !!section?.querySelector('button[data-action="create-record"]'),
+        hasAddRow: !!section?.querySelector('button[data-action="add-grid-row"]'),
+        hasSave: !!section?.querySelector('button[data-action="save-grid"]'),
       };
     });
     check(
-      "记录 Tab：表选择器（8 张系统表）+ 搜索 + 新建记录入口",
-      recordsTab.optionCount >= 8 && recordsTab.hasSearch && recordsTab.hasCreate,
+      "记录 Tab：表选择器（8 张系统表）+ 搜索 + 网格填写入口（+ 新行 / 保存）",
+      recordsTab.optionCount >= 8 && recordsTab.hasSearch && recordsTab.hasAddRow && recordsTab.hasSave,
       JSON.stringify(recordsTab),
     );
 

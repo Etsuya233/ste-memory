@@ -381,25 +381,25 @@ async function main() {
     );
     check("记录 tab：验收表空状态", true);
 
-    // 4. 创建记录：先触发必填校验错误，再填全字段成功
+    // 4. 创建记录：先触发必填校验错误，再填全字段成功（网格：+ 新行 → 填单元格 → 保存）
     await page.evaluate(() => {
-      document.querySelector('#stm-panel [data-action="create-record"]')?.click();
+      document.querySelector('#stm-panel [data-action="add-grid-row"]')?.click();
     });
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel [data-action="save-record"]'),
-      "记录表单就位",
+      () => !!document.querySelector('#stm-panel [data-grid-row="new"]'),
+      "网格新行就位",
     );
     await page.evaluate(() => {
-      document.querySelector('#stm-panel [data-action="save-record"]')?.click();
+      document.querySelector('#stm-panel [data-action="save-grid"]')?.click();
     });
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-form-error'),
+      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-error'),
       "必填校验错误出现",
     );
     const requiredError = await page.evaluate(
-      () => document.querySelector('#stm-panel [data-stm-section="records"] .stm-form-error')?.textContent ?? "",
+      () => document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-error')?.textContent ?? "",
     );
     check("必填校验：名字为空报错（文案清晰）", requiredError.includes("请填写"), requiredError);
 
@@ -410,7 +410,7 @@ async function main() {
     await setFieldValue(page, '[data-stm-field="record-value-category"]', "乙", "select");
     await setFieldValue(page, '[data-stm-field="record-value-born"]', "2026-08-09");
     await page.evaluate(() => {
-      document.querySelector('#stm-panel [data-action="save-record"]')?.click();
+      document.querySelector('#stm-panel [data-action="save-grid"]')?.click();
     });
     await waitForDbState(
       page,
@@ -420,29 +420,30 @@ async function main() {
     await waitUntil(
       page,
       () => {
-        const rows = document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-record-row');
+        const rows = document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-grid-rownum-btn');
         return rows.length === 1;
       },
-      "记录列表出现 1 行",
+      "网格出现 1 行",
     );
-    const listRow = await page.evaluate(() => {
-      const row = document.querySelector('#stm-panel [data-stm-section="records"] .stm-record-row');
+    const gridRow = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-stm-section="records"]');
+      const nameInput = section?.querySelector('[data-stm-field="record-value-name"]');
       return {
-        display: row?.querySelector(".stm-record-display")?.textContent ?? "",
-        badge: row?.querySelector(".stm-source-badge")?.textContent ?? "",
+        rowNum: section?.querySelector(".stm-grid-rownum-btn")?.textContent ?? "",
+        nameValue: nameInput?.value ?? "",
       };
     });
     check(
-      "列表行：显示文本=名字值 + 来源徽标=手动",
-      listRow.display === "阿尔法" && listRow.badge === "手动",
-      JSON.stringify(listRow),
+      "网格行：行号=1 + 名字单元格值=阿尔法",
+      gridRow.rowNum === "1" && gridRow.nameValue === "阿尔法",
+      JSON.stringify(gridRow),
     );
 
-    // 5. 搜索过滤（服务端 search：命中显示文本与字段值）
+    // 5. 搜索过滤（服务端 search：命中显示文本与字段值；命中行数看网格行号按钮）
     await setFieldValue(page, '[data-stm-field="record-search"]', "阿尔法");
     await waitUntil(
       page,
-      () => document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-record-row').length === 1,
+      () => document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-grid-rownum-btn').length === 1,
       "搜索命中 1 行",
     );
     await setFieldValue(page, '[data-stm-field="record-search"]', "不存在关键词xyz");
@@ -458,7 +459,7 @@ async function main() {
     await setFieldValue(page, '[data-stm-field="record-search"]', "");
     await waitUntil(
       page,
-      () => document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-record-row').length === 1,
+      () => document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-grid-rownum-btn').length === 1,
       "清空搜索恢复列表",
     );
 
@@ -574,17 +575,22 @@ async function main() {
     }, noteField.id);
     await waitForDbState(page, (db) => db.fields.find((f) => f.id === noteField.id)?.enabled === true, "备注字段恢复启用");
 
-    // 8. 编辑：改备注 → 详情更新 + 修订摘要（手动修订）
+    // 8. 编辑：返回网格 → 单元格改备注 → 保存 → 详情更新 + 修订摘要（手动修订）
     await clickTab(page, "records");
     await waitUntil(page, () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'), "记录 tab 就位");
     await selectCustomTable(page, tableId);
     await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="open-record"]'), "记录行就位");
-    await page.evaluate(() => document.querySelector('#stm-panel [data-action="open-record"]')?.click());
-    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="edit-record"]'), "详情就位");
-    await page.evaluate(() => document.querySelector('#stm-panel [data-action="edit-record"]')?.click());
-    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="save-record"]'), "编辑表单就位");
+    await page.evaluate(() => document.querySelector('#stm-panel [data-action="back-to-records"]')?.click());
+    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-stm-field="record-value-note"]'), "网格单元格就位");
     await setFieldValue(page, '[data-stm-field="record-value-note"]', "新备注", "textarea");
-    await page.evaluate(() => document.querySelector('#stm-panel [data-action="save-record"]')?.click());
+    await page.evaluate(() => document.querySelector('#stm-panel [data-action="save-grid"]')?.click());
+    await waitUntil(
+      page,
+      () => document.querySelectorAll('#stm-panel [data-stm-section="records"] .stm-grid-rownum-btn').length === 1,
+      "保存后网格刷新",
+    );
+    await page.evaluate(() => document.querySelector('#stm-panel [data-action="open-record"]')?.click());
+    await waitUntil(page, () => !!document.querySelector('#stm-panel .stm-record-detail'), "详情重开");
     await waitUntil(
       page,
       () => {
