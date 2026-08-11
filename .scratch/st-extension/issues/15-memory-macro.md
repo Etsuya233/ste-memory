@@ -39,6 +39,7 @@
 
 ## Comments
 
+- **2026-08-11 用户实测修复（陈旧窗口）**：用户添加数据后立即生成，宏展开为空（token 0）。根因：宏快照靠 2s 指纹轮询重建，面板操作/打开对话后**立即**生成会命中陈旧窗口（复现：写操作后 300ms 快照仍旧值；打开对话后 2.5s 才恢复）。两处修复（均已真机验证）：①**面板数据操作后立即 kick**——`panel-shell.tsx` TablesTab 与 `record-view.tsx` 新增 `bumpData()`（setReloadKey + `macro.kick()`），替换全部数据操作收尾（表格/字段启停、建删改、显示策略、记录网格保存/删除、备份导入）；②**空间切换立即重建**——runtime 订阅 `manager.onStatusChange` → `macro.kick()`（打开对话后 158ms 快照就绪，实测远小于轮询间隔）。曾尝试 Dexie `db.on("changes")` 事件驱动（更根治）但 Dexie 4 核心不注册该事件（属 Syncable 插件），`storagemutated` 亦需 observable 中间件——退回 UI kick 方案（与 sync.kick/mirror.kick 同模式）。测试补充：runtime 切对话立即重建用例；服务 31 例 + 包内 464/464 全绿；verify-memory-macro 7/7 + verify-ui-shell 31 项回归全绿。
 - 2026-08-11 code-review（双轴并行）结论：Standards 1 blocker + Spec 1 blocker，均已修复并回归验证：①**停用分支重置不完整**（memory-macro-service）：插件停用/宏名非法分支清快照但未重置空间/指纹/上限状态，重新启用且数据未变时命中「指纹相同早退」→ 快照永久为空；修复 = 分支内三字段一并重置，测试补断言（停用→启用、数据未变、快照恢复）②**重新启用插件不 kick 宏**（panel-shell togglePlugin）：停用期间宏已注销且停止轮询，启用只恢复了空间同步，宏不恢复注册；修复 = 启用分支补 `macro.kick()`。判断级未采纳：`defaultTimers` 第三份拷贝（与 sync-coordinator/mirror 同模式，提取共享属跨票重构）；`updateMacroLimit` 的 isFinite 守卫（UI 侧防写入非法值，读侧 merge 仍兜底）。验收脚本断言数口径：README 改 7 项；`[...truncated].length` 与 service `.length` 码点/UTF-16 口径在 CJK 断言场景等价。
 - **「范围」配置的落地口径**：ticket 说「设置面板提供宏名与范围/上限配置」，实现上范围 = 表格启停（US13 既有能力，决策 7 定义参与 = 启用表），面板记忆宏组只放宏名 + 上限——避免与表格启停重复入口；如需独立表范围选择器属未来需求。
 - **快照陈旧窗口**：面板记录增删改不 kick，变更后立即生成有 ≤2s 陈旧窗口（指纹轮询收敛）；手动验收路径用显式 kick 验证。判断满足规格意图（宏在生成时展开、2s 可接受），记录操作补 kick 留作后续。

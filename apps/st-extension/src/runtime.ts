@@ -305,6 +305,13 @@ export async function startSteMemory(
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
   await macro.start();
+  // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
+  // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
+  manager.onStatusChange(() => {
+    void macro.kick().catch((error) => {
+      log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
+    });
+  });
   return {
     manager,
     adapter,

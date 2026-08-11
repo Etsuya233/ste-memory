@@ -99,6 +99,12 @@ export function RecordsTab(props: {
   const active = activeStatus(props.status);
   const spaceId = active?.space.id;
 
+  /** 数据变更收尾：刷新列表 + 立即重建记忆宏快照（消除指纹轮询陈旧窗口） */
+  function bumpData(): void {
+    setReloadKey((key) => key + 1);
+    void props.runtime.macro.kick().catch(reportError);
+  }
+
   // 表格列表：切空间/导入备份后重取；默认选中第一张表
   useEffect(() => {
     if (!spaceId) {
@@ -414,7 +420,7 @@ export function RecordsTab(props: {
             ? `已创建 ${plan.creates.length} 条记录`
             : `已更新 ${plan.updates.length} 条记录`,
       );
-      setReloadKey((key) => key + 1);
+      bumpData();
     } catch (error) {
       reportError(error);
     } finally {
@@ -449,7 +455,7 @@ export function RecordsTab(props: {
       );
       reportSuccess("记录已删除");
       setDetailRecordId(null);
-      setReloadKey((key) => key + 1);
+      bumpData();
     } catch (error) {
       reportError(error);
     }

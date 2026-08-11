@@ -109,6 +109,45 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.manager.getStatus()).toBe(status);
   });
 
+  it("记忆宏：切对话（空间切换）后快照立即重建，不等指纹轮询", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext({
+      extensionSettings: {},
+      macros: {
+        register: () => {},
+        registry: { unregisterMacro: () => false },
+      },
+    });
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+    const firstSpaceId = status.space.id;
+
+    // 给空间一加一条记录（人物表），快照重建
+    const characters = (await runtime.tables.list(firstSpaceId)).find((t) => t.key === "characters");
+    if (!characters) throw new Error("expect characters table");
+    const nameField = (await runtime.fields.list(firstSpaceId, characters.id)).find((f) => f.key === "name");
+    if (!nameField) throw new Error("expect name field");
+    await runtime.records.create(firstSpaceId, characters.id, {
+      payload: { [nameField.id]: "张三" },
+    });
+    await runtime.macro.kick();
+    expect(runtime.macro.getSnapshot()).toContain("张三");
+
+    // 切到对话二（新空间）：CHAT_CHANGED → 状态发布 → 快照立即清空重建
+    context.chatId = "other";
+    context.chatMetadata = {};
+    handlers.get("chat_id_changed")!("other");
+    await runtime.manager.syncToCurrentChat();
+    // 状态订阅触发 macro.kick（异步：指纹查询走 IndexedDB，非纯微任务）；
+    // 500ms 内快照切到新空间即证明 kick 生效——轮询间隔 2s，不可能在此窗口内
+    const deadline = Date.now() + 500;
+    while (Date.now() < deadline && runtime.macro.getSnapshot() !== "") {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(runtime.macro.getSnapshot()).toBe("");
+  });
+
   it("临时/未保存对话：状态 unsaved-chat，不建空间、不报错", async () => {
     const db = createTestDatabase();
     const { context, chatMetadata } = fakeStContext({ chatId: undefined });

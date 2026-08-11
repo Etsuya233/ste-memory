@@ -110,7 +110,10 @@ export class MemoryMacroService {
     return this.#snapshot;
   }
 
-  /** 启动（runtime 组合根调用）：立即注册宏 + 重建快照，并保持轮询刷新。 */
+  /** 启动（runtime 组合根调用）：立即注册宏 + 重建快照，并保持轮询刷新。
+   *  快照重建时机：指纹轮询（2s）+ 面板数据操作后的 kick（宿主侧补，
+   *  sync/mirror 同模式）——Dexie 核心无「任何写事务提交」事件（changes 属
+   *  Syncable 插件），轮询是服务侧唯一变更感知通道。 */
   start(): Promise<void> {
     return this.#queueEvaluate();
   }

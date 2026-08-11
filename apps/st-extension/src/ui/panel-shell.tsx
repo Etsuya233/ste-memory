@@ -566,13 +566,22 @@ function TablesTab(props: {
     return null; // 首载完成前不渲染（与旧版内联渲染时机一致）
   }
 
+  /**
+   * 数据变更收尾：刷新列表 + 立即重建记忆宏快照（消除指纹轮询陈旧窗口——
+   * 面板操作后马上生成也要展开最新记忆）。所有表格/字段/记录写操作统一走这里。
+   */
+  function bumpData(): void {
+    setReloadKey((key) => key + 1);
+    void props.runtime.macro.kick().catch(reportError);
+  }
+
   async function toggleTable(tableId: MemoryTableId, enabled: boolean): Promise<void> {
     try {
       await props.runtime.tables.update(currentSpaceId, tableId, { enabled });
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function toggleField(
@@ -590,7 +599,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   function toggleExpand(tableId: MemoryTableId): void {
@@ -624,7 +633,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function saveTableEdit(tableId: MemoryTableId, draft: TableDraft): Promise<void> {
@@ -639,7 +648,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function deleteTable(tableId: MemoryTableId, tableName: string): Promise<void> {
@@ -655,7 +664,7 @@ function TablesTab(props: {
     }
     setFieldEditor(null);
     setEditingTableId(null);
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function createField(tableId: MemoryTableId, draft: FieldDraft): Promise<void> {
@@ -678,7 +687,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function saveFieldEdit(
@@ -710,7 +719,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function deleteField(
@@ -727,7 +736,7 @@ function TablesTab(props: {
       reportError(error);
     }
     setFieldEditor(null);
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   async function moveField(
@@ -747,7 +756,7 @@ function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   function toggleFieldEditMode(tableId: MemoryTableId): void {
@@ -799,7 +808,7 @@ function TablesTab(props: {
     } finally {
       setStrategySaving(false);
     }
-    setReloadKey((key) => key + 1);
+    bumpData();
   }
 
   function closeStrategyEditor(): void {
@@ -1240,6 +1249,8 @@ function SettingsTab(props: {
       await props.runtime.backup.restoreSnapshot(decoded.data);
       reportSuccess(`已从备份恢复 ${spaceCount} 个记忆空间`);
       props.onDataChanged();
+      // 导入即整库数据变更：立即重建记忆宏快照（不等轮询）
+      void props.runtime.macro.kick().catch(reportError);
       // 恢复后立即重同步当前对话的空间绑定
       await props.runtime.manager.syncToCurrentChat().catch(reportError);
     } catch (error) {
