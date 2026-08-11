@@ -91,6 +91,9 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     macro: {
       kick: vi.fn(async () => {}),
     },
+    agentMacro: {
+      kick: vi.fn(async () => {}),
+    },
     version: "0.1.0",
     ...overrides,
   };
@@ -169,6 +172,26 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('value="{{memoryContext}}"');
     expect(html).toContain('data-stm-field="macro-limit"');
     expect(html).toContain('value="2000"');
+  });
+
+  it("设置 Tab：Agent 预设管理器就位（ticket 17）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("Agent 提示词预设");
+    expect(html).toContain('data-stm-section="agent-presets"');
+    expect(html).toContain('data-action="select-agent-preset"');
+    expect(html).toContain('data-action="create-preset"');
+    expect(html).toContain('data-action="copy-builtin-preset"');
+  });
+
+  it("任务 Tab：Agent 预设快捷切换下拉就位（ticket 17）", () => {
+    const model = new PanelModel();
+    model.setTab("tasks");
+    const html = renderShell(model);
+    expect(html).toContain('data-stm-section="preset"');
+    expect(html).toContain('data-action="select-agent-preset"');
+    expect(html).toContain("系统默认");
   });
 
   it("设置 Tab：R2 配置输入可编辑（ticket 08 生效，非禁用）", () => {

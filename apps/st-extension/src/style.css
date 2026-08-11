@@ -1652,3 +1652,222 @@
 .stm-history-item .stm-button {
   min-height: 36px;
 }
+
+/* ===== Agent 提示词预设（ticket 17 / ADR 0006） ===== */
+.stm-preset-builtin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--stm-ink-bg);
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+}
+
+.stm-preset-builtin-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-preset-warning {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--stm-warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--stm-warning) 12%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stm-ink);
+}
+
+.stm-preset-fragment {
+  margin-top: 8px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stm-preset-fragment--dragging {
+  opacity: 0.6;
+  border-color: var(--stm-accent);
+}
+
+.stm-preset-fragment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 8px;
+}
+
+.stm-preset-fragment-drag {
+  cursor: grab;
+  color: var(--stm-ink-secondary);
+  font-size: 16px;
+  padding: 8px 4px;
+  touch-action: none;
+}
+
+.stm-preset-fragment-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  color: var(--stm-ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stm-preset-fragment-index {
+  color: var(--stm-accent);
+  font-size: 12px;
+}
+
+.stm-preset-fragment-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-preset-fragment-remove {
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.stm-preset-fragment-remove:hover {
+  color: var(--stm-danger);
+}
+
+.stm-preset-fragment-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 12px;
+  border-top: 1px solid var(--stm-border);
+}
+
+.stm-preset-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.stm-preset-placeholders-label {
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-chip {
+  min-height: 32px;
+  padding: 4px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  color: var(--stm-accent);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+  cursor: pointer;
+}
+
+.stm-chip:hover {
+  border-color: var(--stm-accent);
+}
+
+.stm-preset-add-fragment {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.stm-task-field--grow {
+  flex: 1;
+}
+
+.stm-preset-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stm-preset-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.stm-preset-row-wrap--dragging {
+  opacity: 0.6;
+}
+
+.stm-preset-row-drag {
+  cursor: grab;
+  color: var(--stm-ink-secondary);
+  font-size: 14px;
+  padding: 8px 2px;
+  touch-action: none;
+}
+
+.stm-preset-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 10px;
+  background: none;
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stm-preset-row--active {
+  border-color: var(--stm-accent);
+  background: color-mix(in srgb, var(--stm-accent) 10%, transparent);
+}
+
+.stm-preset-row-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--stm-ink-secondary);
+  flex: none;
+}
+
+.stm-preset-row--active .stm-preset-row-dot {
+  background: var(--stm-accent);
+  border-color: var(--stm-accent);
+}
+
+.stm-preset-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-preset-row-tag {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  color: var(--stm-ink-secondary);
+  font-size: 11px;
+  flex: none;
+}

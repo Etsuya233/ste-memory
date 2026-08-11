@@ -5,6 +5,7 @@ import {
   PROPOSAL_PREVIEW_TOOL_NAME,
   SUBMIT_PROPOSAL_TOOL_NAME,
   type MemorySpaceReader,
+  type ProposalSystemPromptComposer,
 } from "@ste-memory/core/memory/agent";
 import {
   computeMemoryRecordDisplayText,
@@ -29,6 +30,7 @@ import {
   type FillTaskSource,
 } from "./fill-task.ts";
 import { FillTaskService } from "./fill-task-service.ts";
+import { composePresetSystemPrompt } from "../agent-presets/preset-composer.ts";
 import {
   assistantMessage,
   fakeModel,
@@ -134,6 +136,7 @@ async function createHarness(
     readonly streamFn?: StreamFn;
     readonly createLlmThrows?: boolean;
     readonly source?: FillTaskSource;
+    readonly createComposeSystemPrompt?: () => ProposalSystemPromptComposer | undefined;
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -217,6 +220,7 @@ async function createHarness(
     createRunId: () => `run-${++runSeq}`,
     createEvidenceId: () => `evidence-${++evidenceSeq}` as MemoryEvidenceId,
     now: () => NOW,
+    createComposeSystemPrompt: options.createComposeSystemPrompt,
   });
   return { service, db, services, spaceId, tasks, ledger };
 }
@@ -768,5 +772,41 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await expect(harness.service.retry(harness.spaceId, "run-missing")).rejects.toThrow(
       /填表任务不存在/,
     );
+  });
+
+  it("createComposeSystemPrompt：提交时构造的组合器注入 ProposalAgent（system prompt 含占位符展开文本）", async () => {
+    let seenSystemPrompt: string | undefined;
+    const stream = scriptedStreamFn((context) => {
+      seenSystemPrompt = context.systemPrompt;
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      // 与插件真实装配同构：预设文本 + 提交时快照的对话名字 → 组合器
+      createComposeSystemPrompt: () =>
+        composePresetSystemPrompt(
+          "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
+          { user: "小明", char: "爱丽丝" },
+        ),
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    await waitForTerminal(harness, view.runId);
+    expect(seenSystemPrompt).toBeDefined();
+    expect(seenSystemPrompt!).toContain("你是爱丽丝的破限填写员，服务于小明");
+    expect(seenSystemPrompt!).toContain("可用表与字段"); // {{tablesDigest}} 展开
+    expect(seenSystemPrompt!).not.toContain("{{char}}");
+  });
+
+  it("createComposeSystemPrompt 缺省：使用核心默认组合器（system prompt 为默认指令）", async () => {
+    let seenSystemPrompt: string | undefined;
+    const stream = scriptedStreamFn((context) => {
+      seenSystemPrompt = context.systemPrompt;
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({ streamFn: stream });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 0 });
+    await waitForTerminal(harness, view.runId);
+    expect(seenSystemPrompt).toContain("你是记忆表格填写助手");
+    expect(seenSystemPrompt).toContain("可用表与字段");
   });
 });

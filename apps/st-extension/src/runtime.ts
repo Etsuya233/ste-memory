@@ -32,6 +32,17 @@ import {
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
+import {
+  AgentMacroService,
+} from "./agent-presets/agent-macro-service.ts";
+import {
+  composePresetSystemPrompt,
+} from "./agent-presets/preset-composer.ts";
+import {
+  presetPromptText,
+  resolveActivePreset,
+} from "./agent-presets/preset-model.ts";
+import type { ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
@@ -62,6 +73,8 @@ export interface SteMemoryRuntime {
   readonly tasks: FillTaskService;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
   readonly macro: MemoryMacroService;
+  /** Agent 预设宏（ticket 17）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 + 快照轮询 */
+  readonly agentMacro: AgentMacroService;
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
    * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
   readonly createLlm: () => LlmPort;
@@ -158,6 +171,25 @@ export async function startSteMemory(
       ),
   };
   const createLlm = (): LlmPort => createStLlmPort(() => getContext() as StContext);
+  /**
+   * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006）：提交时构造一次——
+   * 活动预设文本 + 对话双方名字快照；系统默认预设 → undefined（用核心默认组合器）。
+   * 每次任务首次组合时 log 最终 system prompt（调试/验收可见，块间不重复刷）。
+   */
+  const createComposeSystemPrompt = (): ProposalSystemPromptComposer | undefined => {
+    const preset = resolveActivePreset(settings.read().agentPresets);
+    if (!preset) return undefined;
+    const compose = composePresetSystemPrompt(presetPromptText(preset), adapter.getPromptNames());
+    let logged = false;
+    return (digest) => {
+      const prompt = compose(digest);
+      if (!logged) {
+        logged = true;
+        log.info(`[${PLUGIN_DISPLAY_NAME}] Agent 预设「${preset.name}」system prompt：\n${prompt}`);
+      }
+      return prompt;
+    };
+  };
   const tasks = new FillTaskService({
     tasks: new DexieFillTaskRepository(db, now),
     ledger: new DexieFloorLedgerRepository(db),
@@ -200,6 +232,7 @@ export async function startSteMemory(
         },
       ),
     createLlm,
+    createComposeSystemPrompt,
     createRunId: () => createId("task"),
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,
@@ -299,17 +332,40 @@ export async function startSteMemory(
     onMessageEvent: () => {},
   });
 
+  // Agent 预设宏（ticket 17 / ADR 0006）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 +
+  // 预计算快照（digest 摘要 + 默认提示词全文）随变更指纹重建（与记忆宏同机制）；
+  // 插件停用时注销（读 enabled 门控）。
+  const agentMacro = new AgentMacroService({
+    getSpaceId: () => {
+      const status = manager.getStatus();
+      return status?.kind === "active" ? status.space.id : undefined;
+    },
+    reader,
+    readEnabled: () => settings.read().enabled,
+    registerMacro: adapter.macroRegistration,
+    changes: new DexieSyncChangeSource(db),
+    log: {
+      info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+    },
+  });
+
   if (settings.read().enabled) {
     await manager.syncToCurrentChat();
   }
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
   await macro.start();
+  await agentMacro.start();
   // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
   // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
   manager.onStatusChange(() => {
     void macro.kick().catch((error) => {
       log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
+    });
+    void agentMacro.kick().catch((error) => {
+      log.error(`[${PLUGIN_DISPLAY_NAME}] Agent 预设宏快照重建失败`, error);
     });
   });
   return {
@@ -325,6 +381,7 @@ export async function startSteMemory(
     mirror,
     tasks,
     macro,
+    agentMacro,
     createLlm,
     version: options.version ?? "",
   };

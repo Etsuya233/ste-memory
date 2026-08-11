@@ -98,8 +98,9 @@ Status: ready-for-agent
 9. **清洗规则不移植**：ST 自带 Regex 扩展承担消息变换职责；填表输入使用原始消息内容。
 10. **工程（ADR 0020）**：新包 `apps/st-extension`（TS + esbuild，dev watch 拷贝进 ST `extensions/third-party/`）；发版拉 `sillytavern-release` 分支、manifest 放仓库根目录（支持 ST 按 URL 安装）。系统表模板收进 `packages/` 共享包，apps/api 与插件共用。
 11. **UI 风格契约（「记忆账本」方向）**：顶部工具栏按钮 + 自绘浮层面板（ST 已无侧栏面板 API）。**自包含视觉**：React 组件（esbuild 打进单文件 bundle，ADR 0005；纯逻辑 seam 与测试策略不变），不依赖 ST 主题变量，类名前缀 `stm-` 隔离；深色为默认主题，浅色模式后置。**色板全部走 CSS 自定义属性**（`--stm-*` 设计令牌，集中一处定义：墨底 `#171A20`、浮面 `#21252E`、墨字 `#E7EAF0`、次字 `#98A0B2`、签名色铜绿 `#6FA894`、成功 `#7FB08A`、危险 `#C96A6A`、警示 `#D9A25F`），后续调色/加浅色模式/主题设置只改令牌区块。**字体**：正文系统 CJK 栈，楼层号/时间/计数用等宽数字。**布局移动端优先**：手机（TauriTavern）全屏底部抽屉 + 底部 Tab（表格/记录/任务/设置）、触控目标 ≥44px、操作一步到位；桌面为浮动面板，同一套 Tab 结构；表格自绘紧凑账本行（字段值 + 证据 chip 同排）。**签名元素**：证据楼层 chip（铜绿 + 等宽 `#N`，点按跳转 ST 对应消息，悬停/长按浮出原文摘录）——全插件唯一的花哨点。动效只留抽屉开合与同步状态变化，尊重 reduced-motion；文案「空状态是邀请」风格。面板包含：空间信息（名称 + 同步状态）、表格列表（启停）、记录视图、任务状态、设置入口。
-12. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 + 对话文件镜像（ticket 16）→ Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → 后期（自动回填/自动填表、交互式填写 Agent、Google Drive 适配器、Server Plugin）。
-13. **术语**：同步楼层、记忆宏、记忆空间绑定（apps/st-extension/CONTEXT.md）。
+12. **Agent 提示词预设（ADR 0006，ticket 17）**：填表 Agent 系统提示词可被预设覆盖——预设 = 命名档案（片段：命名 + 内容 + 开关 + 排序），全局活动预设 + 内置只读系统默认预设；**模板模式**（不自动追加 digest，`{{tablesDigest}}`/`{{systemDefaultPrompt}}` 显式引用）；占位符**自研展开**不接 ST MacroEngine（`{{user}}`/`{{char}}`（群聊=群名）/`{{tablesDigest}}`/`{{systemDefaultPrompt}}`，未知原样保留）；core/api/web 零改动（ProposalAgent `composeSystemPrompt` 注入点）。
+13. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 + 对话文件镜像（ticket 16）→ Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → 后期（自动回填/自动填表、交互式填写 Agent、Google Drive 适配器、Server Plugin）。
+14. **术语**：同步楼层、记忆宏、记忆空间绑定（apps/st-extension/CONTEXT.md）。
 
 ## Testing Decisions
 

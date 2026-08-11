@@ -320,9 +320,16 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
 
-    // 默认名 {{memoryContext}} 解析为裸标识符注册；空库无记录：空表省略 → 快照为空串
-    expect([...registered.keys()]).toEqual(["memoryContext"]);
+    // 默认名 {{memoryContext}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
+    // systemDefaultPrompt（Agent 预设宏）；空库无记录：空表省略 → 快照为空串
+    expect([...registered.keys()].sort()).toEqual(
+      ["memoryContext", "tablesDigest", "systemDefaultPrompt"].sort(),
+    );
     expect(runtime.macro.getSnapshot()).toBe("");
+    // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
+    expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");
+    expect(runtime.agentMacro.getSnapshot().digestText).toContain("【characters｜人物】");
+    expect(runtime.agentMacro.getSnapshot().defaultPromptText).toContain("你是记忆表格填写助手");
 
     // 手动创建一条记录（人物表，必填 name）：kick 后快照重建，handler 展开最新记忆
     const charactersTable = status.space
@@ -342,15 +349,18 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(snapshot).toContain("张三");
     expect(runtime.macro.getSnapshot()).toBe(snapshot);
 
-    // 设置面板改名：写设置 + kick → 注销旧名、注册新名
+    // 设置面板改名：写设置 + kick → 注销旧名、注册新名（Agent 预设宏不变）
     const next = { ...runtime.settings.read(), macroName: "{{myMemory}}" };
     runtime.settings.write(next);
     await runtime.macro.kick();
-    expect([...registered.keys()]).toEqual(["myMemory"]);
+    expect([...registered.keys()].sort()).toEqual(
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+    );
 
     // 插件总开关关闭：注销（无注入）
     runtime.settings.write({ ...next, enabled: false });
     await runtime.macro.kick();
+    await runtime.agentMacro.kick();
     expect(registered.size).toBe(0);
   });
 

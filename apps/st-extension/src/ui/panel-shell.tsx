@@ -72,6 +72,7 @@ import {
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
 import { RecordsTab } from "./record-view.tsx";
 import { TasksTab } from "./tasks-tab.tsx";
+import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -118,6 +119,8 @@ export interface PanelRuntime {
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
   /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
   readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
+  /** Agent 预设宏（ticket 17）：插件开关变化即时生效（kick 立即评估） */
+  readonly agentMacro: Pick<SteMemoryRuntime["agentMacro"], "kick">;
   /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
@@ -404,7 +407,12 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
         )}
         {state.tab === "tasks" && (
           <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
-            <TasksTab runtime={props.runtime} status={status} settings={settings} />
+            <TasksTab
+              runtime={props.runtime}
+              status={status}
+              settings={settings}
+              onSettingsChange={setSettings}
+            />
           </section>
         )}
         {state.tab === "settings" && (
@@ -1176,8 +1184,12 @@ function SettingsTab(props: {
     if (enabled) {
       // 重新启用立即恢复空间同步（关闭期间 CHAT_CHANGED 被门控跳过）
       void props.runtime.manager.syncToCurrentChat().catch(reportError);
-      // 记忆宏同样重新评估：停用期间已注销 + 停止轮询，不 kick 则宏不恢复注册
+      // 记忆宏/Agent 预设宏同样重新评估：停用期间已注销 + 停止轮询，不 kick 则宏不恢复注册
       void props.runtime.macro.kick().catch(reportError);
+      void props.runtime.agentMacro.kick().catch(reportError);
+    } else {
+      // 停用立即注销两个宏服务（轮询也会收敛，但注销要即时生效）
+      void props.runtime.agentMacro.kick().catch(reportError);
     }
   }
 
@@ -1487,6 +1499,13 @@ function SettingsTab(props: {
           不填宏名则不注入
         </div>
       </div>
+      <AgentPresetManager
+        settings={props.settings}
+        onChange={(next) => {
+          props.runtime.settings.write(next);
+          props.onSettingsChange(next);
+        }}
+      />
     </>
   );
 }

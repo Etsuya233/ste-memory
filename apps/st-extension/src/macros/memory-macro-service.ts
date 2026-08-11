@@ -10,6 +10,7 @@ import {
   type SyncChangeSource,
 } from "../cloud/space-fingerprint.ts";
 import type { SyncTimerPort } from "../cloud/sync-coordinator.ts";
+import { PollingEvaluator } from "../polling-evaluator.ts";
 import { resolveMacroRegistrationName } from "./macro-name.ts";
 import { assembleMemoryContextSnapshot } from "./memory-context-snapshot.ts";
 
@@ -93,16 +94,21 @@ export class MemoryMacroService {
   #lastSpaceId: MemorySpaceId | undefined;
   #lastFingerprint: SpaceFingerprint | undefined;
   #lastLimit: number | undefined;
-  #pollTimer: unknown = undefined;
-  #stopped = false;
-  #evaluating: Promise<void> = Promise.resolve();
+  /** 排队评估 + 指纹轮询骨架（与 Agent 预设宏服务共用，ticket 17） */
+  readonly #evaluator: PollingEvaluator;
 
   constructor(ports: MemoryMacroServicePorts) {
-    this.#ports = {
+    const resolved: ResolvedMemoryMacroServicePorts = {
       pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
       timers: defaultTimers,
       ...ports,
     };
+    this.#ports = resolved;
+    this.#evaluator = new PollingEvaluator({
+      evaluate: () => this.#evaluate(),
+      pollIntervalMs: resolved.pollIntervalMs,
+      timers: resolved.timers,
+    });
   }
 
   /** 当前快照文本（宏 handler 的返回源；调试/验收可读） */
@@ -115,32 +121,20 @@ export class MemoryMacroService {
    *  sync/mirror 同模式）——Dexie 核心无「任何写事务提交」事件（changes 属
    *  Syncable 插件），轮询是服务侧唯一变更感知通道。 */
   start(): Promise<void> {
-    return this.#queueEvaluate();
+    return this.#evaluator.start();
   }
 
   /** 停止（测试）：取消定时器，不再轮询；注册保留（页面生命周期内同名覆盖无害）。 */
   stop(): void {
-    this.#stopped = true;
-    this.#clearTimer();
+    this.#evaluator.stop();
   }
 
   /** 设置变化后立即评估（幂等）：宏名/上限/开关改动时宿主调用（与 sync.kick 同语义）。 */
   kick(): Promise<void> {
-    return this.#queueEvaluate();
-  }
-
-  /** 评估排队：并发触发串行执行，最终收敛到最新状态；单轮异常不毒化队列。 */
-  #queueEvaluate(): Promise<void> {
-    const run = this.#evaluating.then(() => this.#evaluate());
-    this.#evaluating = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+    return this.#evaluator.kick();
   }
 
   async #evaluate(): Promise<void> {
-    if (this.#stopped) return;
     const settings = this.#ports.readSettings();
     const name = resolveMacroRegistrationName(settings.macroName);
     if (!settings.enabled || name === undefined) {
@@ -152,7 +146,7 @@ export class MemoryMacroService {
       this.#lastSpaceId = undefined;
       this.#lastFingerprint = undefined;
       this.#lastLimit = undefined;
-      this.#clearTimer();
+      this.#evaluator.clearPollTimer();
       return;
     }
     if (name !== this.#registeredName) {
@@ -160,7 +154,7 @@ export class MemoryMacroService {
       this.#ports.registerMacro.register(name, () => this.#snapshot);
       this.#registeredName = name;
     }
-    this.#armPoll();
+    this.#evaluator.armPoll();
     const spaceId = this.#ports.getSpaceId();
     if (spaceId === undefined) {
       // 无活动空间（未绑定/切对话间隙）：快照置空，下轮轮询自然恢复
@@ -220,19 +214,4 @@ export class MemoryMacroService {
     this.#registeredName = undefined;
   }
 
-  /** 启用期间保持轮询（每次评估续期；停用/停止时取消） */
-  #armPoll(): void {
-    if (this.#pollTimer !== undefined || this.#stopped) return;
-    this.#pollTimer = this.#ports.timers.setTimeout(() => {
-      this.#pollTimer = undefined;
-      void this.#queueEvaluate();
-    }, this.#ports.pollIntervalMs);
-  }
-
-  #clearTimer(): void {
-    if (this.#pollTimer !== undefined) {
-      this.#ports.timers.clearTimeout(this.#pollTimer);
-      this.#pollTimer = undefined;
-    }
-  }
 }

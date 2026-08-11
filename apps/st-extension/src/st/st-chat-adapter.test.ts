@@ -225,6 +225,29 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 });
 
+describe("StChatAdapter.getPromptNames（Agent 预设占位符名字，ticket 17）", () => {
+  it("单角色：user = name1，char = name2", () => {
+    const { adapter } = stableAdapter({ name1: "小明", name2: "爱丽丝" });
+    expect(adapter.getPromptNames()).toEqual({ user: "小明", char: "爱丽丝" });
+  });
+
+  it("群聊：char 展开为群名（与 ST 内建 {{char}} 的「当前角色名」语义不同）", () => {
+    const { adapter } = stableAdapter({
+      name1: "小明",
+      name2: "爱丽丝",
+      groupId: "g1",
+      groups: [{ id: "g1", name: "夜谈组" }],
+    });
+    expect(adapter.getPromptNames()).toEqual({ user: "小明", char: "夜谈组" });
+  });
+
+  it("群聊找不到群名 / 缺名字：对应字段为空串", () => {
+    const { adapter } = stableAdapter({ groupId: "g1", groups: [{ id: "g2", name: "别的组" }] });
+    expect(adapter.getPromptNames()).toEqual({ user: "", char: "" });
+    expect(stableAdapter({ groupId: "g1" }).adapter.getPromptNames()).toEqual({ user: "", char: "" });
+  });
+});
+
 describe("StChatAdapter.scrollToFloor（楼层跳转）", () => {
   it("越界楼层（含空对话/负数）→ out-of-range 带 chatLength", () => {
     const { adapter } = stableAdapter({ chat: [{}, {}, {}] });

@@ -13,7 +13,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
-import type { PluginSettings } from "../settings/plugin-settings.ts";
+import type { PluginSettings, SettingsStore } from "../settings/plugin-settings.ts";
+import {
+  BUILTIN_AGENT_PRESET_ID,
+  setActiveAgentPreset,
+} from "../agent-presets/preset-model.ts";
 import {
   buildTasksTabViewModel,
   COVERAGE_STATUS_LABELS,
@@ -46,12 +50,15 @@ export interface TasksTabRuntime {
     "submit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
   >;
   readonly st: { readonly chatMessageCount: () => number };
+  /** 设置写入（ticket 17：任务 Tab 快捷切换活动预设） */
+  readonly settings: Pick<SettingsStore, "write">;
 }
 
 export function TasksTab(props: {
   readonly runtime: TasksTabRuntime;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
+  readonly onSettingsChange: (settings: PluginSettings) => void;
 }) {
   const active = activeStatus(props.status);
   const spaceId = active?.space.id;
@@ -121,17 +128,57 @@ export function TasksTab(props: {
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复任务触发" />;
   }
+  // Agent 预设快捷切换（ticket 17）：全局配置，不依赖空间状态/任务视图，
+  // 任何状态都渲染（无空间/加载中也能切换活动预设）
+  const presetSwitcher = (
+    <div className="stm-task-card" data-stm-section="preset">
+      <div className="stm-task-card-title">Agent 预设</div>
+      <div className="stm-task-form">
+        <label className="stm-task-field stm-task-field--grow">
+          <span>当前预设</span>
+          <select
+            className="stm-select"
+            data-action="select-agent-preset"
+            value={props.settings.agentPresets.activePresetId}
+            onChange={(event) => selectPreset(event.target.value)}
+          >
+            <option value={BUILTIN_AGENT_PRESET_ID}>系统默认</option>
+            {props.settings.agentPresets.presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
   if (!active) {
     return (
-      <Placeholder
-        title={props.status && props.status.kind !== "active" ? props.status.humanMsg : "正在加载…"}
-        hint="切换到已保存的对话后自动恢复"
-      />
+      <div className="stm-task-tab">
+        {presetSwitcher}
+        <Placeholder
+          title={props.status && props.status.kind !== "active" ? props.status.humanMsg : "正在加载…"}
+          hint="切换到已保存的对话后自动恢复"
+        />
+      </div>
     );
   }
-  if (!view) return null;
+  if (!view) {
+    return <div className="stm-task-tab">{presetSwitcher}</div>;
+  }
   // 守卫后的窄化常量：闭包内不依赖 TS 对联合类型收窄的保留
   const currentSpaceId = active.space.id;
+
+  /** 快捷切换活动预设（写 settings；破限流程「切预设→触发」不打断） */
+  function selectPreset(presetId: string): void {
+    const next = {
+      ...props.settings,
+      agentPresets: setActiveAgentPreset(props.settings.agentPresets, presetId),
+    };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+  }
 
   /** 触发填表：校验楼层输入（可读错误内联展示）→ 提交（冲突/LLM 缺失经 toastr） */
   async function trigger(): Promise<void> {
@@ -180,6 +227,7 @@ export function TasksTab(props: {
 
   return (
     <div className="stm-task-tab">
+      {presetSwitcher}
       {view.coverage.totalCount > 0 ? (
         <div className="stm-task-card" data-stm-section="coverage">
           <div className="stm-task-card-title">楼层覆盖</div>

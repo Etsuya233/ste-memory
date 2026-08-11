@@ -91,6 +91,9 @@ function fakeRuntime(): PanelRuntime {
     macro: {
       kick: vi.fn(async () => {}),
     },
+    agentMacro: {
+      kick: vi.fn(async () => {}),
+    },
     version: "0.1.0",
   };
 }

@@ -9,9 +9,11 @@ export {
   availableTableKeys,
 } from "./digest.ts";
 export {
+  PROPOSAL_AGENT_BASE_INSTRUCTIONS,
   composeInteractiveProposalAgentSystemPrompt,
   composeProposalAgentSystemPrompt,
   composeQueryAgentSystemPrompt,
+  composeTableDigestSummary,
 } from "./prompt-composer.ts";
 export type { ProposalSystemPromptComposer } from "./prompt-composer.ts";
 export {

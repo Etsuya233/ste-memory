@@ -20,7 +20,7 @@ import type {
 } from "@ste-memory/core/memory";
 import type { MemoryEvidenceRepository, MemoryProposalPorts } from "@ste-memory/core/memory";
 import { commitMemoryProposalBatch } from "@ste-memory/core/memory";
-import { ProposalAgent, type LlmPort, type MemorySpaceReader } from "@ste-memory/core/memory/agent";
+import { ProposalAgent, type LlmPort, type MemorySpaceReader, type ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
 import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
 import {
   FillTaskConflictError,
@@ -70,6 +70,11 @@ export interface FillTaskServiceOptions {
   readonly runInTransaction: (work: () => Promise<void>) => Promise<void>;
   /** LLM 端口工厂：任务开始时读 ST 当前配置构造一次（模型+参数快照） */
   readonly createLlm: () => LlmPort;
+  /**
+   * 系统提示词组合器工厂（ticket 17）：任务开始时构造一次（预设文本 + 对话双方
+   * 名字快照）；缺省 = 核心默认组合器（系统默认预设）。返回 undefined 同样用默认。
+   */
+  readonly createComposeSystemPrompt?: () => ProposalSystemPromptComposer | undefined;
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -87,6 +92,7 @@ export class FillTaskService {
   readonly #commitContext: MemoryRecordMutationContext;
   readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
+  readonly #createComposeSystemPrompt: () => ProposalSystemPromptComposer | undefined;
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -102,6 +108,8 @@ export class FillTaskService {
     this.#commitContext = options.commitContext;
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
+    this.#createComposeSystemPrompt =
+      options.createComposeSystemPrompt ?? (() => undefined);
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -136,6 +144,7 @@ export class FillTaskService {
     // 配置缺失在提交时立即失败（createLlm 读 ST 当前配置，缺失抛中文错误），
     // 而不是等后台循环启动后才失败。
     const llm = this.#createLlm();
+    const composeSystemPrompt = this.#createComposeSystemPrompt();
 
     const now = this.#now();
     const task: FillTask = {
@@ -156,7 +165,7 @@ export class FillTaskService {
     if (conflict) throw new FillTaskConflictError(conflict);
 
     // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
-    void this.#runTask(task, llm);
+    void this.#runTask(task, llm, composeSystemPrompt);
     return this.#toView(task);
   }
 
@@ -236,12 +245,17 @@ export class FillTaskService {
    * - 块开始前：任务已非 running（用户取消/页面重开）→ 直接停止；
    * - 块内提交前：任务已非 running → 丢弃未提交提案，块楼层保持原状态。
    */
-  async #runTask(task: FillTask, llm: LlmPort): Promise<void> {
+  async #runTask(
+    task: FillTask,
+    llm: LlmPort,
+    composeSystemPrompt: ProposalSystemPromptComposer | undefined,
+  ): Promise<void> {
     const agent = new ProposalAgent({
       llm,
       reader: this.#reader,
       ports: this.#ports,
       timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
+      composeSystemPrompt,
     });
     let failingBlock: { readonly from: number; readonly to: number } | undefined;
     try {

@@ -27,28 +27,41 @@ export function composeQueryAgentSystemPrompt(digest: MemorySpaceTableDigest): s
  * 处理块消息内容由宿主放入本轮消息（模型只管看内容对表操作）。
  */
 export function composeProposalAgentSystemPrompt(digest: MemorySpaceTableDigest): string {
-  return [
-    "你是记忆表格填写助手：根据本轮消息中的对话内容，把信息填写进记忆空间的表格。",
-    "",
-    "工作流程：",
-    "1. 用 query_records 查询当前记录（只反映已提交数据；未提交变更请用 proposal_preview 查看）。",
-    "2. 用 mutate 增量构建变更：一次一个操作（create 新建 / update 更新 / delete 删除）。",
-    "3. 用 proposal_preview 做整批校验与差异预览，直到 valid 为 true。",
-    "4. 用 drop_mutate 移除错误操作（按 mutationId），修正后重新预览。",
-    "5. 确认无误后调用 submit_proposal 提交提案（唯一完成信号）；提交成功后直接结束对话。",
-    "若确认无需任何变更，不要调用 submit_proposal，直接结束对话。",
-    "",
-    "规则：",
-    "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
-    "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
-    "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
-    "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
-    "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
-    "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
-    "- 消息内容中提到的信息不要编造；查不到或无法确定时不要强行填写。",
-    "",
-    ...digestSummaryLines(digest),
-  ].join("\n");
+  return [PROPOSAL_AGENT_BASE_INSTRUCTIONS, composeTableDigestSummary(digest)].join("\n\n");
+}
+
+/**
+ * 提案 Agent 基础指令（不含表/字段摘要）：Agent 提示词预设（st-extension ADR 0006）
+ * 的「复制为自定义」与 {{systemDefaultPrompt}} 展开共用，避免指令文本在插件侧复制。
+ */
+export const PROPOSAL_AGENT_BASE_INSTRUCTIONS = [
+  "你是记忆表格填写助手：根据本轮消息中的对话内容，把信息填写进记忆空间的表格。",
+  "",
+  "工作流程：",
+  "1. 用 query_records 查询当前记录（只反映已提交数据；未提交变更请用 proposal_preview 查看）。",
+  "2. 用 mutate 增量构建变更：一次一个操作（create 新建 / update 更新 / delete 删除）。",
+  "3. 用 proposal_preview 做整批校验与差异预览，直到 valid 为 true。",
+  "4. 用 drop_mutate 移除错误操作（按 mutationId），修正后重新预览。",
+  "5. 确认无误后调用 submit_proposal 提交提案（唯一完成信号）；提交成功后直接结束对话。",
+  "若确认无需任何变更，不要调用 submit_proposal，直接结束对话。",
+  "",
+  "规则：",
+  "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
+  "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
+  "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
+  "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
+  "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+  "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
+  "- 消息内容中提到的信息不要编造；查不到或无法确定时不要强行填写。",
+].join("\n");
+
+/**
+ * 表/字段摘要文本（composeProposalAgentSystemPrompt 的摘要部分）：Agent 提示词预设的
+ * {{tablesDigest}} 占位符展开与此共用同一格式（ADR 0006）——摘要格式是工具可用性契约，
+ * 不在插件侧复制实现。
+ */
+export function composeTableDigestSummary(digest: MemorySpaceTableDigest): string {
+  return digestSummaryLines(digest).join("\n");
 }
 
 /**

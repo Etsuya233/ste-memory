@@ -6,6 +6,14 @@
  * 默认值（向前兼容）；未知键原样丢弃（读取时只取已知形状）。
  */
 
+import {
+  BUILTIN_AGENT_PRESET_ID,
+  DEFAULT_AGENT_PRESET_SETTINGS,
+  type AgentPresetSettings,
+  type AgentPromptFragment,
+  type AgentPromptPreset,
+} from "../agent-presets/preset-model.ts";
+
 /** R2 云同步配置（ticket 08 生效；ticket 06 仅占位展示，UI 控件禁用） */
 export interface R2Settings {
   readonly accountId: string;
@@ -33,6 +41,8 @@ export interface PluginSettings {
   readonly macroLimit: number;
   /** 对话文件镜像（ticket 16 生效） */
   readonly mirror: ChatMirrorSettings;
+  /** Agent 提示词预设（ticket 17 生效）：全局预设列表 + 活动预设 */
+  readonly agentPresets: AgentPresetSettings;
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -44,6 +54,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   macroName: "{{memoryContext}}",
   macroLimit: 2000,
   mirror: { enabled: true, includeHistory: true },
+  agentPresets: DEFAULT_AGENT_PRESET_SETTINGS,
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -67,7 +78,57 @@ export function mergeSettings(raw: unknown): PluginSettings {
         ? source.macroLimit
         : DEFAULT_SETTINGS.macroLimit,
     mirror: mergeMirror(source.mirror),
+    agentPresets: mergeAgentPresets(source.agentPresets),
   };
+}
+
+/**
+ * 合并持久化的预设设置：损坏的预设项/片段项逐项丢弃（保留其余），
+ * activePresetId 未知或指向已丢弃项时回退系统默认。
+ */
+export function mergeAgentPresets(raw: unknown): AgentPresetSettings {
+  const source = isRecord(raw) ? raw : {};
+  const presets: AgentPromptPreset[] = [];
+  if (Array.isArray(source.presets)) {
+    for (const item of source.presets) {
+      const preset = mergeAgentPreset(item);
+      if (preset) presets.push(preset);
+    }
+  }
+  const activePresetId =
+    typeof source.activePresetId === "string" &&
+    (source.activePresetId === BUILTIN_AGENT_PRESET_ID ||
+      presets.some((p) => p.id === source.activePresetId))
+      ? source.activePresetId
+      : BUILTIN_AGENT_PRESET_ID;
+  return { presets, activePresetId };
+}
+
+function mergeAgentPreset(raw: unknown): AgentPromptPreset | undefined {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== "string" ||
+    raw.id === "" ||
+    typeof raw.name !== "string" ||
+    !Array.isArray(raw.fragments)
+  ) {
+    return undefined;
+  }
+  const fragments: AgentPromptFragment[] = [];
+  for (const item of raw.fragments) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      item.id === "" ||
+      typeof item.name !== "string" ||
+      typeof item.content !== "string" ||
+      typeof item.enabled !== "boolean"
+    ) {
+      continue;
+    }
+    fragments.push({ id: item.id, name: item.name, content: item.content, enabled: item.enabled });
+  }
+  return { id: raw.id, name: raw.name, fragments };
 }
 
 /** R2 四项配置全部非空 = 已配置（面板同步状态占位的判定；ticket 08 接入真实状态） */

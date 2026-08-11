@@ -63,6 +63,60 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(merged.r2).toEqual(DEFAULT_SETTINGS.r2);
   });
 
+  it("agentPresets 缺失/损坏：回退默认（空预设列表 + 系统默认活动）", () => {
+    expect(mergeSettings({}).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
+    expect(mergeSettings({ agentPresets: "oops" }).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
+    expect(mergeSettings({ agentPresets: [] }).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
+  });
+
+  it("agentPresets 合法数据保留；损坏的预设项丢弃，损坏的片段项跳过（预设保留）", () => {
+    const raw = {
+      agentPresets: {
+        presets: [
+          {
+            id: "p1",
+            name: "破限",
+            fragments: [{ id: "f1", name: "规则", content: "内容", enabled: true }],
+          },
+          { id: "p2", name: "坏预设", fragments: "oops" },
+          {
+            id: "p3",
+            name: "坏片段",
+            fragments: [
+              { id: "f2", content: 42, enabled: true },
+              { id: "f3", name: "好", content: "好的", enabled: true },
+            ],
+          },
+        ],
+        activePresetId: "p1",
+      },
+    };
+    const merged = mergeSettings(raw).agentPresets;
+    expect(merged.presets.map((p) => p.id)).toEqual(["p1", "p3"]);
+    expect(merged.presets[1]!.fragments.map((f) => f.id)).toEqual(["f3"]);
+    expect(merged.activePresetId).toBe("p1");
+  });
+
+  it("agentPresets activePresetId 未知/损坏：回退系统默认", () => {
+    expect(mergeSettings({ agentPresets: { activePresetId: "ghost" } }).agentPresets).toEqual(
+      DEFAULT_SETTINGS.agentPresets,
+    );
+    expect(
+      mergeSettings({
+        agentPresets: { presets: [{ id: "p1", name: "一", fragments: [] }], activePresetId: 42 },
+      }).agentPresets.activePresetId,
+    ).toBe("systemDefault");
+    // 活动 id 指向被丢弃的损坏预设 → 回退系统默认
+    expect(
+      mergeSettings({
+        agentPresets: {
+          presets: [{ id: "p1", name: "一", fragments: "bad" }],
+          activePresetId: "p1",
+        },
+      }).agentPresets.activePresetId,
+    ).toBe("systemDefault");
+  });
+
   it("未知键被丢弃（读取只取已知形状）", () => {
     const merged = mergeSettings({ enabled: true, evil: "x", r2: { hacker: 1 } });
     expect("evil" in merged).toBe(false);
@@ -76,6 +130,16 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       macroName: "{{ctx}}",
       macroLimit: 4000,
       mirror: { enabled: false, includeHistory: false },
+      agentPresets: {
+        presets: [
+          {
+            id: "p1",
+            name: "破限",
+            fragments: [{ id: "f1", name: "", content: "内容", enabled: true }],
+          },
+        ],
+        activePresetId: "p1",
+      },
     };
     expect(mergeSettings(settings)).toEqual(settings);
   });

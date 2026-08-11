@@ -6,6 +6,7 @@ import type {
 } from "../space-binding/chat-space-manager.ts";
 import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.ts";
 import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
+import type { AgentPromptNames } from "../agent-presets/preset-composer.ts";
 import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
 import { resolveFloorJump } from "./floor-jump.ts";
 /**
@@ -23,6 +24,10 @@ export interface StContext {
   groupId?: string | number | null;
   /** 角色名（name2）；群聊为 undefined */
   name2?: string;
+  /** 当前用户显示名（name1；Agent 预设 {{user}} 占位符展开用） */
+  name1?: string;
+  /** 群聊列表（{{char}} 群聊展开为群名时经 id 查找群名） */
+  groups?: readonly { id: string | number; name?: string }[];
   /** 当前对话消息数组（同步楼层 = 数组下标，ADR 0003） */
   chat?: readonly unknown[];
   /** 随对话文件持久化的元数据对象（saveChat 全量重写聊天文件时携带，重命名自动跟随） */
@@ -126,6 +131,23 @@ export class StChatAdapter {
       characterId: context.characterId,
       groupId: context.groupId ?? null,
       characterName: context.name2,
+    };
+  }
+
+  /**
+   * Agent 提示词预设占位符展开用名字（ticket 17）：任务提交时快照一次。
+   * 单角色 char = name2；群聊 char = 群名（用户决策，与 ST 内建 {{char}} 的
+   * 「群聊 = 当前角色名」语义不同）；查不到群名/缺名字 = 空串。
+   */
+  getPromptNames(): AgentPromptNames {
+    const context = this.#getContext();
+    const inGroup = context.groupId != null && context.groupId !== "";
+    const groupName = inGroup
+      ? (context.groups ?? []).find((g) => g.id === context.groupId)?.name
+      : undefined;
+    return {
+      user: context.name1 ?? "",
+      char: inGroup ? (groupName ?? "") : (context.name2 ?? ""),
     };
   }
 
