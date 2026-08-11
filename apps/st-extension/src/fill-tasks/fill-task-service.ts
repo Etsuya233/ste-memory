@@ -168,6 +168,23 @@ export class FillTaskService {
     return this.#toView({ ...task, status: "interrupted" });
   }
 
+  /**
+   * 任务重试（ticket 14）：把任务的楼层范围与分块大小重新提交为新任务——
+   * 失败/中断任务的历史条目由此回到运行中；原任务保持终态留在历史列表。
+   * 重试运行中任务被活动任务守卫拒绝（冲突原因可读，快速双击重试时第二次
+   * 提交落在新任务的活动名额上，不会产生双任务）；重试已成功任务等同于手动
+   * 重新触发同一范围（触发 UI 不提供该入口）。
+   */
+  async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    const task = await this.#requireTask(memorySpaceId, runId);
+    return this.submit({
+      memorySpaceId,
+      from: task.from,
+      to: task.to,
+      blockSize: task.blockSize,
+    });
+  }
+
   /** 当前非终态任务视图（无则 undefined；单空间单活动任务守卫的 UI 侧查询）。 */
   async activeTask(memorySpaceId: MemorySpaceId): Promise<FillTaskView | undefined> {
     const task = await this.#tasks.findActive(memorySpaceId);

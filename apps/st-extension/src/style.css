@@ -1409,6 +1409,7 @@
 
 /* ============================================================
  * 任务 Tab（ticket 13）：手动触发表单 + 活动任务 + 最近结果
+ * ticket 14：楼层覆盖视图 + 任务历史列表
  * 色板/字体全部走令牌；输入与按钮触控目标 ≥44px
  * ============================================================ */
 
@@ -1506,4 +1507,148 @@
   line-height: 1.5;
   color: var(--stm-danger);
   overflow-wrap: anywhere;
+}
+
+/* 楼层覆盖条（ticket 14）：每消息一格，wrap 多行；类别 = 台账 + 活动任务范围 */
+.stm-coverage-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.stm-coverage-cell {
+  flex: 0 0 6px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--stm-border);
+}
+
+.stm-coverage-cell--processed,
+.stm-coverage-dot--processed {
+  background: var(--stm-success);
+}
+
+.stm-coverage-cell--running,
+.stm-coverage-dot--running {
+  background: var(--stm-accent);
+}
+
+.stm-coverage-cell--error,
+.stm-coverage-dot--error {
+  background: var(--stm-danger);
+}
+
+.stm-coverage-cell--untracked,
+.stm-coverage-dot--untracked {
+  background: var(--stm-border);
+}
+
+.stm-coverage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-coverage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.stm-coverage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+/* 任务历史列表（ticket 14）：状态徽章 + 范围 + 等宽时间 + 错误/进度 + 重试 */
+.stm-history-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-history-item {
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.stm-history-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stm-task-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.stm-task-status--succeeded {
+  color: var(--stm-ink-bg);
+  background: var(--stm-success);
+}
+
+.stm-task-status--failed {
+  color: var(--stm-ink-bg);
+  background: var(--stm-danger);
+}
+
+.stm-task-status--interrupted {
+  color: var(--stm-ink-secondary);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+.stm-task-status--running {
+  color: var(--stm-ink-bg);
+  background: var(--stm-accent);
+}
+
+.stm-history-range {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-history-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+}
+
+.stm-history-detail {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-history-error {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stm-danger);
+  overflow-wrap: anywhere;
+}
+
+.stm-history-item .stm-task-actions {
+  margin-top: 8px;
+}
+
+.stm-history-item .stm-button {
+  min-height: 36px;
 }

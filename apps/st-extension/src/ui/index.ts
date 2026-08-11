@@ -21,10 +21,20 @@ export type { PanelRuntime } from "./panel-shell.tsx";
 export { TasksTab } from "./tasks-tab.tsx";
 export type { TasksTabRuntime } from "./tasks-tab.tsx";
 export {
+  buildCoverageViewModel,
   buildTasksTabViewModel,
+  COVERAGE_STATUS_LABELS,
   taskStatusViewModel,
   unprocessedRanges,
   validateFloorRange,
 } from "./task-panel-model.ts";
-export type { FloorRange, FloorRangeValidation, TasksTabViewModel } from "./task-panel-model.ts";
+export type {
+  CoverageRun,
+  CoverageStatus,
+  CoverageViewModel,
+  FloorRange,
+  FloorRangeValidation,
+  TaskHistoryItemViewModel,
+  TasksTabViewModel,
+} from "./task-panel-model.ts";
 export { mountPanel } from "./st-panel-host.tsx";

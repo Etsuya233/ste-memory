@@ -116,10 +116,10 @@ export interface PanelRuntime {
   >;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
-  /** 填表任务（ticket 13）：手动楼层范围触发 + 取消 + 状态/进度/最近结果 */
+  /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
-    "submit" | "cancel" | "activeTask" | "recentTasks" | "ledgerStatuses"
+    "submit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
   >;
   readonly settings: SettingsStore;
   readonly version: string;

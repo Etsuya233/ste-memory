@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import {
   MUTATE_TOOL_NAME,
   PROPOSAL_PREVIEW_TOOL_NAME,
@@ -84,6 +85,37 @@ function emptyProposalAgent() {
 
 function failingAgent() {
   return scriptedStreamFn(() => assistantMessage([textMessage("模型炸了")], "error", "模型炸了"));
+}
+
+/** 第一次调用失败、之后走成功脚本的 respond（重试场景：首轮失败 → 重试成功）。 */
+function makeFailFirstRespond() {
+  const calls = { n: 0 };
+  return (context: Context): AssistantMessage => {
+    calls.n += 1;
+    if (calls.n === 1) {
+      return assistantMessage([textMessage("模型炸了")], "error", "模型炸了");
+    }
+    if (!lastToolResult(context)) {
+      return assistantMessage(
+        [
+          toolCallMessage("call-1", MUTATE_TOOL_NAME, {
+            op: "create",
+            table: "characters",
+            patch: { name: "云烬" },
+          }),
+          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
+          toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
+        ],
+        "toolUse",
+      );
+    }
+    return assistantMessage([textMessage("已提交")], "stop");
+  };
+}
+
+/** 第一次 Agent 调用失败、之后成功的脚本化 streamFn。 */
+function failOnceThenFill() {
+  return scriptedStreamFn(makeFailFirstRespond());
 }
 
 interface Harness {
@@ -623,5 +655,118 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     const recent = await service.recentTasks(spaceId, 5);
     expect(recent.map((row) => row.runId)).toEqual([second.runId, first.runId]);
     expect(recent[0]).toMatchObject({ status: "succeeded", processedCount: 2, totalCount: 2 });
+  });
+
+  it("失败任务重试：按原范围与原块大小重跑为新任务，旧任务保持 failed，error 楼层重跑成功覆盖为 processed", async () => {
+    const harness = await createHarness({ streamFn: failOnceThenFill() });
+    const { service, spaceId } = harness;
+
+    // 首轮：块 [1,2] 失败 → 任务 failed，出错楼层标记 error
+    const first = await service.submit({ memorySpaceId: spaceId, from: 1, to: 4, blockSize: 2 });
+    const failed = await waitForTerminal(harness, first.runId);
+    expect(failed.status).toBe("failed");
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked",
+      "error",
+      "error",
+      "untracked",
+      "untracked",
+      "untracked",
+    ]);
+
+    // 重试：新任务同范围同块大小；旧任务保持 failed 在历史
+    const retried = await service.retry(spaceId, first.runId);
+    expect(retried).toMatchObject({ status: "running", from: 1, to: 4, blockSize: 2 });
+    expect(retried.runId).not.toBe(first.runId);
+
+    const terminal = await waitForTerminal(harness, retried.runId);
+    expect(terminal.status).toBe("succeeded");
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked",
+      "processed",
+      "processed",
+      "processed",
+      "processed",
+      "untracked",
+    ]);
+    const history = await service.recentTasks(spaceId, 5);
+    expect(history.map((row) => [row.runId, row.status])).toEqual([
+      [retried.runId, "succeeded"],
+      [first.runId, "failed"],
+    ]);
+  });
+
+  it("中断任务可重试：取消后按原范围重跑，新任务正常完成（不自动重放，手动重试生效）", async () => {
+    // 第一轮（run 1）第一次流式调用被门控挂起：取消后任务停在 agent.run，无任何块提交
+    const streamFn = gatedStreamFn(scriptedFillAgent().respond, 1);
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId } = harness;
+
+    const first = await service.submit({ memorySpaceId: spaceId, from: 0, to: 3, blockSize: 2 });
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(streamFn.calls.count).toBe(1);
+
+    await service.cancel(spaceId, first.runId);
+    expect(await harness.tasks.find(first.runId)).toMatchObject({ status: "interrupted" });
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+    ]);
+
+    // 重试：新任务同范围，正常完成；run 1 保持 interrupted 在历史
+    const retried = await service.retry(spaceId, first.runId);
+    expect(retried).toMatchObject({ status: "running", from: 0, to: 3, blockSize: 2 });
+    const terminal = await waitForTerminal(harness, retried.runId);
+    expect(terminal.status).toBe("succeeded");
+    expect(await floorStatuses(harness)).toEqual([
+      "processed",
+      "processed",
+      "processed",
+      "processed",
+      "untracked",
+      "untracked",
+    ]);
+    expect(await harness.tasks.find(first.runId)).toMatchObject({ status: "interrupted" });
+  });
+
+  it("活动任务期间重试旧任务被守卫拒绝：快速双击重试不产生双任务（冲突原因可读）", async () => {
+    // run 1 第一次调用失败（任务 failed）；重试的新任务第二次调用被门控挂起（保持运行中）
+    const streamFn = gatedStreamFn(makeFailFirstRespond(), 2);
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId } = harness;
+
+    const first = await service.submit({ memorySpaceId: spaceId, from: 0, to: 3, blockSize: 2 });
+    const failed = await waitForTerminal(harness, first.runId);
+    expect(failed.status).toBe("failed");
+
+    // 第一次重试：新任务运行中（第 2 次流式调用被门控挂起）
+    const retried = await service.retry(spaceId, first.runId);
+    expect(retried.status).toBe("running");
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(streamFn.calls.count).toBe(2);
+
+    // 再次重试同一旧任务：活动名额被新任务占用 → 冲突且携带当前任务
+    await service.retry(spaceId, first.runId).catch((error) => {
+      expect(error).toBeInstanceOf(FillTaskConflictError);
+      expect((error as FillTaskConflictError).task.runId).toBe(retried.runId);
+      expect((error as FillTaskConflictError).message).toContain("已有正在进行的填表任务");
+    });
+  });
+
+  it("重试不存在的任务抛 NotFound", async () => {
+    const harness = await createHarness();
+    await expect(harness.service.retry(harness.spaceId, "run-missing")).rejects.toThrow(
+      /填表任务不存在/,
+    );
   });
 });

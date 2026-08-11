@@ -1,6 +1,7 @@
 /**
- * 任务 Tab（ticket 13 触发 UI）的纯逻辑 seam：楼层输入校验、未处理范围提示、
- * 任务状态文案、Tab 视图模型。组件只做「模型 → DOM」投影与事件接线，本模块独立测试。
+ * 任务 Tab（ticket 13 触发 UI + ticket 14 任务面板）的纯逻辑 seam：楼层输入校验、
+ * 未处理范围提示、任务状态文案、逐消息覆盖视图、任务历史列表、Tab 视图模型。
+ * 组件只做「模型 → DOM」投影与事件接线，本模块独立测试。
  *
  * 数据来源语义：
  * - 楼层 = ST 消息数组下标（0 基，ADR 0003）；范围上限 = chatLength - 1；
@@ -8,7 +9,9 @@
  *   覆盖视图（ticket 14）同样从台账计算；
  * - 空输入 = 全量范围（从 0 到 chatLength-1）。
  */
-import type { FillTaskView, FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
+import type { FillTaskStatus, FillTaskView, FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
+import { isFillTaskTerminal } from "../fill-tasks/fill-task.ts";
+import { formatSyncTime } from "./space-info.ts";
 
 export interface FloorRange {
   readonly from: number;
@@ -46,8 +49,10 @@ export interface TasksTabViewModel {
   /** 触发表单默认值（预填首个未处理范围；无未处理则空） */
   readonly defaultFrom: string;
   readonly defaultTo: string;
-  /** 最近一次任务结果（终态；无则为 null）——失败原因可读 */
-  readonly lastResult: TaskStatusViewModel | null;
+  /** 逐消息覆盖视图（ticket 14）：已处理/任务中/出错/未计划 */
+  readonly coverage: CoverageViewModel;
+  /** 任务历史（终态任务 createdAt 倒序）：状态/范围/时间/错误，失败与中断可重试 */
+  readonly history: readonly TaskHistoryItemViewModel[];
 }
 
 /**
@@ -133,20 +138,138 @@ export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
   }
 }
 
-/** 任务 Tab 视图模型：触发区 + 活动任务区 + 最近结果区。 */
+// ---- 覆盖视图（ticket 14）：逐消息类别 = 台账（processed/error）+ 活动任务范围（任务中）----
+
+/** 逐消息覆盖类别：已处理 / 任务中 / 出错 / 未计划。 */
+export type CoverageStatus = "processed" | "running" | "error" | "untracked";
+
+/** 覆盖类别短标签（图例与计数展示）。 */
+export const COVERAGE_STATUS_LABELS: Record<CoverageStatus, string> = {
+  processed: "已处理",
+  running: "任务中",
+  error: "出错",
+  untracked: "未计划",
+};
+
+/** 连续同类别楼层区间（闭区间；覆盖视图的渲染单元，避免逐楼 DOM 元素）。 */
+export interface CoverageRun {
+  readonly status: CoverageStatus;
+  readonly from: number;
+  readonly to: number;
+}
+
+export interface CoverageViewModel {
+  /** 连续同类别区间（floor 升序、无空洞，覆盖 0..chatLength-1） */
+  readonly runs: readonly CoverageRun[];
+  readonly processedCount: number;
+  readonly runningCount: number;
+  readonly errorCount: number;
+  readonly untrackedCount: number;
+  /** 覆盖总楼层数（= chatLength，全部 live 楼层） */
+  readonly totalCount: number;
+}
+
+/**
+ * 覆盖视图：从楼层进度台账 + 活动任务范围计算逐消息类别——processed/error 以台账为准
+ * （出错可重试、已提交保留，类别不受活动任务影响）；台账无行（untracked）且在活动任务
+ * 范围内 = 任务中（该任务计划处理但尚未完成）；其余 = 未计划。台账的陈旧楼层（超出
+ * 当前对话长度）不参与（覆盖视图按 live 楼层渲染，session-record §2 遗留容忍）。
+ */
+export function buildCoverageViewModel(input: {
+  readonly ledger: readonly FloorLedgerEntry[];
+  /** 活动任务楼层范围（无活动任务为 undefined → 无「任务中」类别） */
+  readonly activeRange: { readonly from: number; readonly to: number } | undefined;
+  readonly chatLength: number;
+}): CoverageViewModel {
+  const byFloor = new Map(input.ledger.map((entry) => [entry.floor, entry.status]));
+  const counts: Record<CoverageStatus, number> = {
+    processed: 0,
+    running: 0,
+    error: 0,
+    untracked: 0,
+  };
+  const runs: CoverageRun[] = [];
+  for (let floor = 0; floor < input.chatLength; floor += 1) {
+    const ledgerStatus = byFloor.get(floor);
+    const status: CoverageStatus =
+      ledgerStatus === "processed" || ledgerStatus === "error"
+        ? ledgerStatus
+        : input.activeRange !== undefined &&
+            floor >= input.activeRange.from &&
+            floor <= input.activeRange.to
+          ? "running"
+          : "untracked";
+    counts[status] += 1;
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.status === status) {
+      runs[runs.length - 1] = { ...last, to: floor };
+    } else {
+      runs.push({ status, from: floor, to: floor });
+    }
+  }
+  return {
+    runs,
+    processedCount: counts.processed,
+    runningCount: counts.running,
+    errorCount: counts.error,
+    untrackedCount: counts.untracked,
+    totalCount: input.chatLength,
+  };
+}
+
+// ---- 任务历史（ticket 14）：终态任务列表条目 ----
+
+/** 历史任务条目：状态/楼层范围/时间/进度/错误信息；失败与中断可重试。 */
+export interface TaskHistoryItemViewModel {
+  readonly runId: string;
+  /** 终态（历史列表只列终态任务；运行中任务在活动任务区展示） */
+  readonly status: FillTaskStatus;
+  readonly statusLabel: string;
+  readonly rangeText: string;
+  /** 任务创建时间（ISO → "YYYY-MM-DD HH:mm"，与设置面板同步时间同格式） */
+  readonly timeText: string;
+  readonly progressText: string;
+  /** 失败原因（可读中文；非 failed 为 null） */
+  readonly errorMessage: string | null;
+  /** 失败/中断可重试（按原楼层范围重新提交为新任务） */
+  readonly retryable: boolean;
+}
+
+function toHistoryItem(task: FillTaskView): TaskHistoryItemViewModel {
+  const status = taskStatusViewModel(task);
+  return {
+    runId: task.runId,
+    status: task.status,
+    statusLabel: status.label,
+    rangeText: `楼层 ${task.from}–${task.to}`,
+    // 时间展示复用 formatSyncTime（ISO → "YYYY-MM-DD HH:mm"，与设置面板同步时间同格式）
+    timeText: formatSyncTime(task.createdAt),
+    progressText: `已处理 ${task.processedCount}/${task.totalCount} 层`,
+    errorMessage: task.errorMessage,
+    retryable: task.status === "failed" || task.status === "interrupted",
+  };
+}
+
+/** 任务 Tab 视图模型：触发区 + 活动任务区 + 覆盖视图 + 任务历史。 */
 export function buildTasksTabViewModel(input: {
   readonly chatLength: number;
   readonly ledger: readonly FloorLedgerEntry[];
   readonly activeTask: FillTaskView | undefined;
-  readonly recentTask: FillTaskView | undefined;
+  /** 最近任务列表（createdAt 倒序；运行中任务被过滤，活动任务区展示） */
+  readonly historyTasks: readonly FillTaskView[];
 }): TasksTabViewModel {
   const ranges = unprocessedRanges(input.ledger, input.chatLength);
   const first = ranges[0];
   const unprocessedCount = ranges.reduce((sum, range) => sum + (range.to - range.from + 1), 0);
   const active = input.activeTask;
-  // 最近结果只展示终态任务：运行中的任务在活动任务区展示，不重复出现在结果区
-  const recent =
-    input.recentTask && input.recentTask.runId !== active?.runId ? input.recentTask : undefined;
+  const coverage = buildCoverageViewModel({
+    ledger: input.ledger,
+    activeRange: active ? { from: active.from, to: active.to } : undefined,
+    chatLength: input.chatLength,
+  });
+  const history = input.historyTasks
+    .filter((task) => isFillTaskTerminal(task.status))
+    .map(toHistoryItem);
   return {
     chatLength: input.chatLength,
     canTrigger: !active && input.chatLength > 0,
@@ -162,6 +285,7 @@ export function buildTasksTabViewModel(input: {
         : `未处理楼层 ${first!.from}–${first!.to} · 共 ${unprocessedCount} 层`,
     defaultFrom: first ? String(first.from) : "",
     defaultTo: first ? String(first.to) : "",
-    lastResult: recent ? taskStatusViewModel(recent) : null,
+    coverage,
+    history,
   };
 }
