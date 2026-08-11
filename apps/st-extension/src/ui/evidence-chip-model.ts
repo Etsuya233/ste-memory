@@ -7,9 +7,11 @@
  * 如快照证据）。
  */
 import type { MemoryEvidence } from "@ste-memory/core/memory";
+import { EVIDENCE_FLOOR_SOURCE_TYPE } from "../constants.ts";
 
-/** 同步楼层证据的来源类型（ADR 0003：source_id = ST 消息数组下标） */
-export const EVIDENCE_FLOOR_SOURCE_TYPE = "sync_floor";
+/** 同步楼层证据的来源类型（ADR 0003：source_id = ST 消息数组下标）——
+ *  共享常量见 constants.ts，此处 re-export 保持既有导入路径兼容 */
+export { EVIDENCE_FLOOR_SOURCE_TYPE };
 
 export type EvidenceChipViewModel =
   | { readonly kind: "floor"; readonly floor: number }

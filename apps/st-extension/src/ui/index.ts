@@ -18,4 +18,13 @@ export {
 export type { SpaceInfoViewModel } from "./space-info.ts";
 export { PanelShell, ToolbarButton } from "./panel-shell.tsx";
 export type { PanelRuntime } from "./panel-shell.tsx";
+export { TasksTab } from "./tasks-tab.tsx";
+export type { TasksTabRuntime } from "./tasks-tab.tsx";
+export {
+  buildTasksTabViewModel,
+  taskStatusViewModel,
+  unprocessedRanges,
+  validateFloorRange,
+} from "./task-panel-model.ts";
+export type { FloorRange, FloorRangeValidation, TasksTabViewModel } from "./task-panel-model.ts";
 export { mountPanel } from "./st-panel-host.tsx";

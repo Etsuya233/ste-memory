@@ -59,6 +59,7 @@ function fakeRuntime(): PanelRuntime {
     st: {
       scrollToFloor: vi.fn(() => ({ kind: "jumped" }) as const),
       getMessageAt: vi.fn(() => undefined),
+      chatMessageCount: vi.fn(() => 0),
     },
     settings: {
       read: () => DEFAULT_SETTINGS,
@@ -78,6 +79,13 @@ function fakeRuntime(): PanelRuntime {
       getStatus: () => ({ kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
       onStatusChange: () => () => {},
       kick: vi.fn(async () => {}),
+    },
+    tasks: {
+      submit: vi.fn(async () => ({}) as never),
+      cancel: vi.fn(async () => ({}) as never),
+      activeTask: vi.fn(async () => undefined),
+      recentTasks: vi.fn(async () => []),
+      ledgerStatuses: vi.fn(async () => []),
     },
     version: "0.1.0",
   };

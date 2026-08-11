@@ -9,6 +9,10 @@ function tempOutdir(): string {
 }
 
 describe("esbuild 构建链", () => {
+  // 构建耗时随 bundle 体积与机器负载波动（全仓并行跑时曾多次超默认 5s）；
+  // 构建测试关注产物契约而非速度，超时放宽到 30s。
+  const BUILD_TIMEOUT_MS = 30_000;
+
   it("产物 = 单文件 js + manifest + css", async () => {
     const outdir = tempOutdir();
     try {
@@ -29,7 +33,7 @@ describe("esbuild 构建链", () => {
     } finally {
       rmSync(outdir, { recursive: true, force: true });
     }
-  });
+  }, BUILD_TIMEOUT_MS);
 
   it("bundle 无裸 node_modules import（无 import 语句、无 node_modules 路径）", async () => {
     const outdir = tempOutdir();
@@ -43,7 +47,7 @@ describe("esbuild 构建链", () => {
     } finally {
       rmSync(outdir, { recursive: true, force: true });
     }
-  });
+  }, BUILD_TIMEOUT_MS);
 
   it("dev 构建产出 sourcemap，prod 构建清理残留 map", async () => {
     const outdir = tempOutdir();
@@ -57,7 +61,7 @@ describe("esbuild 构建链", () => {
     } finally {
       rmSync(outdir, { recursive: true, force: true });
     }
-  });
+  }, BUILD_TIMEOUT_MS);
 
   it("manifest.version 与 package.json 一致，且版本号注入 bundle", async () => {
     const outdir = tempOutdir();
@@ -75,5 +79,5 @@ describe("esbuild 构建链", () => {
     } finally {
       rmSync(outdir, { recursive: true, force: true });
     }
-  });
+  }, BUILD_TIMEOUT_MS);
 });

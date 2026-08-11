@@ -187,6 +187,30 @@ export class StChatAdapter {
       isUser: record.is_user === true,
     };
   }
+
+  /** 当前对话消息总数（填表任务范围上限 = chatMessageCount - 1；无聊天数组按 0）。 */
+  chatMessageCount(): number {
+    const chat = this.#getContext().chat;
+    return Array.isArray(chat) ? chat.length : 0;
+  }
+
+  /** 当前对话身份（ST chatId；未保存对话为 undefined）——填表任务的对话切换检测。 */
+  chatId(): string | undefined {
+    return this.#getContext().chatId || undefined;
+  }
+
+  /**
+   * 填表任务消息来源：闭区间 [from, to] 楼层升序的消息（含格式化标记的原文），
+   * 越界/缺正文楼层跳过（漂移接受，ADR 0003）。getMessageAt 的批量形态。
+   */
+  messagesInRange(from: number, to: number): readonly StChatMessage[] {
+    const messages: StChatMessage[] = [];
+    for (let floor = from; floor <= to; floor += 1) {
+      const message = this.getMessageAt(floor);
+      if (message) messages.push(message);
+    }
+    return messages;
+  }
 }
 
 /** 读取 chatMetadata 里的绑定：键缺失 = none；键存在但值无法识别（损坏/未来版本）= unrecognized */

@@ -1,8 +1,10 @@
 import {
   MemoryFieldService,
+  MemoryRecordQueryService,
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  computeMemoryRecordDisplayText,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -12,11 +14,14 @@ import {
   type MemoryTableId,
 } from "@ste-memory/core/memory";
 import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
+import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { CloudSyncCoordinator, R2CloudSyncAdapter } from "./cloud/index.ts";
 import { ChatMetadataMirrorSync } from "./chat-mirror/chat-metadata-mirror-sync.ts";
 import {
+  DexieFillTaskRepository,
+  DexieFloorLedgerRepository,
   DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
   DexieMemoryRecordRepository,
@@ -25,6 +30,7 @@ import {
   DexieSyncChangeSource,
   SteMemoryDatabase,
 } from "./db/index.ts";
+import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
@@ -51,6 +57,8 @@ export interface SteMemoryRuntime {
   readonly sync: CloudSyncCoordinator;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
   readonly mirror: ChatMetadataMirrorSync;
+  /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
+  readonly tasks: FillTaskService;
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
    * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
   readonly createLlm: () => LlmPort;
@@ -134,7 +142,67 @@ export async function startSteMemory(
     () => createId("evidence") as MemoryEvidenceId,
   );
 
+  // 填表任务（ticket 13）：ProposalAgent 的只读端口/提交上下文与面板服务共用同一组
+  // repository；批次提交 + 台账标记包在同一个 Dexie 事务（失败回滚不产生半批数据/半批状态）。
   const adapter = new StChatAdapter(() => getContext() as StContext);
+  const reader: MemorySpaceReader = {
+    listTables: (memorySpaceId) => tables.list(memorySpaceId),
+    listFields: (memorySpaceId, tableId) => fields.list(memorySpaceId, tableId),
+    queryRecords: (memorySpaceId, input) =>
+      new MemoryRecordQueryService(tableRepository, fieldRepository, recordRepository).query(
+        memorySpaceId,
+        input,
+      ),
+  };
+  const createLlm = (): LlmPort => createStLlmPort(() => getContext() as StContext);
+  const tasks = new FillTaskService({
+    tasks: new DexieFillTaskRepository(db, now),
+    ledger: new DexieFloorLedgerRepository(db),
+    source: adapter,
+    reader,
+    ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
+    evidence: recordRepository,
+    commitContext: {
+      tables: tableRepository,
+      fields: fieldRepository,
+      records: recordRepository,
+      createId: () => createId("record") as MemoryRecordId,
+      createHistoryId: () => createId("record-history") as MemoryRecordHistoryId,
+      createRevisionId: () => createId("revision") as MemoryRevisionId,
+      now,
+      displayText: (table, fieldList, payload) =>
+        computeMemoryRecordDisplayText(
+          recordRepository,
+          table.memorySpaceId,
+          table,
+          fieldList,
+          payload,
+        ),
+    },
+    runInTransaction: (work) =>
+      // 事务作用域函数必须声明为 async（Dexie expected-awaits 追踪，否则 PrematureCommit）；
+      // 表集合 = 批次提交读写全集（表格/字段读取 + 记录/历史/证据/台账写入）。
+      db.transaction(
+        "rw",
+        [
+          db.memoryTables,
+          db.memoryFields,
+          db.memoryRecords,
+          db.memoryRecordHistory,
+          db.memoryEvidence,
+          db.floorFillLedger,
+        ],
+        async () => {
+          await work();
+        },
+      ),
+    createLlm,
+    createRunId: () => createId("task"),
+    createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
+    now,
+    logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),
+  });
+
   const mirror = new ChatMetadataMirrorSync({
     getChat: () => adapter.getChatSnapshot(),
     bindingStore: adapter.bindingStore,
@@ -186,6 +254,8 @@ export async function startSteMemory(
   });
   // 空库拉取必须先于空间创建完成（否则拉取恢复会覆盖启动期间新建的空间）
   await sync.start();
+  // 页面/浏览器重开：所有非终态填表任务标记 interrupted，不自动重放（关页语义）
+  await tasks.markInterruptedOnStartup();
   // 镜像同步在 R2 拉取之后启动：拉取恢复的数据会在轮询中回填进对话文件（文件自洽）
   await mirror.start();
 
@@ -215,7 +285,8 @@ export async function startSteMemory(
     settings,
     sync,
     mirror,
-    createLlm: () => createStLlmPort(() => getContext() as StContext),
+    tasks,
+    createLlm,
     version: options.version ?? "",
   };
 }

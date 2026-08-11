@@ -59,6 +59,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     st: {
       scrollToFloor: vi.fn(() => ({ kind: "jumped" }) as const),
       getMessageAt: vi.fn(() => undefined),
+      chatMessageCount: vi.fn(() => 0),
     },
     settings: {
       read: () => DEFAULT_SETTINGS,
@@ -78,6 +79,13 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getStatus: () => ({ kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
       onStatusChange: () => () => {},
       kick: vi.fn(async () => {}),
+    },
+    tasks: {
+      submit: vi.fn(async () => ({}) as never),
+      cancel: vi.fn(async () => ({}) as never),
+      activeTask: vi.fn(async () => undefined),
+      recentTasks: vi.fn(async () => []),
+      ledgerStatuses: vi.fn(async () => []),
     },
     version: "0.1.0",
     ...overrides,
@@ -311,7 +319,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).not.toContain("爱丽丝 - story");
   });
 
-  it("记录/任务 Tab：记录视图加载态 + 任务占位文案（验收脚本契约）", () => {
+  it("记录/任务 Tab：记录视图加载态 + 任务触发区（ticket 13 替换占位，验收脚本契约）", () => {
     const model = new PanelModel();
     model.setTab("records");
     const recordsHtml = renderShell(model);
@@ -321,6 +329,10 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(recordsHtml).not.toContain("记录视图即将开放");
 
     model.setTab("tasks");
-    expect(renderShell(model)).toContain("任务状态即将开放");
+    const tasksHtml = renderShell(model);
+    expect(tasksHtml).toContain('data-stm-section="tasks"');
+    // SSR 不执行异步加载（TasksTab 视图未就绪渲染空）；占位文案已移除
+    expect(tasksHtml).not.toContain("任务状态即将开放");
+    expect(tasksHtml).not.toContain("手动指定楼层范围触发填表任务");
   });
 });

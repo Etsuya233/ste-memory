@@ -288,3 +288,41 @@ describe("StChatAdapter.getMessageAt（楼层消息读取，ticket 11）", () =>
     expect(noMes.getMessageAt(2)).toBeUndefined();
   });
 });
+
+describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesInRange，ticket 13）", () => {
+  it("chatMessageCount：消息数组长度；chat 缺失/非数组按 0", () => {
+    const { adapter } = stableAdapter({ chat: [{}, {}, {}] });
+    expect(adapter.chatMessageCount()).toBe(3);
+    expect(stableAdapter({ chat: undefined }).adapter.chatMessageCount()).toBe(0);
+    expect(
+      stableAdapter({ chat: "nope" as unknown as readonly unknown[] }).adapter.chatMessageCount(),
+    ).toBe(0);
+  });
+
+  it("chatId：ST chatId 原样返回；未保存对话（空串/缺失）为 undefined", () => {
+    expect(stableAdapter().adapter.chatId()).toBe("story");
+    expect(stableAdapter({ chatId: undefined }).adapter.chatId()).toBeUndefined();
+    expect(stableAdapter({ chatId: "" }).adapter.chatId()).toBeUndefined();
+  });
+
+  it("messagesInRange：闭区间楼层升序映射（floor/content/name），越界楼层跳过，缺正文跳过", () => {
+    const { adapter } = stableAdapter({
+      chat: [
+        { mes: "消息 0", name: "User", is_user: true },
+        { mes: "[reg] 原始 **标记**", name: "爱丽丝", is_user: false },
+        { name: "无正文" },
+        { mes: "消息 3" },
+      ],
+    });
+    expect(adapter.messagesInRange(0, 3)).toEqual([
+      { floor: 0, content: "消息 0", name: "User", isUser: true },
+      { floor: 1, content: "[reg] 原始 **标记**", name: "爱丽丝", isUser: false },
+      { floor: 3, content: "消息 3", name: "", isUser: false },
+    ]);
+    // 越界楼层（chat 只有 4 条）：跳过缺失楼层
+    expect(adapter.messagesInRange(2, 5)).toEqual([
+      { floor: 3, content: "消息 3", name: "", isUser: false },
+    ]);
+    expect(stableAdapter({ chat: undefined }).adapter.messagesInRange(0, 1)).toEqual([]);
+  });
+});

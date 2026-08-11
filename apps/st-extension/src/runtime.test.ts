@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"），
 // 因此 test-support 必须排在任何导入 dexie 的模块之前
 import { createTestDatabase } from "./db/test-support.ts";
-import { DexieMemorySpaceRepository, DexieMemoryTableRepository } from "./db/index.ts";
+import {
+  DexieFillTaskRepository,
+  DexieMemorySpaceRepository,
+  DexieMemoryTableRepository,
+} from "./db/index.ts";
 import { startSteMemory } from "./runtime.ts";
 import { DEFAULT_SETTINGS, type SettingsStore } from "./settings/plugin-settings.ts";
 import {
@@ -261,6 +265,35 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const spaceRepository = new DexieMemorySpaceRepository(db);
     expect(await spaceRepository.list()).toHaveLength(0);
   });
+
+  it("填表任务接线（ticket 13）：启动把非终态任务标记 interrupted（关页不自动重放）；tasks 暴露可用", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({ chat: [{ mes: "hi" }] });
+    // 预置一个 running 任务（模拟上一页会话遗留）：启动后应被标记 interrupted
+    const tasks = new DexieFillTaskRepository(db);
+    await tasks.create({
+      runId: "run-leftover",
+      memorySpaceId: "space-leftover" as MemorySpaceId,
+      from: 0,
+      to: 0,
+      blockSize: 20,
+      chatId: null,
+      status: "running",
+      errorMessage: null,
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+    });
+
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+
+    // 启动即中断：不自动重放、不占用活动名额
+    const leftover = await tasks.find("run-leftover");
+    expect(leftover).toMatchObject({ status: "interrupted", errorMessage: null });
+    expect(runtime.tasks).toBeDefined();
+    expect(await runtime.tasks.activeTask("space-leftover" as MemorySpaceId)).toBeUndefined();
+    // 任务服务从 ST 上下文读消息数（触发 UI 的数据源接线）
+    expect(runtime.adapter.chatMessageCount()).toBe(1);
+  });
 });
 
 describe("startSteMemory → createLlm（ticket 12 接线）", () => {
@@ -283,7 +316,10 @@ describe("startSteMemory → createLlm（ticket 12 接线）", () => {
     expect(port.model.maxTokens).toBe(1500);
     // ST 配置缺失（非 ST 环境）→ 端口构造抛中文错误而非静默
     const bare = fakeStContext({ chatCompletionSettings: undefined });
-    const runtimeBare = await startSteMemory(() => bare.context, { createDb: () => db, log: fakeLog() });
+    const runtimeBare = await startSteMemory(() => bare.context, {
+      createDb: () => db,
+      log: fakeLog(),
+    });
     expect(() => runtimeBare.createLlm()).toThrow(/Chat Completion 源未知/);
   });
 });

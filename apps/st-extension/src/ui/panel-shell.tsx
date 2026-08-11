@@ -45,6 +45,7 @@ import {
   type SettingsStore,
 } from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
+import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
 import {
   activeStatus,
@@ -70,6 +71,7 @@ import {
 } from "./display-strategy-model.ts";
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
 import { RecordsTab } from "./record-view.tsx";
+import { TasksTab } from "./tasks-tab.tsx";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -100,8 +102,11 @@ export interface PanelRuntime {
     SteMemoryRuntime["records"],
     "list" | "previewDisplayText" | "create" | "update" | "delete" | "find" | "listHistory"
   >;
-  /** ST 适配器子集（ticket 11 证据楼层 chip：跳转 + 原文摘录） */
-  readonly st: Pick<SteMemoryRuntime["adapter"], "scrollToFloor" | "getMessageAt">;
+  /** ST 适配器子集（ticket 11 证据楼层 chip：跳转 + 原文摘录；ticket 13 任务触发需要消息数） */
+  readonly st: Pick<
+    SteMemoryRuntime["adapter"],
+    "scrollToFloor" | "getMessageAt" | "chatMessageCount"
+  >;
   /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
   readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
   /** 云同步（ticket 08）：状态订阅 + 立即同步 + 设置变化重新评估 */
@@ -111,6 +116,11 @@ export interface PanelRuntime {
   >;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
+  /** 填表任务（ticket 13）：手动楼层范围触发 + 取消 + 状态/进度/最近结果 */
+  readonly tasks: Pick<
+    FillTaskService,
+    "submit" | "cancel" | "activeTask" | "recentTasks" | "ledgerStatuses"
+  >;
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -338,11 +348,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      <header
-        className="stm-panel-header"
-        data-action="drag-panel"
-        onPointerDown={beginHeaderDrag}
-      >
+      <header className="stm-panel-header" data-action="drag-panel" onPointerDown={beginHeaderDrag}>
         <div className="stm-space-info">
           <div className="stm-space-title">{info.title}</div>
           {info.detail ? <div className="stm-space-status">{info.detail}</div> : null}
@@ -396,7 +402,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
         )}
         {state.tab === "tasks" && (
           <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
-            <Placeholder title="任务状态即将开放" hint="在这里手动指定楼层范围触发填表任务" />
+            <TasksTab runtime={props.runtime} status={status} settings={settings} />
           </section>
         )}
         {state.tab === "settings" && (

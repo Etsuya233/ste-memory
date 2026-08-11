@@ -7,3 +7,4 @@ export { DexieMemoryFieldRepository } from "./memory-field-repository.ts";
 export { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
 export { DexieMemoryBackupRepository } from "./memory-backup-repository.ts";
 export { DexieSyncChangeSource } from "./dexie-sync-change-source.ts";
+export { DexieFillTaskRepository, DexieFloorLedgerRepository } from "./fill-task-repository.ts";

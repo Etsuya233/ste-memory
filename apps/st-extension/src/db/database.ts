@@ -14,6 +14,7 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "@ste-memory/core/memory";
+import type { FillTask, FloorFillStatus } from "../fill-tasks/fill-task.ts";
 
 /**
  * 证据条目的存储形态：领域 evidence_id 映射为主键 id（Dexie 行主键路径为 id），
@@ -21,8 +22,7 @@ import type {
  * 承载），Dexie 行必须携带它才能支撑跨空间隔离查询、来源唯一索引与空间删除级联。
  */
 export type MemoryEvidenceRow = (
-  | Omit<MemoryEvidenceSnapshot, "evidence_id">
-  | Omit<MemoryEvidenceReference, "evidence_id">
+  Omit<MemoryEvidenceSnapshot, "evidence_id"> | Omit<MemoryEvidenceReference, "evidence_id">
 ) & {
   readonly id: MemoryEvidenceId;
   readonly memorySpaceId: MemorySpaceId;
@@ -61,6 +61,16 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
  * - 记录/历史/证据在空间删除时级联清理、记录/历史在表格删除时级联清理，
  *   由 repository 删除实现保证（与参照实现 ON DELETE CASCADE 同语义）。
  */
+
+/**
+ * v3 schema：填表任务 + 楼层进度台账（ticket 13）。
+ *
+ * - memoryFillTasks：填表任务行（runId 主键；[memorySpaceId+createdAt] 供
+ *   触发 UI 的「最近任务」查询，memorySpaceId 索引供活动任务守卫）。
+ * - floorFillLedger：楼层进度台账，按（记忆空间, 同步楼层）唯一记录
+ *   processed / error（untracked = 无行）；id = `${memorySpaceId}:${floor}`。
+ *   空间删除时由 repository 删除实现级联清理（与参照实现同语义）。
+ */
 export class SteMemoryDatabase extends Dexie {
   memorySpaces!: Table<MemorySpace, MemorySpaceId>;
   memoryTables!: Table<MemoryTable, MemoryTableId>;
@@ -68,6 +78,8 @@ export class SteMemoryDatabase extends Dexie {
   memoryRecords!: Table<MemoryRecord, MemoryRecordId>;
   memoryRecordHistory!: Table<MemoryRecordHistory, MemoryRecordHistoryId>;
   memoryEvidence!: Table<MemoryEvidenceRow, MemoryEvidenceId>;
+  memoryFillTasks!: Table<FillTask, string>;
+  floorFillLedger!: Table<FloorLedgerRow, string>;
 
   constructor(name: string = ST_MEMORY_DB_NAME) {
     super(name);
@@ -82,5 +94,18 @@ export class SteMemoryDatabase extends Dexie {
         "id, [memorySpaceId+tableId+recordId], [memorySpaceId+recordId], memorySpaceId",
       memoryEvidence: "id, &[memorySpaceId+source_type+source_id], memorySpaceId",
     });
+    this.version(3).stores({
+      memoryFillTasks: "runId, [memorySpaceId+createdAt], memorySpaceId",
+      floorFillLedger: "id, &[memorySpaceId+floor], memorySpaceId",
+    });
   }
+}
+
+/** 楼层进度台账行：floor 与领域楼层号同值，状态只存非 untracked。 */
+export interface FloorLedgerRow {
+  readonly id: string;
+  readonly memorySpaceId: MemorySpaceId;
+  readonly floor: number;
+  readonly status: Exclude<FloorFillStatus, "untracked">;
+  readonly updatedAt: string;
 }
