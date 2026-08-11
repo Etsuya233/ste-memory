@@ -48,6 +48,14 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(merged).toEqual(DEFAULT_SETTINGS);
   });
 
+  it("宏上限：非法值（负数/非数/NaN）回退默认 2000，合法值保留", () => {
+    expect(mergeSettings({ macroLimit: -1 }).macroLimit).toBe(2000);
+    expect(mergeSettings({ macroLimit: "2000" }).macroLimit).toBe(2000);
+    expect(mergeSettings({ macroLimit: Number.NaN }).macroLimit).toBe(2000);
+    expect(mergeSettings({ macroLimit: 0 }).macroLimit).toBe(0);
+    expect(mergeSettings({ macroLimit: 8000 }).macroLimit).toBe(8000);
+  });
+
   it("r2 不是对象时整体回退，其余键保留", () => {
     const merged = mergeSettings({ enabled: true, macroName: "{{m}}", r2: ["x"] });
     expect(merged.enabled).toBe(true);
@@ -66,6 +74,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       enabled: false,
       r2: r2({ accountId: "a", accessKeyId: "b", secretAccessKey: "c", bucket: "d" }),
       macroName: "{{ctx}}",
+      macroLimit: 4000,
       mirror: { enabled: false, includeHistory: false },
     };
     expect(mergeSettings(settings)).toEqual(settings);

@@ -88,6 +88,9 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    macro: {
+      kick: vi.fn(async () => {}),
+    },
     version: "0.1.0",
     ...overrides,
   };
@@ -152,7 +155,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-tab="settings"');
   });
 
-  it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏占位（禁用 + 默认值）", () => {
+  it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏配置（可编辑 + 默认值 + 上限）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const html = renderShell(model);
@@ -164,7 +167,8 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-stm-field="r2-bucket"');
     expect(html).toContain('data-stm-field="macro-name"');
     expect(html).toContain('value="{{memoryContext}}"');
-    expect(html).toContain("disabled");
+    expect(html).toContain('data-stm-field="macro-limit"');
+    expect(html).toContain('value="2000"');
   });
 
   it("设置 Tab：R2 配置输入可编辑（ticket 08 生效，非禁用）", () => {
@@ -186,9 +190,12 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(r2Inputs).toHaveLength(4);
     expect(r2Inputs.every((input) => !input.includes("disabled"))).toBe(true);
     expect(html).toContain('type="password"');
-    // 宏输入仍是禁用占位（ticket 15 生效）
+    // 宏输入已启用（ticket 15 生效）；上限输入就位且非禁用
     const macroInput = html.match(/<input[^>]*data-stm-field="macro-name"[^>]*>/)?.[0] ?? "";
-    expect(macroInput).toContain("disabled");
+    expect(macroInput).not.toContain("disabled");
+    const limitInput = html.match(/<input[^>]*data-stm-field="macro-limit"[^>]*>/)?.[0] ?? "";
+    expect(limitInput).toContain('type="number"');
+    expect(limitInput).not.toContain("disabled");
   });
 
   it("设置 Tab：云同步状态组（状态/最近同步/立即同步按钮）", () => {

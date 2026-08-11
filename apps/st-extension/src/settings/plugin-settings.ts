@@ -27,8 +27,10 @@ export interface PluginSettings {
   readonly enabled: boolean;
   /** R2 云同步配置（ticket 08 生效；ticket 06 仅占位展示） */
   readonly r2: R2Settings;
-  /** 记忆宏名（ticket 15 生效；ticket 06 仅占位展示；默认建议 {{memoryContext}}） */
+  /** 记忆宏名（ticket 15 生效；默认建议 {{memoryContext}}，用户可直接粘贴进提示词预设） */
   readonly macroName: string;
+  /** 记忆宏输出上限（字符，ticket 15；超出从尾部截断并附标记；默认 2000） */
+  readonly macroLimit: number;
   /** 对话文件镜像（ticket 16 生效） */
   readonly mirror: ChatMirrorSettings;
 }
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   enabled: true,
   r2: { accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "" },
   macroName: "{{memoryContext}}",
+  macroLimit: 2000,
   mirror: { enabled: true, includeHistory: true },
 };
 
@@ -59,6 +62,10 @@ export function mergeSettings(raw: unknown): PluginSettings {
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     r2: mergeR2(source.r2),
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
+    macroLimit:
+      typeof source.macroLimit === "number" && Number.isFinite(source.macroLimit) && source.macroLimit >= 0
+        ? source.macroLimit
+        : DEFAULT_SETTINGS.macroLimit,
     mirror: mergeMirror(source.mirror),
   };
 }

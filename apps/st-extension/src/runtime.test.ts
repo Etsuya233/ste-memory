@@ -266,6 +266,55 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await spaceRepository.list()).toHaveLength(0);
   });
 
+  it("记忆宏接线（ticket 15）：默认宏名注册；数据变更后快照含最新记忆；改名/停用注销", async () => {
+    const db = createTestDatabase();
+    const registered = new Map<string, (context: unknown) => string>();
+    const { context } = fakeStContext({
+      // 设置写入需要 extensionSettings 对象（缺失时 StSettingsStore 静默跳过写入）
+      extensionSettings: {},
+      macros: {
+        register: (name, options) => void registered.set(name, options.handler),
+        registry: { unregisterMacro: (name) => registered.delete(name) },
+      },
+    });
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+
+    // 默认名 {{memoryContext}} 解析为裸标识符注册；空库无记录：空表省略 → 快照为空串
+    expect([...registered.keys()]).toEqual(["memoryContext"]);
+    expect(runtime.macro.getSnapshot()).toBe("");
+
+    // 手动创建一条记录（人物表，必填 name）：kick 后快照重建，handler 展开最新记忆
+    const charactersTable = status.space
+      ? (await runtime.tables.list(status.space.id)).find((t) => t.key === "characters")
+      : undefined;
+    if (!charactersTable) throw new Error("expect characters table");
+    const nameField = (await runtime.fields.list(status.space.id, charactersTable.id)).find(
+      (f) => f.key === "name",
+    );
+    if (!nameField) throw new Error("expect name field");
+    await runtime.records.create(status.space.id, charactersTable.id, {
+      payload: { [nameField.id]: "张三" },
+    });
+    await runtime.macro.kick();
+    const snapshot = registered.get("memoryContext")!({});
+    expect(snapshot).toContain("【人物】");
+    expect(snapshot).toContain("张三");
+    expect(runtime.macro.getSnapshot()).toBe(snapshot);
+
+    // 设置面板改名：写设置 + kick → 注销旧名、注册新名
+    const next = { ...runtime.settings.read(), macroName: "{{myMemory}}" };
+    runtime.settings.write(next);
+    await runtime.macro.kick();
+    expect([...registered.keys()]).toEqual(["myMemory"]);
+
+    // 插件总开关关闭：注销（无注入）
+    runtime.settings.write({ ...next, enabled: false });
+    await runtime.macro.kick();
+    expect(registered.size).toBe(0);
+  });
+
   it("填表任务接线（ticket 13）：启动把非终态任务标记 interrupted（关页不自动重放）；tasks 暴露可用", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext({ chat: [{ mes: "hi" }] });

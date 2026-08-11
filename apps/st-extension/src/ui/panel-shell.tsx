@@ -116,6 +116,8 @@ export interface PanelRuntime {
   >;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
+  /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
+  readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
   /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
@@ -1165,6 +1167,8 @@ function SettingsTab(props: {
     if (enabled) {
       // 重新启用立即恢复空间同步（关闭期间 CHAT_CHANGED 被门控跳过）
       void props.runtime.manager.syncToCurrentChat().catch(reportError);
+      // 记忆宏同样重新评估：停用期间已注销 + 停止轮询，不 kick 则宏不恢复注册
+      void props.runtime.macro.kick().catch(reportError);
     }
   }
 
@@ -1241,6 +1245,24 @@ function SettingsTab(props: {
     } catch (error) {
       reportError(error);
     }
+  }
+
+  /** 记忆宏名变化：写设置 + 立即重新注册/重建（宏名不合法时注销 = 无注入） */
+  function updateMacroName(value: string): void {
+    const next = { ...props.settings, macroName: value };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    void props.runtime.macro.kick().catch(reportError);
+  }
+
+  /** 记忆宏上限变化：写设置 + 立即按新上限重建快照 */
+  function updateMacroLimit(value: string): void {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) return; // 非法输入不落库
+    const next = { ...props.settings, macroLimit: parsed };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    void props.runtime.macro.kick().catch(reportError);
   }
 
   return (
@@ -1430,16 +1452,28 @@ function SettingsTab(props: {
         </div>
       </div>
       <div className="stm-setting-group">
-        <div className="stm-setting-group-title">记忆宏（后续版本开放）</div>
+        <div className="stm-setting-group-title">记忆宏</div>
         <input
           className="stm-input"
           type="text"
           data-stm-field="macro-name"
           value={props.settings.macroName}
-          disabled
+          placeholder="{{memoryContext}}"
+          onChange={(event) => updateMacroName(event.target.value)}
+        />
+        <input
+          className="stm-input"
+          type="number"
+          min="0"
+          step="100"
+          data-stm-field="macro-limit"
+          value={props.settings.macroLimit}
+          onChange={(event) => updateMacroLimit(event.target.value)}
         />
         <div className="stm-setting-hint">
-          宏名可自定义；放入提示词预设后，生成时展开当前记忆上下文
+          宏名放入提示词预设（角色卡/系统提示/作者注释）后，生成时展开当前记忆上下文：
+          按启用表分组、空表省略，超过上方字符上限从尾部截断并附「……（已截断）」标记；
+          不填宏名则不注入
         </div>
       </div>
     </>

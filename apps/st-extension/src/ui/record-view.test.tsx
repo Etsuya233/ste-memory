@@ -88,6 +88,9 @@ function fakeRuntime(): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    macro: {
+      kick: vi.fn(async () => {}),
+    },
     version: "0.1.0",
   };
 }

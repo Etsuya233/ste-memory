@@ -70,6 +70,38 @@ node verify.mjs
   扩展等待条件与 DOM 断言。
 - 截图对 AI 阅读不友好（本模型看不了图），DOM 断言才是主证据，截图只给人看。
 
+## ticket 15 验收脚本（verify-memory-macro.mjs）
+
+```bash
+node verify-memory-macro.mjs   # exit 0 = 全流程通过（7 项断言）
+```
+
+真实 ST 中走完「宏注册 → 快照预计算 → 数据变更后展开最新记忆 → 宏名自定义 → 上限截断 →
+停用无注入」全流程（Windows 上 ST 数据目录不在默认路径时用 `STE_ST_DATA` 指定）：
+
+1. 打开测试角色对话建空间 → 默认宏名 `{{memoryContext}}` 解析为裸标识符注册
+   （`macros.registry.hasMacro` 断言；验证名字不带花括号）
+2. 空库展开为空串（空表省略；宏仍注册 = 不放置宏则无注入）
+3. 经插件运行时建记录（`__STE_MEMORY_RUNTIME__`，core 服务全链路）+ `macro.kick()` →
+   宏引擎真实展开（`macros.engine.evaluate`）含分组标题与记录显示文本
+4. 第二条记录：组内最新在前（新记录先于旧记录）
+5. 设置上限 9 字符 + kick → 展开以「……（已截断）」结尾、总长 = 上限
+6. 设置面板改宏名为 `{{myMemory}}`（React 受控输入用原生 setter 赋值）→
+   旧名注销、新名注册且展开同样生效
+7. 自清理：删除验收记录 + 恢复默认设置（等 2.5s 防抖落盘，保证下次运行起点干净）
+
+踩过的坑（2026-08-11 首次全绿，Windows + headless chromium）：
+
+- **宏引擎 env 不能传空对象**：`engine.evaluate(text, {})` 会先访问 `env.dynamicMacros`
+  （`Object.hasOwn(undefined, ...)` 抛 TypeError → 引擎回退原文不展开）。最小 env =
+  `{ dynamicMacros: {}, functions: { postProcess: (r) => r } }`（handler 不消费 env）。
+- **验收数据必须经 core 服务写入**（运行时 `records.create`）：直接写 indexedDB 的行没有
+  displayText/updatedAt，宏快照（复用显示策略）与指纹（变更检测）都不会反映。
+- **清聊天文件残留 → 全新建空间**（与 verify-ui-shell 同法）；窗口内写设置后要等防抖落盘
+  再结束，否则 settings.json 残留旧值影响下次运行。
+- **`{{memoryContext}}` 默认值含花括号**：注册名是剥离后的裸标识符（ST 标识符规则
+  字母开头 + 字母数字连字符），`hasMacro` 断言必须用裸名。
+
 ## ticket 06 验收脚本（verify-ui-shell.mjs）
 
 ```bash

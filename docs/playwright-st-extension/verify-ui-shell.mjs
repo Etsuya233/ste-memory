@@ -357,6 +357,7 @@ async function main() {
       const text = section?.textContent ?? "";
       const r2Inputs = [...section.querySelectorAll('input[data-stm-field^="r2-"]')];
       const macroInput = section.querySelector('input[data-stm-field="macro-name"]');
+      const limitInput = section.querySelector('input[data-stm-field="macro-limit"]');
       return {
         hasPluginSwitch: !!section?.querySelector('input[data-action="toggle-plugin"]'),
         pluginSwitchOn: section?.querySelector('input[data-action="toggle-plugin"]')?.checked ?? null,
@@ -364,7 +365,9 @@ async function main() {
         hasStatus: text.includes("运行状态") && text.includes("空间同步正常"),
         // ticket 08：R2 四项为可编辑输入（未配置时值为空）
         r2Editable: r2Inputs.length === 4 && r2Inputs.every((i) => !i.disabled),
-        macroDisabled: macroInput?.disabled === true && macroInput?.value === "{{memoryContext}}",
+        // ticket 15：宏名与上限为可编辑输入（默认 {{memoryContext}} / 2000）
+        macroEditable: macroInput?.disabled === false && macroInput?.value === "{{memoryContext}}"
+          && limitInput?.disabled === false && limitInput?.value === "2000",
         hasBackup: !!section?.querySelector('button[data-action="export-backup"]')
           && !!section?.querySelector('button[data-action="import-backup"]')
           && !!section?.querySelector('input[data-stm-field="import-backup-file"]'),
@@ -381,7 +384,7 @@ async function main() {
     check("设置 Tab：R2 配置可编辑（4 个输入，ticket 08 生效）", settings.r2Editable);
     check("设置 Tab：同步状态组（状态行 + 立即同步按钮）", settings.hasSyncStatus);
     check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
-    check("设置 Tab：记忆宏占位（禁用 + 默认名 {{memoryContext}}）", settings.macroDisabled);
+    check("设置 Tab：记忆宏配置可编辑（宏名默认 {{memoryContext}} + 上限 2000，ticket 15 生效）", settings.macroEditable);
     check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);
 
     // 插件总开关：关闭 → extensionSettings 持久化；打开 → 恢复

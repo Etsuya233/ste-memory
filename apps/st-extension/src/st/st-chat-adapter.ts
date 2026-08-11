@@ -5,6 +5,7 @@ import type {
   ChatSpaceBinding,
 } from "../space-binding/chat-space-manager.ts";
 import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.ts";
+import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
 import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
 import { resolveFloorJump } from "./floor-jump.ts";
 /**
@@ -48,6 +49,21 @@ export interface StContext {
     readonly CHAT_CHANGED: string;
     readonly MESSAGE_SENT: string;
     readonly MESSAGE_RECEIVED: string;
+  };
+  /**
+   * ST 新宏引擎（public/scripts/macros/macro-system.js 已核实，release 1.18.0）：
+   * register(name, { handler, description, ... }) 的 name 是裸标识符（不含花括号），
+   * 查找大小写不敏感；同名注册覆盖并警告；handler 严格同步（Promise 会被字符串化）；
+   * registry.unregisterMacro(name) 注销。记忆宏（ticket 15 / ADR 0004）经此注册。
+   */
+  macros?: {
+    readonly register: (
+      name: string,
+      options: { readonly handler: (context: unknown) => string },
+    ) => unknown;
+    readonly registry?: {
+      readonly unregisterMacro: (name: string) => boolean;
+    };
   };
 }
 
@@ -138,6 +154,21 @@ export class StChatAdapter {
         if (!metadata) return;
         metadata[CHAT_METADATA_MIRROR_KEY] = file;
         context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  /**
+   * 记忆宏注册端口（ticket 15 / ADR 0004）：name 为裸标识符（含花括号会被 ST
+   * 校验拒绝）；宿主缺失 macros 时静默跳过（无宏引擎 = 无注入，不报错）。
+   */
+  get macroRegistration(): MemoryMacroRegistrationPort {
+    return {
+      register: (name, handler) => {
+        this.#getContext().macros?.register(name, { handler });
+      },
+      unregister: (name) => {
+        this.#getContext().macros?.registry?.unregisterMacro(name);
       },
     };
   }

@@ -31,6 +31,7 @@ import {
   SteMemoryDatabase,
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
+import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
@@ -59,6 +60,8 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
+  /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
+  readonly macro: MemoryMacroService;
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
    * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
   readonly createLlm: () => LlmPort;
@@ -259,6 +262,31 @@ export async function startSteMemory(
   // 镜像同步在 R2 拉取之后启动：拉取恢复的数据会在轮询中回填进对话文件（文件自洽）
   await mirror.start();
 
+  // 记忆宏（ticket 15 / ADR 0004）：注册由设置面板配置的宏名，预计算快照随变更指纹
+  // 重建（与镜像/云同步同机制）；handler 同步返回快照（ST 宏引擎同步约束）
+  const macro = new MemoryMacroService({
+    getSpaceId: () => {
+      const status = manager.getStatus();
+      return status?.kind === "active" ? status.space.id : undefined;
+    },
+    data: { listTables: (id) => tableRepository.list(id), listRecords: (id, tableId) => recordRepository.list(id, tableId) },
+    readSettings: () => {
+      const settingsValue = settings.read();
+      return {
+        enabled: settingsValue.enabled,
+        macroName: settingsValue.macroName,
+        macroLimit: settingsValue.macroLimit,
+      };
+    },
+    registerMacro: adapter.macroRegistration,
+    changes: new DexieSyncChangeSource(db),
+    log: {
+      info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+      error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
+    },
+  });
+
   adapter.registerEventBridge({
     onChatChanged: () => {
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
@@ -274,6 +302,9 @@ export async function startSteMemory(
   if (settings.read().enabled) {
     await manager.syncToCurrentChat();
   }
+  // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
+  // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
+  await macro.start();
   return {
     manager,
     adapter,
@@ -286,6 +317,7 @@ export async function startSteMemory(
     sync,
     mirror,
     tasks,
+    macro,
     createLlm,
     version: options.version ?? "",
   };
