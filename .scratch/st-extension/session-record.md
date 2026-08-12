@@ -167,3 +167,46 @@ core/api/web 已建成可运行的记忆表格系统（领域模型 + 实验工�
 7. **测试先例**：`apps/web/src/api/*.test.ts`（纯逻辑测试，无 jsdom）、`apps/api/test/*`、core 端口测试；测试基建 = vitest + fake-indexeddb
 
 **开工规则**：只做当前 ticket 的验收标准；不重新调研 ST（事实已核实）；不改 spec/ADR（有出入先回来讨论）；术语用 glossary 词汇。
+
+## 10. 问答面板 grilling 会话（2026-08，QueryAgent 接入）
+
+主题：为 ST 插件接入 QueryAgent（core 已有只读问答 Agent，api/web 11.5 已做调试聊天先例，ST 插件已有填表 Agent）。逐轮决策：
+
+### Round 1 — 定位与边界
+
+| 问题 | 你的决定 | 落点 |
+|---|---|---|
+| Q1 定位 | **C 用户功能 + 调试工具兼得** | spec 决策 15 |
+| Q2 能力边界 | **B 双模式**（查询 + 交互式填写，对齐 api/web sidebar-mutate-agent） | ticket 20 |
+| Q3 思考流 | **B 升级适配器**展示思考（pi 原生 thinking 事件，已核实 0.83） | ticket 19 |
+| Q4 上下文 | **A v1 纯记忆问答**（不附剧情） | spec 决策 15 |
+
+### Round 2 — 形态与机制
+
+| 问题 | 你的决定 | 落点 |
+|---|---|---|
+| Q5 入口 | **A 面板新 Tab「问答」**，内部「查询/填写」模式切换；复制回答有、发送到对话无 | ticket 20 |
+| Q6 闸门 | **A prompt 软闸门**（对齐 api/web，硬闸门后续） | ticket 20 |
+| Q7 历史 | **A 页面内存**（按空间×模式，刷新即失） | ticket 20 |
+| Q8 预设 | **A 不扩展**（core 固定提示词，预设档案保持填表专用） | ADR 0009 |
+| Q9 日志 | **A 不落通用日志**（交互式过程 UI 即记录） | ADR 0009 |
+| Q10 剧情上下文 | **A 零注入**（"把刚才的对话记下来"走后台填表任务） | ADR 0009 |
+
+### Round 3 — 收尾
+
+| 问题 | 你的决定 | 落点 |
+|---|---|---|
+| Q11 运行中切对话 | **A 查询继续、填写提交前校验空间一致** | ticket 20 决策 7 |
+| Q12 拆票 | **B 两票**：19-思考流适配器升级；20-问答面板（双模式） | issues/19、20 |
+| Q13 文档产物 | **全部落**：ADR 0009 + spec 决策 15/故事 48-50 + 术语 + session-record + tickets | 本文件 |
+| Q14 思考流开关 | **B 按消费者开**（缺省 false，填表任务零变化——你追问「为什么影响填表任务」后收敛） | ticket 19 决策 1 |
+
+### 沿用先例（未再开问题）
+
+并发写入直通不经守卫（web 决策 8）、revisionSource = "agent"（决策 10）、提交后不自动刷新给刷新入口（决策 7）、取消 AbortController / stopReason "aborted"、总超时 5 分钟、多轮无状态回传工具结果不跨轮、无 LLM 配置表单（ST backends 复用用户配置）、静默降级。
+
+### 事实补充（本轮核实）
+
+- ST generate 端点支持 include_reasoning 透传（chat-completions.js:459/561：thinkingConfig includeThoughts；326-348 各后端 thinking 配置）——解除 v1 已知取舍可行。
+- pi-ai 0.83 原生 thinking_start/thinking_delta/thinking_end 事件与 ThinkingContent 块（dist/types.d.ts:393-405）——解析输出无需自定义事件。
+- 适配器为共享件（runtime.ts:175 createStLlmPort 唯一实例、buildStGenerateBody 写死 include_reasoning: false、流解析只消费 delta.content/tool_calls）——思考流升级天然牵动填表任务，故拆独立票 19 且缺省关。

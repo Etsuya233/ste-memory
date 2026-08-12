@@ -82,6 +82,9 @@ Status: ready-for-agent
 45. 作为用户，我通过酒馆顶部工具栏按钮呼出/收起记忆面板，以便不干扰聊天界面
 46. 作为用户，面板在桌面与手机宽度下都可用，以便 TauriTavern 上操作
 47. 作为用户，面板显示当前空间的表格列表、记录视图与任务状态入口，以便一站式管理
+48. 作为用户，我可以在面板「问答」Tab 中向当前记忆空间提问，得到基于表格记录的流式回答（思考与工具调用过程可见），以便直接查询记忆内容并调试提示词
+49. 作为用户，我可以在「问答」Tab 中切换到「填写」模式，通过对话让 Agent 提出记忆记录变更，并在明确同意后提交，以便不离开面板修改记录
+50. 作为用户，我可以在提问中停止 Agent、复制回答，切换对话/模式后历史互不混淆，以便聊天过程可控
 
 ## Implementation Decisions
 
@@ -99,8 +102,9 @@ Status: ready-for-agent
 10. **工程（ADR 0020）**：新包 `apps/st-extension`（TS + esbuild，dev watch 拷贝进 ST `extensions/third-party/`）；发版拉 `sillytavern-release` 分支、manifest 放仓库根目录（支持 ST 按 URL 安装）。系统表模板收进 `packages/` 共享包，apps/api 与插件共用。
 11. **UI 风格契约（「记忆账本」方向）**：顶部工具栏按钮 + 自绘浮层面板（ST 已无侧栏面板 API）。**自包含视觉**：React 组件（esbuild 打进单文件 bundle，ADR 0005；纯逻辑 seam 与测试策略不变），不依赖 ST 主题变量，类名前缀 `stm-` 隔离；深色为默认主题，浅色模式后置。**色板全部走 CSS 自定义属性**（`--stm-*` 设计令牌，集中一处定义：墨底 `#171A20`、浮面 `#21252E`、墨字 `#E7EAF0`、次字 `#98A0B2`、签名色铜绿 `#6FA894`、成功 `#7FB08A`、危险 `#C96A6A`、警示 `#D9A25F`），后续调色/加浅色模式/主题设置只改令牌区块。**字体**：正文系统 CJK 栈，楼层号/时间/计数用等宽数字。**布局移动端优先**：手机（TauriTavern）全屏底部抽屉 + 底部 Tab（表格/记录/任务/设置）、触控目标 ≥44px、操作一步到位；桌面为浮动面板，同一套 Tab 结构；表格自绘紧凑账本行（字段值 + 证据 chip 同排）。**签名元素**：证据楼层 chip（铜绿 + 等宽 `#N`，点按跳转 ST 对应消息，悬停/长按浮出原文摘录）——全插件唯一的花哨点。动效只留抽屉开合与同步状态变化，尊重 reduced-motion；文案「空状态是邀请」风格。面板包含：空间信息（名称 + 同步状态）、表格列表（启停）、记录视图、任务状态、设置入口。
 12. **Agent 提示词预设（ADR 0006，ticket 17）**：填表 Agent 系统提示词可被预设覆盖——预设 = 命名档案（片段：命名 + 内容 + 开关 + 排序），全局活动预设 + 内置只读系统默认预设；**模板模式**（不自动追加 digest，`{{tablesDigest}}`/`{{systemDefaultPrompt}}` 显式引用）；占位符**自研展开**不接 ST MacroEngine（`{{user}}`/`{{char}}`（群聊=群名）/`{{tablesDigest}}`/`{{systemDefaultPrompt}}`，未知原样保留）；core/api/web 零改动（ProposalAgent `composeSystemPrompt` 注入点）。
-13. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 + 对话文件镜像（ticket 16）→ Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → 后期（自动回填/自动填表、交互式填写 Agent、Google Drive 适配器、Server Plugin）。
-14. **术语**：同步楼层、记忆宏、记忆空间绑定（apps/st-extension/CONTEXT.md）。
+13. **路线图**：Phase 1 底层架构（骨架 + Dexie 持久层 + 空间绑定 + UI 壳 + 手动导出/导入 + 消息同步基础）→ Phase 1.5 R2 云同步 + 对话文件镜像（ticket 16）→ Phase 2 手动 CRUD（建表 + 字段定义编辑器 + 记录增删改）→ Phase 3 手动楼层填表 → Phase 4 记忆宏 → Phase 5 问答面板（查询/填写双模式，ticket 20）→ 后期（自动回填/自动填表、交互式填写硬闸门、Google Drive 适配器、Server Plugin）。
+14. **术语**：同步楼层、记忆宏、记忆空间绑定、问答面板（apps/st-extension/CONTEXT.md）。
+15. **问答面板（ADR 0009，ticket 19/20）**：面板新 Tab「问答」，内置「查询 / 填写」双模式——查询模式 = QueryAgent 只读问答（core 固定提示词）；填写模式 = 交互式填写（prompt 软闸门：Agent 陈述变更并征得用户明确同意后提交，直通 repository 不经任务守卫，revisionSource = "agent"，修订校验兜底并发）。思考流经适配器 `includeReasoning` 选项（缺省 false，填表任务零变化）开启，思考块折叠展示，模型不支持时静默降级。聊天历史按（空间 × 模式）存页面内存，不落库、不进通用日志；零剧情注入（"把刚才的对话记下来"走填表任务）；运行中切换对话：查询继续、填写提交前校验空间一致。提示词固定不扩展预设档案；「发送到对话」不做，提供复制回答。
 
 ## Testing Decisions
 
@@ -114,7 +118,7 @@ Status: ready-for-agent
 ## Out of Scope
 
 - 复用 api/web 的代码；清洗规则移植（ST Regex 替代）
-- 消息全文存储；自动回填/自动填表触发；交互式填写 Agent 面板（含硬闸门确认）
+- 消息全文存储；自动回填/自动填表触发；交互式填写硬闸门（run 暂停/恢复 + pending 待决状态）
 - 认证与密钥安全加固（本地单用户，密钥明文存浏览器）
 - Google Drive 适配器（OAuth）；Server Plugin；镜像与 R2 的跨服务协调（单通道，各自本地优先）；多设备并发冲突解决（LWW 足够）
 - TauriTavern 原生桥（`window.__TAURI__` 文件系统直连）——留作未来评估
