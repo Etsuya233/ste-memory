@@ -32,16 +32,14 @@ import {
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
+import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
+import { composePresetSystemPrompt } from "./agent-presets/preset-composer.ts";
 import {
-  AgentMacroService,
-} from "./agent-presets/agent-macro-service.ts";
-import {
-  composePresetSystemPrompt,
-} from "./agent-presets/preset-composer.ts";
-import {
+  containsWorldbookReference,
   presetPromptText,
   resolveActivePreset,
 } from "./agent-presets/preset-model.ts";
+import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
@@ -172,14 +170,34 @@ export async function startSteMemory(
   };
   const createLlm = (): LlmPort => createStLlmPort(() => getContext() as StContext);
   /**
-   * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006）：提交时构造一次——
-   * 活动预设文本 + 对话双方名字快照；系统默认预设 → undefined（用核心默认组合器）。
-   * 每次任务首次组合时 log 最终 system prompt（调试/验收可见，块间不重复刷）。
+   * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006；世界书 ADR 0007）：
+   * 提交时构造一次——活动预设文本 + 对话双方名字快照 + 世界书扫描文本快照；
+   * 系统默认预设 → undefined（用核心默认组合器）。
+   * 预设启用片段含 {{worldbook}} 才扫描（零引用零开销）；扫描失败 → 空串 + warn，
+   * 不阻断任务（用户决策）；每次任务首次组合时 log 最终 system prompt。
    */
-  const createComposeSystemPrompt = (): ProposalSystemPromptComposer | undefined => {
+  const createComposeSystemPrompt = async (
+    storyText: string,
+  ): Promise<ProposalSystemPromptComposer | undefined> => {
     const preset = resolveActivePreset(settings.read().agentPresets);
     if (!preset) return undefined;
-    const compose = composePresetSystemPrompt(presetPromptText(preset), adapter.getPromptNames());
+    let worldbookText = "";
+    if (containsWorldbookReference(preset)) {
+      try {
+        worldbookText = await scanWorldbookText(getContext() as StContext, storyText);
+      } catch (error) {
+        log.warn(
+          `[${PLUGIN_DISPLAY_NAME}] 世界书扫描失败，{{worldbook}} 展开为空：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    const compose = composePresetSystemPrompt(
+      presetPromptText(preset),
+      adapter.getPromptNames(),
+      worldbookText,
+    );
     let logged = false;
     return (digest) => {
       const prompt = compose(digest);
@@ -302,7 +320,10 @@ export async function startSteMemory(
       const status = manager.getStatus();
       return status?.kind === "active" ? status.space.id : undefined;
     },
-    data: { listTables: (id) => tableRepository.list(id), listRecords: (id, tableId) => recordRepository.list(id, tableId) },
+    data: {
+      listTables: (id) => tableRepository.list(id),
+      listRecords: (id, tableId) => recordRepository.list(id, tableId),
+    },
     readSettings: () => {
       const settingsValue = settings.read();
       return {

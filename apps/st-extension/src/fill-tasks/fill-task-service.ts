@@ -20,8 +20,13 @@ import type {
 } from "@ste-memory/core/memory";
 import type { MemoryEvidenceRepository, MemoryProposalPorts } from "@ste-memory/core/memory";
 import { commitMemoryProposalBatch } from "@ste-memory/core/memory";
-import { ProposalAgent, type LlmPort, type MemorySpaceReader, type ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
-import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
+import {
+  ProposalAgent,
+  type LlmPort,
+  type MemorySpaceReader,
+  type ProposalSystemPromptComposer,
+} from "@ste-memory/core/memory/agent";
+import { buildBlockEvidence, buildMergedStoryText, composeBlockPrompt } from "./fill-task-block.ts";
 import {
   FillTaskConflictError,
   FillTaskNotFoundError,
@@ -71,10 +76,14 @@ export interface FillTaskServiceOptions {
   /** LLM 端口工厂：任务开始时读 ST 当前配置构造一次（模型+参数快照） */
   readonly createLlm: () => LlmPort;
   /**
-   * 系统提示词组合器工厂（ticket 17）：任务开始时构造一次（预设文本 + 对话双方
-   * 名字快照）；缺省 = 核心默认组合器（系统默认预设）。返回 undefined 同样用默认。
+   * 系统提示词组合器工厂（ticket 17 / ADR 0006；世界书占位符 ADR 0007）：
+   * 任务开始时构造一次（预设文本 + 对话双方名字快照），接收任务范围合并剧情
+   * 文本（{{worldbook}} 扫描输入）；缺省 = 核心默认组合器（系统默认预设）。
+   * 返回 undefined 同样用默认。
    */
-  readonly createComposeSystemPrompt?: () => ProposalSystemPromptComposer | undefined;
+  readonly createComposeSystemPrompt?: (
+    storyText: string,
+  ) => Promise<ProposalSystemPromptComposer | undefined>;
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -92,7 +101,8 @@ export class FillTaskService {
   readonly #commitContext: MemoryRecordMutationContext;
   readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
-  readonly #createComposeSystemPrompt: () => ProposalSystemPromptComposer | undefined;
+  readonly #createComposeSystemPrompt:
+    ((storyText: string) => Promise<ProposalSystemPromptComposer | undefined>) | undefined;
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -108,8 +118,7 @@ export class FillTaskService {
     this.#commitContext = options.commitContext;
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
-    this.#createComposeSystemPrompt =
-      options.createComposeSystemPrompt ?? (() => undefined);
+    this.#createComposeSystemPrompt = options.createComposeSystemPrompt;
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -144,7 +153,14 @@ export class FillTaskService {
     // 配置缺失在提交时立即失败（createLlm 读 ST 当前配置，缺失抛中文错误），
     // 而不是等后台循环启动后才失败。
     const llm = this.#createLlm();
-    const composeSystemPrompt = this.#createComposeSystemPrompt();
+    // 合并剧情文本（世界书扫描输入，ADR 0007）：仅当宿主注入组合器工厂时才构建
+    //（缺省 = 系统默认预设 → 核心默认组合器，无扫描无构建）。
+    const composeSystemPrompt =
+      this.#createComposeSystemPrompt === undefined
+        ? undefined
+        : await this.#createComposeSystemPrompt(
+            buildMergedStoryText(this.#source.messagesInRange(input.from, input.to)),
+          );
 
     const now = this.#now();
     const task: FillTask = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBlockEvidence, composeBlockPrompt } from "./fill-task-block.ts";
+import { buildBlockEvidence, buildMergedStoryText, composeBlockPrompt } from "./fill-task-block.ts";
 import type { FillSourceMessage } from "./fill-task.ts";
 import type { MemoryEvidence, MemoryEvidenceId, MemorySpaceId } from "@ste-memory/core/memory";
 
@@ -64,5 +64,28 @@ describe("composeBlockPrompt（块提示词：任务输入 = 原始消息内容�
     // 原文保留格式化标记：ST Regex 由用户自行负责，任务输入不套清洗规则
     expect(prompt).toContain("**带标记**");
     expect(prompt).toContain("请依据这些消息更新记忆表格");
+  });
+});
+
+describe("buildMergedStoryText（世界书扫描输入：名字：内容逐行拼接，ADR 0007）", () => {
+  it("名字：内容逐行拼接（保留楼层升序），无名消息裸内容，换行连接", () => {
+    const merged = buildMergedStoryText([
+      { floor: 0, name: "爱丽丝", content: "你好" },
+      { floor: 1, name: "", content: "系统提示" },
+      { floor: 2, name: "小明", content: "再见" },
+    ]);
+    expect(merged).toBe("爱丽丝：你好\n系统提示\n小明：再见");
+  });
+
+  it("空数组 → 空串（无剧情可匹配，扫描自然返回空）", () => {
+    expect(buildMergedStoryText([])).toBe("");
+  });
+
+  it("保留传入顺序（调用方 messagesInRange 保证楼层升序；本函数不排序不裁剪）", () => {
+    const merged = buildMergedStoryText([
+      { floor: 5, name: "爱丽丝", content: "后段" },
+      { floor: 3, name: "鲍勃", content: "前段" },
+    ]);
+    expect(merged).toBe("爱丽丝：后段\n鲍勃：前段");
   });
 });

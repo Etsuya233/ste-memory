@@ -30,6 +30,17 @@ export interface StContext {
   groups?: readonly { id: string | number; name?: string }[];
   /** 当前对话消息数组（同步楼层 = 数组下标，ADR 0003） */
   chat?: readonly unknown[];
+  /** 当前上下文大小（token；ST getContext().maxContext = Number(max_context)） */
+  maxContext?: number;
+  /**
+   * ST 世界书扫描（getContext().getWorldInfoPrompt，release 1.18.0 已核实）：
+   * 把剧情文本包成单条消息委托 ST 匹配（ADR 0007）；旧版 ST 无此函数 → 插件降级空串。
+   */
+  getWorldInfoPrompt?: (
+    chat: readonly unknown[],
+    maxContext: number,
+    isDryRun: boolean,
+  ) => Promise<{ readonly worldInfoString: string }>;
   /** 随对话文件持久化的元数据对象（saveChat 全量重写聊天文件时携带，重命名自动跟随） */
   chatMetadata?: Record<string, unknown>;
   /** 防抖持久化 chatMetadata（script.js saveMetadataDebounced） */

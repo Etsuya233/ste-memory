@@ -8,6 +8,7 @@ import {
   AGENT_PRESET_EXPORT_VERSION,
   BUILTIN_AGENT_PRESET_ID,
   containsDigestReference,
+  containsWorldbookReference,
   createAgentPreset,
   deleteAgentPreset,
   duplicateAgentPreset,
@@ -58,7 +59,10 @@ describe("创建与复制预设", () => {
   it("createAgentPreset：新建预设含一个空启用片段，并自动设为活动预设", () => {
     const next = createAgentPreset(settings(), "破限", sequentialIds());
     expect(next.presets).toHaveLength(1);
-    expect(next.presets[0]).toMatchObject({ name: "破限", fragments: [{ enabled: true, content: "", name: "" }] });
+    expect(next.presets[0]).toMatchObject({
+      name: "破限",
+      fragments: [{ enabled: true, content: "", name: "" }],
+    });
     expect(next.activePresetId).toBe(next.presets[0]!.id);
   });
 
@@ -109,10 +113,7 @@ describe("删除与活动预设", () => {
 
   it("deleteAgentPreset：删除活动预设回退到系统默认", () => {
     const target = preset("p1", "活动的");
-    const next = deleteAgentPreset(
-      settings({ presets: [target], activePresetId: "p1" }),
-      "p1",
-    );
+    const next = deleteAgentPreset(settings({ presets: [target], activePresetId: "p1" }), "p1");
     expect(next.presets).toEqual([]);
     expect(next.activePresetId).toBe(BUILTIN_AGENT_PRESET_ID);
   });
@@ -132,7 +133,9 @@ describe("删除与活动预设", () => {
 
   it("setActiveAgentPreset：可以切回系统默认；未知 id 保持原样", () => {
     const s = settings({ presets: [preset("p1", "一")], activePresetId: "p1" });
-    expect(setActiveAgentPreset(s, BUILTIN_AGENT_PRESET_ID).activePresetId).toBe(BUILTIN_AGENT_PRESET_ID);
+    expect(setActiveAgentPreset(s, BUILTIN_AGENT_PRESET_ID).activePresetId).toBe(
+      BUILTIN_AGENT_PRESET_ID,
+    );
     expect(setActiveAgentPreset(s, "nope")).toBe(s);
   });
 
@@ -201,21 +204,15 @@ describe("片段操作", () => {
   });
 
   it("moveAgentPresetFragment：移动到指定索引（0 基），越界索引夹紧", () => {
-    expect(moveAgentPresetFragment(s(), "p1", "f1", 2).presets[0]!.fragments.map((f) => f.id)).toEqual([
-      "f2",
-      "f3",
-      "f1",
-    ]);
-    expect(moveAgentPresetFragment(s(), "p1", "f2", 99).presets[0]!.fragments.map((f) => f.id)).toEqual([
-      "f1",
-      "f3",
-      "f2",
-    ]);
-    expect(moveAgentPresetFragment(s(), "p1", "f3", -5).presets[0]!.fragments.map((f) => f.id)).toEqual([
-      "f3",
-      "f1",
-      "f2",
-    ]);
+    expect(
+      moveAgentPresetFragment(s(), "p1", "f1", 2).presets[0]!.fragments.map((f) => f.id),
+    ).toEqual(["f2", "f3", "f1"]);
+    expect(
+      moveAgentPresetFragment(s(), "p1", "f2", 99).presets[0]!.fragments.map((f) => f.id),
+    ).toEqual(["f1", "f3", "f2"]);
+    expect(
+      moveAgentPresetFragment(s(), "p1", "f3", -5).presets[0]!.fragments.map((f) => f.id),
+    ).toEqual(["f3", "f1", "f2"]);
     // 目标索引 = 当前位置：原样
     expect(moveAgentPresetFragment(s(), "p1", "f2", 1)).toEqual(s());
   });
@@ -245,10 +242,28 @@ describe("提示词文本与 digest 引用", () => {
     expect(containsDigestReference(withDigest("没有引用"))).toBe(false);
     expect(
       containsDigestReference(
-        preset("p2", "x", [fragment("f1", "{{tablesDigest}}", false), fragment("f2", "普通", true)]),
+        preset("p2", "x", [
+          fragment("f1", "{{tablesDigest}}", false),
+          fragment("f2", "普通", true),
+        ]),
       ),
     ).toBe(false);
     expect(containsDigestReference(preset("p3", "无片段", []))).toBe(false);
+  });
+
+  it("containsWorldbookReference：启用片段含 {{worldbook}} 即 true，停用片段不算", () => {
+    expect(
+      containsWorldbookReference(preset("p1", "x", [fragment("f1", "看 {{worldbook}}", true)])),
+    ).toBe(true);
+    expect(containsWorldbookReference(preset("p2", "x", [fragment("f1", "没有引用", true)]))).toBe(
+      false,
+    );
+    expect(
+      containsWorldbookReference(
+        preset("p3", "x", [fragment("f1", "{{worldbook}}", false), fragment("f2", "普通", true)]),
+      ),
+    ).toBe(false);
+    expect(containsWorldbookReference(preset("p4", "无片段", []))).toBe(false);
   });
 });
 
@@ -265,16 +280,16 @@ describe("导入导出（备份信封模式）", () => {
 
   it("parseAgentPresetExport：合法信封返回预设", () => {
     const p = preset("p1", "破限", [fragment("f1", "内容")]);
-    const parsed = parseAgentPresetExport(serializeAgentPresetExport(p, "2026-08-11T00:00:00.000Z"));
+    const parsed = parseAgentPresetExport(
+      serializeAgentPresetExport(p, "2026-08-11T00:00:00.000Z"),
+    );
     expect(parsed).toEqual(p);
   });
 
   it("parseAgentPresetExport：非法 JSON / 未知 format / 未知 version / 结构损坏都明确报错", () => {
     expect(() => parseAgentPresetExport("not json")).toThrow(/格式/i);
     expect(() =>
-      parseAgentPresetExport(
-        JSON.stringify({ format: "other", version: 1, preset: {} }),
-      ),
+      parseAgentPresetExport(JSON.stringify({ format: "other", version: 1, preset: {} })),
     ).toThrow(/格式/i);
     expect(() =>
       parseAgentPresetExport(

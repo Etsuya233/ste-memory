@@ -136,7 +136,9 @@ async function createHarness(
     readonly streamFn?: StreamFn;
     readonly createLlmThrows?: boolean;
     readonly source?: FillTaskSource;
-    readonly createComposeSystemPrompt?: () => ProposalSystemPromptComposer | undefined;
+    readonly createComposeSystemPrompt?: (
+      storyText: string,
+    ) => Promise<ProposalSystemPromptComposer | undefined>;
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -783,10 +785,11 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     const harness = await createHarness({
       streamFn: stream,
       // 与插件真实装配同构：预设文本 + 提交时快照的对话名字 → 组合器
-      createComposeSystemPrompt: () =>
+      createComposeSystemPrompt: async () =>
         composePresetSystemPrompt(
           "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
           { user: "小明", char: "爱丽丝" },
+          "",
         ),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
@@ -795,6 +798,33 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(seenSystemPrompt!).toContain("你是爱丽丝的破限填写员，服务于小明");
     expect(seenSystemPrompt!).toContain("可用表与字段"); // {{tablesDigest}} 展开
     expect(seenSystemPrompt!).not.toContain("{{char}}");
+  });
+
+  it("createComposeSystemPrompt：收到任务范围的合并剧情文本，{{worldbook}} 展开为扫描快照", async () => {
+    let seenStoryText: string | undefined;
+    let seenSystemPrompt: string | undefined;
+    const stream = scriptedStreamFn((context) => {
+      seenSystemPrompt = context.systemPrompt;
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createComposeSystemPrompt: async (storyText) => {
+        seenStoryText = storyText;
+        return composePresetSystemPrompt(
+          "世界观参考：\n{{worldbook}}",
+          { user: "小明", char: "爱丽丝" },
+          storyText,
+        );
+      },
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    await waitForTerminal(harness, view.runId);
+    // 合并文本 = 范围消息「名字：内容」逐行拼接（楼层升序），与构建契约一致
+    expect(seenStoryText).toBe("爱丽丝：消息 1\n鲍勃：[reg] 原始内容 **带标记**");
+    expect(seenSystemPrompt!).toContain(
+      "世界观参考：\n爱丽丝：消息 1\n鲍勃：[reg] 原始内容 **带标记**",
+    );
   });
 
   it("createComposeSystemPrompt 缺省：使用核心默认组合器（system prompt 为默认指令）", async () => {

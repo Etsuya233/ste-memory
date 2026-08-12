@@ -42,7 +42,11 @@ import {
   type AgentPromptFragment,
   type AgentPromptPreset,
 } from "../agent-presets/preset-model.ts";
-import { AGENT_PRESET_PLACEHOLDERS } from "../agent-presets/preset-composer.ts";
+import {
+  AGENT_PRESET_PLACEHOLDERS,
+  AGENT_PRESET_PLACEHOLDER_HINTS,
+  type AgentPresetPlaceholderName,
+} from "../agent-presets/preset-composer.ts";
 import { reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
 
 /** UI 层 id 工厂（设置写入时分配预设/片段 id；浏览器环境，缺省随机） */
@@ -190,7 +194,9 @@ export function AgentPresetManager(props: {
     const fromIndex = activePreset.fragments.findIndex((f) => f.id === active.id);
     const toIndex = activePreset.fragments.findIndex((f) => f.id === over.id);
     if (fromIndex < 0 || toIndex < 0) return;
-    apply((presets) => moveAgentPresetFragment(presets, activePreset.id, String(active.id), toIndex));
+    apply((presets) =>
+      moveAgentPresetFragment(presets, activePreset.id, String(active.id), toIndex),
+    );
   }
 
   const digestMissing = activePreset !== undefined && !containsDigestReference(activePreset);
@@ -201,7 +207,9 @@ export function AgentPresetManager(props: {
       <div className="stm-setting-row">
         <div className="stm-setting-label">
           <div className="stm-setting-name">当前预设</div>
-          <div className="stm-setting-hint">填表任务触发时使用；占位符展开当前对话与记忆空间信息</div>
+          <div className="stm-setting-hint">
+            填表任务触发时使用；占位符展开当前对话与记忆空间信息
+          </div>
         </div>
         <div className="stm-preset-list" data-stm-field="preset-list">
           <PresetRow
@@ -232,7 +240,12 @@ export function AgentPresetManager(props: {
         </div>
       </div>
       <div className="stm-setting-actions">
-        <button type="button" className="stm-button" data-action="create-preset" onClick={createNew}>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="create-preset"
+          onClick={createNew}
+        >
           新建
         </button>
         <button
@@ -313,14 +326,19 @@ export function AgentPresetManager(props: {
                 }}
               />
             </label>
-            <button type="button" className="stm-button" data-action="copy-preset-text" onClick={() => void copyCurrentText()}>
+            <button
+              type="button"
+              className="stm-button"
+              data-action="copy-preset-text"
+              onClick={() => void copyCurrentText()}
+            >
               复制全文
             </button>
           </div>
           {digestMissing && (
             <div className="stm-preset-warning" data-stm-field="digest-warning">
-              当前预设未引用 {"{{tablesDigest}}"} 或 {"{{systemDefaultPrompt}}"}：Agent 将失去表/字段摘要，
-              工具可用性下降。可点击下方占位符插入。
+              当前预设未引用 {"{{tablesDigest}}"} 或 {"{{systemDefaultPrompt}}"}：Agent
+              将失去表/字段摘要， 工具可用性下降。可点击下方占位符插入。
             </div>
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -335,7 +353,9 @@ export function AgentPresetManager(props: {
                   index={index}
                   expanded={expandedFragmentId === fragment.id}
                   onToggleExpand={() =>
-                    setExpandedFragmentId((current) => (current === fragment.id ? undefined : fragment.id))
+                    setExpandedFragmentId((current) =>
+                      current === fragment.id ? undefined : fragment.id,
+                    )
                   }
                   onUpdate={(patch) =>
                     apply((presets) =>
@@ -343,7 +363,9 @@ export function AgentPresetManager(props: {
                     )
                   }
                   onRemove={() =>
-                    apply((presets) => removeAgentPresetFragment(presets, activePreset.id, fragment.id))
+                    apply((presets) =>
+                      removeAgentPresetFragment(presets, activePreset.id, fragment.id),
+                    )
                   }
                 />
               ))}
@@ -353,7 +375,9 @@ export function AgentPresetManager(props: {
             type="button"
             className="stm-button stm-preset-add-fragment"
             data-action="add-fragment"
-            onClick={() => apply((presets) => addAgentPresetFragment(presets, activePreset.id, createUiId))}
+            onClick={() =>
+              apply((presets) => addAgentPresetFragment(presets, activePreset.id, createUiId))
+            }
           >
             + 添加片段
           </button>
@@ -424,7 +448,9 @@ function FragmentCard(props: {
   readonly index: number;
   readonly expanded: boolean;
   readonly onToggleExpand: () => void;
-  readonly onUpdate: (patch: Partial<Pick<AgentPromptFragment, "name" | "content" | "enabled">>) => void;
+  readonly onUpdate: (
+    patch: Partial<Pick<AgentPromptFragment, "name" | "content" | "enabled">>,
+  ) => void;
   readonly onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -502,11 +528,16 @@ function FragmentCard(props: {
           />
           <div className="stm-preset-placeholders">
             <span className="stm-preset-placeholders-label">占位符：</span>
-            {Object.values(AGENT_PRESET_PLACEHOLDERS).map((placeholder) => (
+            {(
+              Object.entries(AGENT_PRESET_PLACEHOLDERS) as Array<
+                [AgentPresetPlaceholderName, string]
+              >
+            ).map(([name, placeholder]) => (
               <button
                 key={placeholder}
                 type="button"
                 className="stm-chip"
+                title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
                 data-action="insert-placeholder"
                 data-placeholder={placeholder}
                 onClick={() => props.onUpdate({ content: props.fragment.content + placeholder })}

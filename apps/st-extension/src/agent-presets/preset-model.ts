@@ -63,7 +63,11 @@ export function createAgentPreset(
   name: string,
   createId: () => string,
 ): AgentPresetSettings {
-  const preset: AgentPromptPreset = { id: createId(), name, fragments: [createFragment(createId())] };
+  const preset: AgentPromptPreset = {
+    id: createId(),
+    name,
+    fragments: [createFragment(createId())],
+  };
   return { ...settings, presets: [...settings.presets, preset], activePresetId: preset.id };
 }
 
@@ -101,13 +105,17 @@ export function renameAgentPreset(
  * 删除预设；删除的是活动预设时回退到系统默认。
  * 预设不存在原样返回。
  */
-export function deleteAgentPreset(settings: AgentPresetSettings, presetId: string): AgentPresetSettings {
+export function deleteAgentPreset(
+  settings: AgentPresetSettings,
+  presetId: string,
+): AgentPresetSettings {
   if (!settings.presets.some((p) => p.id === presetId)) return settings;
   const presets = settings.presets.filter((p) => p.id !== presetId);
   return {
     ...settings,
     presets,
-    activePresetId: settings.activePresetId === presetId ? BUILTIN_AGENT_PRESET_ID : settings.activePresetId,
+    activePresetId:
+      settings.activePresetId === presetId ? BUILTIN_AGENT_PRESET_ID : settings.activePresetId,
   };
 }
 
@@ -222,8 +230,18 @@ export function presetPromptText(preset: AgentPromptPreset): string {
  */
 export function containsDigestReference(preset: AgentPromptPreset): boolean {
   return preset.fragments.some(
-    (f) => f.enabled && (f.content.includes("{{tablesDigest}}") || f.content.includes("{{systemDefaultPrompt}}")),
+    (f) =>
+      f.enabled &&
+      (f.content.includes("{{tablesDigest}}") || f.content.includes("{{systemDefaultPrompt}}")),
   );
+}
+
+/**
+ * {{worldbook}} 引用检测：任一**启用**片段含 {{worldbook}} 即需要世界书扫描
+ * （停用片段不算——它不进入最终提示词）。宿主据此决定是否调用 ST 扫描。
+ */
+export function containsWorldbookReference(preset: AgentPromptPreset): boolean {
+  return preset.fragments.some((f) => f.enabled && f.content.includes("{{worldbook}}"));
 }
 
 /** 序列化预设导出文件（信封：format/version/exportedAt/preset）。 */
@@ -249,7 +267,9 @@ export function parseAgentPresetExport(text: string): AgentPromptPreset {
     throw new Error("预设文件格式不匹配（ste-memory-agent-preset）");
   }
   if (raw.version !== AGENT_PRESET_EXPORT_VERSION) {
-    throw new Error(`预设文件版本 ${String(raw.version)} 不受支持（当前支持 v${AGENT_PRESET_EXPORT_VERSION}）`);
+    throw new Error(
+      `预设文件版本 ${String(raw.version)} 不受支持（当前支持 v${AGENT_PRESET_EXPORT_VERSION}）`,
+    );
   }
   const preset = raw.preset;
   if (!isRecord(preset) || typeof preset.name !== "string" || !Array.isArray(preset.fragments)) {

@@ -58,3 +58,16 @@ export function composeBlockPrompt(
     "请依据这些消息更新记忆表格；确认无需变更时直接结束对话。",
   ].join("\n");
 }
+
+/**
+ * 任务范围合并剧情文本：`名字：内容` 逐行换行拼接（保留传入顺序——调用方
+ * messagesInRange 保证楼层升序；无名消息裸内容）。这是世界书扫描的输入
+ * （ADR 0007）：单条合成消息 → 深度/递归/扫描范围规则自动退化为平凡情形。
+ */
+export function buildMergedStoryText(messages: readonly FillSourceMessage[]): string {
+  return messages
+    .map((message) =>
+      message.name === "" ? message.content : `${message.name}：${message.content}`,
+    )
+    .join("\n");
+}
