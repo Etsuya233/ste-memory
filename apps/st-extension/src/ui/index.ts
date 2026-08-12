@@ -20,6 +20,17 @@ export { PanelShell, ToolbarButton } from "./panel-shell.tsx";
 export type { PanelRuntime } from "./panel-shell.tsx";
 export { TasksTab } from "./tasks-tab.tsx";
 export type { TasksTabRuntime } from "./tasks-tab.tsx";
+export { LogTab } from "./log-tab.tsx";
+export type { LogTabRuntime } from "./log-tab.tsx";
+export {
+  applyLogFilters,
+  buildLogListViewModel,
+  defaultLogFilters,
+  LOG_LEVEL_LABELS,
+  logEntrySummary,
+  logQueryKind,
+} from "./log-panel-model.ts";
+export type { LogListItemViewModel, LogPanelFilters } from "./log-panel-model.ts";
 export {
   buildCoverageViewModel,
   buildTasksTabViewModel,

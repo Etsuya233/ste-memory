@@ -72,6 +72,7 @@ import {
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
 import { RecordsTab } from "./record-view.tsx";
 import { TasksTab } from "./tasks-tab.tsx";
+import { LogTab } from "./log-tab.tsx";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import {
   emptyFieldDraft,
@@ -117,6 +118,8 @@ export interface PanelRuntime {
   >;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
+  /** 通用日志（ADR 0008）：日志 Tab 浏览/搜索/清空 */
+  readonly logs: Pick<SteMemoryRuntime["logs"], "byKey" | "bySpace" | "recent" | "clearAll">;
   /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
   readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
   /** Agent 预设宏（ticket 17）：插件开关变化即时生效（kick 立即评估） */
@@ -202,6 +205,8 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
   );
   // 设置只经本面板的开关写入（唯一写入口），组件本地 state 即最新值
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
+  // 日志定位（ADR 0008）：任务面板「查看日志」跳转到日志 Tab 时携带的目标 runId
+  const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
 
   const info = buildSpaceInfo(status, settings, syncStatus);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
@@ -412,6 +417,21 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
               status={status}
               settings={settings}
               onSettingsChange={setSettings}
+              onViewLogs={(runId) => {
+                setLogFocusRunId(runId);
+                props.model.setTab("logs");
+              }}
+            />
+          </section>
+        )}
+        {state.tab === "logs" && (
+          <section className="stm-tab-section" data-stm-section="logs" role="tabpanel">
+            <LogTab
+              runtime={props.runtime}
+              status={status}
+              settings={settings}
+              focusRunId={logFocusRunId}
+              onFocusConsumed={() => setLogFocusRunId(null)}
             />
           </section>
         )}

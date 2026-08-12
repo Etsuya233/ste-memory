@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // fake-indexeddb 必须在它之前求值（否则 MissingAPIError）
 import { NOW, createServices, createTestDatabase } from "./test-support.ts";
 import { SteMemoryDatabase } from "./database.ts";
+import { DexieLogRepository } from "./log-repository.ts";
 import { DexieMemorySpaceRepository } from "./memory-space-repository.ts";
 
 describe("Dexie memory space repository", () => {
@@ -100,6 +101,24 @@ describe("Dexie memory space repository", () => {
     // 与 SQLite 参照实现 ON DELETE CASCADE 同语义：表格与字段一并物理删除
     expect(await tableRepository.list(space.id)).toEqual([]);
     expect(await fieldRepository.list(space.id, table!.id)).toEqual([]);
+  });
+
+  it("cascades deletion to the space's logs (ADR 0008)", async () => {
+    const db = createTestDatabase();
+    const { spaces } = createServices(db);
+    const space = await spaces.create("会话");
+    const logs = new DexieLogRepository(db, { now: () => NOW });
+    await logs.append({
+      type: "fill",
+      key: "task-1",
+      spaceId: space.id,
+      level: "info",
+      data: {},
+    });
+
+    expect(await spaces.delete(space.id)).toBe(true);
+
+    expect(await logs.bySpace(space.id, 10)).toEqual([]);
   });
 
   it("persists across a database reopen (页面刷新语义)", async () => {

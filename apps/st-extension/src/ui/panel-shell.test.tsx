@@ -88,6 +88,12 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    logs: {
+      byKey: vi.fn(async () => []),
+      bySpace: vi.fn(async () => []),
+      recent: vi.fn(async () => []),
+      clearAll: vi.fn(async () => {}),
+    },
     macro: {
       kick: vi.fn(async () => {}),
     },

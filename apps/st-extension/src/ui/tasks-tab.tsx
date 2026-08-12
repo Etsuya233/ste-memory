@@ -59,6 +59,8 @@ export function TasksTab(props: {
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
   readonly onSettingsChange: (settings: PluginSettings) => void;
+  /** 跳转到日志 Tab 并定位到该任务的运行记录（ADR 0008） */
+  readonly onViewLogs?: (runId: string) => void;
 }) {
   const active = activeStatus(props.status);
   const spaceId = active?.space.id;
@@ -360,8 +362,17 @@ export function TasksTab(props: {
                     {item.errorMessage}
                   </div>
                 ) : null}
-                {item.retryable ? (
-                  <div className="stm-task-actions">
+                <div className="stm-task-actions">
+                  <button
+                    type="button"
+                    className="stm-button"
+                    data-action="view-task-logs"
+                    data-run-id={item.runId}
+                    onClick={() => props.onViewLogs?.(item.runId)}
+                  >
+                    日志
+                  </button>
+                  {item.retryable ? (
                     <button
                       type="button"
                       className="stm-button"
@@ -371,8 +382,8 @@ export function TasksTab(props: {
                     >
                       重试
                     </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>

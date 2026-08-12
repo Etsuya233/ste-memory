@@ -22,6 +22,7 @@ import { ChatMetadataMirrorSync } from "./chat-mirror/chat-metadata-mirror-sync.
 import {
   DexieFillTaskRepository,
   DexieFloorLedgerRepository,
+  DexieLogRepository,
   DexieMemoryBackupRepository,
   DexieMemoryFieldRepository,
   DexieMemoryRecordRepository,
@@ -31,6 +32,7 @@ import {
   SteMemoryDatabase,
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
+import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
 import { composePresetSystemPrompt } from "./agent-presets/preset-composer.ts";
@@ -69,6 +71,8 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
+  /** 通用日志（ADR 0008）：本地审计日志（填表运行记录）；纯本地，不同步不备份 */
+  readonly logs: LogRepository;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
   readonly macro: MemoryMacroService;
   /** Agent 预设宏（ticket 17）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 + 快照轮询 */
@@ -208,9 +212,11 @@ export async function startSteMemory(
       return prompt;
     };
   };
+  const logs = new DexieLogRepository(db, { now });
   const tasks = new FillTaskService({
     tasks: new DexieFillTaskRepository(db, now),
     ledger: new DexieFloorLedgerRepository(db),
+    logs,
     source: adapter,
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
@@ -401,6 +407,7 @@ export async function startSteMemory(
     sync,
     mirror,
     tasks,
+    logs,
     macro,
     agentMacro,
     createLlm,

@@ -15,6 +15,7 @@ import type {
   MemoryTableId,
 } from "@ste-memory/core/memory";
 import type { FillTask, FloorFillStatus } from "../fill-tasks/fill-task.ts";
+import type { LogEntry } from "../logging/log.ts";
 
 /**
  * 证据条目的存储形态：领域 evidence_id 映射为主键 id（Dexie 行主键路径为 id），
@@ -70,6 +71,13 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
  * - floorFillLedger：楼层进度台账，按（记忆空间, 同步楼层）唯一记录
  *   processed / error（untracked = 无行）；id = `${memorySpaceId}:${floor}`。
  *   空间删除时由 repository 删除实现级联清理（与参照实现同语义）。
+ *
+ * v4 schema：通用日志（ADR 0008）。
+ *
+ * - memoryLogs：本地审计日志，++id 自增主键（插入顺序即时间顺序，修剪删最旧）；
+ *   [type+createdAt] / [key+createdAt] / [spaceId+createdAt] 供时间倒序过滤查询；
+ *   level 不建索引（1000 条上限内内存过滤可接受）。纯本地：云同步指纹只统计
+ *   记忆表、备份/镜像序列化不含本表；空间删除时由 repository 级联清理。
  */
 export class SteMemoryDatabase extends Dexie {
   memorySpaces!: Table<MemorySpace, MemorySpaceId>;
@@ -80,6 +88,7 @@ export class SteMemoryDatabase extends Dexie {
   memoryEvidence!: Table<MemoryEvidenceRow, MemoryEvidenceId>;
   memoryFillTasks!: Table<FillTask, string>;
   floorFillLedger!: Table<FloorLedgerRow, string>;
+  memoryLogs!: Table<LogEntry, number>;
 
   constructor(name: string = ST_MEMORY_DB_NAME) {
     super(name);
@@ -97,6 +106,9 @@ export class SteMemoryDatabase extends Dexie {
     this.version(3).stores({
       memoryFillTasks: "runId, [memorySpaceId+createdAt], memorySpaceId",
       floorFillLedger: "id, &[memorySpaceId+floor], memorySpaceId",
+    });
+    this.version(4).stores({
+      memoryLogs: "++id, [type+createdAt], [key+createdAt], [spaceId+createdAt]",
     });
   }
 }

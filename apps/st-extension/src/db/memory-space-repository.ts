@@ -29,6 +29,7 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
         this.#db.memoryEvidence,
         this.#db.memoryFillTasks,
         this.#db.floorFillLedger,
+        this.#db.memoryLogs,
       ],
       async () => {
         const space = await this.#db.memorySpaces.get(id);
@@ -52,6 +53,7 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
         await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
         await this.#db.memoryFillTasks.where("memorySpaceId").equals(id).delete();
         await this.#db.floorFillLedger.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryLogs.where("spaceId").equals(id).delete();
         await this.#db.memoryTables.where("memorySpaceId").equals(id).delete();
         await this.#db.memorySpaces.delete(id);
         return true;

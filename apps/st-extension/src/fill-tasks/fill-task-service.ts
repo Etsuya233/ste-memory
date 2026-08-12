@@ -28,6 +28,14 @@ import {
 } from "@ste-memory/core/memory/agent";
 import { buildBlockEvidence, buildMergedStoryText, composeBlockPrompt } from "./fill-task-block.ts";
 import {
+  createFillRunRecorder,
+  FILL_RUN_LOG_TYPE,
+  fillRunRecordLevel,
+  type FillRunRecorder,
+  type FillRunStatus,
+} from "./fill-run-log.ts";
+import type { LogRepository } from "../logging/log.ts";
+import {
   FillTaskConflictError,
   FillTaskNotFoundError,
   FillTaskRangeError,
@@ -84,6 +92,8 @@ export interface FillTaskServiceOptions {
   readonly createComposeSystemPrompt?: (
     storyText: string,
   ) => Promise<ProposalSystemPromptComposer | undefined>;
+  /** 通用日志仓库（ADR 0008）：块运行记录在此写入（best-effort，失败不影响任务）。 */
+  readonly logs: LogRepository;
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -103,6 +113,7 @@ export class FillTaskService {
   readonly #createLlm: () => LlmPort;
   readonly #createComposeSystemPrompt:
     ((storyText: string) => Promise<ProposalSystemPromptComposer | undefined>) | undefined;
+  readonly #logs: LogRepository;
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -119,6 +130,7 @@ export class FillTaskService {
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
     this.#createComposeSystemPrompt = options.createComposeSystemPrompt;
+    this.#logs = options.logs;
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -266,8 +278,11 @@ export class FillTaskService {
     llm: LlmPort,
     composeSystemPrompt: ProposalSystemPromptComposer | undefined,
   ): Promise<void> {
+    // 填表日志（ADR 0008）：每次 Agent 调用经 recorder 包装的 streamFn 快照请求与
+    // 输出，工具执行事件配对工具调用；块结束时组装运行记录写入通用日志。
+    const recorder = createFillRunRecorder({ taskRunId: task.runId, now: this.#now });
     const agent = new ProposalAgent({
-      llm,
+      llm: { ...llm, streamFn: recorder.wrapStreamFn(llm.streamFn) },
       reader: this.#reader,
       ports: this.#ports,
       timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
@@ -289,7 +304,7 @@ export class FillTaskService {
         }
         const blockTo = Math.min(blockFrom + task.blockSize - 1, task.to);
         failingBlock = { from: blockFrom, to: blockTo };
-        await this.#processBlock(agent, task, blockFrom, blockTo);
+        await this.#processBlock(agent, recorder, task, blockFrom, blockTo);
         // 本块已成功提交：后续失败（如终态标记）不得再把它标记为 error。
         failingBlock = undefined;
       }
@@ -326,61 +341,98 @@ export class FillTaskService {
 
   async #processBlock(
     agent: ProposalAgent,
+    recorder: FillRunRecorder,
     task: FillTask,
     from: number,
     to: number,
   ): Promise<void> {
-    const messages = this.#source.messagesInRange(from, to);
-    if (messages.length === 0) {
-      throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
-    }
-    const evidence = await buildBlockEvidence(
-      (memorySpaceId, sourceType, sourceId) =>
-        this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
-      this.#createEvidenceId,
-      task.memorySpaceId,
-      messages,
-    );
-    const result = await agent.run(
-      {
-        memorySpaceId: task.memorySpaceId,
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
-            timestamp: Date.now(),
-          },
-        ],
-        messageRange: { from, to },
-        evidence,
-      },
-      {},
-    );
-    if (result.errorMessage !== undefined) {
-      throw new Error(`Agent 运行失败：${result.errorMessage}`);
-    }
-    // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试）。
-    if (await this.#isStopped(task.runId)) return;
-    if (result.proposal) {
-      // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
-      await this.#runInTransaction(async () => {
-        await commitMemoryProposalBatch(
-          this.#commitContext,
-          task.memorySpaceId,
-          result.proposal!,
-          "agent",
-        );
+    recorder.beginBlock();
+    try {
+      const messages = this.#source.messagesInRange(from, to);
+      if (messages.length === 0) {
+        throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      }
+      const evidence = await buildBlockEvidence(
+        (memorySpaceId, sourceType, sourceId) =>
+          this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
+        this.#createEvidenceId,
+        task.memorySpaceId,
+        messages,
+      );
+      const result = await agent.run(
+        {
+          memorySpaceId: task.memorySpaceId,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
+              timestamp: Date.now(),
+            },
+          ],
+          messageRange: { from, to },
+          evidence,
+        },
+        { onEvent: recorder.onAgentEvent },
+      );
+      if (result.errorMessage !== undefined) {
+        throw new Error(`Agent 运行失败：${result.errorMessage}`);
+      }
+      // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试）。
+      if (await this.#isStopped(task.runId)) {
+        await this.#appendRunLog(task, recorder, { from, to }, "interrupted", null);
+        return;
+      }
+      if (result.proposal) {
+        // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
+        await this.#runInTransaction(async () => {
+          await commitMemoryProposalBatch(
+            this.#commitContext,
+            task.memorySpaceId,
+            result.proposal!,
+            "agent",
+          );
+          await this.#ledger.markProcessed(
+            task.memorySpaceId,
+            messages.map((message) => message.floor),
+          );
+        });
+      } else {
+        // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
         await this.#ledger.markProcessed(
           task.memorySpaceId,
           messages.map((message) => message.floor),
         );
+      }
+      await this.#appendRunLog(task, recorder, { from, to }, "succeeded", null);
+    } catch (error) {
+      // 失败块也写运行记录（已完成轮 + 失败原因）；日志写入失败不掩盖原错误。
+      const message = error instanceof Error ? error.message : String(error);
+      await this.#appendRunLog(task, recorder, { from, to }, "failed", message);
+      throw error;
+    }
+  }
+
+  /**
+   * 运行记录写入（best-effort）：审计数据，写入失败只记日志，绝不影响任务结果
+   * （成功/中断/失败路径共用；失败路径的写入异常不得掩盖原错误）。
+   */
+  async #appendRunLog(
+    task: FillTask,
+    recorder: FillRunRecorder,
+    block: { readonly from: number; readonly to: number },
+    status: FillRunStatus,
+    errorMessage: string | null,
+  ): Promise<void> {
+    try {
+      await this.#logs.append({
+        type: FILL_RUN_LOG_TYPE,
+        key: task.runId,
+        spaceId: task.memorySpaceId,
+        level: fillRunRecordLevel(status),
+        data: recorder.finish(block, status, errorMessage),
       });
-    } else {
-      // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
-      await this.#ledger.markProcessed(
-        task.memorySpaceId,
-        messages.map((message) => message.floor),
-      );
+    } catch (error) {
+      this.#logError(`填表任务 ${task.runId} 运行记录写入失败`, error);
     }
   }
 

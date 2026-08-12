@@ -1871,3 +1871,151 @@
   font-size: 11px;
   flex: none;
 }
+
+/* ---- 日志 Tab（ADR 0008：通用日志浏览与运行记录详情） ---- */
+
+.stm-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stm-log-item {
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stm-log-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.stm-log-item-head:hover {
+  background: var(--stm-hover, rgba(128, 128, 128, 0.08));
+}
+
+.stm-log-level {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--stm-border);
+}
+
+.stm-log-level--info {
+  color: var(--stm-ink-secondary);
+}
+
+.stm-log-level--warn {
+  color: #b58900;
+  border-color: #b58900;
+}
+
+.stm-log-level--error {
+  color: var(--stm-danger, #e5534b);
+  border-color: var(--stm-danger, #e5534b);
+}
+
+.stm-log-key {
+  font-family: var(--stm-mono, monospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-log-summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-log-time {
+  flex: none;
+  color: var(--stm-ink-secondary);
+  font-size: 11px;
+}
+
+.stm-log-detail {
+  border-top: 1px solid var(--stm-border);
+  padding: 8px 10px;
+}
+
+.stm-log-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.stm-log-details {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.stm-log-details summary {
+  cursor: pointer;
+  color: var(--stm-ink-secondary);
+  user-select: none;
+}
+
+.stm-log-pre {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: var(--stm-code-bg, rgba(0, 0, 0, 0.35));
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stm-log-round {
+  border: 1px solid var(--stm-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0;
+}
+
+.stm-log-round-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.stm-log-tool-results {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stm-log-tool-results code {
+  font-size: 11px;
+  margin-left: 6px;
+}

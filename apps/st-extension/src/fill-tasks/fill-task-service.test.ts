@@ -42,6 +42,9 @@ import {
   toolCallMessage,
 } from "./stream-fn-support.ts";
 import type { FillSourceMessage } from "./fill-task.ts";
+import type { LogEntry, LogRepository } from "../logging/log.ts";
+import { DexieLogRepository } from "../db/log-repository.ts";
+import type { FillRunRecord } from "./fill-run-log.ts";
 
 const NOW = "2026-07-30T01:02:03.000Z";
 
@@ -127,6 +130,7 @@ interface Harness {
   readonly spaceId: MemorySpaceId;
   readonly tasks: DexieFillTaskRepository;
   readonly ledger: DexieFloorLedgerRepository;
+  readonly logs: LogRepository;
 }
 
 let harnessSeq = 0;
@@ -139,6 +143,7 @@ async function createHarness(
     readonly createComposeSystemPrompt?: (
       storyText: string,
     ) => Promise<ProposalSystemPromptComposer | undefined>;
+    readonly logs?: LogRepository;
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -150,6 +155,7 @@ async function createHarness(
 
   const tasks = new DexieFillTaskRepository(db, () => NOW);
   const ledger = new DexieFloorLedgerRepository(db, () => NOW);
+  const logs = options.logs ?? new DexieLogRepository(db, { now: () => NOW });
   const source: FillTaskSource =
     options.source ??
     ({
@@ -222,9 +228,10 @@ async function createHarness(
     createRunId: () => `run-${++runSeq}`,
     createEvidenceId: () => `evidence-${++evidenceSeq}` as MemoryEvidenceId,
     now: () => NOW,
+    logs,
     createComposeSystemPrompt: options.createComposeSystemPrompt,
   });
-  return { service, db, services, spaceId, tasks, ledger };
+  return { service, db, services, spaceId, tasks, ledger, logs };
 }
 
 /** 轮询任务行直到终态（超时抛错）。 */
@@ -838,5 +845,173 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await waitForTerminal(harness, view.runId);
     expect(seenSystemPrompt).toContain("你是记忆表格填写助手");
     expect(seenSystemPrompt).toContain("可用表与字段");
+  });
+});
+
+describe("FillTaskService 填表日志（通用日志写入，ADR 0008）", () => {
+  /** 把日志行还原为运行记录（data 载荷）。 */
+  function record(entry: LogEntry): FillRunRecord {
+    return entry.data as FillRunRecord;
+  }
+
+  it("成功任务：每块一条 info 级运行记录，快照逐轮请求/工具调用/输出/系统提示词", async () => {
+    const streamFn = scriptedFillAgent();
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId, logs } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 5, blockSize: 2 });
+    await waitForTerminal(harness, view.runId);
+
+    const entries = await logs.byKey(view.runId, 10);
+    expect(entries).toHaveLength(3);
+    for (const entry of entries) {
+      expect(entry).toMatchObject({
+        type: "fill",
+        key: view.runId,
+        spaceId,
+        level: "info",
+      });
+    }
+    // 时间倒序：块 {4,5} 最新
+    const records = entries.map(record).reverse();
+    expect(records.map((r) => r.block)).toEqual([
+      { from: 0, to: 1 },
+      { from: 2, to: 3 },
+      { from: 4, to: 5 },
+    ]);
+    for (const run of records) {
+      expect(run).toMatchObject({ taskRunId: view.runId, status: "succeeded", errorMessage: null });
+      // 系统提示词快照 = 模型实际收到的 systemPrompt（三块一致）
+      expect(run.systemPrompt).toBe(streamFn.contexts[0]!.systemPrompt);
+      expect(run.startedAt).toBe(NOW);
+      expect(run.endedAt).toBe(NOW);
+      expect(typeof run.durationMs).toBe("number");
+    }
+
+    // 块 {2,3} = 第 3、4 次流式调用：逐轮请求与输出如实记录
+    const middle = records[1]!;
+    expect(middle.rounds).toHaveLength(2);
+    expect(middle.rounds[0]!.request.messages).toEqual(streamFn.contexts[2]!.messages);
+    expect(middle.rounds[0]!.output.stopReason).toBe("toolUse");
+    expect(middle.rounds[0]!.output.errorMessage).toBeUndefined();
+    // 工具调用：参数与结果配对（含 isError）
+    expect(middle.rounds[0]!.toolResults.map((t) => t.toolName)).toEqual([
+      MUTATE_TOOL_NAME,
+      PROPOSAL_PREVIEW_TOOL_NAME,
+      SUBMIT_PROPOSAL_TOOL_NAME,
+    ]);
+    expect(middle.rounds[0]!.toolResults[0]!.args).toEqual({
+      op: "create",
+      table: "characters",
+      patch: { name: "云烬" },
+    });
+    expect(middle.rounds[0]!.toolResults.every((t) => t.isError === false)).toBe(true);
+    // 第二轮：请求含工具结果历史，输出为最终回答
+    expect(middle.rounds[1]!.request.messages).toEqual(streamFn.contexts[3]!.messages);
+    // 第二轮请求 = 用户消息 + 工具轮输出 + 3 条工具结果（自包含历史）
+    expect(middle.rounds[1]!.request.messages).toHaveLength(5);
+    expect(middle.rounds[1]!.output.stopReason).toBe("stop");
+    expect(middle.rounds[1]!.toolResults).toEqual([]);
+  });
+
+  it("空提案块：单轮直接回答也记录（无工具调用）", async () => {
+    const harness = await createHarness({ streamFn: emptyProposalAgent() });
+    const { service, spaceId, logs } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 1 });
+    await waitForTerminal(harness, view.runId);
+
+    const entries = await logs.byKey(view.runId, 10);
+    expect(entries).toHaveLength(1);
+    const run = record(entries[0]!);
+    expect(run).toMatchObject({ status: "succeeded", block: { from: 0, to: 1 } });
+    expect(run.rounds).toHaveLength(1);
+    expect(run.rounds[0]!.output.stopReason).toBe("stop");
+    expect(run.rounds[0]!.toolResults).toEqual([]);
+  });
+
+  it("块失败：error 级记录，含已完成轮与失败原因", async () => {
+    const streamFn = failingAgent();
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId, logs } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 3, blockSize: 2 });
+    const terminal = await waitForTerminal(harness, view.runId);
+    expect(terminal.status).toBe("failed");
+
+    const entries = await logs.byKey(view.runId, 10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.level).toBe("error");
+    const run = record(entries[0]!);
+    expect(run).toMatchObject({
+      status: "failed",
+      block: { from: 0, to: 1 },
+      errorMessage: "Agent 运行失败：模型炸了",
+    });
+    expect(run.rounds).toHaveLength(1);
+    expect(run.rounds[0]!.output.stopReason).toBe("error");
+    expect(run.rounds[0]!.output.errorMessage).toBe("模型炸了");
+  });
+
+  it("任务取消：进行中块写 warn 级 interrupted 记录（提案被丢弃），已提交块保持 succeeded", async () => {
+    const streamFn = gatedStreamFn(scriptedFillAgent().respond, 3);
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId, logs } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 5, blockSize: 2 });
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await service.cancel(spaceId, view.runId);
+    streamFn.gate.open();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
+
+    const entries = await logs.byKey(view.runId, 10);
+    expect(entries).toHaveLength(2);
+    // 最新一条 = 中断块
+    const interrupted = record(entries[0]!);
+    expect(entries[0]!.level).toBe("warn");
+    expect(interrupted).toMatchObject({
+      status: "interrupted",
+      block: { from: 2, to: 3 },
+      errorMessage: null,
+    });
+    // 中断块已完成两轮（工具轮 + 回答轮），提案未落库
+    expect(interrupted.rounds).toHaveLength(2);
+    expect(interrupted.rounds[0]!.toolResults.map((t) => t.toolName)).toContain(MUTATE_TOOL_NAME);
+    const committed = record(entries[1]!);
+    expect(entries[1]!.level).toBe("info");
+    expect(committed).toMatchObject({ status: "succeeded", block: { from: 0, to: 1 } });
+  });
+
+  it("日志追加失败不影响任务（审计写入 best-effort）", async () => {
+    const harness = await createHarness({
+      streamFn: emptyProposalAgent(),
+      logs: {
+        append: async () => {
+          throw new Error("日志表写入失败");
+        },
+        byType: async () => [],
+        byKey: async () => [],
+        bySpace: async () => [],
+        recent: async () => [],
+        clearAll: async () => undefined,
+      },
+    });
+    const { service, spaceId } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 1 });
+    const terminal = await waitForTerminal(harness, view.runId);
+    expect(terminal.status).toBe("succeeded");
+    expect(await floorStatuses(harness)).toEqual([
+      "processed",
+      "processed",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+    ]);
   });
 });
