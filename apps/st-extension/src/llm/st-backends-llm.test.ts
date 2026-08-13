@@ -227,6 +227,104 @@ describe("StBackendsLlmAdapter.streamFn（SSE → pi 事件流）", () => {
   });
 });
 
+describe("StBackendsLlmAdapter 思考流（ticket 19）", () => {
+  it("Claude 风格 delta.thinking：thinking_start/delta/end + ThinkingContent 块；请求带 include_reasoning", async () => {
+    const fetchMock = mockFetch(() => sseResponse([
+      sseEvent({ id: "chatcmpl-t", choices: [{ index: 0, delta: { thinking: "我在" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { thinking: "思考" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }] }),
+      "data: [DONE]\n\n",
+    ]));
+    const adapter = makeAdapter({ includeReasoning: true }, fetchMock.fn);
+    const { events, message } = await runStream(adapter, { messages: [{ role: "user", content: "hi", timestamp: 1 }] });
+
+    expect(events.map((e) => e.type)).toEqual([
+      "start",
+      "thinking_start",
+      "thinking_delta",
+      "thinking_delta",
+      "thinking_end",
+      "done",
+    ]);
+    expect(message.stopReason).toBe("stop");
+    expect(message.content).toEqual([{ type: "thinking", thinking: "我在思考" }]);
+
+    const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
+    expect(body.include_reasoning).toBe(true);
+  });
+
+  it("reasoning_content 风格：OpenAI 兼容推理模型字段同样累积为独立块", async () => {
+    const fetchMock = mockFetch(() => sseResponse([
+      sseEvent({ choices: [{ index: 0, delta: { reasoning_content: "推理" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { reasoning_content: "中" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { content: "回答" }, finish_reason: "stop" }] }),
+    ]));
+    const adapter = makeAdapter({ includeReasoning: true }, fetchMock.fn);
+    const { events, message } = await runStream(adapter, { messages: [] });
+
+    expect(events.map((e) => e.type)).toEqual([
+      "start",
+      "thinking_start",
+      "thinking_delta",
+      "thinking_delta",
+      "text_start",
+      "text_delta",
+      "thinking_end",
+      "text_end",
+      "done",
+    ]);
+    expect(message.content).toEqual([
+      { type: "thinking", thinking: "推理中" },
+      { type: "text", text: "回答" },
+    ]);
+  });
+
+  it("思考与工具调用穿插：contentIndex 隔离，思考块不进入 tool_calls 累积", async () => {
+    const fetchMock = mockFetch(() => sseResponse([
+      sseEvent({ choices: [{ index: 0, delta: { thinking: "先想" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "query_records", arguments: "" } }] }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { thinking: "再想" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: "{}" } }] }, finish_reason: "tool_calls" }] }),
+    ]));
+    const adapter = makeAdapter({ includeReasoning: true }, fetchMock.fn);
+    const { events, message } = await runStream(adapter, {
+      messages: [],
+      tools: [{ name: "query_records", description: "查询", parameters: {} }],
+    });
+
+    expect(message.stopReason).toBe("toolUse");
+    expect(message.content).toEqual([
+      { type: "thinking", thinking: "先想再想" },
+      { type: "toolCall", id: "call_1", name: "query_records", arguments: {} },
+    ]);
+
+    // 思考事件 contentIndex 恒 0，工具事件 contentIndex 恒 1：不互相污染
+    const thinkingIndexes = events
+      .filter((e) => e.type === "thinking_start" || e.type === "thinking_delta" || e.type === "thinking_end")
+      .map((e) => (e as { contentIndex: number }).contentIndex);
+    expect(thinkingIndexes).toEqual([0, 0, 0, 0]);
+    const toolIndexes = events
+      .filter((e) => e.type === "toolcall_start" || e.type === "toolcall_delta" || e.type === "toolcall_end")
+      .map((e) => (e as { contentIndex: number }).contentIndex);
+    expect(toolIndexes).toEqual([1, 1, 1]);
+  });
+
+  it("缺省 includeReasoning=false：请求不带思考开关，上游思考段被忽略（零变化）", async () => {
+    const fetchMock = mockFetch(() => sseResponse([
+      sseEvent({ choices: [{ index: 0, delta: { thinking: "不该被解析" }, finish_reason: null }] }),
+      sseEvent({ choices: [{ index: 0, delta: { content: "正常回答" }, finish_reason: "stop" }] }),
+    ]));
+    const adapter = makeAdapter({}, fetchMock.fn);
+    const { events, message } = await runStream(adapter, { messages: [] });
+
+    expect(message.content).toEqual([{ type: "text", text: "正常回答" }]);
+    expect(events.some((e) => e.type.startsWith("thinking"))).toBe(false);
+
+    const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
+    expect(body.include_reasoning).toBe(false);
+  });
+});
+
 describe("StBackendsLlmAdapter 错误路径", () => {
   it("401 → error 事件 + 鉴权提示；CSRF 缓存被清（下次重取）", async () => {
     const getCsrfToken = vi.fn(async () => "token-1");

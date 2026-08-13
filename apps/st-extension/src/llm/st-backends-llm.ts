@@ -6,6 +6,7 @@ import {
   type Context,
   type SimpleStreamOptions,
   type TextContent,
+  type ThinkingContent,
 } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { LlmPort } from "@ste-memory/core/memory/agent";
@@ -34,9 +35,10 @@ import { SseEventParser } from "./sse-parse.ts";
  * - 错误：HTTP 错误/限流/断流/超时/取消均以 pi 事件流编码（stopReason
  *   "error" | "aborted" + errorMessage），绝不抛异常（StreamFn 契约）。
  *
- * 已知取舍（记录在案）：`include_reasoning: false` 固定——v1 不解析思考流
- * （delta.thinking / reasoning_content），上游思考段被忽略；usage 恒为 0
- * （ST 流不透出用量）。
+ * 思考流（ticket 19）：includeReasoning 选项（缺省 false）开启后请求带
+ * include_reasoning: true，并把上游思考段（delta.thinking / reasoning_content）
+ * 累积为 ThinkingContent 块、发射 thinking_* 事件；缺省时思考段被忽略、行为与
+ * v1 一致。usage 恒为 0（ST 流不透出用量，含思考 token）。
  */
 
 /** ST backends 同源代理端点（server-startup.js:180 挂载 + chat-completions.js:2157 路由） */
@@ -50,6 +52,8 @@ export const DEFAULT_ST_GENERATE_TIMEOUT_MS = 300_000;
 export interface StBackendsLlmAdapterOptions {
   /** ST 当前对话生成配置快照（createStLlmPort 构造时读取一次） */
   readonly config: StChatCompletionConfig;
+  /** 思考流开关（ticket 19）：开启后请求带 include_reasoning: true 并解析思考段；缺省 false */
+  readonly includeReasoning?: boolean;
   /** fetch 实现；缺省 = globalThis.fetch（测试注入 mock） */
   readonly fetchImpl?: typeof fetch;
   /** CSRF 令牌获取；缺省 = GET /csrf-token（结果缓存，401/403 后清缓存重取） */
@@ -143,7 +147,14 @@ export class StBackendsLlmAdapter {
         throw new Error("ST 未配置当前生成源的模型——请在 ST 的 API 连接中检查模型选择");
       }
 
-      const body = buildStGenerateBody(model, context, options, this.#options.config);
+      const includeReasoning = this.#options.includeReasoning ?? false;
+      const body = buildStGenerateBody(
+        model,
+        context,
+        options,
+        this.#options.config,
+        includeReasoning,
+      );
       const response = await this.#options.fetchImpl(ST_GENERATE_ENDPOINT, {
         method: "POST",
         headers: await this.#requestHeaders(),
@@ -163,7 +174,12 @@ export class StBackendsLlmAdapter {
       if (!reader) throw new Error("ST 代理响应没有可读流");
       const decoder = new TextDecoder("utf-8");
       const parser = new SseEventParser();
-      const handler = new StreamEventHandler(output, (event) => stream.push(event), model.id);
+      const handler = new StreamEventHandler(
+        output,
+        (event) => stream.push(event),
+        model.id,
+        includeReasoning,
+      );
 
       while (true) {
         const { done, value } = await reader.read();
@@ -278,6 +294,8 @@ export class StBackendsLlmAdapter {
 /**
  * SSE data 负载 → pi 事件（纯增量抽取）：
  * - `choices[0].delta.content` → 文本块（text_start/text_delta）；
+ * - `choices[0].delta.thinking` / `choices[0].delta.reasoning_content` → 思考块
+ *   （thinking_start/thinking_delta，独立于文本/工具累积；仅 includeReasoning 开启时）；
  * - `choices[0].delta.tool_calls[]` → 工具调用块（toolcall_start/toolcall_delta），
  *   按 index 累积，arguments 增量 JSON 解析（终态解析失败 → 保留最后一次成功值）；
  * - `choices[0].finish_reason` → stopReason 映射；
@@ -287,15 +305,23 @@ class StreamEventHandler {
   readonly #output: AssistantMessage;
   readonly #push: (event: AssistantMessageEvent) => void;
   readonly #modelId: string;
+  readonly #includeReasoning: boolean;
   #textBlock: TextContent | null = null;
+  #thinkingBlock: ThinkingContent | null = null;
   readonly #toolCallBlocks = new Map<number, ToolCallBlock>();
   hasFinishReason = false;
   doneSentinel = false;
 
-  constructor(output: AssistantMessage, push: (event: AssistantMessageEvent) => void, modelId: string) {
+  constructor(
+    output: AssistantMessage,
+    push: (event: AssistantMessageEvent) => void,
+    modelId: string,
+    includeReasoning: boolean,
+  ) {
     this.#output = output;
     this.#push = push;
     this.#modelId = modelId;
+    this.#includeReasoning = includeReasoning;
   }
 
   process(data: string): void {
@@ -335,6 +361,15 @@ class StreamEventHandler {
       if (mapped.errorMessage) this.#output.errorMessage = mapped.errorMessage;
     }
     const delta = choice.delta as Record<string, unknown> | undefined;
+    if (this.#includeReasoning && delta) {
+      const thinking =
+        typeof delta.thinking === "string" && delta.thinking.length > 0
+          ? delta.thinking
+          : typeof delta.reasoning_content === "string" && delta.reasoning_content.length > 0
+            ? delta.reasoning_content
+            : undefined;
+      if (thinking !== undefined) this.#appendThinking(thinking);
+    }
     if (delta && typeof delta.content === "string" && delta.content.length > 0) {
       this.#appendText(delta.content);
     }
@@ -346,7 +381,7 @@ class StreamEventHandler {
     }
   }
 
-  /** 流终态：剥离流式草稿字段 + 为所有内容块补发收尾事件（text_end / toolcall_end） */
+  /** 流终态：剥离流式草稿字段 + 为所有内容块补发收尾事件（text_end / thinking_end / toolcall_end） */
   finalize(): void {
     for (const block of this.#output.content) {
       if (block.type === "toolCall") {
@@ -356,6 +391,8 @@ class StreamEventHandler {
       const contentIndex = this.#output.content.indexOf(block);
       if (block.type === "text") {
         this.#push({ type: "text_end", contentIndex, content: block.text, partial: this.#output });
+      } else if (block.type === "thinking") {
+        this.#push({ type: "thinking_end", contentIndex, content: block.thinking, partial: this.#output });
       } else if (block.type === "toolCall") {
         this.#push({
           type: "toolcall_end",
@@ -383,6 +420,23 @@ class StreamEventHandler {
     block.text += delta;
     this.#push({
       type: "text_delta",
+      contentIndex: this.#output.content.indexOf(block),
+      delta,
+      partial: this.#output,
+    });
+  }
+
+  #appendThinking(delta: string): void {
+    let block = this.#thinkingBlock;
+    if (!block) {
+      block = { type: "thinking", thinking: "" };
+      this.#output.content.push(block);
+      this.#thinkingBlock = block;
+      this.#push({ type: "thinking_start", contentIndex: this.#output.content.indexOf(block), partial: this.#output });
+    }
+    block.thinking += delta;
+    this.#push({
+      type: "thinking_delta",
       contentIndex: this.#output.content.indexOf(block),
       delta,
       partial: this.#output,

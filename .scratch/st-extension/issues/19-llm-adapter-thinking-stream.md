@@ -4,7 +4,7 @@
 
 **Blocked by:** 无（复用 ticket 12 LLM 适配器）
 
-**Status:** ready（grilling 2026-08 确认，待实现）
+**Status:** resolved
 
 ## 已确认决策（grilling 2026-08）
 
@@ -25,6 +25,28 @@
 
 1. 填表任务在升级后行为与升级前一致（缺省关，自动化回归覆盖）
 2. 问答面板（ticket 20）开启 includeReasoning 后，思考模型流式显示思考段；非思考模型无思考段、不报错
+
+## Answer
+
+已实现（TDD：3 个文件改动 + 测试）。st-extension 全量 55 文件 554 例绿 + typecheck（tsconfig.json + tsconfig.scripts.json）绿 + eslint 绿；填表任务回归（st-backends-agent-loop.test.ts 两轮工具循环交叉验证）原样绿，证明升级后填表任务零变化。
+
+- **`src/llm/st-backends-request.ts`**：`StGenerateBody.include_reasoning` 类型从字面量 `false` 放宽为 `boolean`；`buildStGenerateBody` 增加第五参数 `includeReasoning: boolean = false`，请求体写 `include_reasoning: includeReasoning`。缺省 false → 填表任务请求体零变化。
+- **`src/llm/st-backends-llm.ts`**：`StBackendsLlmAdapterOptions.includeReasoning?: boolean`（缺省 false）。开启后 ①请求带 `include_reasoning: true`；②流解析把上游思考段累积为独立 `ThinkingContent` 块并发射 `thinking_start / thinking_delta / thinking_end`（pi-ai 0.83 原生事件类型，types.d.ts:393-405）。**两形状都处理**：`delta.thinking`（Claude 风格）与 `delta.reasoning_content`（OpenAI 兼容推理模型）。**思考解析按 includeReasoning 门控**（缺省 false 时思考段与 v1 一样被忽略），保证「流解析行为零变化」。
+- **不污染既有累积**：`#appendThinking` 独立累积，不进 `#appendText`（文本）与 `#appendToolCall`（tool_calls）；穿插顺序按 contentIndex 隔离（思考块与工具块各自独立下标）。
+- **usage 恒 0 不变**（ST 流不透出用量，含思考 token，维持 `ZERO_USAGE`）。
+- **多轮回传剥离思考块**：`convertMessages` 的 `textBlocksOf` 只过滤 `type === "text"` 块，思考块天然不随历史回传（ticket 20 历史组装处显式保证，属 ticket 20）。
+- **静默降级**：模型/后端不支持思考时 `include_reasoning: true` 无害（ST 侧忽略、上游无思考段），不报错。
+
+**测试**（st-backends-request.test.ts + st-backends-llm.test.ts）：
+- 请求形状：`include_reasoning` 缺省 false / 显式 true 透传；
+- Claude 风格 `delta.thinking` → thinking_start/delta/end + ThinkingContent 块 + 请求带 include_reasoning；
+- `reasoning_content` 风格 → 同样累积为独立块（与文本块并列，事件顺序正确）；
+- 思考与 tool_calls 穿插 → contentIndex 隔离（思考事件恒 0、工具事件恒 1，不互相污染）；
+- 缺省 false 零变化 → 请求不带思考开关、上游思考段被忽略、无 thinking 事件；
+- 填表任务回归（agent-loop）原样绿。
+
+**验收**：第 1 条（填表任务升级前后一致）由自动化回归覆盖；第 2 条（问答面板流式显示思考段）依赖 ticket 20，待其开启 `includeReasoning` 后真机验证。
+
 
 ## Comments
 

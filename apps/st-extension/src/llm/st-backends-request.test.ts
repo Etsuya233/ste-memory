@@ -49,6 +49,14 @@ describe("buildStGenerateBody（ST 特有请求形状）", () => {
     });
   });
 
+  it("include_reasoning 缺省 false；显式 true 时透传", () => {
+    const off = buildStGenerateBody(testModel(), { messages: [] }, undefined, TEST_CONFIG);
+    expect(off.include_reasoning).toBe(false);
+
+    const on = buildStGenerateBody(testModel(), { messages: [] }, undefined, TEST_CONFIG, true);
+    expect(on.include_reasoning).toBe(true);
+  });
+
   it("生成参数缺失时省略字段（上游用默认值）", () => {
     const body = buildStGenerateBody(testModel({ stSource: "custom" }), { messages: [] }, undefined, {
       source: "custom",

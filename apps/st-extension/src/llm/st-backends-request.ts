@@ -26,7 +26,7 @@ export interface StGenerateBody {
   max_tokens?: number;
   stream: true;
   chat_completion_source: string;
-  include_reasoning: false;
+  include_reasoning: boolean;
   tools?: StToolBody[];
   tool_choice?: "auto";
 }
@@ -52,12 +52,16 @@ export interface StToolBody {
  * 构造 generate 请求体。纯函数（可单测）：输入 = pi 模型 + 上下文 + 流式选项
  * + ST 当前配置；显式选项优先于 ST 配置（options.temperature/maxTokens 由
  * 上层 agent 决定时覆盖用户设置）。
+ *
+ * includeReasoning（缺省 false）：开启后请求带 include_reasoning: true（ticket 19），
+ * 让 ST 代理透传思考段；缺省时填表任务请求体零变化。
  */
 export function buildStGenerateBody(
   model: StBackendsModel,
   context: Context,
   options: SimpleStreamOptions | undefined,
   config: StChatCompletionConfig,
+  includeReasoning: boolean = false,
 ): StGenerateBody {
   const body: StGenerateBody = {
     type: "normal",
@@ -65,7 +69,7 @@ export function buildStGenerateBody(
     model: model.id,
     stream: true,
     chat_completion_source: model.stSource,
-    include_reasoning: false,
+    include_reasoning: includeReasoning,
   };
   const temperature = options?.temperature ?? config.temperature;
   if (temperature !== undefined) body.temperature = temperature;
