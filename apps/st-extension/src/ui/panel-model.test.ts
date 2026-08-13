@@ -62,7 +62,7 @@ describe("PanelModel（面板开关与 Tab 状态机）", () => {
   });
 
   it("Tab 固定顺序与显示名覆盖全部 Tab（宿主渲染依赖）", () => {
-    expect(PANEL_TABS).toEqual(["tables", "records", "tasks", "logs", "settings"]);
+    expect(PANEL_TABS).toEqual(["tables", "records", "tasks", "query", "logs", "settings"]);
     for (const tab of PANEL_TABS) {
       expect(PANEL_TAB_LABELS[tab]).toBeTruthy();
     }

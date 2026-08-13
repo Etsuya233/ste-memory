@@ -18,6 +18,8 @@ export {
 export type { SpaceInfoViewModel } from "./space-info.ts";
 export { PanelShell, ToolbarButton } from "./panel-shell.tsx";
 export type { PanelRuntime } from "./panel-shell.tsx";
+export { QueryChatTab } from "./query-chat-tab.tsx";
+export type { QueryChatTabRuntime } from "./query-chat-tab.tsx";
 export { TasksTab } from "./tasks-tab.tsx";
 export type { TasksTabRuntime } from "./tasks-tab.tsx";
 export { LogTab } from "./log-tab.tsx";

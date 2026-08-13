@@ -46,6 +46,8 @@ import {
 } from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
+import type { QueryChatService } from "../query-chat/query-chat-service.ts";
+import { QueryChatStore } from "../query-chat/query-chat-state.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
 import {
   activeStatus,
@@ -72,6 +74,7 @@ import {
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
 import { RecordsTab } from "./record-view.tsx";
 import { TasksTab } from "./tasks-tab.tsx";
+import { QueryChatTab } from "./query-chat-tab.tsx";
 import { LogTab } from "./log-tab.tsx";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import {
@@ -129,6 +132,8 @@ export interface PanelRuntime {
     FillTaskService,
     "submit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
   >;
+  /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
+  readonly queryChat: Pick<QueryChatService, "run">;
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -207,6 +212,9 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
   // 日志定位（ADR 0008）：任务面板「查看日志」跳转到日志 Tab 时携带的目标 runId
   const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
+  // 问答聊天历史/run 状态的页面内存存储（ticket 20）：挂在面板壳上，跨 Tab 切换存活；
+  // 刷新页面即失（决策 4/9：不落 Dexie、不进通用日志）
+  const [queryChatStore] = useState(() => new QueryChatStore());
 
   const info = buildSpaceInfo(status, settings, syncStatus);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
@@ -421,6 +429,17 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
                 setLogFocusRunId(runId);
                 props.model.setTab("logs");
               }}
+            />
+          </section>
+        )}
+        {state.tab === "query" && (
+          <section className="stm-tab-section" data-stm-section="query" role="tabpanel">
+            <QueryChatTab
+              runtime={props.runtime}
+              status={status}
+              settings={settings}
+              store={queryChatStore}
+              onDataChanged={() => setDataVersion((version) => version + 1)}
             />
           </section>
         )}

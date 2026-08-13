@@ -14,6 +14,7 @@ import {
   type MemoryTableId,
 } from "@ste-memory/core/memory";
 import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
+import type { MemoryRecordMutationContext } from "@ste-memory/core/memory";
 import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
@@ -32,6 +33,8 @@ import {
   SteMemoryDatabase,
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
+import { QueryChatService } from "./query-chat/query-chat-service.ts";
+import type { Table } from "dexie";
 import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
@@ -80,6 +83,9 @@ export interface SteMemoryRuntime {
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
    * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
   readonly createLlm: () => LlmPort;
+  /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
+   * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
+  readonly queryChat: QueryChatService;
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
 }
@@ -173,6 +179,10 @@ export async function startSteMemory(
       ),
   };
   const createLlm = (): LlmPort => createStLlmPort(() => getContext() as StContext);
+  // 问答面板（ticket 20）：开启思考流（ticket 19 选项）——填表任务的 createLlm 保持缺省
+  // false 零变化；模型不支持思考时静默降级（适配器行为）。
+  const createQueryChatLlm = (): LlmPort =>
+    createStLlmPort(() => getContext() as StContext, { includeReasoning: true });
   /**
    * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006；世界书 ADR 0007）：
    * 提交时构造一次——活动预设文本 + 对话双方名字快照 + 世界书扫描文本快照；
@@ -213,6 +223,33 @@ export async function startSteMemory(
     };
   };
   const logs = new DexieLogRepository(db, { now });
+  /**
+   * Dexie 原子事务运行器工厂：提交批次在单事务内（scope 必须声明为 async——
+   * Dexie expected-awaits 追踪，否则 PrematureCommit）。表集合 = 批次提交读写全集：
+   * 填表任务含台账表，问答面板不含。
+   */
+  const runInTransaction = (tables: readonly Table[]) => (work: () => Promise<void>) =>
+    db.transaction("rw", tables, async () => {
+      await work();
+    });
+  // 批次原子提交上下文：填表任务（ticket 13）与问答面板填写模式（ticket 20）共用。
+  const commitContext: MemoryRecordMutationContext = {
+    tables: tableRepository,
+    fields: fieldRepository,
+    records: recordRepository,
+    createId: () => createId("record") as MemoryRecordId,
+    createHistoryId: () => createId("record-history") as MemoryRecordHistoryId,
+    createRevisionId: () => createId("revision") as MemoryRevisionId,
+    now,
+    displayText: (table, fieldList, payload) =>
+      computeMemoryRecordDisplayText(
+        recordRepository,
+        table.memorySpaceId,
+        table,
+        fieldList,
+        payload,
+      ),
+  };
   const tasks = new FillTaskService({
     tasks: new DexieFillTaskRepository(db, now),
     ledger: new DexieFloorLedgerRepository(db),
@@ -221,40 +258,15 @@ export async function startSteMemory(
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     evidence: recordRepository,
-    commitContext: {
-      tables: tableRepository,
-      fields: fieldRepository,
-      records: recordRepository,
-      createId: () => createId("record") as MemoryRecordId,
-      createHistoryId: () => createId("record-history") as MemoryRecordHistoryId,
-      createRevisionId: () => createId("revision") as MemoryRevisionId,
-      now,
-      displayText: (table, fieldList, payload) =>
-        computeMemoryRecordDisplayText(
-          recordRepository,
-          table.memorySpaceId,
-          table,
-          fieldList,
-          payload,
-        ),
-    },
-    runInTransaction: (work) =>
-      // 事务作用域函数必须声明为 async（Dexie expected-awaits 追踪，否则 PrematureCommit）；
-      // 表集合 = 批次提交读写全集（表格/字段读取 + 记录/历史/证据/台账写入）。
-      db.transaction(
-        "rw",
-        [
-          db.memoryTables,
-          db.memoryFields,
-          db.memoryRecords,
-          db.memoryRecordHistory,
-          db.memoryEvidence,
-          db.floorFillLedger,
-        ],
-        async () => {
-          await work();
-        },
-      ),
+    commitContext,
+    runInTransaction: runInTransaction([
+      db.memoryTables,
+      db.memoryFields,
+      db.memoryRecords,
+      db.memoryRecordHistory,
+      db.memoryEvidence,
+      db.floorFillLedger,
+    ]),
     createLlm,
     createComposeSystemPrompt,
     createRunId: () => createId("task"),
@@ -289,6 +301,27 @@ export async function startSteMemory(
       restore: (binding) => mirror.restoreFromMirror(binding),
     },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
+  });
+
+  // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
+  // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
+  const queryChat = new QueryChatService({
+    reader,
+    ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
+    commitContext,
+    // 提交批次的事务作用域（不含台账表）：记录/历史/证据读写全集。
+    runInTransaction: runInTransaction([
+      db.memoryTables,
+      db.memoryFields,
+      db.memoryRecords,
+      db.memoryRecordHistory,
+      db.memoryEvidence,
+    ]),
+    createLlm: createQueryChatLlm,
+    getCurrentSpaceId: () => {
+      const status = manager.getStatus();
+      return status?.kind === "active" ? status.space.id : undefined;
+    },
   });
 
   // 云同步协调器：R2 配置齐全 + 插件总开关开启时生效（设置面板实时修改立即生效，
@@ -411,6 +444,7 @@ export async function startSteMemory(
     macro,
     agentMacro,
     createLlm,
+    queryChat,
     version: options.version ?? "",
   };
 }

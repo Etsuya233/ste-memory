@@ -88,6 +88,14 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    queryChat: {
+      run: vi.fn(async () => ({
+        stopReason: "stop" as const,
+        errorMessage: undefined,
+        answer: "",
+        commit: undefined,
+      })),
+    },
     logs: {
       byKey: vi.fn(async () => []),
       bySpace: vi.fn(async () => []),
@@ -135,12 +143,12 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-action="resize-panel"');
   });
 
-  it("初始：收起态（aria-hidden）+ 空间名 + 四 Tab + 表格区块", () => {
+  it("初始：收起态（aria-hidden）+ 空间名 + 六个 Tab + 表格区块", () => {
     const html = renderShell(new PanelModel());
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("爱丽丝 - story");
     expect(html).toContain("云同步未配置");
-    for (const label of ["表格", "记录", "任务", "设置"]) {
+    for (const label of ["表格", "记录", "任务", "问答", "日志", "设置"]) {
       expect(html).toContain(label);
     }
     expect(html).toContain('data-stm-section="tables"');
@@ -162,6 +170,25 @@ describe("PanelShell（面板骨架投影）", () => {
     // 只有一个 Tab 处于选中态（表格是默认 Tab）
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
     expect(html).toContain('data-tab="settings"');
+  });
+
+  it("问答 Tab：模式切换/刷新入口/输入行/空状态邀请（ticket 20 验收契约）", () => {
+    const model = new PanelModel();
+    model.setTab("query");
+    const html = renderShell(model);
+    expect(html).toContain('data-tab="query"');
+    expect(html).toContain("问答");
+    expect(html).toContain('data-stm-section="query"');
+    expect(html).toContain('data-action="query-chat-mode"');
+    expect(html).toContain('data-mode="query"');
+    expect(html).toContain('data-mode="fill"');
+    expect(html).toContain("查询");
+    expect(html).toContain("填写");
+    expect(html).toContain('data-action="refresh-records"');
+    expect(html).toContain('data-action="query-chat-input"');
+    expect(html).toContain('data-action="query-chat-send"');
+    // 空状态邀请（默认查询模式）
+    expect(html).toContain("有什么想问记忆的吗？");
   });
 
   it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏配置（可编辑 + 默认值 + 上限）", () => {

@@ -4,7 +4,7 @@
 
 **Blocked by:** 19（思考流适配器）
 
-**Status:** ready（grilling 2026-08 确认，待实现）
+**Status:** resolved
 
 ## 已确认决策（grilling 2026-08）
 
@@ -44,6 +44,22 @@ apps/st-extension/src/query-chat/
 5. 运行中切换对话：查询模式继续跑完；填写模式提交被拦截并提示「对话已切换，变更未提交」
 6. 切换空间/模式历史各自独立；刷新页面后清空；未绑定空间显示空状态邀请
 7. 复制回答可用
+
+## Answer
+
+已实现（TDD：新 seam `query-chat/` 纯逻辑 + 服务编排 + UI 接线，全量测试绿）。st-extension 全量 57 文件 586 例绿 + typecheck（tsconfig.json + tsconfig.scripts.json）绿 + eslint 绿 + esbuild 构建通过；填表任务回归（st-backends-agent-loop / fill-task-service）原样绿。
+
+**`src/query-chat/query-chat-state.ts`（纯逻辑 seam）**：`QueryChatMessage/QueryChatEvent/QueryChatCommitResult` 类型；纯函数 `applyQueryChatEvent`（事件→消息增量，pending 缺失时原样返回）、`chatHistoryMessages`（无状态回传：只回传 user/done assistant 文本，思考与工具结果不跨轮）、`queryChatHistoryKey`（空间 × 模式）；`QueryChatStore`——按 key 的页面内存历史 + run 状态（AbortController 可取消，done/error 终态事件终止 run），切换空间/模式/Tab 不打断在途 run（决策 7）。
+
+**`src/query-chat/query-chat-service.ts`（run 编排）**：查询模式 = QueryAgent（core 固定提示词）；填写模式 = ProposalAgent + `composeInteractiveProposalAgentSystemPrompt`（软闸门，决策 3）；`translateAgentEvent` 透传 thinking/text/tool 事件；`terminalQueryChatEvent` 终态翻译（stop/length → done、error → 模型失败、aborted 区分「已取消」/「5 分钟超时」）；填写提交 = 单事务 `commitMemoryProposalBatch(revisionSource "agent")` 直通 repository（不经活动任务守卫），提交前校验当前绑定空间 == run 起始空间，不一致放弃提案并提示「对话已切换，变更未提交」（决策 7）；一切失败以终态事件编码，绝不抛异常。
+
+**`src/ui/query-chat-tab.tsx` + `panel-shell/panel-model`**：面板底部第 6 个 Tab「问答」（顺序：表格/记录/任务/问答/日志/设置），内部「查询/填写」模式切换（决策 1）；聊天渲染（用户气泡 + Agent 卡片：思考折叠、工具调用参数/结果可展开、提交摘要/失败/放弃横幅、错误提示）；停止（AbortController）+ 复制回答（不做发送到对话）+「刷新记录」入口（web 决策 7，bump dataVersion）；未绑定空间空状态邀请（决策 11）；输入行 sticky 吸底，触控 ≥44px。
+
+**`runtime.ts` + `llm/st-backends-llm.ts`**：`createQueryChatLlm` 以 `includeReasoning: true` 构造（ticket 19 选项，填表任务 createLlm 保持缺省 false 零变化）；`commitContext` 提取为填表任务与问答面板共用；`getCurrentSpaceId` 读 manager 当前绑定空间。
+
+**测试**：query-chat-state.test.ts（事件应用/历史回传/store 按 key 隔离与取消）；query-chat-service.test.ts（整循环事件序列、多轮历史回传、填写提交落库、不同意不提交、空间切换放弃、取消/模型失败/LLM 配置缺失终态、终态翻译）；`stream-fn-support.ts` 增 `scriptedDeltaStreamFn`（thinking/text 增量流）+ `hangingStreamFn` 预取消竞态加固。panel-model/panel-shell 冒烟测试更新（六 Tab + 问答 Tab 契约）；verify-ui-shell.mjs Tab 断言同步。
+
+**验收**：手动验收 1-7（真机：流式思考/工具可见、填写软闸门提交+刷新、取消/超时提示、运行中切对话守卫、历史隔离、复制）留待浏览器/真机路径（本 repo 先例：真机验收不进 CI）。
 
 ## Comments
 

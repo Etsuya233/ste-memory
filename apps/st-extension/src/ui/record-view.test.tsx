@@ -88,6 +88,14 @@ function fakeRuntime(): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    queryChat: {
+      run: vi.fn(async () => ({
+        stopReason: "stop" as const,
+        errorMessage: undefined,
+        answer: "",
+        commit: undefined,
+      })),
+    },
     logs: {
       byKey: vi.fn(async () => []),
       bySpace: vi.fn(async () => []),

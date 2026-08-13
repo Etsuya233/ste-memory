@@ -223,8 +223,9 @@ async function main() {
       `${skeleton.title}（期望 ${spaceName}）`,
     );
     check(
-      "底部 Tab：表格/记录/任务/设置",
-      JSON.stringify(skeleton.tabs) === JSON.stringify(["表格", "记录", "任务", "设置"]),
+      "底部 Tab：表格/记录/任务/问答/日志/设置",
+      JSON.stringify(skeleton.tabs) ===
+        JSON.stringify(["表格", "记录", "任务", "问答", "日志", "设置"]),
       JSON.stringify(skeleton.tabs),
     );
     check("默认激活表格 Tab", skeleton.activeSection === "tables");
@@ -347,6 +348,56 @@ async function main() {
       "记录 Tab：表选择器（8 张系统表）+ 搜索 + 网格填写入口（+ 新行 / 保存）",
       recordsTab.optionCount >= 8 && recordsTab.hasSearch && recordsTab.hasAddRow && recordsTab.hasSave,
       JSON.stringify(recordsTab),
+    );
+
+    // 7b. 问答 Tab（ticket 20）：结构就位——模式切换（查询/填写）、输入行、空状态邀请；
+    // 动态行为（真实 LLM 流式/提交）为手动验收，不进本脚本
+    await page.evaluate(() => {
+      document.querySelector('#stm-panel .stm-tab[data-tab="query"]')?.click();
+    });
+    const queryTab = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-stm-section="query"]');
+      const modes = [...section.querySelectorAll('[data-action="query-chat-mode"]')].map((b) => ({
+        mode: b.dataset.mode,
+        selected: b.getAttribute("aria-selected"),
+      }));
+      return {
+        modes,
+        hasInput: !!section?.querySelector('[data-action="query-chat-input"]'),
+        hasSend: !!section?.querySelector('[data-action="query-chat-send"]'),
+        hasRefresh: !!section?.querySelector('[data-action="refresh-records"]'),
+        hasInvitation: (section?.textContent ?? "").includes("有什么想问记忆的吗？"),
+      };
+    });
+    check(
+      "问答 Tab：查询/填写模式切换 + 输入行 + 刷新入口 + 空状态邀请",
+      JSON.stringify(queryTab.modes) ===
+        JSON.stringify([
+          { mode: "query", selected: "true" },
+          { mode: "fill", selected: "false" },
+        ]) &&
+        queryTab.hasInput &&
+        queryTab.hasSend &&
+        queryTab.hasRefresh &&
+        queryTab.hasInvitation,
+      JSON.stringify(queryTab),
+    );
+    // 模式切换：点「填写」→ 选中态转移 + 空状态文案切换（历史按模式独立的前提）
+    await page.evaluate(() => {
+      document.querySelector('#stm-panel [data-action="query-chat-mode"][data-mode="fill"]')?.click();
+    });
+    const fillMode = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-stm-section="query"]');
+      const fill = section?.querySelector('[data-action="query-chat-mode"][data-mode="fill"]');
+      return {
+        selected: fill?.getAttribute("aria-selected"),
+        hasFillInvitation: (section?.textContent ?? "").includes("想记点什么？"),
+      };
+    });
+    check(
+      "问答 Tab：切换填写模式生效（选中态 + 填写空状态邀请）",
+      fillMode.selected === "true" && fillMode.hasFillInvitation,
+      JSON.stringify(fillMode),
     );
 
     await page.evaluate(() => {

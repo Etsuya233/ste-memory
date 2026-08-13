@@ -13,6 +13,11 @@
   --stm-danger: #c96a6a;
   --stm-warning: #d9a25f;
 
+  /* 半透明底纹变体（横幅底色）：透明度由令牌集中定义，调色只改令牌区块 */
+  --stm-success-dim: rgba(127, 176, 138, 0.14);
+  --stm-danger-dim: rgba(201, 106, 106, 0.14);
+  --stm-warning-dim: rgba(217, 162, 95, 0.14);
+
   /* 正文系统 CJK 栈；楼层号/时间/计数用 --stm-font-mono 等宽数字 */
   --stm-font:
     system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -2018,4 +2023,323 @@
 .stm-log-tool-results code {
   font-size: 11px;
   margin-left: 6px;
+}
+
+/* ============================================================
+ * 问答 Tab（ticket 20 / ADR 0009）：与 Agent 聊天——模式切换、用户气泡、
+ * Agent 卡片（思考折叠 + 工具调用展开 + 提交摘要）、复制回答、sticky 输入行。
+ * 色板走令牌；触控目标 ≥44px；无动效（spec UI 契约）。
+ * ============================================================ */
+
+.stm-query-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stm-query-chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stm-query-mode-switch {
+  display: flex;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.stm-query-mode {
+  min-height: 44px;
+  padding: 0 16px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--stm-ink-secondary);
+  font-size: 13px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-query-mode:hover {
+  color: var(--stm-ink);
+}
+
+.stm-query-mode[aria-selected="true"] {
+  background: var(--stm-accent);
+  color: var(--stm-ink-bg);
+  font-weight: 600;
+}
+
+.stm-query-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 4px;
+}
+
+.stm-chat-bubble {
+  max-width: 86%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.stm-chat-bubble--user {
+  align-self: flex-end;
+  background: var(--stm-accent);
+  color: var(--stm-ink-bg);
+}
+
+.stm-chat-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+}
+
+.stm-chat-assistant--error {
+  border-color: var(--stm-danger);
+}
+
+.stm-chat-assistant-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-chat-assistant-head > i {
+  color: var(--stm-accent);
+}
+
+.stm-chat-agent-label {
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-chat-status-label {
+  font-style: normal;
+}
+
+.stm-chat-copy {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 12px;
+  background: none;
+  border: 1px solid var(--stm-border);
+  border-radius: 6px;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-chat-copy:hover:not(:disabled) {
+  border-color: var(--stm-accent);
+  color: var(--stm-accent);
+}
+
+.stm-chat-copy:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 思考块（折叠展示）：流式期间默认展开实时观察 */
+.stm-chat-thinking {
+  padding: 6px 10px;
+  background: var(--stm-ink-bg);
+  border-left: 2px solid var(--stm-warning);
+  border-radius: 6px;
+}
+
+.stm-chat-thinking summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--stm-warning);
+  user-select: none;
+}
+
+.stm-chat-thinking-text {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--stm-ink-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 工具调用卡：参数/结果可展开；执行中默认展开、结束后折叠 */
+.stm-chat-tool {
+  padding: 6px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+}
+
+.stm-chat-tool--error {
+  border-color: var(--stm-danger);
+}
+
+.stm-chat-tool summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--stm-ink);
+  user-select: none;
+}
+
+.stm-chat-tool summary > i {
+  color: var(--stm-accent);
+  font-size: 11px;
+}
+
+.stm-chat-tool--error summary > i {
+  color: var(--stm-danger);
+}
+
+.stm-chat-tool-name {
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+  color: var(--stm-accent);
+}
+
+.stm-chat-tool-status {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-chat-tool--error .stm-chat-tool-status {
+  color: var(--stm-danger);
+}
+
+.stm-chat-tool-section {
+  margin-top: 8px;
+}
+
+.stm-chat-tool-label {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-chat-tool pre {
+  margin: 0;
+  max-height: 240px;
+  padding: 8px;
+  overflow: auto;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 6px;
+  font-family: var(--stm-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--stm-ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.stm-chat-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--stm-ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 填写模式提交摘要横幅（已提交 / 失败 / 空间切换放弃） */
+.stm-chat-commit {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--stm-success-dim);
+  color: var(--stm-success);
+}
+
+.stm-chat-commit--error {
+  background: var(--stm-danger-dim);
+  color: var(--stm-danger);
+}
+
+.stm-chat-commit--warning {
+  background: var(--stm-warning-dim);
+  color: var(--stm-warning);
+}
+
+.stm-chat-error {
+  font-size: 12px;
+  color: var(--stm-danger);
+}
+
+/* 输入行：sticky 吸底（滚动容器 = .stm-panel-body；负 bottom/下内边距盖住面板底部留白） */
+.stm-query-chat-input-row {
+  position: sticky;
+  bottom: -12px;
+  display: flex;
+  gap: 8px;
+  padding: 10px 0 16px;
+  background: var(--stm-surface);
+}
+
+.stm-query-chat-input-row input {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+}
+
+.stm-query-chat-input-row input:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 1px;
+}
+
+.stm-query-chat-input-row input:disabled {
+  opacity: 0.6;
+}
+
+.stm-query-chat-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  background: var(--stm-accent);
+  border: none;
+  border-radius: 8px;
+  color: var(--stm-ink-bg);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.stm-query-chat-send:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.stm-query-chat-send:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

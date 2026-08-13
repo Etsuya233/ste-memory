@@ -144,6 +144,67 @@ export function scriptedStreamFn(
 }
 
 /**
+ * 增量式脚本化 streamFn：把 respond 返回的消息按内容块逐段发射
+ * （thinking_start/thinking_delta/thinking_end、text_start/text_delta/text_end），
+ * 再以 done/error 收尾——模拟 ST 适配器（ticket 19）的真实流形状，
+ * 供问答面板（ticket 20）断言思考/文本增量事件。工具调用块随 done 整条携带。
+ */
+export function scriptedDeltaStreamFn(
+  respond: (context: Context) => AssistantMessage,
+): StreamFn & StreamFnScript {
+  const calls = { count: 0 };
+  const contexts: Context[] = [];
+  const streamFn: StreamFn = (_model, context) => {
+    calls.count += 1;
+    contexts.push(context);
+    const stream = new ScriptedEventStream();
+    queueMicrotask(() => {
+      const message = respond(context);
+      stream.push({ type: "start", partial: message });
+      // contentIndex = 块在 content 数组中的位置（forEach 下标，避免 indexOf 命中重复块）
+      message.content.forEach((block, contentIndex) => {
+        if (block.type === "thinking") {
+          stream.push({ type: "thinking_start", contentIndex, partial: message });
+          stream.push({
+            type: "thinking_delta",
+            contentIndex,
+            delta: block.thinking,
+            partial: message,
+          });
+          stream.push({
+            type: "thinking_end",
+            contentIndex,
+            content: block.thinking,
+            partial: message,
+          });
+        } else if (block.type === "text") {
+          stream.push({ type: "text_start", contentIndex, partial: message });
+          stream.push({ type: "text_delta", contentIndex, delta: block.text, partial: message });
+          stream.push({ type: "text_end", contentIndex, content: block.text, partial: message });
+        }
+      });
+      if (message.stopReason === "error" || message.stopReason === "aborted") {
+        stream.push({ type: "error", reason: message.stopReason, error: message });
+      } else {
+        stream.push({
+          type: "done",
+          reason: message.stopReason as "stop" | "length" | "toolUse",
+          message,
+        });
+      }
+      stream.end(message);
+    });
+    return toStream(stream);
+  };
+  return Object.assign(streamFn, { respond, calls, contexts });
+}
+
+/** 思考内容块（scriptedDeltaStreamFn 的思考流输入）。 */
+export function thinkingMessage(text: string): AssistantMessage["content"][number] {
+  return { type: "thinking", thinking: text };
+}
+
+/**
  * 门控 streamFn：前 gateAtCall-1 次调用正常响应；第 gateAtCall 次调用挂起，
  * 直到 gate.open() 才响应；放行后后续调用正常。用于模拟「块运行时任务仍在跑」。
  */ export function gatedStreamFn(
@@ -192,20 +253,22 @@ export function scriptedStreamFn(
   return Object.assign(streamFn, { respond, calls, contexts, gate });
 }
 
-/** 永不结束的流：任务停在 agent.run，用于冲突/中断语义测试。 */
+/** 永不结束的流：任务停在 agent.run，用于冲突/中断语义测试。
+ * signal 在调用前已 abort 时立即以 aborted 收尾（取消与启动竞态的确定性）。 */
 export function hangingStreamFn(): StreamFn {
   const streamFn: StreamFn = (_model, _context, options) => {
     const stream = new ScriptedEventStream();
-    options?.signal?.addEventListener(
-      "abort",
-      () => {
-        const message = assistantMessage([], "aborted", "测试取消");
-        stream.push({ type: "start", partial: message });
-        stream.push({ type: "error", reason: "aborted", error: message });
-        stream.end(message);
-      },
-      { once: true },
-    );
+    const respondAborted = () => {
+      const message = assistantMessage([], "aborted", "测试取消");
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "error", reason: "aborted", error: message });
+      stream.end(message);
+    };
+    if (options?.signal?.aborted) {
+      respondAborted();
+      return toStream(stream);
+    }
+    options?.signal?.addEventListener("abort", respondAborted, { once: true });
     return toStream(stream);
   };
   return streamFn;
