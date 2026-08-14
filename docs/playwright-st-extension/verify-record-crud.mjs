@@ -1,6 +1,7 @@
-// ticket 11 手动验收：真实 ST 中「建自定义表 → 建字段 → 配显示策略 → 记录 CRUD 全流程
-// （含校验错误/停用字段值保留/来源徽标/修订摘要）→ 证据楼层 chip 渲染 + 跳转 + 摘录」
-// /* global SillyTavern, document, indexedDB, window */
+// ticket 11 + ticket 21 手动验收：真实 ST 中「建自定义表 → 建字段 → 配显示策略 →
+// 记录 CRUD 全流程（chip 选表/查看-编辑模式/行底错误条/脏行标记/校验错误/停用字段
+// 值保留/来源徽标/修订摘要）→ 证据楼层 chip 渲染 + 跳转 + 摘录」
+/* global SillyTavern, document, indexedDB, window */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-record-crud.mjs（exit 0 = 全流程通过；脚本自清理：删除验收表与种子数据）
 import { existsSync, readdirSync, rmSync } from "node:fs";
@@ -158,12 +159,50 @@ async function clickTab(page, tab) {
   }, tab);
 }
 
+/** 表格选择：点击 chip（ticket 21：替代原 record-table-select 下拉） */
 async function selectCustomTable(page, tableId) {
-  await setFieldValue(
+  await page.evaluate((tid) => {
+    const chip = document.querySelector(
+      `#stm-panel [data-action="select-table"][data-table-id="${tid}"]`,
+    );
+    if (!chip) throw new Error(`未找到表格 chip ${tid}`);
+    chip.click();
+  }, tableId);
+}
+
+/** 搜索框默认折叠在右侧：展开后再操作 */
+async function ensureSearchOpen(page) {
+  const open = await page.evaluate(
+    () => !!document.querySelector('#stm-panel [data-stm-field="record-search"]'),
+  );
+  if (!open) {
+    await page.evaluate(() => {
+      document.querySelector('#stm-panel [data-action="record-search-toggle"]')?.click();
+    });
+  }
+  await waitUntil(
     page,
-    '#stm-panel select[data-action="record-table-select"]',
-    tableId,
-    "select",
+    () => !!document.querySelector('#stm-panel [data-stm-field="record-search"]'),
+    "搜索框展开",
+  );
+}
+
+/** 点击查看模式单元格进入编辑模式（等待编辑控件出现；已在编辑模式则只聚焦） */
+async function enterCellEdit(page, fieldKey) {
+  await page.evaluate((key) => {
+    const cell = document.querySelector(`#stm-panel [data-stm-field="record-value-${key}"]`);
+    if (!cell) throw new Error(`未找到单元格 ${key}`);
+    cell.click();
+  }, fieldKey);
+  await waitUntil(
+    page,
+    (key) =>
+      !!document.querySelector(
+        `#stm-panel textarea[data-stm-field="record-value-${key}"], #stm-panel input[data-stm-field="record-value-${key}"], #stm-panel select[data-stm-field="record-value-${key}"]`,
+      ),
+    `编辑模式就位（${fieldKey}）`,
+    20000,
+    fieldKey,
   );
 }
 
@@ -202,8 +241,8 @@ async function main() {
   // 删除确认对话框（window.confirm）：一律接受
   page.on("dialog", (dialog) => void dialog.accept());
 
-  let seededEvidenceId = null;
-  let seededRecordId = null;
+  let seededEvidenceId;
+  let seededRecordId;
 
   try {
     // 1. 加载插件 + 打开测试角色对话（自动建空间）
@@ -355,18 +394,20 @@ async function main() {
     );
     check("显示策略：字段=名字 保存成功", true);
 
-    // 3. 记录 tab：选择验收表 → 空状态
+    // 3. 记录 tab：选择验收表（chip 行）→ 空状态
     await clickTab(page, "records");
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'),
-      "记录 tab 表选择器就位",
+      () => !!document.querySelector('#stm-panel [data-action="select-table"]'),
+      "记录 tab 表格 chip 就位",
     );
     await selectCustomTable(page, tableId);
     await waitUntil(
       page,
       (tid) =>
-        document.querySelector('#stm-panel [data-action="record-table-select"]')?.value === tid,
+        document
+          .querySelector(`#stm-panel [data-action="select-table"][data-table-id="${tid}"]`)
+          ?.getAttribute("aria-selected") === "true",
       "验收表选中",
       20000,
       tableId,
@@ -379,9 +420,9 @@ async function main() {
       },
       "记录空状态",
     );
-    check("记录 tab：验收表空状态", true);
+    check("记录 tab：验收表空状态（chip 选中）", true);
 
-    // 4. 创建记录：先触发必填校验错误，再填全字段成功（网格：+ 新行 → 填单元格 → 保存）
+    // 4. 创建记录：先触发必填校验错误（行底错误条），再填全字段成功
     await page.evaluate(() => {
       document.querySelector('#stm-panel [data-action="add-grid-row"]')?.click();
     });
@@ -395,20 +436,29 @@ async function main() {
     });
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-error'),
+      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-row-errors'),
       "必填校验错误出现",
     );
     const requiredError = await page.evaluate(
-      () => document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-error')?.textContent ?? "",
+      () =>
+        document
+          .querySelector('#stm-panel [data-stm-section="records"] .stm-grid-row-errors')
+          ?.textContent ?? "",
     );
-    check("必填校验：名字为空报错（文案清晰）", requiredError.includes("请填写"), requiredError);
+    check("必填校验：名字为空报错（行底错误条，文案清晰）", requiredError.includes("请填写"), requiredError);
 
-    await setFieldValue(page, '[data-stm-field="record-value-name"]', "阿尔法");
+    // 点击名字单元格进入编辑模式（错误后行可能已退回查看模式）
+    await enterCellEdit(page, "name");
+    await setFieldValue(page, '[data-stm-field="record-value-name"]', "阿尔法", "textarea");
     await setFieldValue(page, '[data-stm-field="record-value-note"]', "测试备注", "textarea");
     await setFieldValue(page, '[data-stm-field="record-value-count"]', "3");
-    await setFieldValue(page, '[data-stm-field="record-value-tags"]', "a、b、c");
+    await setFieldValue(page, '[data-stm-field="record-value-tags"]', "a、b、c", "textarea");
     await setFieldValue(page, '[data-stm-field="record-value-category"]', "乙", "select");
     await setFieldValue(page, '[data-stm-field="record-value-born"]', "2026-08-09");
+    const dirtyBeforeSave = await page.evaluate(
+      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-cell--dirty'),
+    );
+    check("已修改行：背景色标记", dirtyBeforeSave, "stm-grid-cell--dirty");
     await page.evaluate(() => {
       document.querySelector('#stm-panel [data-action="save-grid"]')?.click();
     });
@@ -427,19 +477,20 @@ async function main() {
     );
     const gridRow = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="records"]');
-      const nameInput = section?.querySelector('[data-stm-field="record-value-name"]');
+      const nameCell = section?.querySelector('[data-stm-field="record-value-name"]');
       return {
         rowNum: section?.querySelector(".stm-grid-rownum-btn")?.textContent ?? "",
-        nameValue: nameInput?.value ?? "",
+        nameValue: nameCell?.textContent ?? "",
       };
     });
     check(
-      "网格行：行号=1 + 名字单元格值=阿尔法",
+      "网格行：行号=1 + 名字查看文本=阿尔法（保存后回到查看模式）",
       gridRow.rowNum === "1" && gridRow.nameValue === "阿尔法",
       JSON.stringify(gridRow),
     );
 
-    // 5. 搜索过滤（服务端 search：命中显示文本与字段值；命中行数看网格行号按钮）
+    // 5. 搜索过滤（折叠搜索展开后输入；服务端 search：命中显示文本与字段值）
+    await ensureSearchOpen(page);
     await setFieldValue(page, '[data-stm-field="record-search"]', "阿尔法");
     await waitUntil(
       page,
@@ -545,7 +596,7 @@ async function main() {
       "备注字段停用落库",
     );
     await clickTab(page, "records");
-    await waitUntil(page, () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'), "记录 tab 就位");
+    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="select-table"]'), "记录 tab 就位");
     await selectCustomTable(page, tableId);
     await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="open-record"]'), "记录行就位");
     await page.evaluate(() => {
@@ -575,14 +626,20 @@ async function main() {
     }, noteField.id);
     await waitForDbState(page, (db) => db.fields.find((f) => f.id === noteField.id)?.enabled === true, "备注字段恢复启用");
 
-    // 8. 编辑：返回网格 → 单元格改备注 → 保存 → 详情更新 + 修订摘要（手动修订）
+    // 8. 编辑：返回网格 → 点击备注单元格进入编辑 → 改备注 → 保存 → 详情更新 + 修订摘要
     await clickTab(page, "records");
-    await waitUntil(page, () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'), "记录 tab 就位");
+    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="select-table"]'), "记录 tab 就位");
     await selectCustomTable(page, tableId);
     await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="open-record"]'), "记录行就位");
     await page.evaluate(() => document.querySelector('#stm-panel [data-action="back-to-records"]')?.click());
     await waitUntil(page, () => !!document.querySelector('#stm-panel [data-stm-field="record-value-note"]'), "网格单元格就位");
+    // 查看模式 → 点击单元格进入编辑模式 → 改备注 → 脏行标记 → 保存
+    await enterCellEdit(page, "note");
     await setFieldValue(page, '[data-stm-field="record-value-note"]', "新备注", "textarea");
+    const dirtyAfterEdit = await page.evaluate(
+      () => !!document.querySelector('#stm-panel [data-stm-section="records"] .stm-grid-cell--dirty'),
+    );
+    check("编辑后：已修改行背景色标记", dirtyAfterEdit, "stm-grid-cell--dirty");
     await page.evaluate(() => document.querySelector('#stm-panel [data-action="save-grid"]')?.click());
     await waitUntil(
       page,
@@ -705,7 +762,7 @@ async function main() {
     // 重挂载记录 tab（切 tab 会卸载/重挂 RecordsTab → 重取数据）
     await clickTab(page, "tasks");
     await clickTab(page, "records");
-    await waitUntil(page, () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'), "记录 tab 就位");
+    await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="select-table"]'), "记录 tab 就位");
     await selectCustomTable(page, tableId);
     await waitUntil(page, () => !!document.querySelector('#stm-panel [data-action="open-record"]'), "证据记录行就位");
     await page.evaluate(() => document.querySelector('#stm-panel [data-action="open-record"]')?.click());

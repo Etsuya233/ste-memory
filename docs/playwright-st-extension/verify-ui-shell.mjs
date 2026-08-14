@@ -1,6 +1,6 @@
 // ticket 06 手动验收：真实 ST 中「顶部按钮 → 面板骨架（移动抽屉/桌面居中浮动窗口，
 // 含顶栏拖拽与右下角缩放）→ 表格列表启停落库 → 设置面板持久化与插件开关」全流程。
-/* global SillyTavern, document, indexedDB, window, toastr, getComputedStyle */
+/* global SillyTavern, document, indexedDB, window, getComputedStyle */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-ui-shell.mjs（exit 0 = 全流程通过）
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -282,11 +282,14 @@ async function main() {
       (db) => db.tables.find((t) => t.id === firstTableId)?.enabled === false,
       "表格停用落库",
     );
-    const tableRowState = await page.evaluate(() => {
-      const row = document.querySelector('#stm-panel input[data-action="toggle-table"]');
-      return row?.checked;
-    });
-    check("表格停用：Dexie 落库 + UI 开关反映", tableRowState === false);
+    // UI 反映可能晚于 DB 写（同一条异步链，DB 轮询先观察到）：等 UI 再断言
+    await waitUntil(
+      page,
+      () =>
+        document.querySelector('#stm-panel input[data-action="toggle-table"]')?.checked === false,
+      "表格停用 UI 反映",
+    );
+    check("表格停用：Dexie 落库 + UI 开关反映", true);
 
     // 6. 字段启停落库：第一个字段（显示策略依赖，ticket 10 UI 前置禁用）与第二个字段（正常落库）
     // 系统表显示策略引用第一个字段（模板 fields[0]）；UI 对依赖字段禁用启停开关（
@@ -331,22 +334,21 @@ async function main() {
     });
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel select[data-action="record-table-select"]'),
-      "记录 Tab 表选择器就位",
+      () => !!document.querySelector('#stm-panel [data-action="select-table"]'),
+      "记录 Tab 表格 chip 就位",
     );
     const recordsTab = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="records"]');
-      const select = section?.querySelector('select[data-action="record-table-select"]');
       return {
-        optionCount: select?.options.length ?? 0,
-        hasSearch: !!section?.querySelector('input[data-action="record-search"]'),
+        chipCount: section?.querySelectorAll('[data-action="select-table"]').length ?? 0,
+        hasSearchToggle: !!section?.querySelector('[data-action="record-search-toggle"]'),
         hasAddRow: !!section?.querySelector('button[data-action="add-grid-row"]'),
         hasSave: !!section?.querySelector('button[data-action="save-grid"]'),
       };
     });
     check(
-      "记录 Tab：表选择器（8 张系统表）+ 搜索 + 网格填写入口（+ 新行 / 保存）",
-      recordsTab.optionCount >= 8 && recordsTab.hasSearch && recordsTab.hasAddRow && recordsTab.hasSave,
+      "记录 Tab：表格 chip（8 张系统表）+ 折叠搜索 + 网格填写入口（+ 新行 / 保存）",
+      recordsTab.chipCount >= 8 && recordsTab.hasSearchToggle && recordsTab.hasAddRow && recordsTab.hasSave,
       JSON.stringify(recordsTab),
     );
 

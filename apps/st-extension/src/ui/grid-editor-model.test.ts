@@ -6,22 +6,34 @@ import type {
   MemoryTableId,
 } from "@ste-memory/core/memory";
 import {
+  buildReferenceLabelMap,
+  clampGridRowHeight,
   clampGridWidth,
   defaultGridColumnWidths,
   emptyGridRow,
   GRID_COLUMN_MAX_WIDTH,
   GRID_FIELD_MIN_WIDTH,
   GRID_FIELD_WIDTH,
+  GRID_ROW_HEIGHT,
+  GRID_ROW_MAX_HEIGHT,
+  GRID_ROW_MIN_HEIGHT,
   GRID_ROW_NUMBER_MIN_WIDTH,
   GRID_ROW_NUMBER_WIDTH,
   gridColumnWidth,
+  gridDisplayValueText,
+  gridHeightsStorageKey,
+  gridRowErrorLines,
+  gridRowHeight,
+  gridRowIsDirty,
   gridRowIsEmpty,
   gridRowsFromRecords,
   gridWidthsStorageKey,
   hasUnsavedGridChanges,
   loadGridColumnWidths,
+  loadGridRowHeights,
   planGridSave,
   saveGridColumnWidths,
+  saveGridRowHeights,
   validateGridRows,
   type GridRowState,
   type GridWidthStorage,
@@ -101,7 +113,6 @@ function withValue(row: GridRowState, fieldId: string, value: RecordFormValue): 
   };
 }
 
-
 describe("列宽：默认 / clamp / 读取", () => {
   it("默认宽度：行号列 48、字段未列出时用 168", () => {
     const widths = defaultGridColumnWidths(fields);
@@ -117,9 +128,7 @@ describe("列宽：默认 / clamp / 读取", () => {
   });
 
   it("存储 key 按表独立", () => {
-    expect(gridWidthsStorageKey(TABLE_ID)).toBe(
-      "ste-memory:grid-widths:table-1",
-    );
+    expect(gridWidthsStorageKey(TABLE_ID)).toBe("ste-memory:grid-widths:table-1");
   });
 });
 
@@ -205,10 +214,7 @@ describe("逐行校验", () => {
   });
 
   it("多行独立报错，key 隔离", () => {
-    const rows = [
-      emptyGridRow(fields, "a"),
-      withValue(emptyGridRow(fields, "b"), nameId, "已填"),
-    ];
+    const rows = [emptyGridRow(fields, "a"), withValue(emptyGridRow(fields, "b"), nameId, "已填")];
     const errors = validateGridRows(fields, rows);
     expect(errors.a?.[nameId]).toBeDefined();
     expect(errors.b).toBeUndefined();
@@ -244,6 +250,27 @@ describe("未保存改动检测", () => {
   });
 });
 
+describe("单行脏判定 gridRowIsDirty", () => {
+  it("新行：填了值 → 脏；全空 → 不脏", () => {
+    const emptyRow = emptyGridRow(fields, "new-1");
+    expect(gridRowIsDirty(fields, emptyRow, new Map())).toBe(false);
+    expect(gridRowIsDirty(fields, withValue(emptyRow, nameId, "x"), new Map())).toBe(true);
+  });
+
+  it("已有行：草稿 ≠ 原记录 → 脏；未动 → 不脏；缺原记录 → 不脏", () => {
+    const original = record({ id: "r1", payload: { [nameId]: "阿尔法" } });
+    const row: GridRowState = {
+      key: "r1",
+      recordId: "r1" as MemoryRecordId,
+      draft: { values: { [nameId]: "阿尔法", [countId]: "", [tagsId]: [] } },
+    };
+    const originals = new Map<MemoryRecordId, MemoryRecord>([[original.id, original]]);
+    expect(gridRowIsDirty(fields, row, originals)).toBe(false);
+    expect(gridRowIsDirty(fields, withValue(row, nameId, "贝塔"), originals)).toBe(true);
+    expect(gridRowIsDirty(fields, row, new Map())).toBe(false);
+  });
+});
+
 describe("批量保存计划", () => {
   it("全空新行跳过；填了值的新行 create", () => {
     const rows = [
@@ -255,7 +282,8 @@ describe("批量保存计划", () => {
     rows[2] = withValue(rows[2]!, countId, "7");
     const plan = planGridSave(fields, rows, new Map());
     expect(plan.creates).toHaveLength(1);
-    expect(plan.creates[0]).toEqual({ [nameId]: "伽马", [countId]: 7, [tagsId]: [] });
+    expect(plan.creates[0]!.rowKey).toBe("new-3");
+    expect(plan.creates[0]!.payload).toEqual({ [nameId]: "伽马", [countId]: 7, [tagsId]: [] });
     expect(plan.updates).toHaveLength(0);
     expect(plan.changed).toBe(true);
   });
@@ -291,6 +319,7 @@ describe("批量保存计划", () => {
     expect(plan.creates).toHaveLength(0);
     expect(plan.updates).toHaveLength(1);
     expect(plan.updates[0]).toEqual({
+      rowKey: "r1",
       recordId: "r1" as MemoryRecordId,
       expectedRevisionId: "rev-9",
       patch: { [countId]: 5, [tagsId]: ["a", "b"] },
@@ -308,7 +337,11 @@ describe("批量保存计划", () => {
       },
       emptyGridRow(fields, "new-1"),
     ];
-    const plan = planGridSave(fields, rows, new Map<MemoryRecordId, MemoryRecord>([["r1" as MemoryRecordId, original]]));
+    const plan = planGridSave(
+      fields,
+      rows,
+      new Map<MemoryRecordId, MemoryRecord>([["r1" as MemoryRecordId, original]]),
+    );
     expect(plan.changed).toBe(false);
     expect(plan.creates).toHaveLength(0);
     expect(plan.updates).toHaveLength(0);
@@ -324,5 +357,125 @@ describe("批量保存计划", () => {
     ];
     const plan = planGridSave(fields, rows, new Map());
     expect(plan.changed).toBe(false);
+  });
+});
+
+describe("行高：默认 / clamp / 读取", () => {
+  it("默认行高 60；未列出行用默认", () => {
+    expect(gridRowHeight("r1", {})).toBe(GRID_ROW_HEIGHT);
+    expect(gridRowHeight("r1", { r2: 100 })).toBe(GRID_ROW_HEIGHT);
+    expect(gridRowHeight("r2", { r2: 100 })).toBe(100);
+  });
+
+  it("clamp 到 [40, 240] 并取整", () => {
+    expect(clampGridRowHeight(10)).toBe(GRID_ROW_MIN_HEIGHT);
+    expect(clampGridRowHeight(123.6)).toBe(124);
+    expect(clampGridRowHeight(9999)).toBe(GRID_ROW_MAX_HEIGHT);
+    expect(clampGridRowHeight(Number.NaN)).toBe(GRID_ROW_MIN_HEIGHT);
+  });
+
+  it("存储 key 按表独立", () => {
+    expect(gridHeightsStorageKey(TABLE_ID)).toBe("ste-memory:grid-heights:table-1");
+  });
+});
+
+describe("行高：持久化", () => {
+  it("无存储（SSR）→ 空表（全默认）", () => {
+    expect(loadGridRowHeights([], TABLE_ID)).toEqual({});
+  });
+
+  it("损坏 JSON / 非对象 → 空表", () => {
+    const storage = memoryStorage({ [gridHeightsStorageKey(TABLE_ID)]: "{oops" });
+    expect(loadGridRowHeights([], TABLE_ID, storage)).toEqual({});
+  });
+
+  it("读取：只保留当前记录的行、数值 clamp、孤儿/非法丢弃", () => {
+    const records = [record({ id: "r1" }), record({ id: "r2" })];
+    const storage = memoryStorage({
+      [gridHeightsStorageKey(TABLE_ID)]: JSON.stringify({
+        r1: 10,
+        r2: 180,
+        ghost: 120,
+      }),
+    });
+    const heights = loadGridRowHeights(records, TABLE_ID, storage);
+    expect(heights.r1).toBe(GRID_ROW_MIN_HEIGHT); // 10 → clamp 40
+    expect(heights.r2).toBe(180);
+    expect(heights.ghost).toBeUndefined();
+  });
+
+  it("保存 → 读取 roundtrip", () => {
+    const storage = memoryStorage();
+    saveGridRowHeights(TABLE_ID, { r1: 90, r2: 140 }, storage);
+    const records = [record({ id: "r1" }), record({ id: "r2" })];
+    expect(loadGridRowHeights(records, TABLE_ID, storage)).toEqual({ r1: 90, r2: 140 });
+  });
+});
+
+describe("查看模式文本 gridDisplayValueText", () => {
+  const refFields = [
+    field({
+      key: "ref",
+      name: "目标",
+      type: "single_reference",
+      referenceTableId: "t2" as MemoryTableId,
+    }),
+    field({
+      key: "refs",
+      name: "多目标",
+      type: "multi_reference",
+      referenceTableId: "t2" as MemoryTableId,
+    }),
+  ];
+  const labels = new Map<string, string>([
+    ["target-1", "目标记录甲"],
+    ["target-2", "目标记录乙"],
+  ]);
+
+  it("引用：解析为目标记录显示文本；未知 id 显示原 id；空 → 未填写", () => {
+    expect(gridDisplayValueText(refFields[0]!, "target-1", labels)).toBe("目标记录甲");
+    expect(gridDisplayValueText(refFields[0]!, "ghost", labels)).toBe("ghost");
+    expect(gridDisplayValueText(refFields[0]!, "", labels)).toBe("未填写");
+  });
+
+  it("多引用：顿号拼接；空数组 → 未填写", () => {
+    expect(gridDisplayValueText(refFields[1]!, ["target-2", "ghost"], labels)).toBe(
+      "目标记录乙、ghost",
+    );
+    expect(gridDisplayValueText(refFields[1]!, [], labels)).toBe("未填写");
+  });
+
+  it("非引用类型：布尔是/否、数组顿号、空 → 未填写", () => {
+    const boolField = field({ key: "ok", name: "开关", type: "boolean" });
+    const listField = field({ key: "tags", name: "标签", type: "short_text_list" });
+    expect(gridDisplayValueText(boolField, true, labels)).toBe("是");
+    expect(gridDisplayValueText(listField, ["a", "b"], labels)).toBe("a、b");
+    expect(gridDisplayValueText(fields[0]!, "", labels)).toBe("未填写");
+    expect(gridDisplayValueText(fields[0]!, undefined, labels)).toBe("未填写");
+  });
+
+  it("buildReferenceLabelMap：跨表收集记录 id → 显示文本", () => {
+    const map = buildReferenceLabelMap(
+      new Map<MemoryTableId, readonly MemoryRecord[]>([
+        ["t2" as MemoryTableId, [record({ id: "target-1", displayText: "目标记录甲" })]],
+      ]),
+    );
+    expect(map.get("target-1" as MemoryRecordId)).toBe("目标记录甲");
+  });
+});
+
+describe("行底错误条文案 gridRowErrorLines", () => {
+  it("校验错误按字段顺序逐行；提交错误置顶", () => {
+    const lines = gridRowErrorLines(
+      { [nameId]: "请填写「名字」", [countId]: "「数量」必须是整数" },
+      "保存失败：记录已在别处更新",
+      fields,
+    );
+    expect(lines).toEqual(["保存失败：记录已在别处更新", "请填写「名字」", "「数量」必须是整数"]);
+  });
+
+  it("无错误 → 空数组；字段错误缺字段 → 跳过", () => {
+    expect(gridRowErrorLines(undefined, undefined, fields)).toEqual([]);
+    expect(gridRowErrorLines({ ghost: "未知" }, undefined, fields)).toEqual([]);
   });
 });

@@ -2,6 +2,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { SteMemoryRuntime } from "../runtime.ts";
 import { PanelModel } from "./panel-model.ts";
 import { PanelShell, ToolbarButton } from "./panel-shell.tsx";
+import type { LeaveGuard } from "./record-view.tsx";
 
 /**
  * 面板挂载（ST 侧薄层；spec 测试决策：ST DOM 不测）：建两个 React 根——
@@ -12,16 +13,24 @@ import { PanelShell, ToolbarButton } from "./panel-shell.tsx";
 export function mountPanel(runtime: SteMemoryRuntime): void {
   if (typeof document === "undefined") return;
   const model = new PanelModel();
+  // 顶部按钮与面板共享同一离开守卫槽（记录 Tab 注册；收面板时按钮也先确认）
+  const leaveGuardRef: { current: LeaveGuard | null } = { current: null };
 
   const toolbarHost = document.createElement("div");
   toolbarHost.className = "stm-toolbar";
   (document.getElementById("top-settings-holder") ?? document.body).appendChild(toolbarHost);
   const toolbarRoot: Root = createRoot(toolbarHost);
-  toolbarRoot.render(<ToolbarButton model={model} />);
+  toolbarRoot.render(<ToolbarButton model={model} leaveGuardRef={leaveGuardRef} />);
 
   const panelHost = document.createElement("div");
   panelHost.className = "stm-panel-host";
   document.body.appendChild(panelHost);
   const panelRoot: Root = createRoot(panelHost);
-  panelRoot.render(<PanelShell runtime={{ ...runtime, st: runtime.adapter }} model={model} />);
+  panelRoot.render(
+    <PanelShell
+      runtime={{ ...runtime, st: runtime.adapter }}
+      model={model}
+      leaveGuardRef={leaveGuardRef}
+    />,
+  );
 }

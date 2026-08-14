@@ -72,7 +72,7 @@ import {
   emptyDisplayStrategyDraft,
 } from "./display-strategy-model.ts";
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
-import { RecordsTab } from "./record-view.tsx";
+import { RecordsTab, type LeaveGuard } from "./record-view.tsx";
 import { TasksTab } from "./tasks-tab.tsx";
 import { QueryChatTab } from "./query-chat-tab.tsx";
 import { LogTab } from "./log-tab.tsx";
@@ -161,7 +161,11 @@ function backupFilename(exportedAt: string): string {
 
 // ---- 顶部工具栏按钮 ----
 
-export function ToolbarButton(props: { readonly model: PanelModel }) {
+export function ToolbarButton(props: {
+  readonly model: PanelModel;
+  /** 与面板共享的离开守卫槽（可选；缺省不拦截） */
+  readonly leaveGuardRef?: { current: LeaveGuard | null };
+}) {
   const state = useSyncExternalStore(
     (listener) => props.model.onStateChange(listener),
     () => props.model.getState(),
@@ -173,7 +177,14 @@ export function ToolbarButton(props: { readonly model: PanelModel }) {
       className="stm-toolbar-button"
       aria-label={`${PLUGIN_DISPLAY_NAME} 记忆面板`}
       aria-pressed={state.open}
-      onClick={() => props.model.toggle()}
+      onClick={() => {
+        // 收起面板时同样过离开守卫（记录 Tab 有未保存修改 → 确认）
+        if (state.open) {
+          const guard = props.leaveGuardRef?.current;
+          if (guard && !guard()) return;
+        }
+        props.model.toggle();
+      }}
     >
       <i className="fa-solid fa-book-open" aria-hidden="true"></i>
     </button>
@@ -189,7 +200,12 @@ function viewportSize(): ViewportSize {
 
 // ---- 面板骨架 ----
 
-export function PanelShell(props: { readonly runtime: PanelRuntime; readonly model: PanelModel }) {
+export function PanelShell(props: {
+  readonly runtime: PanelRuntime;
+  readonly model: PanelModel;
+  /** 与顶部按钮共享的离开守卫槽（可选；缺省用内部 ref，测试友好） */
+  readonly leaveGuardRef?: { current: LeaveGuard | null };
+}) {
   const state = useSyncExternalStore(
     (listener) => props.model.onStateChange(listener),
     () => props.model.getState(),
@@ -224,6 +240,21 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
 
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
+
+  // 记录 Tab 的离开守卫（未保存修改确认；RecordsTab 挂载时注册、卸载时注销）
+  const internalGuardRef = useRef<LeaveGuard | null>(null);
+  const guardRef = props.leaveGuardRef ?? internalGuardRef;
+  const registerLeaveGuard = useCallback(
+    (guard: LeaveGuard | null) => {
+      guardRef.current = guard;
+    },
+    [guardRef],
+  );
+  function confirmLeaveRecordsTab(): boolean {
+    if (state.tab !== "records") return true;
+    const guard = guardRef.current;
+    return guard ? guard() : true;
+  }
   const geometryRef = useRef<PanelGeometry | null>(null);
 
   /** 读取当前几何；首次交互时以实际盒子尺寸为基准（尺寸用像素固化，之后不再回退 CSS 默认） */
@@ -378,7 +409,10 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
           className="stm-panel-close"
           data-action="close-panel"
           aria-label="收起面板"
-          onClick={() => props.model.close()}
+          onClick={() => {
+            if (!confirmLeaveRecordsTab()) return;
+            props.model.close();
+          }}
         >
           <i className="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
@@ -393,7 +427,10 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
             data-tab={tab}
             data-action="tab"
             aria-selected={tab === state.tab}
-            onClick={() => props.model.setTab(tab)}
+            onClick={() => {
+              if (!confirmLeaveRecordsTab()) return;
+              props.model.setTab(tab);
+            }}
           >
             {PANEL_TAB_LABELS[tab]}
           </button>
@@ -417,6 +454,7 @@ export function PanelShell(props: { readonly runtime: PanelRuntime; readonly mod
               status={status}
               settings={settings}
               dataVersion={dataVersion}
+              registerLeaveGuard={registerLeaveGuard}
             />
           </section>
         )}

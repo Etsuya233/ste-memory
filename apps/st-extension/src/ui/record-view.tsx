@@ -31,22 +31,31 @@ import {
 } from "./ui-helpers.tsx";
 import { formatSyncTime } from "./space-info.ts";
 import { recordSourceLabel, revisionSummaryLine } from "./record-list-model.ts";
-import { recordFieldValueText, type RecordFormValue } from "./record-form-model.ts";
+import {
+  recordFieldValueText,
+  recordFormDraftFromPayload,
+  type RecordFormValue,
+} from "./record-form-model.ts";
 import { GridEditor } from "./grid-editor.tsx";
 import {
+  clampGridRowHeight,
   clampGridWidth,
   defaultGridColumnWidths,
   emptyGridRow,
   GRID_FIELD_MIN_WIDTH,
   GRID_ROW_NUMBER_MIN_WIDTH,
+  gridRowIsDirty,
   gridRowsFromRecords,
   hasUnsavedGridChanges,
   loadGridColumnWidths,
+  loadGridRowHeights,
   planGridSave,
   saveGridColumnWidths,
+  saveGridRowHeights,
   validateGridRows,
   type GridColumnWidths,
   type GridRowErrors,
+  type GridRowHeights,
   type GridRowState,
 } from "./grid-editor-model.ts";
 import {
@@ -61,6 +70,9 @@ import {
 /** 列表页大小（记录分页，core list 上限 100 内） */
 const RECORD_PAGE_SIZE = 10;
 
+/** 离开记录 Tab 前的未保存修改确认（可取消的守卫，返回 true = 可以离开） */
+export type LeaveGuard = () => boolean;
+
 // ---- 记录列表 Tab ----
 
 export function RecordsTab(props: {
@@ -69,6 +81,8 @@ export function RecordsTab(props: {
   readonly settings: PluginSettings;
   /** 整库数据版本（导入备份后自增，驱动重取） */
   readonly dataVersion: number;
+  /** 注册离开守卫（切 Tab / 关面板时由面板先询问；卸载时注销） */
+  readonly registerLeaveGuard?: (guard: LeaveGuard | null) => void;
 }) {
   const [tables, setTables] = useState<readonly MemoryTable[] | undefined>(undefined);
   const [selectedTableId, setSelectedTableId] = useState<MemoryTableId | null>(null);
@@ -88,8 +102,16 @@ export function RecordsTab(props: {
   // 网格（表格填写视图）：行草稿 + 单元格校验错误 + 列宽（按表持久化，见 model）
   const [gridRows, setGridRows] = useState<readonly GridRowState[]>([]);
   const [gridErrors, setGridErrors] = useState<GridRowErrors>({});
+  const [commitErrors, setCommitErrors] = useState<Readonly<Record<string, string>>>({});
   const [widths, setWidths] = useState<GridColumnWidths>(() => defaultGridColumnWidths([]));
+  const [heights, setHeights] = useState<GridRowHeights>({});
   const [savingGrid, setSavingGrid] = useState(false);
+  // 查看/编辑模式（ticket 21）：当前编辑行 + 进入时自动聚焦的字段 + 保存中的行
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [focusFieldId, setFocusFieldId] = useState<string | null>(null);
+  const [savingRows, setSavingRows] = useState<readonly string[]>([]);
+  // 窄屏式选择器：搜索框默认折叠在右侧，点击展开
+  const [searchOpen, setSearchOpen] = useState(false);
   const newRowCounter = useRef(0);
   // 引用字段的目标表记录（单选/多选引用下拉与勾选组的数据源）
   const [referenceRecords, setReferenceRecords] = useState<
@@ -225,7 +247,13 @@ export function RecordsTab(props: {
   useEffect(() => {
     setGridRows(gridRowsFromRecords(fields, recordPage?.records ?? []));
     setGridErrors({});
+    setCommitErrors({});
   }, [fields, recordPage]);
+
+  // 编辑中的行被重建移除（保存成功/切页后）→ 退出编辑模式
+  useEffect(() => {
+    if (editingKey && !gridRows.some((row) => row.key === editingKey)) setEditingKey(null);
+  }, [gridRows, editingKey]);
 
   // 列宽：切表/字段变化时从持久化读取；宽度变化写回（拖拽调宽即时生效，按表记住）
   useEffect(() => {
@@ -236,6 +264,33 @@ export function RecordsTab(props: {
     if (!selectedTableId) return;
     saveGridColumnWidths(selectedTableId, widths);
   }, [widths, selectedTableId]);
+
+  // 行高：切表/记录页变化时从持久化读取；变化写回（只持久化已有记录的 recordId 键）
+  useEffect(() => {
+    if (!selectedTableId) return;
+    setHeights(loadGridRowHeights(recordPage?.records ?? [], selectedTableId));
+  }, [spaceId, selectedTableId, recordPage]);
+  useEffect(() => {
+    if (!selectedTableId) return;
+    const recordIds = new Set((recordPage?.records ?? []).map((record) => record.id));
+    const persisted: Record<string, number> = {};
+    for (const [key, value] of Object.entries(heights)) {
+      if (recordIds.has(key as MemoryRecordId)) persisted[key] = value;
+    }
+    saveGridRowHeights(selectedTableId, persisted);
+  }, [heights, selectedTableId, recordPage]);
+
+  // 离开守卫（切 Tab / 关面板）：有未保存修改时先确认，拒绝则留在原地
+  useEffect(() => {
+    const register = props.registerLeaveGuard;
+    if (!register) return;
+    const guard: LeaveGuard = () => {
+      if (!gridHasUnsavedChanges()) return true;
+      return window.confirm("记录网格里有未保存的修改，放弃这些修改吗？");
+    };
+    register(guard);
+    return () => register(null);
+  }, [props.registerLeaveGuard]);
 
   // 详情：记录 + 修订历史 + 读时显示文本
   useEffect(() => {
@@ -301,19 +356,30 @@ export function RecordsTab(props: {
   }
   const currentTable = tables.find((table) => table.id === selectedTableId) ?? tables[0]!;
 
-  // 是否存在未保存改动（驱动「放弃修改」按钮显示）
-  const dirty = hasUnsavedGridChanges(
-    fields,
-    gridRows,
-    new Map((recordPage?.records ?? []).map((record) => [record.id, record])),
+  // 是否存在未保存改动（驱动「放弃修改」按钮显示）与脏行集合（背景色标记）
+  const originals = new Map((recordPage?.records ?? []).map((record) => [record.id, record]));
+  const dirty = hasUnsavedGridChanges(fields, gridRows, originals);
+  const dirtyRowKeys = new Set(
+    gridRows.filter((row) => gridRowIsDirty(fields, row, originals)).map((row) => row.key),
   );
+  // 详情中的记录在网格里有未保存草稿 → 页头小标记
+  const detailDirty =
+    detailRecordId !== null &&
+    gridRows.some(
+      (row) => row.recordId === detailRecordId && gridRowIsDirty(fields, row, originals),
+    );
+
+  /** 当前是否有未保存改动（读 ref 最新状态；离开守卫与导航确认共用） */
+  function gridHasUnsavedChanges(): boolean {
+    const { fields: currentFields, gridRows: rows, recordPage: page } = gridStateRef.current;
+    const originals = new Map((page?.records ?? []).map((record) => [record.id, record]));
+    return hasUnsavedGridChanges(currentFields, rows, originals);
+  }
 
   /** 网格有未保存修改时先确认放弃（返回是否可继续） */
   function confirmDiscardIfDirty(): boolean {
-    const { fields: currentFields, gridRows: rows, recordPage: page } = gridStateRef.current;
-    const originals = new Map((page?.records ?? []).map((record) => [record.id, record]));
-    if (!hasUnsavedGridChanges(currentFields, rows, originals)) return true;
-    return window.confirm("网格里有未保存的修改，放弃这些修改吗？");
+    if (!gridHasUnsavedChanges()) return true;
+    return window.confirm("记录网格里有未保存的修改，放弃这些修改吗？");
   }
 
   function selectTable(tableId: MemoryTableId): void {
@@ -323,6 +389,8 @@ export function RecordsTab(props: {
     setSearchInput("");
     setSearch("");
     setDetailRecordId(null);
+    setEditingKey(null);
+    setSearchOpen(false);
   }
 
   function openRecord(recordId: MemoryRecordId): void {
@@ -331,12 +399,56 @@ export function RecordsTab(props: {
 
   function addGridRow(): void {
     newRowCounter.current += 1;
-    setGridRows((prev) => [...prev, emptyGridRow(fields, `new-${newRowCounter.current}`)]);
+    const key = `new-${newRowCounter.current}`;
+    setGridRows((prev) => [...prev, emptyGridRow(fields, key)]);
+    // 新行以编辑模式进入（可立即输入）
+    setEditingKey(key);
+    setFocusFieldId(null);
   }
 
   function discardGrid(): void {
     setGridRows(gridRowsFromRecords(fields, recordPage?.records ?? []));
     setGridErrors({});
+    setCommitErrors({});
+    setEditingKey(null);
+  }
+
+  /** Esc：撤销单行改动并退出编辑模式（新行 = 删除草稿行） */
+  function revertRow(rowKey: string): void {
+    setEditingKey(null);
+    setFocusFieldId(null);
+    setGridRows((prev) => {
+      const target = prev.find((row) => row.key === rowKey);
+      if (!target) return prev;
+      if (target.recordId === null) return prev.filter((row) => row.key !== rowKey);
+      const original = originals.get(target.recordId);
+      if (!original) return prev;
+      return prev.map((row) =>
+        row.key === rowKey
+          ? {
+              key: rowKey,
+              recordId: original.id,
+              draft: recordFormDraftFromPayload(fields, original.payload),
+            }
+          : row,
+      );
+    });
+    clearRowError(rowKey);
+  }
+
+  function clearRowError(rowKey: string): void {
+    setGridErrors((prev) => {
+      if (prev[rowKey] === undefined) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    setCommitErrors((prev) => {
+      if (prev[rowKey] === undefined) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
   }
 
   function updateRowValue(rowKey: string, fieldId: string, value: RecordFormValue): void {
@@ -350,69 +462,87 @@ export function RecordsTab(props: {
           : row,
       ),
     );
-    // 输入后清除该单元格错误（保存时全量重算兜底）
-    setGridErrors((prev) => {
-      const rowErrors = prev[rowKey];
-      if (!rowErrors || rowErrors[fieldId] === undefined) return prev;
-      const next = { ...prev };
-      const nextRowErrors = { ...rowErrors };
-      delete nextRowErrors[fieldId];
-      if (Object.keys(nextRowErrors).length === 0) {
-        delete next[rowKey];
-      } else {
-        next[rowKey] = nextRowErrors;
-      }
-      return next;
-    });
+    // 行底错误条是「上次保存失败的判决」，编辑过程不闪断（下次保存重新校验）
   }
 
-  function toggleArrayRowValue(rowKey: string, fieldId: string, item: string): void {
-    setGridRows((prev) =>
-      prev.map((row) => {
-        if (row.key !== rowKey) return row;
-        const current = Array.isArray(row.draft.values[fieldId])
-          ? [...(row.draft.values[fieldId] as readonly string[])]
-          : [];
-        const next = current.includes(item)
-          ? current.filter((value) => value !== item)
-          : [...current, item];
-        return {
-          ...row,
-          draft: { ...row.draft, values: { ...row.draft.values, [fieldId]: next } },
-        };
-      }),
-    );
+  function editRow(rowKey: string | null, fieldId?: string): void {
+    setEditingKey(rowKey);
+    setFocusFieldId(rowKey === null ? null : (fieldId ?? null));
   }
 
   async function saveGrid(): Promise<void> {
     if (!spaceId || !selectedTableId) return;
+    const originals = new Map((recordPage?.records ?? []).map((record) => [record.id, record]));
     const nextErrors = validateGridRows(fields, gridRows);
     setGridErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      reportWarning("有字段未通过校验，请修正后再保存");
-      return;
-    }
-    const originals = new Map((recordPage?.records ?? []).map((record) => [record.id, record]));
-    const plan = planGridSave(fields, gridRows, originals);
-    if (!plan.changed) {
-      reportWarning("没有修改任何字段");
+    setCommitErrors({});
+    // 只提交通过校验的行（校验失败行保留草稿 + 行底错误条，不进保存计划）
+    const validRows = gridRows.filter((row) => nextErrors[row.key] === undefined);
+    const plan = planGridSave(fields, validRows, originals);
+    const plannedKeys = [
+      ...plan.creates.map((item) => item.rowKey),
+      ...plan.updates.map((item) => item.rowKey),
+    ];
+    if (plannedKeys.length === 0) {
+      if (Object.keys(nextErrors).length > 0) {
+        reportWarning(`有 ${Object.keys(nextErrors).length} 条记录未通过校验`);
+      } else {
+        reportWarning("没有修改任何字段");
+      }
       return;
     }
     setSavingGrid(true);
+    setSavingRows(plannedKeys);
+    const failures: Record<string, string> = {};
+    const committed: MemoryRecord[] = [];
+    const createdByRowKey = new Map<string, MemoryRecord>();
+    const updatedByRecordId = new Map<MemoryRecordId, MemoryRecord>();
     try {
-      for (const payload of plan.creates) {
-        await props.runtime.records.create(spaceId, selectedTableId, {
-          payload,
-          source: { type: "manual" },
-        });
+      // 逐行提交、失败不阻断（错误就地显示在行底错误条）
+      for (const item of plan.creates) {
+        try {
+          const record = await props.runtime.records.create(spaceId, selectedTableId, {
+            payload: item.payload,
+            source: { type: "manual" },
+          });
+          if (!record) {
+            failures[item.rowKey] = "创建失败：表格或记录不可用";
+            continue;
+          }
+          createdByRowKey.set(item.rowKey, record);
+          committed.push(record);
+        } catch (error) {
+          failures[item.rowKey] = error instanceof Error ? error.message : String(error);
+        }
       }
-      for (const update of plan.updates) {
-        await props.runtime.records.update(spaceId, selectedTableId, update.recordId, {
-          expectedRevisionId: update.expectedRevisionId,
-          patch: update.patch,
-          revisionSource: "user",
-        });
+      for (const item of plan.updates) {
+        try {
+          const record = await props.runtime.records.update(
+            spaceId,
+            selectedTableId,
+            item.recordId,
+            {
+              expectedRevisionId: item.expectedRevisionId,
+              patch: item.patch,
+              revisionSource: "user",
+            },
+          );
+          if (!record) {
+            failures[item.rowKey] = "更新失败：记录已不存在";
+            continue;
+          }
+          updatedByRecordId.set(item.recordId, record);
+          committed.push(record);
+        } catch (error) {
+          failures[item.rowKey] = error instanceof Error ? error.message : String(error);
+        }
       }
+    } finally {
+      setSavingRows([]);
+      setSavingGrid(false);
+    }
+    const failedCount = Object.keys(failures).length + Object.keys(nextErrors).length;
+    if (failedCount === 0) {
       reportSuccess(
         plan.creates.length > 0 && plan.updates.length > 0
           ? `已保存：新建 ${plan.creates.length} 条、更新 ${plan.updates.length} 条`
@@ -421,11 +551,38 @@ export function RecordsTab(props: {
             : `已更新 ${plan.updates.length} 条记录`,
       );
       bumpData();
-    } catch (error) {
-      reportError(error);
-    } finally {
-      setSavingGrid(false);
+      return;
     }
+    // 部分失败：不整页刷新（bumpData 会重建行、丢掉失败行草稿）；就地更新成功行，
+    // 失败行保留草稿 + 行底错误条；记忆宏照常重建（数据确实变了）
+    setCommitErrors(failures);
+    setGridRows((prev) =>
+      prev.flatMap((row) => {
+        const created = createdByRowKey.get(row.key);
+        if (created) {
+          return [
+            {
+              key: created.id,
+              recordId: created.id,
+              draft: recordFormDraftFromPayload(fields, created.payload),
+            },
+          ];
+        }
+        const updated = row.recordId !== null ? updatedByRecordId.get(row.recordId) : undefined;
+        if (updated) {
+          return [
+            {
+              key: row.key,
+              recordId: updated.id,
+              draft: recordFormDraftFromPayload(fields, updated.payload),
+            },
+          ];
+        }
+        return [row];
+      }),
+    );
+    reportWarning(`已保存 ${committed.length} 条，失败 ${failedCount} 条`);
+    void props.runtime.macro.kick().catch(reportError);
   }
 
   function resizeRowNumber(px: number): void {
@@ -440,6 +597,10 @@ export function RecordsTab(props: {
       ...prev,
       fields: { ...prev.fields, [fieldId]: clampGridWidth(px, GRID_FIELD_MIN_WIDTH) },
     }));
+  }
+
+  function resizeRowHeight(rowKey: string, px: number): void {
+    setHeights((prev) => ({ ...prev, [rowKey]: clampGridRowHeight(px) }));
   }
 
   async function deleteRecord(): Promise<void> {
@@ -464,55 +625,86 @@ export function RecordsTab(props: {
   return (
     <div className="stm-record-view">
       <div className="stm-record-toolbar">
-        <select
-          className="stm-input stm-record-select"
-          data-action="record-table-select"
-          aria-label="选择表格"
-          value={selectedTableId ?? ""}
-          onChange={(event) => selectTable(event.target.value as MemoryTableId)}
-        >
-          {tables.map((table) => (
-            <option key={table.id} value={table.id}>
-              {table.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="search"
-          className="stm-input stm-record-search"
-          data-action="record-search"
-          data-stm-field="record-search"
-          placeholder="搜索记录…"
-          value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
-        />
-        <button
-          type="button"
-          className="stm-button"
-          data-action="add-grid-row"
-          onClick={addGridRow}
-        >
-          + 新行
-        </button>
-        {dirty ? (
+        <div className="stm-record-actions">
           <button
             type="button"
             className="stm-button"
-            data-action="discard-grid"
-            onClick={discardGrid}
+            data-action="add-grid-row"
+            onClick={addGridRow}
           >
-            放弃修改
+            + 新行
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="stm-button stm-button--primary"
-          data-action="save-grid"
-          disabled={savingGrid}
-          onClick={() => void saveGrid()}
-        >
-          {savingGrid ? "保存中…" : "保存"}
-        </button>
+          {dirty ? (
+            <button
+              type="button"
+              className="stm-button"
+              data-action="discard-grid"
+              onClick={discardGrid}
+            >
+              放弃修改
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="stm-button stm-button--primary"
+            data-action="save-grid"
+            disabled={savingGrid}
+            onClick={() => void saveGrid()}
+          >
+            {savingGrid ? "保存中…" : "保存"}
+          </button>
+        </div>
+        <div className="stm-record-selector-row">
+          {!searchOpen ? (
+            <div className="stm-record-tables" role="tablist" aria-label="选择表格">
+              {tables.map((table) => {
+                const selected = table.id === selectedTableId;
+                return (
+                  <button
+                    key={table.id}
+                    type="button"
+                    role="tab"
+                    className={`stm-record-chip${selected ? " stm-record-chip--active" : ""}${!table.enabled ? " stm-record-chip--disabled" : ""}`}
+                    data-action="select-table"
+                    data-table-id={table.id}
+                    aria-selected={selected}
+                    title={!table.enabled ? `${table.name}（已停用）` : table.name}
+                    onClick={() => selectTable(table.id)}
+                  >
+                    {table.name}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {searchOpen ? (
+            <input
+              type="search"
+              className="stm-input stm-record-search"
+              data-action="record-search"
+              data-stm-field="record-search"
+              placeholder="搜索记录…"
+              autoFocus
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              onBlur={() => setSearchOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSearchOpen(false);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="stm-record-search-toggle"
+              data-action="record-search-toggle"
+              aria-label="搜索记录"
+              title="搜索记录"
+              onClick={() => setSearchOpen(true)}
+            >
+              <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            </button>
+          )}
+        </div>
       </div>
       <div className="stm-record-table-meta">
         {currentTable.key} · {currentTable.name}
@@ -524,6 +716,7 @@ export function RecordsTab(props: {
             displayText={detailDisplayText}
             fields={fields}
             history={history}
+            unsavedDraft={detailDirty}
             onBack={() => setDetailRecordId(null)}
             onDelete={() => void deleteRecord()}
             onJumpFloor={(floor) => props.runtime.st.scrollToFloor(floor)}
@@ -550,13 +743,21 @@ export function RecordsTab(props: {
                 fields={fields}
                 rows={gridRows}
                 errors={gridErrors}
+                commitErrors={commitErrors}
                 widths={widths}
+                heights={heights}
+                editingKey={editingKey}
+                focusFieldId={focusFieldId}
+                dirtyRowKeys={dirtyRowKeys}
+                savingRowKeys={new Set(savingRows)}
                 referenceRecords={referenceRecords}
                 onValueChange={updateRowValue}
-                onToggleArrayValue={toggleArrayRowValue}
                 onOpenRecord={openRecord}
+                onEditRow={editRow}
+                onRevertRow={revertRow}
                 onResizeRowNumber={resizeRowNumber}
                 onResizeField={resizeField}
+                onResizeRowHeight={resizeRowHeight}
               />
               <div className="stm-pagination">
                 <button
@@ -601,6 +802,8 @@ function RecordDetail(props: {
   readonly displayText: string;
   readonly fields: readonly MemoryField[];
   readonly history: readonly MemoryRecordHistory[];
+  /** 该记录在网格中有未保存草稿（详情显示的是已提交值） */
+  readonly unsavedDraft: boolean;
   readonly onBack: () => void;
   readonly onDelete: () => void;
   readonly onJumpFloor: (floor: number) => FloorJumpOutcome;
@@ -619,6 +822,14 @@ function RecordDetail(props: {
         >
           <i className="fa-solid fa-arrow-left" aria-hidden="true"></i> 返回
         </button>
+        {props.unsavedDraft ? (
+          <span
+            className="stm-record-detail-unsaved"
+            title="该记录在网格中有未保存的修改，详情显示的是已保存值"
+          >
+            有未保存修改
+          </span>
+        ) : null}
         <div className="stm-record-detail-actions">
           <button
             type="button"
@@ -761,4 +972,3 @@ function FloorChip(props: {
     </span>
   );
 }
-
