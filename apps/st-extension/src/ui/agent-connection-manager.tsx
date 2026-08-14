@@ -110,7 +110,7 @@ export function AgentConnectionManager(props: {
               {connection.baseUrl} · {connection.model}
             </span>
             <span className="stm-chip" data-stm-field="connection-key-status">
-              {connection.apiKey ? `密钥 ${maskApiKey(connection.apiKey)}` : "无密钥"}
+              {connection.apiKey ? "已配置密钥" : "无密钥"}
             </span>
             <button
               className="stm-button"
@@ -169,7 +169,7 @@ function ConnectionSelector(props: {
   const { target, settings } = props;
   const selectedId = agentConnectionSelection(settings, target);
   return (
-    <div className="stm-setting-row" data-stm-field="agent-connection-selector">
+    <div className="stm-setting-row stm-connection-selector-row" data-stm-field="agent-connection-selector">
       <label className="stm-setting-label">
         {target === "fillTask" ? "表格填写 Agent" : "查询 Agent"}
       </label>
@@ -199,11 +199,6 @@ function ConnectionSelector(props: {
   );
 }
 
-/** 密钥掩码展示：只露末 4 位（连接列表 chip；编辑表单内为完整明文 password 输入） */
-export function maskApiKey(apiKey: string): string {
-  return apiKey.length <= 4 ? "••••" : `••••${apiKey.slice(-4)}`;
-}
-
 /** 连接编辑表单（新建/编辑共用）：手写模型 + 右侧 Select 下拉（字典序，测试成功后填充） */
 export function AgentConnectionForm(props: {
   readonly draft: AgentConnection;
@@ -221,7 +216,7 @@ export function AgentConnectionForm(props: {
   const canTest = draft.baseUrl.trim() !== "";
   return (
     <div className="stm-connection-form" data-stm-field="connection-form">
-      <div className="stm-setting-row">
+      <div className="stm-setting-row stm-connection-form-row">
         <label className="stm-setting-label">名称</label>
         <input
           className="stm-input"
@@ -231,7 +226,7 @@ export function AgentConnectionForm(props: {
           onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
         />
       </div>
-      <div className="stm-setting-row">
+      <div className="stm-setting-row stm-connection-form-row">
         <label className="stm-setting-label">Base URL</label>
         <input
           className="stm-input"
@@ -241,7 +236,7 @@ export function AgentConnectionForm(props: {
           onChange={(event) => props.onDraftChange({ ...draft, baseUrl: event.target.value })}
         />
       </div>
-      <div className="stm-setting-row">
+      <div className="stm-setting-row stm-connection-form-row">
         <label className="stm-setting-label">API Key</label>
         <input
           className="stm-input"
@@ -252,7 +247,7 @@ export function AgentConnectionForm(props: {
           onChange={(event) => props.onDraftChange({ ...draft, apiKey: event.target.value })}
         />
       </div>
-      <div className="stm-setting-row">
+      <div className="stm-setting-row stm-connection-form-row">
         <label className="stm-setting-label">模型</label>
         <div className="stm-connection-model-row">
           <input

@@ -2392,8 +2392,41 @@
   min-width: 0;
 }
 
+/* 表单行与选择器行：stm-setting-row 的 label flex:1 + stm-input width:100%
+   会互相挤压（label 折行、输入框遮挡）。改为 label 按内容宽度、控件占满剩余 */
+.stm-connection-form-row,
+.stm-connection-selector-row {
+  justify-content: flex-start;
+}
+
+.stm-connection-form-row .stm-setting-label,
+.stm-connection-selector-row .stm-setting-label {
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.stm-connection-form-row .stm-input,
+.stm-connection-selector-row .stm-input {
+  flex: 1;
+  width: auto;
+  margin: 0;
+}
+
+.stm-connection-model-row .stm-input {
+  width: auto;
+  margin: 0;
+}
+
 .stm-connection-model-row .stm-input:first-child {
   flex: 1;
+  min-width: 0;
+}
+
+/* 模型下拉在右侧，给固定下限宽度防被手写框挤压 */
+.stm-connection-model-row select.stm-input {
+  flex: 0 1 45%;
+  min-width: 120px;
 }
 
 .stm-connection-test-ok {

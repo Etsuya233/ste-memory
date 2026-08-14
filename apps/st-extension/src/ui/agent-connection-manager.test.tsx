@@ -12,7 +12,6 @@ import {
   AgentConnectionForm,
   AgentConnectionManager,
   FOLLOW_ST_CONNECTION_LABEL,
-  maskApiKey,
 } from "./agent-connection-manager.tsx";
 
 function connection(overrides: Partial<AgentConnection> = {}): AgentConnection {
@@ -60,8 +59,9 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
     // renderToString 在 JSX 文本节点间插 <!-- -->，URL 与模型分开断言
     expect(html).toContain("https://api.deepseek.com/v1");
     expect(html).toContain("deepseek-chat");
-    // 密钥掩码展示（sk-1 长度 ≤4 → 全掩）；无密钥连接标「无密钥」
-    expect(html).toContain("密钥 ••••");
+    // 只显示密钥状态（不暴露密钥值）；无密钥连接标「无密钥」
+    expect(html).toContain("已配置密钥");
+    expect(html).not.toContain("sk-1");
     expect(html).toContain("无密钥");
   });
 
@@ -114,17 +114,6 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
   });
 });
 
-describe("maskApiKey（密钥掩码展示）", () => {
-  it("长度 >4：掩码 + 末 4 位", () => {
-    expect(maskApiKey("sk-abcdef1234")).toBe("••••1234");
-  });
-
-  it("长度 ≤4：全掩", () => {
-    expect(maskApiKey("sk-1")).toBe("••••");
-    expect(maskApiKey("")).toBe("••••");
-  });
-});
-
 describe("AgentConnectionForm（编辑表单冒烟）", () => {
   function renderForm(draft: AgentConnection, models: readonly string[] = []): string {
     return renderToString(
@@ -143,6 +132,8 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
 
   it("字段就位：名称/Base URL/API Key（password）/模型手写 + 右侧 Select", () => {
     const html = renderForm(connection());
+    // 布局契约：表单行与选择器行使用专属 class（label 按内容宽、控件占满剩余）
+    expect((html.match(/stm-connection-form-row/g) ?? []).length).toBe(4);
     expect(html).toContain('data-stm-field="connection-name"');
     expect(html).toContain('data-stm-field="connection-base-url"');
     expect(html).toContain('data-stm-field="connection-api-key"');
