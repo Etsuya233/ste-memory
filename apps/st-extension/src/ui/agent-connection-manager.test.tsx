@@ -59,10 +59,10 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
     // renderToString 在 JSX 文本节点间插 <!-- -->，URL 与模型分开断言
     expect(html).toContain("https://api.deepseek.com/v1");
     expect(html).toContain("deepseek-chat");
-    // 只显示密钥状态（不暴露密钥值）；无密钥连接标「无密钥」
-    expect(html).toContain("已配置密钥");
+    // 不显示密钥状态与密钥值（用户明确不需要）
+    expect(html).not.toContain("已配置密钥");
+    expect(html).not.toContain("无密钥");
     expect(html).not.toContain("sk-1");
-    expect(html).toContain("无密钥");
   });
 
   it("连接行操作按钮 + 新建按钮就位（edit/delete/create action）", () => {
@@ -90,7 +90,7 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
     expect(html).not.toContain('data-stm-field="connection-row"');
   });
 
-  it("Agent 选择器：跟随 ST 当前连接为缺省选项，选中值反映设置", () => {
+  it("Agent 选择器：纵向堆叠容器（每行一个，移动端优先）+ 选中值反映设置", () => {
     const html = renderToString(
       <AgentConnectionManager
         settings={settings({ fillTaskConnectionId: "c1", queryChatConnectionId: "c2" })}
@@ -98,9 +98,11 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
         onTestConnection={noopTest}
       />,
     );
-    // 两个选择器各就位
+    // 两个选择器各就位，外层容器为纵向堆叠（非 flex 行并排）
     const selectors = html.match(/data-action="select-agent-connection"/g);
     expect(selectors).toHaveLength(2);
+    expect(html).toContain('class="stm-connection-selectors"');
+    expect(html).toContain('data-stm-field="agent-selectors"');
     expect(html).toContain(FOLLOW_ST_CONNECTION_LABEL);
     expect(html).toContain("DeepSeek 主用");
     expect(html).toContain("本地");

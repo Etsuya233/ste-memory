@@ -109,9 +109,6 @@ export function AgentConnectionManager(props: {
             <span className="stm-connection-meta">
               {connection.baseUrl} · {connection.model}
             </span>
-            <span className="stm-chip" data-stm-field="connection-key-status">
-              {connection.apiKey ? "已配置密钥" : "无密钥"}
-            </span>
             <button
               className="stm-button"
               data-action="edit-connection"
@@ -146,7 +143,8 @@ export function AgentConnectionManager(props: {
           onCancel={() => setEditing(null)}
         />
       )}
-      <div className="stm-setting-row" data-stm-field="agent-selectors">
+      {/* 移动端优先：选择器纵向堆叠，每行一个（面板宽度有限，并排会挤压） */}
+      <div className="stm-connection-selectors" data-stm-field="agent-selectors">
         {AGENT_CONNECTION_TARGETS.map((target) => (
           <ConnectionSelector
             key={target}
