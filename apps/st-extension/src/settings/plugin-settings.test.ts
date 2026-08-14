@@ -65,7 +65,9 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
 
   it("agentPresets 缺失/损坏：回退默认（空预设列表 + 系统默认活动）", () => {
     expect(mergeSettings({}).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
-    expect(mergeSettings({ agentPresets: "oops" }).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
+    expect(mergeSettings({ agentPresets: "oops" }).agentPresets).toEqual(
+      DEFAULT_SETTINGS.agentPresets,
+    );
     expect(mergeSettings({ agentPresets: [] }).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
   });
 
@@ -140,8 +142,37 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
         ],
         activePresetId: "p1",
       },
+      agentConnections: [
+        {
+          id: "c1",
+          name: "DeepSeek",
+          baseUrl: "https://api.deepseek.com/v1",
+          apiKey: "sk-1",
+          model: "deepseek-chat",
+        },
+      ],
+      fillTaskConnectionId: "c1",
+      queryChatConnectionId: undefined,
     };
     expect(mergeSettings(settings)).toEqual(settings);
+  });
+
+  it("Agent 连接（ADR 0010）：损坏项丢弃、悬空选择回退跟随 ST", () => {
+    const merged = mergeSettings({
+      agentConnections: [
+        { id: "c1", name: "好", baseUrl: "https://x", apiKey: "k", model: "m" },
+        { id: "c2", name: "坏", baseUrl: 42, apiKey: "k", model: "m" },
+        "garbage",
+      ],
+      fillTaskConnectionId: "c1",
+      queryChatConnectionId: "ghost",
+    });
+    expect(merged.agentConnections.map((c) => c.id)).toEqual(["c1"]);
+    expect(merged.fillTaskConnectionId).toBe("c1");
+    expect(merged.queryChatConnectionId).toBeUndefined();
+    // 缺省：空池 + 跟随 ST
+    expect(mergeSettings({}).agentConnections).toEqual([]);
+    expect(mergeSettings({}).fillTaskConnectionId).toBeUndefined();
   });
 });
 

@@ -77,6 +77,8 @@ import { TasksTab } from "./tasks-tab.tsx";
 import { QueryChatTab } from "./query-chat-tab.tsx";
 import { LogTab } from "./log-tab.tsx";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
+import { AgentConnectionManager } from "./agent-connection-manager.tsx";
+import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -1538,6 +1540,14 @@ function SettingsTab(props: {
           不填宏名则不注入
         </div>
       </div>
+      <AgentConnectionManager
+        settings={props.settings}
+        onChange={(next) => {
+          props.runtime.settings.write(next);
+          props.onSettingsChange(next);
+        }}
+        onTestConnection={(connection) => testAgentConnection(connection)}
+      />
       <AgentPresetManager
         settings={props.settings}
         onChange={(next) => {

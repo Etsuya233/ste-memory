@@ -6,3 +6,15 @@ export {
   mergeSettings,
 } from "./plugin-settings.ts";
 export type { PluginSettings, R2Settings, SettingsStore } from "./plugin-settings.ts";
+/** Agent 连接（ADR 0010）：连接池纯逻辑 + 每 Agent 选择 */
+export {
+  AGENT_CONNECTION_TARGETS,
+  buildStatusTestRequest,
+  normalizeBaseUrl,
+  removeAgentConnection,
+  resolveAgentConnection,
+  setAgentConnection,
+  sortModelIds,
+  upsertAgentConnection,
+} from "./agent-connections.ts";
+export type { AgentConnection, AgentConnectionTarget } from "./agent-connections.ts";

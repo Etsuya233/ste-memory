@@ -19,6 +19,11 @@ import {
   type StChatCompletionConfig,
 } from "./st-completion-settings.ts";
 import { buildStGenerateBody } from "./st-backends-request.ts";
+import {
+  agentConnectionLabel,
+  normalizeBaseUrl,
+  type AgentConnection,
+} from "../settings/agent-connections.ts";
 import { SseEventParser } from "./sse-parse.ts";
 
 /**
@@ -54,6 +59,8 @@ export interface StBackendsLlmAdapterOptions {
   readonly config: StChatCompletionConfig;
   /** 思考流开关（ticket 19）：开启后请求带 include_reasoning: true 并解析思考段；缺省 false */
   readonly includeReasoning?: boolean;
+  /** 连接展示名（ADR 0010）：设置后错误消息带「Agent 连接 [名称]：」前缀 */
+  readonly label?: string;
   /** fetch 实现；缺省 = globalThis.fetch（测试注入 mock） */
   readonly fetchImpl?: typeof fetch;
   /** CSRF 令牌获取；缺省 = GET /csrf-token（结果缓存，401/403 后清缓存重取） */
@@ -87,7 +94,9 @@ interface ToolCallBlock {
 function tryParseJson(text: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -129,7 +138,8 @@ export class StBackendsLlmAdapter {
     stream: AssistantMessageEventStream,
   ): Promise<void> {
     const output = this.#createOutput(model);
-    const timeoutMs = options?.timeoutMs ?? this.#options.timeoutMs;    const controller = new AbortController();
+    const timeoutMs = options?.timeoutMs ?? this.#options.timeoutMs;
+    const controller = new AbortController();
     let timedOut = false;
     const onAbort = () => controller.abort();
     options?.signal?.addEventListener("abort", onAbort, { once: true });
@@ -206,9 +216,7 @@ export class StBackendsLlmAdapter {
       }
       if (handler.hasFinishReason) {
         const reason = (output.stopReason === "pending" ? "stop" : output.stopReason) as
-          | "stop"
-          | "length"
-          | "toolUse";
+          "stop" | "length" | "toolUse";
         stream.push({ type: "done", reason, message: output });
         stream.end();
         return;
@@ -225,10 +233,15 @@ export class StBackendsLlmAdapter {
     } catch (error) {
       const aborted = options?.signal?.aborted === true;
       output.stopReason = aborted || timedOut ? "aborted" : "error";
-      output.errorMessage =
-        aborted ? "请求已取消" :
-        timedOut ? `生成超时（${Math.round(timeoutMs / 1000)}s）` :
-        errorMessageOf(error);
+      output.errorMessage = aborted
+        ? "请求已取消"
+        : timedOut
+          ? `生成超时（${Math.round(timeoutMs / 1000)}s）`
+          : errorMessageOf(error);
+      // Agent 连接（ADR 0010）：带连接名前缀，原始错误完整保留不隐藏
+      if (this.#options.label) {
+        output.errorMessage = `${agentConnectionLabel(this.#options.label)}：${output.errorMessage}`;
+      }
       this.#options.log?.error?.(`[${PLUGIN_DISPLAY_NAME}] LLM 生成失败：${output.errorMessage}`);
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
@@ -275,6 +288,23 @@ export class StBackendsLlmAdapter {
   async #httpErrorMessage(response: Response): Promise<string> {
     const raw = await safeText(response);
     const detail = parseErrorDetail(raw);
+    // Agent 连接（ADR 0010）：reverse_proxy 路径下 401/403 来自上游（ST 原样透传
+    // 状态码），不是 ST 会话/CSRF 问题——引导语必须指向上游密钥/端点，不能误导
+    if (this.#options.label) {
+      switch (response.status) {
+        case 401:
+          return `上游鉴权失败（401）——检查 API Key 是否正确${suffix(detail.message)}`;
+        case 403:
+          return `上游拒绝请求（403）——检查 API Key 权限或端点地址${suffix(detail.message)}`;
+        case 429:
+          return `${detail.quota ? "模型额度不足" : "请求被限流"}（429）${suffix(detail.message)}`;
+        case 502:
+        case 504:
+          return `上游网关错误（${response.status}）${suffix(detail.message)}`;
+        default:
+          return `连接请求失败（${response.status}）${suffix(detail.message ?? raw)}`;
+      }
+    }
     switch (response.status) {
       case 401:
         return `ST 会话鉴权失败（401）——登录状态失效，请刷新页面后重试${suffix(detail.message)}`;
@@ -392,7 +422,12 @@ class StreamEventHandler {
       if (block.type === "text") {
         this.#push({ type: "text_end", contentIndex, content: block.text, partial: this.#output });
       } else if (block.type === "thinking") {
-        this.#push({ type: "thinking_end", contentIndex, content: block.thinking, partial: this.#output });
+        this.#push({
+          type: "thinking_end",
+          contentIndex,
+          content: block.thinking,
+          partial: this.#output,
+        });
       } else if (block.type === "toolCall") {
         this.#push({
           type: "toolcall_end",
@@ -415,7 +450,11 @@ class StreamEventHandler {
       block = { type: "text", text: "" };
       this.#output.content.push(block);
       this.#textBlock = block;
-      this.#push({ type: "text_start", contentIndex: this.#output.content.indexOf(block), partial: this.#output });
+      this.#push({
+        type: "text_start",
+        contentIndex: this.#output.content.indexOf(block),
+        partial: this.#output,
+      });
     }
     block.text += delta;
     this.#push({
@@ -432,7 +471,11 @@ class StreamEventHandler {
       block = { type: "thinking", thinking: "" };
       this.#output.content.push(block);
       this.#thinkingBlock = block;
-      this.#push({ type: "thinking_start", contentIndex: this.#output.content.indexOf(block), partial: this.#output });
+      this.#push({
+        type: "thinking_start",
+        contentIndex: this.#output.content.indexOf(block),
+        partial: this.#output,
+      });
     }
     block.thinking += delta;
     this.#push({
@@ -480,7 +523,10 @@ class StreamEventHandler {
 }
 
 /** OpenAI finish_reason → pi stopReason（与 pi openai-completions mapStopReason 同语义） */
-function mapFinishReason(reason: string): { stopReason: AssistantMessage["stopReason"]; errorMessage?: string } {
+function mapFinishReason(reason: string): {
+  stopReason: AssistantMessage["stopReason"];
+  errorMessage?: string;
+} {
   switch (reason) {
     case "stop":
     case "end":
@@ -498,7 +544,7 @@ function mapFinishReason(reason: string): { stopReason: AssistantMessage["stopRe
 }
 
 /** 缺省 CSRF 获取：GET /csrf-token（与 ST 客户端 script.js firstLoadInit 同法） */
-async function defaultGetCsrfToken(fetchImpl: typeof fetch): Promise<string | undefined> {
+export async function defaultGetCsrfToken(fetchImpl: typeof fetch): Promise<string | undefined> {
   const response = await fetchImpl(ST_CSRF_ENDPOINT);
   if (!response.ok) return undefined;
   const data = (await response.json()) as { token?: unknown };
@@ -557,6 +603,53 @@ export function createStLlmPort(
   const adapter = new StBackendsLlmAdapter({ ...options, config });
   return {
     model: createStBackendsModel(config),
+    streamFn: adapter.streamFn,
+  };
+}
+
+/**
+ * Agent 连接端口工厂（ADR 0010 / spec agent-connections）：生成参数仍读 ST
+ * 当前配置快照（决策 Q6，连接不覆盖参数），模型/URL/Key 来自连接；请求走
+ * ST 同源代理的 reverse_proxy 路径（openai source + reverse_proxy +
+ * proxy_password，ST 服务端转发上游）。
+ */
+export function createAgentConnectionLlmPort(
+  connection: AgentConnection,
+  getContext: () => StContext,
+  options: Omit<StBackendsLlmAdapterOptions, "config" | "label"> = {},
+): LlmPort {
+  // 生成参数读 ST 快照（缺失字段有 ST 默认值兜底，连接不覆盖参数）；
+  // 不要求 ST 已配置生成源——连接自带 URL/Key/模型，独立于 ST 主连接可用
+  const config = readStChatCompletionConfig(getContext());
+  const label = agentConnectionLabel(connection.name);
+  if (connection.model.trim() === "") {
+    throw new Error(`${label} 未配置模型名`);
+  }
+  const baseUrl = normalizeBaseUrl(connection.baseUrl);
+  if (baseUrl === "") {
+    throw new Error(`${label} 未配置 Base URL`);
+  }
+  const adapter = new StBackendsLlmAdapter({ ...options, config, label: connection.name });
+  const model: StBackendsModel = {
+    id: connection.model.trim(),
+    name: connection.model.trim(),
+    api: "openai-completions",
+    provider: "sillytavern",
+    // 元数据：同源代理挂载点（请求实际走 /api/backends/chat-completions/generate）
+    baseUrl: "/api/backends/chat-completions",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: config.contextWindow,
+    maxTokens: config.maxTokens,
+    stSource: "openai",
+    reverseProxy: baseUrl,
+    // 空串而非省略：ST 侧 reverse_proxy 路径 apiKey = proxy_password，省略会拼
+    // 出 "Bearer undefined" 头
+    proxyPassword: connection.apiKey,
+  };
+  return {
+    model,
     streamFn: adapter.streamFn,
   };
 }

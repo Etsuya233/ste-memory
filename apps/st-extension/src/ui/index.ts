@@ -18,6 +18,7 @@ export {
 export type { SpaceInfoViewModel } from "./space-info.ts";
 export { PanelShell, ToolbarButton } from "./panel-shell.tsx";
 export type { PanelRuntime } from "./panel-shell.tsx";
+export { AgentConnectionManager } from "./agent-connection-manager.tsx";
 export { QueryChatTab } from "./query-chat-tab.tsx";
 export type { QueryChatTabRuntime } from "./query-chat-tab.tsx";
 export { TasksTab } from "./tasks-tab.tsx";

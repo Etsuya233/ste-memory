@@ -2343,3 +2343,70 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---- Agent API 连接（ADR 0010）：连接列表行 / 编辑表单 / 测试结果 ---- */
+.stm-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.stm-connection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--SmartThemeBorderColor, #8882);
+  border-radius: 6px;
+}
+
+.stm-connection-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stm-connection-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.stm-connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin: 6px 0;
+  border: 1px dashed var(--SmartThemeBorderColor, #8884);
+  border-radius: 6px;
+}
+
+.stm-connection-model-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-connection-model-row .stm-input:first-child {
+  flex: 1;
+}
+
+.stm-connection-test-ok {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--SmartThemeGoodColor, #3a8);
+  background: var(--SmartThemeGoodColor, #3a8) 1a;
+}
+
+.stm-connection-test-fail {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--SmartThemeAlertColor, #d33);
+  background: var(--SmartThemeAlertColor, #d33) 1a;
+  word-break: break-all;
+}

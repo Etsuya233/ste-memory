@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AssistantMessage, AssistantMessageEvent, Context } from "@earendil-works/pi-ai";
 import type { StBackendsModel } from "./st-completion-settings.ts";
 import {
+  createAgentConnectionLlmPort,
   createStLlmPort,
   ST_CSRF_ENDPOINT,
   ST_GENERATE_ENDPOINT,
@@ -523,5 +524,137 @@ describe("createStLlmPort（读 ST 当前配置）", () => {
     const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
     expect(body.chat_completion_source).toBe("openai");
     expect(body.model).toBe("gpt-4o");
+  });
+});
+describe("StBackendsLlmAdapter 连接标签（ADR 0010：错误带连接名前缀）", () => {
+  it("带 label 的适配器：错误消息 = Agent 连接 [名称]：<原始错误>（不吞上游 message）", async () => {
+    const adapter = makeAdapter(
+      { label: "DeepSeek 主用" },
+      mockFetch(() =>
+        jsonResponse({ error: { message: "Invalid API key provided" } }, { status: 401 }),
+      ).fn,
+    );
+    const { message } = await runStream(adapter, { messages: [] });
+    expect(message.errorMessage).toContain("Agent 连接 [DeepSeek 主用]");
+    expect(message.errorMessage).toContain("Invalid API key provided");
+    // reverse_proxy 路径下 401 来自上游：引导语指向上游密钥，不是 ST 会话
+    expect(message.errorMessage).toContain("上游鉴权失败");
+    expect(message.errorMessage).not.toContain("刷新页面");
+  });
+
+  it("无 label（跟随 ST 当前连接）：错误消息不带前缀（现有格式零变化）", async () => {
+    const adapter = makeAdapter({}, mockFetch(() => jsonResponse(
+      { error: { message: "Unauthorized" } },
+      { status: 401 },
+    )).fn);
+    const { message } = await runStream(adapter, { messages: [] });
+    expect(message.errorMessage).not.toContain("Agent 连接");
+    expect(message.errorMessage).toContain("鉴权失败（401）");
+  });
+
+  it("带 label 的适配器：流内上游错误 chunk 同样带前缀", async () => {
+    const adapter = makeAdapter(
+      { label: "本地 vLLM" },
+      mockFetch(() => sseResponse([
+        sseEvent({ error: { message: "context length exceeded" } }),
+      ])).fn,
+    );
+    const { message } = await runStream(adapter, { messages: [] });
+    expect(message.errorMessage).toContain("Agent 连接 [本地 vLLM]");
+    expect(message.errorMessage).toContain("context length exceeded");
+  });
+});
+
+describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）", () => {
+  function fakeContext(overrides: Partial<StContext> = {}): StContext {
+    return {
+      chatId: "story",
+      chatCompletionSettings: {
+        chat_completion_source: "openai",
+        temp_openai: 0.7,
+        openai_max_tokens: 1024,
+        openai_max_context: 8192,
+      },
+      getChatCompletionModel: () => "gpt-4o",
+      ...overrides,
+    };
+  }
+
+  it("端口模型带连接信息：模型名/URL/Key + ST 快照参数", () => {
+    const port = createAgentConnectionLlmPort(
+      { id: "c1", name: "DeepSeek 主用", baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-1", model: "deepseek-chat" },
+      () => fakeContext(),
+    );
+    expect(port.model.id).toBe("deepseek-chat");
+    expect((port.model as StBackendsModel).stSource).toBe("openai");
+    expect((port.model as StBackendsModel).reverseProxy).toBe("https://api.deepseek.com/v1");
+    expect((port.model as StBackendsModel).proxyPassword).toBe("sk-1");
+    // 生成参数仍来自 ST 快照（决策 Q6：连接不覆盖参数）
+    expect(port.model.contextWindow).toBe(8192);
+    expect(port.model.maxTokens).toBe(1024);
+    expect(typeof port.streamFn).toBe("function");
+  });
+
+  it("URL 规范化在工厂完成：粘贴完整 /chat/completions 地址不双拼", () => {
+    const port = createAgentConnectionLlmPort(
+      { id: "c1", name: "x", baseUrl: "https://api.deepseek.com/v1/chat/completions/", apiKey: "sk-1", model: "m" },
+      () => fakeContext(),
+    );
+    expect((port.model as StBackendsModel).reverseProxy).toBe("https://api.deepseek.com/v1");
+  });
+
+  it("无 key 连接：proxyPassword 为空串（ST 侧不产生 undefined 头）", () => {
+    const port = createAgentConnectionLlmPort(
+      { id: "c1", name: "本地", baseUrl: "http://127.0.0.1:8000/v1", apiKey: "", model: "local-model" },
+      () => fakeContext(),
+    );
+    expect((port.model as StBackendsModel).proxyPassword).toBe("");
+  });
+
+  it("streamFn 跑通：请求体带 reverse_proxy/proxy_password（同源代理 reverse_proxy 路径）", async () => {
+    const fetchMock = mockFetch(() => sseResponse([sseEvent(textChunk("好", "stop"))]));
+    const port = createAgentConnectionLlmPort(
+      { id: "c1", name: "DeepSeek 主用", baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-1", model: "deepseek-chat" },
+      () => fakeContext(),
+      { fetchImpl: fetchMock.fn, getCsrfToken: async () => "t" },
+    );
+    const stream = await port.streamFn(port.model, { messages: [{ role: "user", content: "hi", timestamp: 1 }] });
+    const message = await stream.result();
+    expect(message.stopReason).toBe("stop");
+    expect(fetchMock.calls[0]!.url).toBe(ST_GENERATE_ENDPOINT);
+    const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
+    expect(body.reverse_proxy).toBe("https://api.deepseek.com/v1");
+    expect(body.proxy_password).toBe("sk-1");
+    expect(body.model).toBe("deepseek-chat");
+    expect(body.chat_completion_source).toBe("openai");
+  });
+
+  it("ST 生成源未知时仍可构造：连接自带 URL/Key/模型，参数用 ST 默认值兜底", () => {
+    const port = createAgentConnectionLlmPort(
+      { id: "c1", name: "x", baseUrl: "https://x", apiKey: "", model: "m" },
+      () => fakeContext({ chatCompletionSettings: {} }),
+    );
+    expect(port.model.id).toBe("m");
+    expect((port.model as StBackendsModel).reverseProxy).toBe("https://x");
+    // ST 未配置时的兜底默认值（openai_max_context 缺失 → 4096）
+    expect(port.model.contextWindow).toBe(4096);
+  });
+
+  it("连接缺模型名 → 报错指向连接本身（而非误导性 ST 提示）", () => {
+    expect(() =>
+      createAgentConnectionLlmPort(
+        { id: "c1", name: "DeepSeek 主用", baseUrl: "https://api.deepseek.com/v1", apiKey: "", model: "" },
+        () => fakeContext(),
+      ),
+    ).toThrow(/Agent 连接 \[DeepSeek 主用\].*模型/);
+  });
+
+  it("连接缺 Base URL → 报错指向连接本身", () => {
+    expect(() =>
+      createAgentConnectionLlmPort(
+        { id: "c1", name: "DeepSeek 主用", baseUrl: "", apiKey: "", model: "m" },
+        () => fakeContext(),
+      ),
+    ).toThrow(/Agent 连接 \[DeepSeek 主用\].*URL/);
   });
 });

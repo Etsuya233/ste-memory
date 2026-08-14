@@ -58,12 +58,17 @@ describe("buildStGenerateBody（ST 特有请求形状）", () => {
   });
 
   it("生成参数缺失时省略字段（上游用默认值）", () => {
-    const body = buildStGenerateBody(testModel({ stSource: "custom" }), { messages: [] }, undefined, {
-      source: "custom",
-      modelName: "m",
-      maxTokens: 300,
-      contextWindow: 4096,
-    });
+    const body = buildStGenerateBody(
+      testModel({ stSource: "custom" }),
+      { messages: [] },
+      undefined,
+      {
+        source: "custom",
+        modelName: "m",
+        maxTokens: 300,
+        contextWindow: 4096,
+      },
+    );
     expect(body.temperature).toBeUndefined();
     expect(body.top_p).toBeUndefined();
     expect(body.max_tokens).toBe(300);
@@ -79,6 +84,27 @@ describe("buildStGenerateBody（ST 特有请求形状）", () => {
     );
     expect(body.temperature).toBe(0.2);
     expect(body.max_tokens).toBe(8000);
+  });
+
+  it("Agent 连接（ADR 0010）：模型带 reverseProxy/proxyPassword 时写入请求体", () => {
+    const body = buildStGenerateBody(
+      testModel({
+        reverseProxy: "https://api.deepseek.com/v1",
+        proxyPassword: "sk-1",
+      }),
+      { messages: [] },
+      undefined,
+      TEST_CONFIG,
+    );
+    expect(body.reverse_proxy).toBe("https://api.deepseek.com/v1");
+    expect(body.proxy_password).toBe("sk-1");
+    expect(body.chat_completion_source).toBe("openai");
+  });
+
+  it("缺省（跟随 ST 当前连接）：不写 reverse_proxy/proxy_password（请求体零变化）", () => {
+    const body = buildStGenerateBody(testModel(), { messages: [] }, undefined, TEST_CONFIG);
+    expect("reverse_proxy" in body).toBe(false);
+    expect("proxy_password" in body).toBe(false);
   });
 
   it("有工具时透传 tools + tool_choice: auto；无工具不带", () => {
@@ -121,7 +147,12 @@ describe("convertMessages（pi Context → OpenAI 消息）", () => {
           role: "assistant",
           content: [
             { type: "text", text: "我来查一下" },
-            { type: "toolCall", id: "call_1", name: "query_records", arguments: { table: "characters", page: 1 } },
+            {
+              type: "toolCall",
+              id: "call_1",
+              name: "query_records",
+              arguments: { table: "characters", page: 1 },
+            },
           ],
           api: "openai-completions",
           provider: "sillytavern",
@@ -146,7 +177,10 @@ describe("convertMessages（pi Context → OpenAI 消息）", () => {
         {
           id: "call_1",
           type: "function",
-          function: { name: "query_records", arguments: JSON.stringify({ table: "characters", page: 1 }) },
+          function: {
+            name: "query_records",
+            arguments: JSON.stringify({ table: "characters", page: 1 }),
+          },
         },
       ],
     });

@@ -13,6 +13,7 @@ import {
   type AgentPromptFragment,
   type AgentPromptPreset,
 } from "../agent-presets/preset-model.ts";
+import type { AgentConnection } from "./agent-connections.ts";
 
 /** R2 云同步配置（ticket 08 生效；ticket 06 仅占位展示，UI 控件禁用） */
 export interface R2Settings {
@@ -43,6 +44,12 @@ export interface PluginSettings {
   readonly mirror: ChatMirrorSettings;
   /** Agent 提示词预设（ticket 17 生效）：全局预设列表 + 活动预设 */
   readonly agentPresets: AgentPresetSettings;
+  /** Agent 连接（ADR 0010）：命名 LLM 连接池（Base URL + API Key + 模型名） */
+  readonly agentConnections: readonly AgentConnection[];
+  /** 表格填写 Agent 的连接选择；undefined = 跟随 ST 当前连接 */
+  readonly fillTaskConnectionId?: string;
+  /** 查询 Agent 的连接选择；undefined = 跟随 ST 当前连接 */
+  readonly queryChatConnectionId?: string;
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -55,6 +62,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   macroLimit: 2000,
   mirror: { enabled: true, includeHistory: true },
   agentPresets: DEFAULT_AGENT_PRESET_SETTINGS,
+  agentConnections: [],
+  fillTaskConnectionId: undefined,
+  queryChatConnectionId: undefined,
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -69,16 +79,23 @@ export interface SettingsStore {
  */
 export function mergeSettings(raw: unknown): PluginSettings {
   const source = isRecord(raw) ? raw : {};
+  const agentConnections = mergeAgentConnections(source.agentConnections);
   return {
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     r2: mergeR2(source.r2),
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
     macroLimit:
-      typeof source.macroLimit === "number" && Number.isFinite(source.macroLimit) && source.macroLimit >= 0
+      typeof source.macroLimit === "number" &&
+      Number.isFinite(source.macroLimit) &&
+      source.macroLimit >= 0
         ? source.macroLimit
         : DEFAULT_SETTINGS.macroLimit,
     mirror: mergeMirror(source.mirror),
     agentPresets: mergeAgentPresets(source.agentPresets),
+    agentConnections,
+    // 悬空选择（指向已丢弃/不存在连接）回退跟随 ST 当前连接
+    fillTaskConnectionId: mergeConnectionSelection(source.fillTaskConnectionId, agentConnections),
+    queryChatConnectionId: mergeConnectionSelection(source.queryChatConnectionId, agentConnections),
   };
 }
 
@@ -168,4 +185,40 @@ function mergeMirror(raw: unknown): ChatMirrorSettings {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 合并持久化的 Agent 连接：损坏项逐项丢弃（保留其余），id 非空才有效。 */
+export function mergeAgentConnections(raw: unknown): readonly AgentConnection[] {
+  if (!Array.isArray(raw)) return [];
+  const connections: AgentConnection[] = [];
+  for (const item of raw) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      item.id === "" ||
+      typeof item.name !== "string" ||
+      typeof item.baseUrl !== "string" ||
+      typeof item.apiKey !== "string" ||
+      typeof item.model !== "string"
+    ) {
+      continue;
+    }
+    connections.push({
+      id: item.id,
+      name: item.name,
+      baseUrl: item.baseUrl,
+      apiKey: item.apiKey,
+      model: item.model,
+    });
+  }
+  return connections;
+}
+
+/** Agent 连接选择合并：非字符串或指向不存在连接的 id → undefined（跟随 ST 当前连接）。 */
+function mergeConnectionSelection(
+  raw: unknown,
+  connections: readonly AgentConnection[],
+): string | undefined {
+  if (typeof raw !== "string" || raw === "") return undefined;
+  return connections.some((c) => c.id === raw) ? raw : undefined;
 }

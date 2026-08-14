@@ -42,14 +42,15 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     macroLimit: 2000,
     mirror: { enabled: true, includeHistory: true },
     agentPresets: presetSettings(),
+    agentConnections: [],
+    fillTaskConnectionId: undefined,
+    queryChatConnectionId: undefined,
     ...overrides,
   };
 }
 
 function render(settingsValue: PluginSettings): string {
-  return renderToString(
-    <AgentPresetManager settings={settingsValue} onChange={() => undefined} />,
-  );
+  return renderToString(<AgentPresetManager settings={settingsValue} onChange={() => undefined} />);
 }
 
 describe("AgentPresetManager（预设管理区块冒烟）", () => {
@@ -81,7 +82,9 @@ describe("AgentPresetManager（预设管理区块冒烟）", () => {
   });
 
   it("系统默认（活动 = systemDefault）：只读说明 + 复制为自定义；编辑按钮禁用", () => {
-    const html = render(settings({ agentPresets: presetSettings({ activePresetId: BUILTIN_AGENT_PRESET_ID }) }));
+    const html = render(
+      settings({ agentPresets: presetSettings({ activePresetId: BUILTIN_AGENT_PRESET_ID }) }),
+    );
     expect(html).toContain('data-stm-section="builtin-preset"');
     expect(html).toContain("系统默认预设");
     expect(html).toContain('data-action="copy-builtin-preset"');

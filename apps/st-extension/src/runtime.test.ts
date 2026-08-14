@@ -9,7 +9,12 @@ import {
   DexieMemoryTableRepository,
 } from "./db/index.ts";
 import { startSteMemory } from "./runtime.ts";
-import { DEFAULT_SETTINGS, type SettingsStore } from "./settings/plugin-settings.ts";
+import type { StBackendsModel } from "./llm/st-completion-settings.ts";
+import {
+  DEFAULT_SETTINGS,
+  type PluginSettings,
+  type SettingsStore,
+} from "./settings/plugin-settings.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
   CHAT_METADATA_MIRROR_KEY,
@@ -124,9 +129,13 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const firstSpaceId = status.space.id;
 
     // 给空间一加一条记录（人物表），快照重建
-    const characters = (await runtime.tables.list(firstSpaceId)).find((t) => t.key === "characters");
+    const characters = (await runtime.tables.list(firstSpaceId)).find(
+      (t) => t.key === "characters",
+    );
     if (!characters) throw new Error("expect characters table");
-    const nameField = (await runtime.fields.list(firstSpaceId, characters.id)).find((f) => f.key === "name");
+    const nameField = (await runtime.fields.list(firstSpaceId, characters.id)).find(
+      (f) => f.key === "name",
+    );
     if (!nameField) throw new Error("expect name field");
     await runtime.records.create(firstSpaceId, characters.id, {
       payload: { [nameField.id]: "张三" },
@@ -391,6 +400,81 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await runtime.tasks.activeTask("space-leftover" as MemorySpaceId)).toBeUndefined();
     // 任务服务从 ST 上下文读消息数（触发 UI 的数据源接线）
     expect(runtime.adapter.chatMessageCount()).toBe(1);
+  });
+});
+
+describe("startSteMemory → Agent 连接分流（ADR 0010）", () => {
+  const connectionA = {
+    id: "cA",
+    name: "连接A",
+    baseUrl: "https://a.example.com/v1",
+    apiKey: "sk-a",
+    model: "model-a",
+  };
+  const connectionB = {
+    id: "cB",
+    name: "连接B",
+    baseUrl: "https://b.example.com/v1/chat/completions/",
+    apiKey: "",
+    model: "model-b",
+  };
+
+  async function startRuntime(settings: PluginSettings) {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      chatCompletionSettings: {
+        chat_completion_source: "openai",
+        temp_openai: 0.6,
+        openai_max_tokens: 1500,
+        openai_max_context: 16_384,
+      },
+      getChatCompletionModel: () => "st-model",
+    });
+    const settingsStore: SettingsStore = { read: () => settings, write: () => undefined };
+    return startSteMemory(() => context, { createDb: () => db, log: fakeLog(), settingsStore });
+  }
+
+  it("缺省（未选择连接）：填表与问答都跟随 ST 当前连接（旧行为零变化）", async () => {
+    const runtime = await startRuntime({ ...DEFAULT_SETTINGS, agentConnections: [connectionA] });
+    expect(runtime.createLlm().model.id).toBe("st-model");
+    expect(runtime.createQueryChatLlm().model.id).toBe("st-model");
+  });
+
+  it("填表选择连接：createLlm 用连接模型；问答仍跟随 ST", async () => {
+    const runtime = await startRuntime({
+      ...DEFAULT_SETTINGS,
+      agentConnections: [connectionA],
+      fillTaskConnectionId: "cA",
+    });
+    const port = runtime.createLlm();
+    expect(port.model.id).toBe("model-a");
+    expect((port.model as StBackendsModel).reverseProxy).toBe("https://a.example.com/v1");
+    expect(runtime.createQueryChatLlm().model.id).toBe("st-model");
+  });
+
+  it("问答选择连接：createQueryChatLlm 用连接；填表仍跟随 ST", async () => {
+    const runtime = await startRuntime({
+      ...DEFAULT_SETTINGS,
+      agentConnections: [connectionA],
+      queryChatConnectionId: "cA",
+    });
+    expect(runtime.createLlm().model.id).toBe("st-model");
+    const port = runtime.createQueryChatLlm();
+    expect(port.model.id).toBe("model-a");
+    expect((port.model as StBackendsModel).proxyPassword).toBe("sk-a");
+  });
+
+  it("两个 Agent 各选不同连接：各自生效（URL 规范化在工厂完成）", async () => {
+    const runtime = await startRuntime({
+      ...DEFAULT_SETTINGS,
+      agentConnections: [connectionA, connectionB],
+      fillTaskConnectionId: "cA",
+      queryChatConnectionId: "cB",
+    });
+    expect(runtime.createLlm().model.id).toBe("model-a");
+    const queryPort = runtime.createQueryChatLlm();
+    expect(queryPort.model.id).toBe("model-b");
+    expect((queryPort.model as StBackendsModel).reverseProxy).toBe("https://b.example.com/v1");
   });
 });
 

@@ -50,8 +50,12 @@ import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.t
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
-import { createStLlmPort } from "./llm/st-backends-llm.ts";
+import { createAgentConnectionLlmPort, createStLlmPort } from "./llm/st-backends-llm.ts";
 import type { LlmPort } from "@ste-memory/core/memory/agent";
+import {
+  resolveAgentConnection,
+  type AgentConnectionTarget,
+} from "./settings/agent-connections.ts";
 import type { PluginLog } from "./bootstrap.ts";
 
 /** 插件运行时（UI 与后续 ticket 的访问点） */
@@ -81,8 +85,12 @@ export interface SteMemoryRuntime {
   /** Agent 预设宏（ticket 17）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 + 快照轮询 */
   readonly agentMacro: AgentMacroService;
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
-   * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次 */
+   * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次；
+   * Agent 连接（ADR 0010）：填表选择连接时改用连接（模型/URL/Key），参数仍读 ST 快照 */
   readonly createLlm: () => LlmPort;
+  /** 问答面板 LLM 端口工厂（ADR 0010）：与 createLlm 同语义，开启思考流
+   * （includeReasoning），查询 Agent 选择连接时改用连接 */
+  readonly createQueryChatLlm: () => LlmPort;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
@@ -178,11 +186,27 @@ export async function startSteMemory(
         input,
       ),
   };
-  const createLlm = (): LlmPort => createStLlmPort(() => getContext() as StContext);
-  // 问答面板（ticket 20）：开启思考流（ticket 19 选项）——填表任务的 createLlm 保持缺省
-  // false 零变化；模型不支持思考时静默降级（适配器行为）。
-  const createQueryChatLlm = (): LlmPort =>
-    createStLlmPort(() => getContext() as StContext, { includeReasoning: true });
+  /**
+   * LLM 端口工厂（ADR 0010）：选中 Agent 连接 → 连接端口；否则跟随 ST 当前连接
+   * （旧行为零变化）。任务开始时构造一次（ST 快照 + 连接快照），之后 streamFn
+   * 是纯函数（model, context, options）。
+   */
+  const createLlmFor = (
+    target: AgentConnectionTarget,
+    includeReasoning: boolean,
+  ): LlmPort => {
+    const connection = resolveAgentConnection(settings.read(), target);
+    if (connection) {
+      return createAgentConnectionLlmPort(connection, () => getContext() as StContext, {
+        includeReasoning,
+      });
+    }
+    return createStLlmPort(() => getContext() as StContext, { includeReasoning });
+  };
+  // 填表任务：缺省 includeReasoning=false（零变化）；问答面板（ticket 20）：开启
+  // 思考流（ticket 19 选项），模型不支持思考时静默降级（适配器行为）
+  const createLlm = (): LlmPort => createLlmFor("fillTask", false);
+  const createQueryChatLlm = (): LlmPort => createLlmFor("queryChat", true);
   /**
    * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006；世界书 ADR 0007）：
    * 提交时构造一次——活动预设文本 + 对话双方名字快照 + 世界书扫描文本快照；
@@ -444,6 +468,7 @@ export async function startSteMemory(
     macro,
     agentMacro,
     createLlm,
+    createQueryChatLlm,
     queryChat,
     version: options.version ?? "",
   };

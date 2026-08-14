@@ -28,6 +28,10 @@ _Avoid_: 默认配置、内置模板
 当前生效的 Agent 提示词预设，切换后影响后续填表任务的提示词。
 _Avoid_: 当前预设、选中预设
 
+**Agent 连接**：
+为表格填写 Agent 与查询 Agent 准备的命名 LLM 连接配置（Base URL + API Key + 模型名），供各 Agent 选择使用。Agent 的默认行为是跟随 ST 当前连接；选中某 Agent 连接后，该 Agent 的生成请求改经该连接的 OpenAI 兼容端点，请求仍走 ST 同源代理（reverse_proxy 路径），密钥以明文存于插件本地设置（ADR 0010）。
+_Avoid_: 自定义 API、LLM 配置、API 连接（ST 主连接）
+
 **记忆空间绑定**：
 对话与记忆空间的对应关系，随对话文件持久化（小元数据），保证对话重命名后绑定不丢失。
 _Avoid_: 数据库主键、空间 ID 存储
