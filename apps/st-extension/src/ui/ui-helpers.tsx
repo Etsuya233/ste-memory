@@ -52,6 +52,13 @@ export function Placeholder(props: { readonly title: string; readonly hint: stri
   );
 }
 
+/** UI 层 id 工厂（设置写入时分配实体 id；浏览器环境，缺省随机） */
+export function createUiId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export type ActiveStatus = Extract<SpaceContextStatus, { kind: "active" }>;
 
 /** 活动空间守卫：非 active 状态返回 undefined（表格/记录区块只在活动空间渲染） */

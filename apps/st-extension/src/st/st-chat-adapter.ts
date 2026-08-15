@@ -8,6 +8,11 @@ import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.t
 import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
 import type { AgentPromptNames } from "../agent-presets/preset-composer.ts";
 import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
+import {
+  formatCleaningListSelection,
+  parseCleaningListSelection,
+  type CleaningListStore,
+} from "../settings/cleaning-rule-lists.ts";
 import { resolveFloorJump } from "./floor-jump.ts";
 /**
  * ST 1.18 getContext() 返回对象的插件所需子集（public/scripts/st-context.js 已核实）。
@@ -92,6 +97,9 @@ export const CHAT_METADATA_BINDING_KEY = "steMemory";
 /** 记忆镜像在 chatMetadata 里的键（ticket 16 / ADR 0023）：独立键，不动绑定键——
  * 旧版本插件忽略新键（降级安全），绑定读取路径（三态 + unrecognized 防御）零改动。 */
 export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
+/** 清洗规则列表选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
+ * 随对话文件走（重命名不丢），旧版本插件忽略新键（镜像键同款降级安全）。 */
+export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
 
 /** ST 事件桥（ticket 05）：CHAT_CHANGED 切换空间上下文；消息事件仅注册为未来触发点 */
 export interface StEventBridge {
@@ -189,6 +197,36 @@ export class StChatAdapter {
         context.saveMetadataDebounced?.();
       },
     };
+  }
+
+  /**
+   * chatMetadata 清洗列表选择读写端口（ticket 22 / ADR 0011）：独立键小指针
+   * {version:1, listId}；写入 undefined = 清除选择（删除键）。随对话文件走。
+   */
+  get cleaningListStore(): CleaningListStore {
+    return {
+      read: () =>
+        parseCleaningListSelection(
+          this.#getContext().chatMetadata?.[CHAT_METADATA_CLEANING_LIST_KEY],
+        ),
+      write: (listId) => {
+        const context = this.#getContext();
+        const metadata = context.chatMetadata;
+        if (!metadata) return;
+        if (listId === undefined) {
+          delete metadata[CHAT_METADATA_CLEANING_LIST_KEY];
+        } else {
+          metadata[CHAT_METADATA_CLEANING_LIST_KEY] = formatCleaningListSelection(listId);
+        }
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  /** ST 全局正则条目（Regex 扩展全局脚本 extension_settings.regex；缺失/非数组 → 空） */
+  get stRegexScripts(): readonly unknown[] {
+    const raw = this.#getContext().extensionSettings?.regex;
+    return Array.isArray(raw) ? raw : [];
   }
 
   /**

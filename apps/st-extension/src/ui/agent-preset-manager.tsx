@@ -47,14 +47,7 @@ import {
   AGENT_PRESET_PLACEHOLDER_HINTS,
   type AgentPresetPlaceholderName,
 } from "../agent-presets/preset-composer.ts";
-import { reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
-
-/** UI 层 id 工厂（设置写入时分配预设/片段 id；浏览器环境，缺省随机） */
-function createUiId(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
+import { createUiId, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
 
 /** 复制文本：优先 Clipboard API；非安全上下文降级 textarea + execCommand */
 async function copyText(text: string): Promise<boolean> {

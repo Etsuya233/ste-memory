@@ -45,6 +45,7 @@ import type { FillSourceMessage } from "./fill-task.ts";
 import type { LogEntry, LogRepository } from "../logging/log.ts";
 import { DexieLogRepository } from "../db/log-repository.ts";
 import type { FillRunRecord } from "./fill-run-log.ts";
+import type { CleaningRule } from "../settings/cleaning-rule-lists.ts";
 
 const NOW = "2026-07-30T01:02:03.000Z";
 
@@ -144,6 +145,7 @@ async function createHarness(
       storyText: string,
     ) => Promise<ProposalSystemPromptComposer | undefined>;
     readonly logs?: LogRepository;
+    readonly resolveCleaningRules?: () => readonly CleaningRule[];
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -230,6 +232,7 @@ async function createHarness(
     now: () => NOW,
     logs,
     createComposeSystemPrompt: options.createComposeSystemPrompt,
+    resolveCleaningRules: options.resolveCleaningRules,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
 }
@@ -845,6 +848,84 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await waitForTerminal(harness, view.runId);
     expect(seenSystemPrompt).toContain("你是记忆表格填写助手");
     expect(seenSystemPrompt).toContain("可用表与字段");
+  });
+});
+
+describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
+  /** 捕获每块喂给 Agent 的块提示词全文。 */
+  function capturePrompts(onPrompt: (text: string) => void) {
+    return scriptedStreamFn((context) => {
+      for (const message of context.messages) {
+        if (message.role !== "user") continue;
+        for (const part of message.content) {
+          if (typeof part === "string") {
+            onPrompt(part);
+          } else if (part.type === "text") {
+            onPrompt(part.text);
+          }
+        }
+      }
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+  }
+
+  it("注入 resolveCleaningRules：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
+    const prompts: string[] = [];
+    const harness = await createHarness({
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      resolveCleaningRules: () => [
+        { id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true },
+      ],
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
+    await waitForTerminal(harness, view.runId);
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain("原始内容 带标记");
+    expect(prompt).not.toContain("**");
+
+    // 空规则列表 = 不清洗（缺省无端口由既有测试断言原文进提示词）
+    const rawPrompts: string[] = [];
+    const harness2 = await createHarness({
+      streamFn: capturePrompts((text) => rawPrompts.push(text)),
+      resolveCleaningRules: () => [],
+    });
+    const view2 = await harness2.service.submit({ memorySpaceId: harness2.spaceId, from: 0, to: 5 });
+    await waitForTerminal(harness2, view2.runId);
+    expect(rawPrompts.join("\n")).toContain("**带标记**");
+  });
+
+  it("规则在块处理时实时读取：中途变更对后续块生效（Q12）", async () => {
+    const prompts: string[] = [];
+    let calls = 0;
+    const markedSource: FillTaskSource = {
+      chatMessageCount: () => CHAT_LENGTH,
+      chatId: () => "story",
+      messagesInRange: (from, to) =>
+        defaultMessagesInRange(from, to).map((message) =>
+          message.floor === 4 ? { ...message, content: "消息 **带标记** 5" } : message,
+        ),
+    };
+    const harness = await createHarness({
+      source: markedSource,
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      resolveCleaningRules: () => {
+        calls += 1;
+        return calls === 1
+          ? [{ id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }]
+          : [];
+      },
+    });
+    const view = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 5,
+      blockSize: 3,
+    });
+    await waitForTerminal(harness, view.runId);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("原始内容 带标记");
+    expect(prompts[0]).not.toContain("**");
+    expect(prompts[1]).toContain("**带标记**");
   });
 });
 

@@ -108,6 +108,11 @@ function fakeRuntime(): PanelRuntime {
     agentMacro: {
       kick: vi.fn(async () => {}),
     },
+    cleaning: {
+      readSelection: () => undefined,
+      writeSelection: vi.fn(),
+      readStRegexScripts: () => [],
+    },
     version: "0.1.0",
   };
 }

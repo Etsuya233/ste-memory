@@ -78,6 +78,7 @@ import { QueryChatTab } from "./query-chat-tab.tsx";
 import { LogTab } from "./log-tab.tsx";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import { AgentConnectionManager } from "./agent-connection-manager.tsx";
+import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
@@ -136,6 +137,12 @@ export interface PanelRuntime {
   >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目 */
+  readonly cleaning: {
+    readonly readSelection: () => string | undefined;
+    readonly writeSelection: (listId: string | undefined) => void;
+    readonly readStRegexScripts: () => readonly unknown[];
+  };
   readonly settings: SettingsStore;
   readonly version: string;
 }
@@ -1251,6 +1258,14 @@ function SettingsTab(props: {
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
 }) {
+  // 当前对话的清洗列表选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
+  // 变更即写 chatMetadata（防抖持久化）；对话切换（status 变化）后重新读取。
+  const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(
+    () => props.runtime.cleaning.readSelection(),
+  );
+  useEffect(() => {
+    setChatCleaningListId(props.runtime.cleaning.readSelection());
+  }, [props.status, props.runtime]);
   const r2 = props.settings.r2;
   const configured = isR2Configured(props.settings);
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
@@ -1592,6 +1607,19 @@ function SettingsTab(props: {
           props.runtime.settings.write(next);
           props.onSettingsChange(next);
         }}
+      />
+      <CleaningRulesManager
+        settings={props.settings}
+        selectedListId={chatCleaningListId}
+        onSelectList={(listId) => {
+          props.runtime.cleaning.writeSelection(listId);
+          setChatCleaningListId(listId);
+        }}
+        onChange={(next) => {
+          props.runtime.settings.write(next);
+          props.onSettingsChange(next);
+        }}
+        readStRegexScripts={props.runtime.cleaning.readStRegexScripts}
       />
     </>
   );

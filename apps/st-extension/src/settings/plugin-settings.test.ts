@@ -153,6 +153,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       ],
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
+      cleaningRuleLists: [],
     };
     expect(mergeSettings(settings)).toEqual(settings);
   });
@@ -173,6 +174,20 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     // 缺省：空池 + 跟随 ST
     expect(mergeSettings({}).agentConnections).toEqual([]);
     expect(mergeSettings({}).fillTaskConnectionId).toBeUndefined();
+  });
+
+  it("清洗规则列表：缺省空数组，损坏项逐项丢弃（ticket 22）", () => {
+    expect(mergeSettings({}).cleaningRuleLists).toEqual([]);
+    const merged = mergeSettings({
+      cleaningRuleLists: [
+        { id: "l1", name: "清洗A", rules: [{ id: "r1", name: "去粗体", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }] },
+        { id: "", name: "缺 id", rules: [] },
+        "junk",
+      ],
+    });
+    expect(merged.cleaningRuleLists).toEqual([
+      { id: "l1", name: "清洗A", rules: [{ id: "r1", name: "去粗体", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }] },
+    ]);
   });
 });
 

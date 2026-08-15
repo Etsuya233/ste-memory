@@ -37,6 +37,9 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
       connection(),
       connection({ id: "c2", name: "本地", apiKey: "", model: "qwen" }),
     ],
+    fillTaskConnectionId: undefined,
+    queryChatConnectionId: undefined,
+    cleaningRuleLists: [],
     ...overrides,
   };
 }

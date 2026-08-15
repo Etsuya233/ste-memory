@@ -52,6 +52,8 @@ export interface TasksTabRuntime {
   readonly st: { readonly chatMessageCount: () => number };
   /** 设置写入（ticket 17：任务 Tab 快捷切换活动预设） */
   readonly settings: Pick<SettingsStore, "write">;
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话所选列表 id（未选择为 undefined） */
+  readonly cleaning: { readonly readSelection: () => string | undefined };
 }
 
 export function TasksTab(props: {
@@ -93,6 +95,10 @@ export function TasksTab(props: {
         ledger,
         activeTask,
         historyTasks: recent,
+        cleaning: {
+          selectedListId: props.runtime.cleaning.readSelection(),
+          lists: props.settings.cleaningRuleLists,
+        },
       });
       // 每个空间首次载入时把表单预填为未处理范围（预填标记随空间走，
       // 用户改过输入后不再覆盖；预填放在 updater 外，updater 保持纯函数）
@@ -290,6 +296,9 @@ export function TasksTab(props: {
       ) : (
         <div className="stm-task-card" data-stm-section="trigger">
           <div className="stm-task-card-title">手动触发填表</div>
+          <div className="stm-task-hint" data-stm-field="cleaning-hint">
+            {view.cleaningHint}（在设置中配置）
+          </div>
           {view.unprocessedHint ? (
             <div className="stm-task-hint" data-stm-field="unprocessed-hint">
               {view.unprocessedHint}

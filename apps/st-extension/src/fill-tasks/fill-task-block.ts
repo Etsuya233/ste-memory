@@ -6,7 +6,8 @@
  * - 块证据：reference 模式指向来源存储（source_type + source_id），内容不重复落库；
  *   已注册过证据的来源复用既有证据行（同源唯一），只为本块首次处理的来源新造证据；
  * - 块提示词：把块消息整理为本轮用户消息，模型只管看内容对表操作；
- * - 任务输入 = 原始消息内容（不套清洗规则——ST Regex 由用户自行负责）。
+ * - 任务输入默认 = 原始消息内容；内容清洗（ticket 22 / ADR 0011）由
+ *   FillTaskService 在调用本模块前套用（本模块只做纯变换）。
  */
 import type { MemoryEvidence, MemoryEvidenceId, MemorySpaceId } from "@ste-memory/core/memory";
 import { EVIDENCE_FLOOR_SOURCE_TYPE } from "../constants.ts";

@@ -12,6 +12,7 @@
 import type { FillTaskStatus, FillTaskView, FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
 import { isFillTaskTerminal } from "../fill-tasks/fill-task.ts";
 import { formatSyncTime } from "./space-info.ts";
+import type { CleaningRuleList } from "../settings/cleaning-rule-lists.ts";
 
 export interface FloorRange {
   readonly from: number;
@@ -53,6 +54,8 @@ export interface TasksTabViewModel {
   readonly coverage: CoverageViewModel;
   /** 任务历史（终态任务 createdAt 倒序）：状态/范围/时间/错误，失败与中断可重试 */
   readonly history: readonly TaskHistoryItemViewModel[];
+  /** 当前对话清洗配置提示（ticket 22）：如「清洗：我的清洗」/「未启用清洗」 */
+  readonly cleaningHint: string;
 }
 
 /**
@@ -257,6 +260,11 @@ export function buildTasksTabViewModel(input: {
   readonly activeTask: FillTaskView | undefined;
   /** 最近任务列表（createdAt 倒序；运行中任务被过滤，活动任务区展示） */
   readonly historyTasks: readonly FillTaskView[];
+  /** 当前对话清洗配置（ticket 22 / ADR 0011）：所选列表 id + 全部列表 */
+  readonly cleaning: {
+    readonly selectedListId: string | undefined;
+    readonly lists: readonly CleaningRuleList[];
+  };
 }): TasksTabViewModel {
   const ranges = unprocessedRanges(input.ledger, input.chatLength);
   const first = ranges[0];
@@ -287,5 +295,17 @@ export function buildTasksTabViewModel(input: {
     defaultTo: first ? String(first.to) : "",
     coverage,
     history,
+    cleaningHint: resolveCleaningHint(input.cleaning.lists, input.cleaning.selectedListId),
   };
+}
+
+/** 当前对话清洗配置提示：未选择 / 列表已删除（悬空）/ 生效中。 */
+function resolveCleaningHint(
+  lists: readonly CleaningRuleList[],
+  selectedListId: string | undefined,
+): string {
+  if (selectedListId === undefined) return "未启用清洗";
+  const list = lists.find((candidate) => candidate.id === selectedListId);
+  if (!list) return "所选清洗规则列表不存在，未清洗";
+  return `清洗：${list.name}`;
 }

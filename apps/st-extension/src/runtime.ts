@@ -47,6 +47,7 @@ import {
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
+import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
@@ -94,6 +95,12 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目读取 */
+  readonly cleaning: {
+    readonly readSelection: () => string | undefined;
+    readonly writeSelection: (listId: string | undefined) => void;
+    readonly readStRegexScripts: () => readonly unknown[];
+  };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
 }
@@ -297,6 +304,13 @@ export async function startSteMemory(
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,
     logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),
+    // 填表任务内容清洗（ticket 22 / ADR 0011）：块处理时实时读取当前对话所选
+    // 列表的规则（设置活对象 + chatMetadata 小指针；未选择/列表已删 → 不清洗）
+    resolveCleaningRules: () =>
+      resolveSelectedCleaningRules(
+        settings.read().cleaningRuleLists,
+        adapter.cleaningListStore.read(),
+      ),
   });
 
   const mirror = new ChatMetadataMirrorSync({
@@ -471,5 +485,11 @@ export async function startSteMemory(
     createQueryChatLlm,
     queryChat,
     version: options.version ?? "",
+    // 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目
+    cleaning: {
+      readSelection: () => adapter.cleaningListStore.read(),
+      writeSelection: (listId) => adapter.cleaningListStore.write(listId),
+      readStRegexScripts: () => adapter.stRegexScripts,
+    },
   };
 }

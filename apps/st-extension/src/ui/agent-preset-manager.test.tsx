@@ -45,6 +45,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     agentConnections: [],
     fillTaskConnectionId: undefined,
     queryChatConnectionId: undefined,
+    cleaningRuleLists: [],
     ...overrides,
   };
 }

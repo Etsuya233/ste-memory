@@ -67,7 +67,7 @@ export interface FloorLedgerEntry {
 /** 填表任务消息来源：同步楼层（ST 消息数组下标）到消息原文的只读映射。 */
 export interface FillSourceMessage {
   readonly floor: number;
-  /** 消息正文原文（ST mes 字段，含格式化标记；任务输入不套清洗规则） */
+  /** 消息正文原文（ST mes 字段，含格式化标记；清洗由 service 层套用，ADR 0011） */
   readonly content: string;
   /** 发送者名（角色名 / 用户侧显示名；缺失为空串） */
   readonly name: string;

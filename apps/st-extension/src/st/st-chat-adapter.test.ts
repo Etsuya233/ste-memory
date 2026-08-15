@@ -5,6 +5,7 @@ import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { ChatSpaceBinding } from "../space-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
+  CHAT_METADATA_CLEANING_LIST_KEY,
   CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
   type StContext,
@@ -166,6 +167,58 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
       );
       adapter.mirrorStore.read();
     }).not.toThrow();
+  });
+});
+
+describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22 / ADR 0011）", () => {
+  it("写入 {version:1,listId} 信封 + 触发防抖持久化；读回 listId；清除 = 删除键", () => {
+    const saveMetadataDebounced = vi.fn();
+    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
+
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    adapter.cleaningListStore.write("l1");
+
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toEqual({
+      version: 1,
+      listId: "l1",
+    });
+    expect(adapter.cleaningListStore.read()).toBe("l1");
+    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
+
+    adapter.cleaningListStore.write(undefined);
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+  });
+
+  it("损坏值（版本不符/非对象）= 未选择；无 chatMetadata 时不报错", () => {
+    const { context, adapter } = stableAdapter();
+    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 2, listId: "l1" };
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = "junk";
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+
+    const { adapter: noMetadata } = stableAdapter({ chatMetadata: undefined });
+    expect(() => {
+      noMetadata.cleaningListStore.write("l1");
+      noMetadata.cleaningListStore.read();
+    }).not.toThrow();
+  });
+});
+
+describe("StChatAdapter.stRegexScripts（ST 全局正则条目读取）", () => {
+  it("extensionSettings.regex 数组原样返回；缺失/非数组 → 空", () => {
+    const { adapter } = stableAdapter({
+      extensionSettings: { regex: [{ scriptName: "去粗体" }] },
+    });
+    expect(adapter.stRegexScripts).toEqual([{ scriptName: "去粗体" }]);
+
+    const { adapter: noRegex } = stableAdapter({ extensionSettings: {} });
+    expect(noRegex.stRegexScripts).toEqual([]);
+    const { adapter: noSettings } = stableAdapter({ extensionSettings: undefined });
+    expect(noSettings.stRegexScripts).toEqual([]);
+    const { adapter: notArray } = stableAdapter({ extensionSettings: { regex: "junk" } });
+    expect(notArray.stRegexScripts).toEqual([]);
   });
 });
 

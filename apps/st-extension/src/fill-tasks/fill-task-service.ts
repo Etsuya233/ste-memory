@@ -11,7 +11,8 @@
  * - 任何块失败：出错块楼层 markError（可重试）、任务 failed 并停止，失败原因可读；
  * - 安全点（块开始前、块提交前）：检查任务行——用户取消（markInterrupted）或
  *   页面重开（启动标记）后循环在安全点停止，丢弃未提交提案、楼层不标记；
- * - 任务输入 = 原始消息内容（不套清洗规则，ST Regex 由用户自行负责）。
+ * - 任务输入 = 原始消息内容；注入 resolveCleaningRules 时按清洗规则列表清洗
+ *   （ticket 22 / ADR 0011，块处理时实时读取，改规则追溯生效），缺省不清洗。
  */
 import type {
   MemoryEvidenceId,
@@ -27,6 +28,7 @@ import {
   type ProposalSystemPromptComposer,
 } from "@ste-memory/core/memory/agent";
 import { buildBlockEvidence, buildMergedStoryText, composeBlockPrompt } from "./fill-task-block.ts";
+import { applyCleaningRules, type CleaningRule } from "../settings/cleaning-rule-lists.ts";
 import {
   createFillRunRecorder,
   FILL_RUN_LOG_TYPE,
@@ -94,6 +96,11 @@ export interface FillTaskServiceOptions {
   ) => Promise<ProposalSystemPromptComposer | undefined>;
   /** 通用日志仓库（ADR 0008）：块运行记录在此写入（best-effort，失败不影响任务）。 */
   readonly logs: LogRepository;
+  /**
+   * 填表任务内容清洗（ticket 22 / ADR 0011）：块处理时实时读取当前对话所选
+   * 清洗规则列表的规则；未选择/列表已删 → 空（不清洗）。缺省 = 不清洗。
+   */
+  readonly resolveCleaningRules?: () => readonly CleaningRule[];
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -114,6 +121,7 @@ export class FillTaskService {
   readonly #createComposeSystemPrompt:
     ((storyText: string) => Promise<ProposalSystemPromptComposer | undefined>) | undefined;
   readonly #logs: LogRepository;
+  readonly #resolveCleaningRules: () => readonly CleaningRule[];
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -131,6 +139,7 @@ export class FillTaskService {
     this.#createLlm = options.createLlm;
     this.#createComposeSystemPrompt = options.createComposeSystemPrompt;
     this.#logs = options.logs;
+    this.#resolveCleaningRules = options.resolveCleaningRules ?? (() => []);
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -348,10 +357,20 @@ export class FillTaskService {
   ): Promise<void> {
     recorder.beginBlock();
     try {
-      const messages = this.#source.messagesInRange(from, to);
-      if (messages.length === 0) {
+      const rawMessages = this.#source.messagesInRange(from, to);
+      if (rawMessages.length === 0) {
         throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
       }
+      // 清洗规则在块处理时实时读取（ADR 0011）：原文证据不变，喂给 Agent 的是
+      // 清洗后内容；世界书扫描输入（submit 时合并的剧情文本）保持原文。
+      const cleaningRules = this.#resolveCleaningRules();
+      const messages =
+        cleaningRules.length === 0
+          ? rawMessages
+          : rawMessages.map((message) => ({
+              ...message,
+              content: applyCleaningRules(message.content, cleaningRules),
+            }));
       const evidence = await buildBlockEvidence(
         (memorySpaceId, sourceType, sourceId) =>
           this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),

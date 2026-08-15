@@ -98,7 +98,7 @@ Status: ready-for-agent
 6. **同步模型**：本地优先（本地库存在则用本地）；数据变更防抖周期推送；启动时本地库为空则云端拉全量。
 7. **注入（ADR 0004）**：记忆宏（`context.macros.register`），用户手动放入预设，宏名可配置不写死；宏 handler 同步返回预计算快照（ST 宏引擎同步约束），快照在数据变更时重建；**输出格式契约**：按启用表分组（表名标题行 + 记录显示文本一行，空表省略，停用表不参与），默认上限 2000 字符可配置，尾部截断附「……（已截断）」标记。
 8. **填表（手动）**：用户手动指定楼层范围触发；任务状态机为 ST 重新设计，状态收敛为 idle / running / succeeded / failed / interrupted（关 tab 即 interrupted，不自动重放；**用户取消同样落为 interrupted**）；单空间单活动任务；块处理以 apps/api 填表实现为行为基准（块循环闭区间、默认块大小 20、块失败 → failed 且出错块可重试、已提交块保留）；任务输入 = 原始消息内容（不套清洗规则，ST Regex 由用户负责）；LLM 经第 2 条路径运行 pi-agent-core 的填表管线。
-9. **清洗规则不移植**：ST 自带 Regex 扩展承担消息变换职责；填表输入使用原始消息内容。
+9. **清洗规则不移植（已被 ADR 0011 取代，ticket 22）**：~~ST 自带 Regex 扩展承担消息变换职责；填表输入使用原始消息内容~~。ST Regex 只作用于生成时提示词构建、从不改写 chat 数组，对填表输入无效；ticket 22 引入插件级清洗规则列表 + 导入 ST 正则条目，块处理时读取时套用（见 apps/st-extension/docs/adr/0011-cleaning-rule-lists-from-st-regex.md）。
 10. **工程（ADR 0020）**：新包 `apps/st-extension`（TS + esbuild，dev watch 拷贝进 ST `extensions/third-party/`）；发版拉 `sillytavern-release` 分支、manifest 放仓库根目录（支持 ST 按 URL 安装）。系统表模板收进 `packages/` 共享包，apps/api 与插件共用。
 11. **UI 风格契约（「记忆账本」方向）**：顶部工具栏按钮 + 自绘浮层面板（ST 已无侧栏面板 API）。**自包含视觉**：React 组件（esbuild 打进单文件 bundle，ADR 0005；纯逻辑 seam 与测试策略不变），不依赖 ST 主题变量，类名前缀 `stm-` 隔离；深色为默认主题，浅色模式后置。**色板全部走 CSS 自定义属性**（`--stm-*` 设计令牌，集中一处定义：墨底 `#171A20`、浮面 `#21252E`、墨字 `#E7EAF0`、次字 `#98A0B2`、签名色铜绿 `#6FA894`、成功 `#7FB08A`、危险 `#C96A6A`、警示 `#D9A25F`），后续调色/加浅色模式/主题设置只改令牌区块。**字体**：正文系统 CJK 栈，楼层号/时间/计数用等宽数字。**布局移动端优先**：手机（TauriTavern）全屏底部抽屉 + 底部 Tab（表格/记录/任务/设置）、触控目标 ≥44px、操作一步到位；桌面为浮动面板，同一套 Tab 结构；表格自绘紧凑账本行（字段值 + 证据 chip 同排）。**签名元素**：证据楼层 chip（铜绿 + 等宽 `#N`，点按跳转 ST 对应消息，悬停/长按浮出原文摘录）——全插件唯一的花哨点。动效只留抽屉开合与同步状态变化，尊重 reduced-motion；文案「空状态是邀请」风格。面板包含：空间信息（名称 + 同步状态）、表格列表（启停）、记录视图、任务状态、设置入口。
 12. **Agent 提示词预设（ADR 0006，ticket 17）**：填表 Agent 系统提示词可被预设覆盖——预设 = 命名档案（片段：命名 + 内容 + 开关 + 排序），全局活动预设 + 内置只读系统默认预设；**模板模式**（不自动追加 digest，`{{tablesDigest}}`/`{{systemDefaultPrompt}}` 显式引用）；占位符**自研展开**不接 ST MacroEngine（`{{user}}`/`{{char}}`（群聊=群名）/`{{tablesDigest}}`/`{{systemDefaultPrompt}}`，未知原样保留）；core/api/web 零改动（ProposalAgent `composeSystemPrompt` 注入点）。
@@ -117,7 +117,7 @@ Status: ready-for-agent
 
 ## Out of Scope
 
-- 复用 api/web 的代码；清洗规则移植（ST Regex 替代）
+- 复用 api/web 的代码；清洗规则移植（~~ST Regex 替代~~——已由 ticket 22 / ADR 0011 反转：插件级清洗规则列表 + ST 正则条目导入）
 - 消息全文存储；自动回填/自动填表触发；交互式填写硬闸门（run 暂停/恢复 + pending 待决状态）
 - 认证与密钥安全加固（本地单用户，密钥明文存浏览器）
 - Google Drive 适配器（OAuth）；Server Plugin；镜像与 R2 的跨服务协调（单通道，各自本地优先）；多设备并发冲突解决（LWW 足够）

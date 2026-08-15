@@ -10,6 +10,7 @@ import {
   type TasksTabViewModel,
 } from "./task-panel-model.ts";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
+import type { CleaningRuleList } from "../settings/cleaning-rule-lists.ts";
 
 const SPACE = "space-1" as MemorySpaceId;
 
@@ -208,6 +209,7 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
     ledger: entries([0, "processed"], [5, "error"]),
     activeTask: undefined as FillTaskView | undefined,
     historyTasks: [] as readonly FillTaskView[],
+    cleaning: { selectedListId: undefined as string | undefined, lists: [] as readonly CleaningRuleList[] },
   };
 
   it("无活动任务：可触发，表单预填首个未处理范围", () => {
@@ -246,8 +248,7 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
       activeTaskLabel: "运行中",
       activeTaskDetail: "已处理 3/6 层",
       activeRange: "楼层 2–7",
-    });
-    // 覆盖视图：0 已处理、5 出错（台账为准）；2–7 内未台账楼层（2,3,4,6,7）任务中；1 未计划
+    });    // 覆盖视图：0 已处理、5 出错（台账为准）；2–7 内未台账楼层（2,3,4,6,7）任务中；1 未计划
     expect(view.coverage).toMatchObject({
       processedCount: 1,
       errorCount: 1,
@@ -330,5 +331,22 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
     });
     expect(view.noMessages).toBe(true);
     expect(view.coverage.totalCount).toBe(0);
+  });
+
+  it("清洗提示：未选择 / 列表已删除（悬空）/ 生效中（ticket 22）", () => {
+    const noSelection = buildTasksTabViewModel(base);
+    expect(noSelection.cleaningHint).toBe("未启用清洗");
+
+    const dangling = buildTasksTabViewModel({
+      ...base,
+      cleaning: { selectedListId: "deleted", lists: [{ id: "l1", name: "我的清洗", rules: [] }] },
+    });
+    expect(dangling.cleaningHint).toBe("所选清洗规则列表不存在，未清洗");
+
+    const active = buildTasksTabViewModel({
+      ...base,
+      cleaning: { selectedListId: "l1", lists: [{ id: "l1", name: "我的清洗", rules: [] }] },
+    });
+    expect(active.cleaningHint).toBe("清洗：我的清洗");
   });
 });
