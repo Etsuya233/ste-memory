@@ -472,6 +472,14 @@
   color: var(--stm-ink-secondary);
 }
 
+/* 设置行内的表单控件（ticket 22 清洗规则）：stm-input 默认 width:100%，直接作
+ * 为 stm-setting-row 的 flex 子项时 flex-basis=100% + select 固有最小宽度会把左侧
+ * 文本挤压换行；改为 flex 等分 + 允许收缩（label flex:1 同权，文本可自然折行）。 */
+.stm-setting-row > .stm-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .stm-setting-value {
   font-size: 13px;
   color: var(--stm-ink-secondary);
