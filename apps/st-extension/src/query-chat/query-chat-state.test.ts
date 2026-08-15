@@ -167,6 +167,12 @@ describe("chatHistoryMessages（无状态多轮回传）", () => {
 });
 
 describe("QueryChatStore（按 key 历史 + run 状态）", () => {
+  it("无历史 key 的快照引用稳定（useSyncExternalStore 契约：getSnapshot 必须缓存）", () => {
+    const store = new QueryChatStore();
+    expect(store.getHistory(KEY_A_QUERY)).toBe(store.getHistory(KEY_A_QUERY));
+    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
+  });
+
   it("模式初始为查询；setMode 通知监听者", () => {
     const store = new QueryChatStore();
     expect(store.getMode()).toBe("query");

@@ -7,8 +7,8 @@
  * - 当前对话使用的清洗列表选择行（未启用 + 全部列表）；
  * - 规则列表管理：列表下拉（编辑目标）+ 新建/重命名/删除 + 规则行
  *   （开关/展开编辑/上下重排/删除）；
- * - 导入：从 ST 全局正则条目（readStRegexScripts 端口）或 ST 导出 JSON 文件，
- *   对话框内勾选条目 + 选目标列表（已有/新建）+ 导入报告。
+ * - 导入：从 ST 正则条目（readStRegexEntries 端口：全局 + 当前角色卡 + 当前预设）
+ *   或 ST 导出 JSON 文件，对话框内勾选条目 + 选目标列表（已有/新建）+ 导入报告。
  */
 import { useRef, useState } from "react";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
@@ -24,6 +24,7 @@ import {
   type CleaningRuleList,
 } from "../settings/cleaning-rule-lists.ts";
 import { convertStRegexScripts, type StRegexImportItem } from "../settings/st-regex-import.ts";
+import type { StRegexEntry, StRegexEntrySource } from "../st/st-chat-adapter.ts";
 import {
   DEFAULT_IMPORT_LIST_NAME,
   applyImportedRules,
@@ -51,8 +52,8 @@ export function CleaningRulesManager(props: {
   readonly onSelectList: (listId: string | undefined) => void;
   /** 宿主写 settings 并更新面板状态 */
   readonly onChange: (settings: PluginSettings) => void;
-  /** ST 全局正则条目读取端口（宿主 = getContext().extensionSettings.regex） */
-  readonly readStRegexScripts: () => readonly unknown[];
+  /** ST 正则条目读取端口（宿主 = getContext()：全局 + 当前角色卡 + 当前预设） */
+  readonly readStRegexEntries: () => readonly StRegexEntry[];
 }) {
   const lists = props.settings.cleaningRuleLists;
   // 编辑目标列表：优先当前对话所选；未选择/悬空时取第一个列表
@@ -69,13 +70,14 @@ export function CleaningRulesManager(props: {
   // 导入对话框状态
   const [importOpen, setImportOpen] = useState(false);
   const [importCandidates, setImportCandidates] = useState<readonly StRegexImportItem[]>([]);
+  /** 候选条目来源（与 importCandidates 下标一一对应；文件导入全为 file） */
+  const [importSources, setImportSources] = useState<readonly StRegexEntrySource[]>([]);
   const [importSelected, setImportSelected] = useState<readonly number[]>([]);
   const [importTarget, setImportTarget] = useState<ImportTarget>({
     kind: "new",
     name: DEFAULT_IMPORT_LIST_NAME,
   });
   const [importReport, setImportReport] = useState<StRegexImportReport | null>(null);
-  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   function apply(mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[]): void {
     props.onChange({ ...props.settings, cleaningRuleLists: mutate(lists) });
@@ -209,14 +211,19 @@ export function CleaningRulesManager(props: {
 
   function openImportFromSt(): void {
     try {
-      const candidates = convertStRegexScripts(props.readStRegexScripts(), createUiId);
-      openImportDialog(candidates);
+      const entries = props.readStRegexEntries();
+      const candidates = convertStRegexScripts(
+        entries.map((entry) => entry.script),
+        createUiId,
+      );
+      openImportDialog(candidates, entries.map((entry) => entry.source));
     } catch (error) {
       reportError(error);
     }
   }
 
-  async function openImportFromFile(file: File): Promise<void> {
+  /** 从 ST 导出的 JSON 文件导入候选（替换对话框内候选列表，对话框保持打开） */
+  async function importFileIntoDialog(file: File): Promise<void> {
     let text: string;
     try {
       text = await file.text();
@@ -226,16 +233,27 @@ export function CleaningRulesManager(props: {
     }
     try {
       const candidates = convertStRegexScripts(JSON.parse(text), createUiId);
-      openImportDialog(candidates);
+      setImportCandidates(candidates);
+      setImportSources(candidates.map(() => "file" as const));
+      setImportSelected(
+        candidates.map((item, index) => (item.kind === "rule" ? index : -1)).filter((i) => i >= 0),
+      );
+      setImportReport(null);
     } catch (error) {
       reportError(error);
       return;
     }
   }
 
-  function openImportDialog(candidates: readonly StRegexImportItem[]): void {
+  function openImportDialog(
+    candidates: readonly StRegexImportItem[],
+    sources: readonly StRegexEntrySource[],
+  ): void {
     setImportCandidates(candidates);
-    setImportSelected(candidates.map((item, index) => (item.kind === "rule" ? index : -1)).filter((i) => i >= 0));
+    setImportSources(sources);
+    setImportSelected(
+      candidates.map((item, index) => (item.kind === "rule" ? index : -1)).filter((i) => i >= 0),
+    );
     // 默认目标 = 当前对话所选列表；未选择（或悬空）→ 新建列表（ticket 决策）
     const selected = lists.find((list) => list.id === props.selectedListId);
     setImportTarget(
@@ -345,34 +363,7 @@ export function CleaningRulesManager(props: {
         >
           删除列表
         </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="import-st-regex"
-          onClick={openImportFromSt}
-        >
-          从 ST 正则导入
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="import-st-regex-file"
-          onClick={() => importFileInputRef.current?.click()}
-        >
-          导入文件
-        </button>
       </div>
-      <input
-        ref={importFileInputRef}
-        type="file"
-        accept="application/json,.json"
-        style={{ display: "none" }}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void openImportFromFile(file);
-          event.target.value = "";
-        }}
-      />
       {importReport !== null && (
         <div className="stm-preset-warning" data-stm-field="import-report">
           导入完成：新建 {importReport.created} 条规则
@@ -385,8 +376,17 @@ export function CleaningRulesManager(props: {
       {editList === undefined ? (
         <div className="stm-preset-builtin" data-stm-section="cleaning-rules-empty">
           <div className="stm-preset-builtin-text">
-            还没有清洗规则列表。从 ST 正则导入已有条目，或新建列表后手动添加规则。
+            还没有清洗规则列表。点击「导入正则」从 ST 的正则条目（全局 / 当前角色卡 /
+            当前预设）导入，或先新建列表后手动添加规则。
           </div>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="import-st-regex"
+            onClick={openImportFromSt}
+          >
+            导入正则
+          </button>
         </div>
       ) : (
         <div data-stm-field="cleaning-rule-list">
@@ -410,19 +410,52 @@ export function CleaningRulesManager(props: {
               onRemove={() => removeRule(rule.id)}
             />
           ))}
-          <button
-            type="button"
-            className="stm-button stm-preset-add-fragment"
-            data-action="add-cleaning-rule"
-            onClick={addRule}
-          >
-            + 添加规则
-          </button>
+          {/* 新建草稿行：未保存前不落库，编辑态即时可见（取消/切列表即丢弃） */}
+          {pendingRuleId !== undefined && ruleDraft !== undefined && (
+            <CleaningRuleRow
+              key={pendingRuleId}
+              rule={draftToRule(ruleDraft, pendingRuleId)}
+              index={editList.rules.length}
+              total={editList.rules.length + 1}
+              editing
+              movable={false}
+              draft={ruleDraft}
+              error={ruleError}
+              onBeginEdit={() => undefined}
+              onCancelEdit={cancelEdit}
+              onSaveEdit={saveEdit}
+              onDraftChange={setRuleDraft}
+              onToggleEnabled={(enabled) =>
+                setRuleDraft((current) => (current ? { ...current, enabled } : current))
+              }
+              onMove={() => undefined}
+              onRemove={() => undefined}
+            />
+          )}
+          <div className="stm-setting-actions">
+            <button
+              type="button"
+              className="stm-button stm-preset-add-fragment"
+              data-action="add-cleaning-rule"
+              onClick={addRule}
+            >
+              + 添加规则
+            </button>
+            <button
+              type="button"
+              className="stm-button"
+              data-action="import-st-regex"
+              onClick={openImportFromSt}
+            >
+              导入正则
+            </button>
+          </div>
         </div>
       )}
       {importOpen && (
         <ImportDialog
           candidates={importCandidates}
+          sources={importSources}
           selected={importSelected}
           importableCount={importableCount}
           selectedCount={selectedCount}
@@ -430,12 +463,26 @@ export function CleaningRulesManager(props: {
           target={importTarget}
           onToggleCandidate={toggleCandidate}
           onTargetChange={setImportTarget}
+          onImportFile={(file) => void importFileIntoDialog(file)}
           onConfirm={confirmImport}
           onCancel={() => setImportOpen(false)}
         />
       )}
     </div>
   );
+}
+
+/** 草稿 → 临时规则（新建草稿行渲染用，未落库）。 */
+function draftToRule(draft: CleaningRuleDraft, id: string): CleaningRule {
+  return {
+    id,
+    name: draft.name,
+    mode: draft.mode,
+    pattern: draft.pattern,
+    flags: draft.flags,
+    enabled: draft.enabled,
+    ...(draft.mode === "replace" ? { replacement: draft.replacement } : {}),
+  };
 }
 
 /** 规则行：折叠态 = 摘要（开关 + 名称 + 模式 + 正则）；展开态 = 完整表单（保存校验）。 */
@@ -446,6 +493,8 @@ function CleaningRuleRow(props: {
   readonly editing: boolean;
   readonly draft: CleaningRuleDraft | undefined;
   readonly error: string | undefined;
+  /** 是否可重排（新建草稿行未落库，隐藏上下移按钮） */
+  readonly movable?: boolean;
   readonly onBeginEdit: () => void;
   readonly onCancelEdit: () => void;
   readonly onSaveEdit: () => void;
@@ -455,6 +504,7 @@ function CleaningRuleRow(props: {
   readonly onRemove: () => void;
 }) {
   const { rule } = props;
+  const movable = props.movable ?? true;
   return (
     <div className="stm-preset-fragment" data-stm-field={`cleaning-rule-${rule.id}`}>
       <div className="stm-preset-fragment-head">
@@ -484,26 +534,30 @@ function CleaningRuleRow(props: {
             </span>
           </span>
         </button>
-        <button
-          type="button"
-          className="stm-preset-fragment-remove"
-          data-action="move-cleaning-rule-up"
-          disabled={props.index === 0}
-          onClick={() => props.onMove(-1)}
-          title="上移"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          className="stm-preset-fragment-remove"
-          data-action="move-cleaning-rule-down"
-          disabled={props.index >= props.total - 1}
-          onClick={() => props.onMove(1)}
-          title="下移"
-        >
-          ↓
-        </button>
+        {movable && (
+          <>
+            <button
+              type="button"
+              className="stm-preset-fragment-remove"
+              data-action="move-cleaning-rule-up"
+              disabled={props.index === 0}
+              onClick={() => props.onMove(-1)}
+              title="上移"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="stm-preset-fragment-remove"
+              data-action="move-cleaning-rule-down"
+              disabled={props.index >= props.total - 1}
+              onClick={() => props.onMove(1)}
+              title="下移"
+            >
+              ↓
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="stm-preset-fragment-remove"
@@ -607,9 +661,19 @@ function CleaningRuleEditor(props: {
   );
 }
 
-/** 导入对话框：候选条目勾选 + 目标列表（已有/新建）+ 导入确认。 */
+/** 条目来源标签（st-chat-adapter StRegexEntrySource）。 */
+const SOURCE_LABELS: Record<StRegexEntrySource, string> = {
+  global: "全局",
+  scoped: "角色卡",
+  preset: "预设",
+  file: "文件",
+};
+
+/** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选 + 目标列表 + 导入确认。 */
 export function ImportDialog(props: {
   readonly candidates: readonly StRegexImportItem[];
+  /** 候选来源（与 candidates 下标一一对应） */
+  readonly sources: readonly StRegexEntrySource[];
   readonly selected: readonly number[];
   readonly importableCount: number;
   readonly selectedCount: number;
@@ -617,13 +681,48 @@ export function ImportDialog(props: {
   readonly target: ImportTarget;
   readonly onToggleCandidate: (index: number) => void;
   readonly onTargetChange: (target: ImportTarget) => void;
+  /** 从 ST 导出的 JSON 文件导入候选（替换候选列表，对话框保持打开） */
+  readonly onImportFile: (file: File) => void;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <div className="stm-preset-editor" data-stm-section="regex-import-dialog">
-      <div className="stm-setting-group-title">从 ST 正则导入</div>
-      {props.importableCount === 0 && props.candidates.length > 0 ? (
+      <div className="stm-setting-row">
+        <div className="stm-setting-label">
+          <div className="stm-setting-name">导入正则</div>
+          <div className="stm-setting-hint">
+            列出 ST 的全局、当前角色卡与当前预设中的正则条目；勾选后导入到清洗规则列表
+          </div>
+        </div>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="import-st-regex-file"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          从文件导入…
+        </button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) props.onImportFile(file);
+          event.target.value = "";
+        }}
+      />
+      {props.candidates.length === 0 ? (
+        <div className="stm-preset-warning" data-stm-field="import-candidates-empty">
+          ST 中暂无正则条目（全局 / 当前角色卡 / 当前预设）。可先在 ST 的 Regex
+          扩展中配置，或点击「从文件导入」选择 ST 正则扩展导出的 JSON 文件（含其他
+          角色卡与预设条目）。
+        </div>
+      ) : props.importableCount === 0 ? (
         <div className="stm-preset-warning" data-stm-field="import-candidates-empty">
           {props.candidates.map((item) =>
             item.kind === "skipped" ? (
@@ -632,10 +731,6 @@ export function ImportDialog(props: {
               </div>
             ) : null,
           )}
-        </div>
-      ) : props.candidates.length === 0 ? (
-        <div className="stm-preset-warning" data-stm-field="import-candidates-empty">
-          没有可导入的正则条目。
         </div>
       ) : (
         <div data-stm-field="import-candidates">
@@ -649,6 +744,9 @@ export function ImportDialog(props: {
                   onChange={() => props.onToggleCandidate(index)}
                 />
                 <span>
+                  <span className="stm-chip" data-stm-field={`import-source-${index}`}>
+                    {SOURCE_LABELS[props.sources[index] ?? "file"]}
+                  </span>{" "}
                   {item.rule.name} → {MODE_LABELS[item.rule.mode]}
                   <span className="stm-mono">
                     {" "}

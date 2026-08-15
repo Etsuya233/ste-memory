@@ -83,6 +83,9 @@ export interface QueryChatHistoryMessage {
   readonly text: string;
 }
 
+/** 稳定空历史：getSnapshot 快照必须引用稳定（新字面量会让 useSyncExternalStore 无限重渲染）。 */
+const EMPTY_HISTORY: readonly QueryChatMessage[] = [];
+
 /** 按（空间 × 模式）的历史键。 */
 export function queryChatHistoryKey(spaceId: MemorySpaceId, mode: QueryChatMode): string {
   return `${spaceId}:${mode}`;
@@ -209,7 +212,7 @@ export class QueryChatStore {
   }
 
   getHistory(key: string): readonly QueryChatMessage[] {
-    return this.#history.get(key) ?? [];
+    return this.#history.get(key) ?? EMPTY_HISTORY;
   }
 
   getRun(key: string): QueryChatRunState | undefined {

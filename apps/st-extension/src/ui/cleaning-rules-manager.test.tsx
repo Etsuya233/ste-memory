@@ -8,6 +8,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
 import type { StRegexImportItem } from "../settings/st-regex-import.ts";
+import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import { CleaningRulesManager, ImportDialog } from "./cleaning-rules-manager.tsx";
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
@@ -29,7 +30,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
 function renderManager(overrides: {
   readonly settings?: PluginSettings;
   readonly selectedListId?: string;
-  readonly scripts?: readonly unknown[];
+  readonly entries?: readonly StRegexEntry[];
 } = {}): string {
   return renderToString(
     <CleaningRulesManager
@@ -37,7 +38,7 @@ function renderManager(overrides: {
       selectedListId={overrides.selectedListId}
       onSelectList={() => undefined}
       onChange={() => undefined}
-      readStRegexScripts={() => overrides.scripts ?? []}
+      readStRegexEntries={() => overrides.entries ?? []}
     />,
   );
 }
@@ -54,8 +55,6 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
     expect(html).toContain('data-stm-field="chat-cleaning-list"');
     expect(html).toContain("未启用清洗");
     expect(html).toContain('data-action="create-cleaning-list"');
-    expect(html).toContain('data-action="import-st-regex"');
-    expect(html).toContain('data-action="import-st-regex-file"');
     expect(html).toContain("还没有清洗规则列表");
   });
 
@@ -133,6 +132,7 @@ describe("ImportDialog（导入对话框冒烟）", () => {
     return renderToString(
       <ImportDialog
         candidates={candidates}
+        sources={["global"]}
         selected={[0]}
         importableCount={1}
         selectedCount={1}
@@ -140,6 +140,7 @@ describe("ImportDialog（导入对话框冒烟）", () => {
         target={{ kind: "existing", listId: "l1" }}
         onToggleCandidate={() => undefined}
         onTargetChange={() => undefined}
+        onImportFile={() => undefined}
         onConfirm={() => undefined}
         onCancel={() => undefined}
         {...overrides}
@@ -147,29 +148,36 @@ describe("ImportDialog（导入对话框冒烟）", () => {
     );
   }
 
-  it("候选条目（含差异说明）+ 被跳过条目原因 + 目标列表下拉 + 导入按钮计数", () => {
+  it("候选条目（含来源标签与差异说明）+ 被跳过条目原因 + 目标列表下拉 + 导入按钮计数", () => {
     const html = text(renderDialog());
-    expect(html).toContain("从 ST 正则导入");
+    expect(html).toContain("导入正则");
+    expect(html).toContain("全局");
     expect(html).toContain("去粗体 → 去掉");
     expect(html).toContain("trimStrings（2 项）未迁移");
     expect(html).toContain("跳过「世界书专用」：作用范围不含用户输入/AI 输出");
     expect(html).toContain('data-stm-field="import-target-list"');
     expect(html).toContain("导入（1 条）");
+    expect(html).toContain('data-action="import-st-regex-file"');
   });
 
-  it("新建目标：显示列表名输入；无可导入条目：逐条原因且导入按钮禁用", () => {
+  it("空态：引导在 ST 配置或从文件导入；新建目标显示列表名输入；无可导入条目时导入按钮禁用", () => {
+    const empty = text(renderDialog({ candidates: [], sources: [], importableCount: 0, selectedCount: 0, selected: [] }));
+    expect(empty).toContain("ST 中暂无正则条目");
+    expect(empty).toContain("从文件导入");
+
     const newTarget = text(renderDialog({ target: { kind: "new", name: "从 ST 导入" } }));
     expect(newTarget).toContain('data-stm-field="import-target-name"');
 
-    const empty = text(
+    const skippedOnly = text(
       renderDialog({
         candidates: [{ kind: "skipped", scriptName: "A", reason: "缺匹配式" }],
+        sources: ["global"],
         importableCount: 0,
         selectedCount: 0,
         selected: [],
       }),
     );
-    expect(empty).toContain("跳过「A」：缺匹配式");
-    expect(empty).toContain('disabled=""');
+    expect(skippedOnly).toContain("跳过「A」：缺匹配式");
+    expect(skippedOnly).toContain('disabled=""');
   });
 });

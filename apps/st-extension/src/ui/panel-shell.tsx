@@ -45,6 +45,7 @@ import {
   type SettingsStore,
 } from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
+import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import type { QueryChatService } from "../query-chat/query-chat-service.ts";
 import { QueryChatStore } from "../query-chat/query-chat-state.ts";
@@ -137,11 +138,11 @@ export interface PanelRuntime {
   >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
-  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目 */
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexScripts: () => readonly unknown[];
+    readonly readStRegexEntries: () => readonly StRegexEntry[];
   };
   readonly settings: SettingsStore;
   readonly version: string;
@@ -1619,7 +1620,7 @@ function SettingsTab(props: {
           props.runtime.settings.write(next);
           props.onSettingsChange(next);
         }}
-        readStRegexScripts={props.runtime.cleaning.readStRegexScripts}
+        readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
       />
     </>
   );

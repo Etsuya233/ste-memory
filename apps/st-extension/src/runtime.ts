@@ -49,7 +49,7 @@ import type { ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
-import { StChatAdapter, type StContext } from "./st/st-chat-adapter.ts";
+import { StChatAdapter, type StContext, type StRegexEntry } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
 import { createAgentConnectionLlmPort, createStLlmPort } from "./llm/st-backends-llm.ts";
 import type { LlmPort } from "@ste-memory/core/memory/agent";
@@ -95,11 +95,11 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
-  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目读取 */
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目读取 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexScripts: () => readonly unknown[];
+    readonly readStRegexEntries: () => readonly StRegexEntry[];
   };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
@@ -489,7 +489,7 @@ export async function startSteMemory(
     cleaning: {
       readSelection: () => adapter.cleaningListStore.read(),
       writeSelection: (listId) => adapter.cleaningListStore.write(listId),
-      readStRegexScripts: () => adapter.stRegexScripts,
+      readStRegexEntries: () => adapter.stRegexEntries,
     },
   };
 }

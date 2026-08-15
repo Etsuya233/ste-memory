@@ -2,9 +2,11 @@
 
 spec 决策 #9「清洗规则不移植，ST Regex 由用户自行负责」被反转：ST 的 Regex 扩展只作用于生成时提示词构建（getRegexedString），从不改写 chat 数组——用户配的 ST 正则对插件填表任务的输入**根本不会生效**。决定：插件引入**插件级命名的清洗规则列表**（存 `extension_settings.steMemory.cleaningRuleLists`，纯模型 + 设置存储端口，同 Agent 预设/连接先例），每个对话经 chatMetadata **独立新键**（`steMemoryCleaningList`，镜像键先例：旧版本忽略新键、绑定读取路径零改动）选择一份列表；填表任务处理块时实时读取所选列表的规则，只清洗喂给 Agent 的消息内容（运行记录 Prompt 快照自动跟随），证据与展示层保持原文。清洗规则以「保留/去掉/替换」三种模式执行（读取时应用，原文永不改写，同 apps ADR 0001 精神）。
 
-**导入语义**：来源 = ST 全局正则条目（`getContext().extensionSettings.regex`，官方 API 唯一可达作用域）+ ST 正则扩展导出的 JSON 文件（覆盖角色卡 scoped 与预设条目，格式与 ST 自身导入一致）。每条按替换串语义映射——`replaceString` 去空白后为空 → 去掉；**其余一律 → 替换模式**（`{{match}}` 展开为 `$0`，`$1`/`$<name>` 走 JS 原生替换语义）；`/pattern/flags` 包裹解析为 pattern + flags（ST 允许但 JS 非法的 flags x/X/A/J/U 丢弃），未包裹默认 `g`；placement 与「用户输入/AI 输出」无交集的条目跳过（只作用于 MD 显示/斜杠命令/世界书/推理的条目对消息清洗无意义）；trimStrings、宏替换（substituteRegex）、markdownOnly/promptOnly、runOnEdit、min/maxDepth 等 ST 专属字段不迁移，差异在导入报告中逐条说明。**导入永远追加**，不记录来源 id、不去重——重复导入产生重复规则，由用户自行清理。
+**导入语义**：来源 = ST 全局正则条目（`extension_settings.regex`）+ **当前角色卡 scoped 条目**（`characters[chid].data.extensions.regex_scripts`）+ **当前预设条目**（`getPresetManager().readPresetExtensionField({path:'regex_scripts'})`）——三者均经 `getContext()` 官方 API 可达（st-context.js 已核实，按脚本 id 去重，预设应用后条目可能同时存在于全局），另支持 ST 正则扩展导出的 JSON 文件（覆盖非当前角色卡等其余条目，格式与 ST 自身导入一致）。每条按替换串语义映射——`replaceString` 去空白后为空 → 去掉；**其余一律 → 替换模式**（`{{match}}` 展开为 `$0`，`$1`/`$<name>` 走 JS 原生替换语义）；`/pattern/flags` 包裹解析为 pattern + flags（ST 允许但 JS 非法的 flags x/X/A/J/U 丢弃），未包裹默认 `g`；placement 与「用户输入/AI 输出」无交集的条目跳过（只作用于 MD 显示/斜杠命令/世界书/推理的条目对消息清洗无意义）；trimStrings、宏替换（substituteRegex）、markdownOnly/promptOnly、runOnEdit、min/maxDepth 等 ST 专属字段不迁移，差异在导入报告中逐条说明。**导入永远追加**，不记录来源 id、不去重——重复导入产生重复规则，由用户自行清理。
 
-> 修正记录（code review 2026-08）：纯组引用（`$1`/`$0`/`{{match}}`）**不**映射为「保留」模式——ST 的替换语义是「匹配段替换、保留匹配间文本」（"a **b** c" 配 `\*\*(.+?)\*\*` + `$1` → "a b c"），而保留模式是「全内容替换为捕获拼接」（→ "b"），且 `$0`/`{{match}}` 在 ST 中为 no-op、导入为保留会变成破坏性提取。改为一律映射到替换模式后与 ST 行为逐字一致；「保留」模式仍保留给手动创建（api/web 语义对齐）。
+> 修正记录一（code review 2026-08）：纯组引用（`$1`/`$0`/`{{match}}`）**不**映射为「保留」模式——ST 的替换语义是「匹配段替换、保留匹配间文本」（"a **b** c" 配 `\*\*(.+?)\*\*` + `$1` → "a b c"），而保留模式是「全内容替换为捕获拼接」（→ "b"），且 `$0`/`{{match}}` 在 ST 中为 no-op、导入为保留会变成破坏性提取。改为一律映射到替换模式后与 ST 行为逐字一致；「保留」模式仍保留给手动创建（api/web 语义对齐）。
+
+> 修正记录二（grilling 事实纠错 2026-08）：初版设计称「官方 API 仅可达全局条目、scoped/preset 需文件导入」——错误。`getContext()` 完整暴露 `characters`（角色卡数组）与 `getPresetManager`（可读当前预设扩展字段），三源均可实时读取；导入候选按来源（全局/角色卡/预设/文件）标注展示，按脚本 id 去重。
 
 ## Considered Options
 

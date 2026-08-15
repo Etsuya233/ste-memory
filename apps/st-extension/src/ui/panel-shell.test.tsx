@@ -111,7 +111,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     cleaning: {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
-      readStRegexScripts: () => [],
+      readStRegexEntries: () => [],
     },
     version: "0.1.0",
     ...overrides,
