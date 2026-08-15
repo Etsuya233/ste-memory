@@ -136,8 +136,8 @@ describe("ImportDialog（导入对话框冒烟）", () => {
         selected={[0]}
         importableCount={1}
         selectedCount={1}
-        lists={[{ id: "l1", name: "我的清洗", rules: [] }]}
         target={{ kind: "existing", listId: "l1" }}
+        targetListName="我的清洗"
         onToggleCandidate={() => undefined}
         onTargetChange={() => undefined}
         onImportFile={() => undefined}
@@ -148,25 +148,30 @@ describe("ImportDialog（导入对话框冒烟）", () => {
     );
   }
 
-  it("候选条目（含来源标签与差异说明）+ 被跳过条目原因 + 目标列表下拉 + 导入按钮计数", () => {
+  it("候选条目只显示来源标签 + 名称；目标 = 当前列表（只读提示）；跳过条目带原因", () => {
     const html = text(renderDialog());
     expect(html).toContain("导入正则");
     expect(html).toContain("全局");
-    expect(html).toContain("去粗体 → 去掉");
-    expect(html).toContain("trimStrings（2 项）未迁移");
+    expect(html).toContain("去粗体");
+    // 精简：不显示模式/正则/flags/差异说明
+    expect(html).not.toContain("→");
+    expect(html).not.toContain("trimStrings");
     expect(html).toContain("跳过「世界书专用」：作用范围不含用户输入/AI 输出");
-    expect(html).toContain('data-stm-field="import-target-list"');
+    expect(html).toContain("导入到：我的清洗");
     expect(html).toContain("导入（1 条）");
     expect(html).toContain('data-action="import-st-regex-file"');
   });
 
-  it("空态：引导在 ST 配置或从文件导入；新建目标显示列表名输入；无可导入条目时导入按钮禁用", () => {
+  it("空态：引导在 ST 配置或从文件导入；无列表时显示新建名称输入；无可导入条目时导入按钮禁用", () => {
     const empty = text(renderDialog({ candidates: [], sources: [], importableCount: 0, selectedCount: 0, selected: [] }));
     expect(empty).toContain("ST 中暂无正则条目");
     expect(empty).toContain("从文件导入");
 
-    const newTarget = text(renderDialog({ target: { kind: "new", name: "从 ST 导入" } }));
+    const newTarget = text(
+      renderDialog({ target: { kind: "new", name: "从 ST 导入" }, targetListName: "" }),
+    );
     expect(newTarget).toContain('data-stm-field="import-target-name"');
+    expect(newTarget).toContain("新建列表名称");
 
     const skippedOnly = text(
       renderDialog({

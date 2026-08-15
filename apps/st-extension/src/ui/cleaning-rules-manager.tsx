@@ -235,9 +235,8 @@ export function CleaningRulesManager(props: {
       const candidates = convertStRegexScripts(JSON.parse(text), createUiId);
       setImportCandidates(candidates);
       setImportSources(candidates.map(() => "file" as const));
-      setImportSelected(
-        candidates.map((item, index) => (item.kind === "rule" ? index : -1)).filter((i) => i >= 0),
-      );
+      // 文件导入同样默认不勾选（用户手动选择）
+      setImportSelected([]);
       setImportReport(null);
     } catch (error) {
       reportError(error);
@@ -251,15 +250,11 @@ export function CleaningRulesManager(props: {
   ): void {
     setImportCandidates(candidates);
     setImportSources(sources);
-    setImportSelected(
-      candidates.map((item, index) => (item.kind === "rule" ? index : -1)).filter((i) => i >= 0),
-    );
-    // 默认目标 = 当前对话所选列表；未选择（或悬空）→ 新建列表（ticket 决策）
-    const selected = lists.find((list) => list.id === props.selectedListId);
+    // 默认不勾选（用户手动选择要导入的条目）；默认目标 = 当前编辑列表
+    setImportSelected([]);
+    // 无列表时新建（名称可在对话框内修改）
     setImportTarget(
-      selected
-        ? { kind: "existing", listId: selected.id }
-        : { kind: "new", name: DEFAULT_IMPORT_LIST_NAME },
+      editList ? { kind: "existing", listId: editList.id } : { kind: "new", name: DEFAULT_IMPORT_LIST_NAME },
     );
     setImportReport(null);
     setImportOpen(true);
@@ -459,8 +454,8 @@ export function CleaningRulesManager(props: {
           selected={importSelected}
           importableCount={importableCount}
           selectedCount={selectedCount}
-          lists={lists}
           target={importTarget}
+          targetListName={editList?.name ?? ""}
           onToggleCandidate={toggleCandidate}
           onTargetChange={setImportTarget}
           onImportFile={(file) => void importFileIntoDialog(file)}
@@ -664,12 +659,13 @@ function CleaningRuleEditor(props: {
 /** 条目来源标签（st-chat-adapter StRegexEntrySource）。 */
 const SOURCE_LABELS: Record<StRegexEntrySource, string> = {
   global: "全局",
-  scoped: "角色卡",
+  scoped: "角色",
   preset: "预设",
   file: "文件",
 };
 
-/** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选 + 目标列表 + 导入确认。 */
+/** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选（默认不选）+ 导入确认。
+ * 目标列表 = 当前编辑列表（无列表时新建并填名），无需选择。 */
 export function ImportDialog(props: {
   readonly candidates: readonly StRegexImportItem[];
   /** 候选来源（与 candidates 下标一一对应） */
@@ -677,8 +673,9 @@ export function ImportDialog(props: {
   readonly selected: readonly number[];
   readonly importableCount: number;
   readonly selectedCount: number;
-  readonly lists: readonly CleaningRuleList[];
+  /** 导入目标：已有列表名（existing 时）或新建名称（new 时） */
   readonly target: ImportTarget;
+  readonly targetListName: string;
   readonly onToggleCandidate: (index: number) => void;
   readonly onTargetChange: (target: ImportTarget) => void;
   /** 从 ST 导出的 JSON 文件导入候选（替换候选列表，对话框保持打开） */
@@ -693,7 +690,7 @@ export function ImportDialog(props: {
         <div className="stm-setting-label">
           <div className="stm-setting-name">导入正则</div>
           <div className="stm-setting-hint">
-            列出 ST 的全局、当前角色卡与当前预设中的正则条目；勾选后导入到清洗规则列表
+            列出 ST 的全局、当前角色卡与当前预设中的正则条目；勾选后导入到当前列表
           </div>
         </div>
         <button
@@ -747,14 +744,7 @@ export function ImportDialog(props: {
                   <span className="stm-chip" data-stm-field={`import-source-${index}`}>
                     {SOURCE_LABELS[props.sources[index] ?? "file"]}
                   </span>{" "}
-                  {item.rule.name} → {MODE_LABELS[item.rule.mode]}
-                  <span className="stm-mono">
-                    {" "}
-                    /{item.rule.pattern}/{item.rule.flags}
-                  </span>
-                  {item.notes.length > 0 && (
-                    <span className="stm-preset-warning">（{item.notes.join("；")}）</span>
-                  )}
+                  {item.rule.name}
                 </span>
               </label>
             ) : (
@@ -765,38 +755,23 @@ export function ImportDialog(props: {
           )}
         </div>
       )}
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">导入到</div>
+      {props.target.kind === "existing" ? (
+        <div className="stm-setting-hint" data-stm-field="import-target-list">
+          导入到：{props.targetListName}
         </div>
-        <select
-          className="stm-input"
-          data-stm-field="import-target-list"
-          value={props.target.kind === "existing" ? props.target.listId : "__new__"}
-          onChange={(event) => {
-            if (event.target.value === "__new__") {
-              props.onTargetChange({ kind: "new", name: DEFAULT_IMPORT_LIST_NAME });
-            } else {
-              props.onTargetChange({ kind: "existing", listId: event.target.value });
-            }
-          }}
-        >
-          {props.lists.map((list) => (
-            <option key={list.id} value={list.id}>
-              {list.name}
-            </option>
-          ))}
-          <option value="__new__">新建列表…</option>
-        </select>
-      </div>
-      {props.target.kind === "new" && (
-        <input
-          type="text"
-          className="stm-input"
-          data-stm-field="import-target-name"
-          value={props.target.name}
-          onChange={(event) => props.onTargetChange({ kind: "new", name: event.target.value })}
-        />
+      ) : (
+        <div className="stm-setting-row">
+          <div className="stm-setting-label">
+            <div className="stm-setting-name">新建列表名称</div>
+          </div>
+          <input
+            type="text"
+            className="stm-input"
+            data-stm-field="import-target-name"
+            value={props.target.name}
+            onChange={(event) => props.onTargetChange({ kind: "new", name: event.target.value })}
+          />
+        </div>
       )}
       <div className="stm-setting-actions">
         <button
