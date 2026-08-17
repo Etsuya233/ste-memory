@@ -7,11 +7,13 @@
  */
 
 import {
+  AGENT_PRESET_ROLES,
   BUILTIN_AGENT_PRESET_ID,
   DEFAULT_AGENT_PRESET_SETTINGS,
+  type AgentPresetRole,
   type AgentPresetSettings,
-  type AgentPromptFragment,
   type AgentPromptPreset,
+  type AgentPresetMessage,
 } from "../agent-presets/preset-model.ts";
 import type { AgentConnection } from "./agent-connections.ts";
 import { mergeCleaningRuleLists, type CleaningRuleList } from "./cleaning-rule-lists.ts";
@@ -132,12 +134,18 @@ function mergeAgentPreset(raw: unknown): AgentPromptPreset | undefined {
     typeof raw.id !== "string" ||
     raw.id === "" ||
     typeof raw.name !== "string" ||
-    !Array.isArray(raw.fragments)
+    (!Array.isArray(raw.messages) && !Array.isArray(raw.fragments))
   ) {
     return undefined;
   }
-  const fragments: AgentPromptFragment[] = [];
-  for (const item of raw.fragments) {
+  // v2 消息编排：messages 数组；旧版片段（fragments，无角色）按 system 消息迁移
+  const items: unknown[] = Array.isArray(raw.messages)
+    ? raw.messages
+    : Array.isArray(raw.fragments)
+      ? raw.fragments
+      : [];
+  const messages: AgentPresetMessage[] = [];
+  for (const item of items) {
     if (
       !isRecord(item) ||
       typeof item.id !== "string" ||
@@ -148,9 +156,19 @@ function mergeAgentPreset(raw: unknown): AgentPromptPreset | undefined {
     ) {
       continue;
     }
-    fragments.push({ id: item.id, name: item.name, content: item.content, enabled: item.enabled });
+    messages.push({
+      id: item.id,
+      name: item.name,
+      role: isAgentPresetRole(item.role) ? item.role : "system",
+      content: item.content,
+      enabled: item.enabled,
+    });
   }
-  return { id: raw.id, name: raw.name, fragments };
+  return { id: raw.id, name: raw.name, messages };
+}
+
+function isAgentPresetRole(value: unknown): value is AgentPresetRole {
+  return AGENT_PRESET_ROLES.includes(value as AgentPresetRole);
 }
 
 /** R2 四项配置全部非空 = 已配置（面板同步状态占位的判定；ticket 08 接入真实状态） */

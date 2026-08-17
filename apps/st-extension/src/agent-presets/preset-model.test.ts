@@ -1,6 +1,6 @@
 /**
- * Agent 提示词预设模型（ticket 17）：预设 CRUD / 片段操作 / 导入导出信封 /
- * digest 引用检测。全部纯函数，settings 不可变更新。
+ * Agent 提示词预设模型（ticket 17 + 消息编排扩展）：预设 CRUD / 消息操作 /
+ * 导入导出信封 / digest 引用检测。全部纯函数，settings 不可变更新。
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -8,22 +8,24 @@ import {
   AGENT_PRESET_EXPORT_VERSION,
   BUILTIN_AGENT_PRESET_ID,
   containsDigestReference,
+  containsMsgReference,
   containsWorldbookReference,
   createAgentPreset,
   deleteAgentPreset,
   duplicateAgentPreset,
   importAgentPreset,
   moveAgentPreset,
-  moveAgentPresetFragment,
+  moveAgentPresetMessage,
   parseAgentPresetExport,
   presetPromptText,
-  removeAgentPresetFragment,
+  removeAgentPresetMessage,
   renameAgentPreset,
   serializeAgentPresetExport,
   setActiveAgentPreset,
-  updateAgentPresetFragment,
-  addAgentPresetFragment,
+  updateAgentPresetMessage,
+  addAgentPresetMessage,
   resolveActivePreset,
+  type AgentPresetRole,
   type AgentPromptPreset,
   type AgentPresetSettings,
 } from "./preset-model.ts";
@@ -41,43 +43,48 @@ function settings(overrides: Partial<AgentPresetSettings> = {}): AgentPresetSett
 function preset(
   id: string,
   name: string,
-  fragments: AgentPromptPreset["fragments"] = [],
+  messages: AgentPromptPreset["messages"] = [],
 ): AgentPromptPreset {
-  return { id, name, fragments };
+  return { id, name, messages };
 }
 
-function fragment(
+function message(
   id: string,
   content: string,
-  enabled = true,
-  name = "",
-): AgentPromptPreset["fragments"][number] {
-  return { id, name, content, enabled };
+  options: { enabled?: boolean; name?: string; role?: AgentPresetRole } = {},
+): AgentPromptPreset["messages"][number] {
+  return {
+    id,
+    name: options.name ?? "",
+    role: options.role ?? "system",
+    content,
+    enabled: options.enabled ?? true,
+  };
 }
 
 describe("创建与复制预设", () => {
-  it("createAgentPreset：新建预设含一个空启用片段，并自动设为活动预设", () => {
+  it("createAgentPreset：新建预设含一条空启用的 system 消息，并自动设为活动预设", () => {
     const next = createAgentPreset(settings(), "破限", sequentialIds());
     expect(next.presets).toHaveLength(1);
     expect(next.presets[0]).toMatchObject({
       name: "破限",
-      fragments: [{ enabled: true, content: "", name: "" }],
+      messages: [{ role: "system", enabled: true, content: "", name: "" }],
     });
     expect(next.activePresetId).toBe(next.presets[0]!.id);
   });
 
-  it("duplicateAgentPreset：复制全部片段与开关状态，命名为「原名 (副本)」，设为活动", () => {
+  it("duplicateAgentPreset：复制全部消息（含角色）与开关状态，命名为「原名 (副本)」，设为活动", () => {
     const original = preset("p1", "轻度破限", [
-      fragment("f1", "第一条", true, "规则A"),
-      fragment("f2", "第二条", false, "规则B"),
+      message("f1", "第一条", { name: "规则A" }),
+      message("f2", "第二条", { enabled: false, name: "规则B", role: "user" }),
     ]);
     const next = duplicateAgentPreset(settings({ presets: [original] }), "p1", sequentialIds());
     const copy = next.presets.find((p) => p.id === "id-1");
     expect(copy).toBeDefined();
     expect(copy!.name).toBe("轻度破限 (副本)");
-    expect(copy!.fragments).toEqual([
-      { id: "id-2", name: "规则A", content: "第一条", enabled: true },
-      { id: "id-3", name: "规则B", content: "第二条", enabled: false },
+    expect(copy!.messages).toEqual([
+      { id: "id-2", name: "规则A", role: "system", content: "第一条", enabled: true },
+      { id: "id-3", name: "规则B", role: "user", content: "第二条", enabled: false },
     ]);
     expect(next.activePresetId).toBe("id-1");
     expect(next.presets[0]).toBe(original); // 原预设不动
@@ -163,113 +170,139 @@ describe("删除与活动预设", () => {
   });
 });
 
-describe("片段操作", () => {
+describe("消息操作", () => {
   const s = (): AgentPresetSettings =>
     settings({
       presets: [
         preset("p1", "破限", [
-          fragment("f1", "A", true, "甲"),
-          fragment("f2", "B", false, "乙"),
-          fragment("f3", "C", true, "丙"),
+          message("f1", "A", { name: "甲" }),
+          message("f2", "B", { enabled: false, name: "乙", role: "user" }),
+          message("f3", "C", { name: "丙", role: "assistant" }),
         ]),
       ],
       activePresetId: "p1",
     });
 
-  it("addAgentPresetFragment：追加一个空启用片段", () => {
-    const next = addAgentPresetFragment(s(), "p1", sequentialIds());
-    const fragments = next.presets[0]!.fragments;
-    expect(fragments).toHaveLength(4);
-    expect(fragments[3]).toEqual({ id: "id-1", name: "", content: "", enabled: true });
+  it("addAgentPresetMessage：追加一条空启用的 system 消息", () => {
+    const next = addAgentPresetMessage(s(), "p1", sequentialIds());
+    const messages = next.presets[0]!.messages;
+    expect(messages).toHaveLength(4);
+    expect(messages[3]).toEqual({
+      id: "id-1",
+      name: "",
+      role: "system",
+      content: "",
+      enabled: true,
+    });
   });
 
-  it("removeAgentPresetFragment：删除指定片段", () => {
-    const next = removeAgentPresetFragment(s(), "p1", "f2");
-    expect(next.presets[0]!.fragments.map((f) => f.id)).toEqual(["f1", "f3"]);
+  it("removeAgentPresetMessage：删除指定消息", () => {
+    const next = removeAgentPresetMessage(s(), "p1", "f2");
+    expect(next.presets[0]!.messages.map((m) => m.id)).toEqual(["f1", "f3"]);
   });
 
-  it("updateAgentPresetFragment：部分更新名称/内容/开关", () => {
-    const next = updateAgentPresetFragment(s(), "p1", "f1", { name: "新名", enabled: false });
-    expect(next.presets[0]!.fragments[0]).toEqual({
+  it("updateAgentPresetMessage：部分更新名称/角色/内容/开关", () => {
+    const next = updateAgentPresetMessage(s(), "p1", "f1", {
+      name: "新名",
+      role: "user",
+      enabled: false,
+    });
+    expect(next.presets[0]!.messages[0]).toEqual({
       id: "f1",
       name: "新名",
+      role: "user",
       content: "A",
       enabled: false,
     });
   });
 
-  it("updateAgentPresetFragment：预设/片段不存在时原样返回", () => {
-    expect(updateAgentPresetFragment(s(), "p1", "ghost", { enabled: false })).toEqual(s());
-    expect(updateAgentPresetFragment(s(), "ghost", "f1", { enabled: false })).toEqual(s());
+  it("updateAgentPresetMessage：预设/消息不存在时原样返回", () => {
+    expect(updateAgentPresetMessage(s(), "p1", "ghost", { enabled: false })).toEqual(s());
+    expect(updateAgentPresetMessage(s(), "ghost", "f1", { enabled: false })).toEqual(s());
   });
 
-  it("moveAgentPresetFragment：移动到指定索引（0 基），越界索引夹紧", () => {
+  it("moveAgentPresetMessage：移动到指定索引（0 基），越界索引夹紧", () => {
     expect(
-      moveAgentPresetFragment(s(), "p1", "f1", 2).presets[0]!.fragments.map((f) => f.id),
+      moveAgentPresetMessage(s(), "p1", "f1", 2).presets[0]!.messages.map((m) => m.id),
     ).toEqual(["f2", "f3", "f1"]);
     expect(
-      moveAgentPresetFragment(s(), "p1", "f2", 99).presets[0]!.fragments.map((f) => f.id),
+      moveAgentPresetMessage(s(), "p1", "f2", 99).presets[0]!.messages.map((m) => m.id),
     ).toEqual(["f1", "f3", "f2"]);
     expect(
-      moveAgentPresetFragment(s(), "p1", "f3", -5).presets[0]!.fragments.map((f) => f.id),
+      moveAgentPresetMessage(s(), "p1", "f3", -5).presets[0]!.messages.map((m) => m.id),
     ).toEqual(["f3", "f1", "f2"]);
     // 目标索引 = 当前位置：原样
-    expect(moveAgentPresetFragment(s(), "p1", "f2", 1)).toEqual(s());
+    expect(moveAgentPresetMessage(s(), "p1", "f2", 1)).toEqual(s());
   });
 });
 
-describe("提示词文本与 digest 引用", () => {
-  it("presetPromptText：启用片段按顺序拼接（空行分隔），停用片段不参与", () => {
+describe("提示词文本与占位符引用", () => {
+  it("presetPromptText：启用消息按顺序拼接（空行分隔），停用消息不参与", () => {
     const p = preset("p1", "破限", [
-      fragment("f1", "第一段", true),
-      fragment("f2", "第二段（停用）", false),
-      fragment("f3", "第三段", true),
+      message("f1", "第一段"),
+      message("f2", "第二段（停用）", { enabled: false }),
+      message("f3", "第三段"),
     ]);
     expect(presetPromptText(p)).toBe("第一段\n\n第三段");
   });
 
-  it("presetPromptText：空内容片段跳过，全空返回空串", () => {
-    const p = preset("p1", "空", [fragment("f1", ""), fragment("f2", "   ")]);
+  it("presetPromptText：空内容消息跳过，全空返回空串", () => {
+    const p = preset("p1", "空", [message("f1", ""), message("f2", "   ")]);
     expect(presetPromptText(p)).toBe("");
-    expect(presetPromptText(preset("p2", "全空", [fragment("f1", "")]))).toBe("");
+    expect(presetPromptText(preset("p2", "全空", [message("f1", "")]))).toBe("");
   });
 
-  it("containsDigestReference：任一启用片段含占位符即 true，停用片段不算", () => {
+  it("containsDigestReference：任一启用消息含占位符即 true，停用消息不算", () => {
     const withDigest = (content: string) =>
-      preset("p1", "x", [fragment("f1", content, true), fragment("f2", "普通", true)]);
+      preset("p1", "x", [message("f1", content), message("f2", "普通")]);
     expect(containsDigestReference(withDigest("看 {{tablesDigest}}"))).toBe(true);
     expect(containsDigestReference(withDigest("用 {{systemDefaultPrompt}} 扩展"))).toBe(true);
     expect(containsDigestReference(withDigest("没有引用"))).toBe(false);
     expect(
       containsDigestReference(
         preset("p2", "x", [
-          fragment("f1", "{{tablesDigest}}", false),
-          fragment("f2", "普通", true),
+          message("f1", "{{tablesDigest}}", { enabled: false }),
+          message("f2", "普通"),
         ]),
       ),
     ).toBe(false);
-    expect(containsDigestReference(preset("p3", "无片段", []))).toBe(false);
+    expect(containsDigestReference(preset("p3", "无消息", []))).toBe(false);
   });
 
-  it("containsWorldbookReference：启用片段含 {{worldbook}} 即 true，停用片段不算", () => {
-    expect(
-      containsWorldbookReference(preset("p1", "x", [fragment("f1", "看 {{worldbook}}", true)])),
-    ).toBe(true);
-    expect(containsWorldbookReference(preset("p2", "x", [fragment("f1", "没有引用", true)]))).toBe(
-      false,
+  it("containsWorldbookReference：启用消息含 {{worldbook}} 即 true，停用消息不算", () => {
+    expect(containsWorldbookReference(preset("p1", "x", [message("f1", "看 {{worldbook}}")]))).toBe(
+      true,
     );
+    expect(containsWorldbookReference(preset("p2", "x", [message("f1", "没有引用")]))).toBe(false);
     expect(
       containsWorldbookReference(
-        preset("p3", "x", [fragment("f1", "{{worldbook}}", false), fragment("f2", "普通", true)]),
+        preset("p3", "x", [
+          message("f1", "{{worldbook}}", { enabled: false }),
+          message("f2", "普通"),
+        ]),
       ),
     ).toBe(false);
-    expect(containsWorldbookReference(preset("p4", "无片段", []))).toBe(false);
+    expect(containsWorldbookReference(preset("p4", "无消息", []))).toBe(false);
+  });
+
+  it("containsMsgReference：启用消息含 {{msg}} 即 true（用户接管消息编排），停用消息不算", () => {
+    expect(containsMsgReference(preset("p1", "x", [message("f1", "总结：{{msg}}")]))).toBe(true);
+    expect(containsMsgReference(preset("p2", "x", [message("f1", "没有引用")]))).toBe(false);
+    expect(
+      containsMsgReference(
+        preset("p3", "x", [message("f1", "{{msg}}", { enabled: false }), message("f2", "普通")]),
+      ),
+    ).toBe(false);
+    expect(containsMsgReference(preset("p4", "无消息", []))).toBe(false);
   });
 });
 
 describe("导入导出（备份信封模式）", () => {
-  it("serializeAgentPresetExport：信封含 format/version/exportedAt/preset", () => {
-    const p = preset("p1", "破限", [fragment("f1", "内容")]);
+  it("serializeAgentPresetExport：信封含 format/version/exportedAt/preset（v2 消息模型）", () => {
+    const p = preset("p1", "破限", [
+      message("f1", "内容"),
+      message("f2", "问题", { role: "user" }),
+    ]);
     const text = serializeAgentPresetExport(p, "2026-08-11T00:00:00.000Z");
     const parsed = JSON.parse(text) as Record<string, unknown>;
     expect(parsed.format).toBe(AGENT_PRESET_EXPORT_FORMAT);
@@ -279,17 +312,38 @@ describe("导入导出（备份信封模式）", () => {
   });
 
   it("parseAgentPresetExport：合法信封返回预设", () => {
-    const p = preset("p1", "破限", [fragment("f1", "内容")]);
+    const p = preset("p1", "破限", [message("f1", "内容", { role: "user" })]);
     const parsed = parseAgentPresetExport(
       serializeAgentPresetExport(p, "2026-08-11T00:00:00.000Z"),
     );
     expect(parsed).toEqual(p);
   });
 
+  it("parseAgentPresetExport：v1 片段文件按 system 消息迁移（旧行为：全部进系统提示词）", () => {
+    const v1 = JSON.stringify({
+      format: AGENT_PRESET_EXPORT_FORMAT,
+      version: 1,
+      exportedAt: "2026-08-11T00:00:00.000Z",
+      preset: {
+        id: "p1",
+        name: "旧预设",
+        fragments: [
+          { id: "f1", name: "规则A", content: "第一段", enabled: true },
+          { id: "f2", name: "", content: "第二段", enabled: false },
+        ],
+      },
+    });
+    const parsed = parseAgentPresetExport(v1);
+    expect(parsed.messages).toEqual([
+      { id: "f1", name: "规则A", role: "system", content: "第一段", enabled: true },
+      { id: "f2", name: "", role: "system", content: "第二段", enabled: false },
+    ]);
+  });
+
   it("parseAgentPresetExport：非法 JSON / 未知 format / 未知 version / 结构损坏都明确报错", () => {
     expect(() => parseAgentPresetExport("not json")).toThrow(/格式/i);
     expect(() =>
-      parseAgentPresetExport(JSON.stringify({ format: "other", version: 1, preset: {} })),
+      parseAgentPresetExport(JSON.stringify({ format: "other", version: 2, preset: {} })),
     ).toThrow(/格式/i);
     expect(() =>
       parseAgentPresetExport(
@@ -298,18 +352,31 @@ describe("导入导出（备份信封模式）", () => {
     ).toThrow(/版本/i);
     expect(() =>
       parseAgentPresetExport(
-        JSON.stringify({ format: AGENT_PRESET_EXPORT_FORMAT, version: 1, preset: { name: 42 } }),
+        JSON.stringify({ format: AGENT_PRESET_EXPORT_FORMAT, version: 2, preset: { name: 42 } }),
+      ),
+    ).toThrow(/结构/i);
+    // 非法角色字段拒绝导入
+    expect(() =>
+      parseAgentPresetExport(
+        JSON.stringify({
+          format: AGENT_PRESET_EXPORT_FORMAT,
+          version: 2,
+          preset: {
+            name: "x",
+            messages: [{ id: "m1", role: "tool", content: "x", enabled: true }],
+          },
+        }),
       ),
     ).toThrow(/结构/i);
   });
 
   it("importAgentPreset：追加导入的预设并设为活动；重名自动改名（原名 (2)，继续递增）", () => {
-    const imported = preset("imported-1", "破限", [fragment("f1", "内容")]);
+    const imported = preset("imported-1", "破限", [message("f1", "内容")]);
     const s1 = settings({ presets: [preset("p1", "破限")] });
     const next = importAgentPreset(s1, imported);
     expect(next.presets).toHaveLength(2);
     expect(next.presets[1]!.name).toBe("破限 (2)");
-    expect(next.presets[1]!.fragments).toEqual(imported.fragments);
+    expect(next.presets[1]!.messages).toEqual(imported.messages);
     expect(next.activePresetId).toBe(next.presets[1]!.id);
 
     const next2 = importAgentPreset(next, { ...imported, id: "imported-2" });
@@ -318,9 +385,9 @@ describe("导入导出（备份信封模式）", () => {
 
   it("importAgentPreset：导入 id 冲突时循环重分配（多次导入同一文件不产生重复 id）", () => {
     const s1 = settings({ presets: [preset("imported-1", "别的")] });
-    const first = importAgentPreset(s1, preset("imported-1", "破限", [fragment("f1", "内容")]));
+    const first = importAgentPreset(s1, preset("imported-1", "破限", [message("f1", "内容")]));
     expect(first.presets[1]!.id).not.toBe("imported-1");
-    const second = importAgentPreset(first, preset("imported-1", "破限", [fragment("f1", "内容")]));
+    const second = importAgentPreset(first, preset("imported-1", "破限", [message("f1", "内容")]));
     const ids = second.presets.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length); // 无重复 id
     expect(ids[2]).not.toBe(ids[1]);

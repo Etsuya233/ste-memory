@@ -5,7 +5,6 @@ import {
   PROPOSAL_PREVIEW_TOOL_NAME,
   SUBMIT_PROPOSAL_TOOL_NAME,
   type MemorySpaceReader,
-  type ProposalSystemPromptComposer,
 } from "@ste-memory/core/memory/agent";
 import {
   computeMemoryRecordDisplayText,
@@ -29,8 +28,9 @@ import {
   FillTaskStateError,
   type FillTaskSource,
 } from "./fill-task.ts";
-import { FillTaskService } from "./fill-task-service.ts";
-import { composePresetSystemPrompt } from "../agent-presets/preset-composer.ts";
+import { FillTaskService, type FillTaskPromptFactory } from "./fill-task-service.ts";
+import { composePresetMessages } from "../agent-presets/preset-composer.ts";
+import type { AgentPromptPreset } from "../agent-presets/preset-model.ts";
 import {
   assistantMessage,
   fakeModel,
@@ -62,6 +62,44 @@ function defaultMessagesInRange(from: number, to: number): readonly FillSourceMe
     });
   }
   return messages;
+}
+
+/** 测试预设：内容/角色列表 → AgentPromptPreset（id/name 与组合器无关） */
+function testPreset(
+  messages: readonly { role: "system" | "user" | "assistant"; content: string }[],
+): AgentPromptPreset {
+  return {
+    id: "p1",
+    name: "测试预设",
+    messages: messages.map((m, i) => ({
+      id: `m${i}`,
+      name: "",
+      role: m.role,
+      content: m.content,
+      enabled: true,
+    })),
+  };
+}
+
+/** 占位符展开快照（缺省空值；测试按需覆盖）。 */
+function snapshot(overrides: Partial<Parameters<typeof composePresetMessages>[1]> = {}) {
+  return {
+    names: { user: "小明", char: "爱丽丝" },
+    charCard: "",
+    userCard: "",
+    worldbookText: "",
+    msgText: "",
+    ...overrides,
+  };
+}
+
+/** 消息纯文本（LLM 消息 content 可能是字符串或文本块数组）。 */
+function textOf(message: { readonly role: string; readonly content: unknown }): string {
+  if (typeof message.content === "string") return message.content;
+  return (message.content as readonly { type: string; text?: string }[])
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text as string)
+    .join("");
 }
 
 /** 填表 Agent 脚本：每块 mutate(create characters 云烬) → preview → submit → 自然结束。 */
@@ -141,9 +179,9 @@ async function createHarness(
     readonly streamFn?: StreamFn;
     readonly createLlmThrows?: boolean;
     readonly source?: FillTaskSource;
-    readonly createComposeSystemPrompt?: (
+    readonly createComposeMessages?: (
       storyText: string,
-    ) => Promise<ProposalSystemPromptComposer | undefined>;
+    ) => Promise<FillTaskPromptFactory | undefined>;
     readonly logs?: LogRepository;
     readonly resolveCleaningRules?: () => readonly CleaningRule[];
   } = {},
@@ -231,7 +269,7 @@ async function createHarness(
     createEvidenceId: () => `evidence-${++evidenceSeq}` as MemoryEvidenceId,
     now: () => NOW,
     logs,
-    createComposeSystemPrompt: options.createComposeSystemPrompt,
+    createComposeMessages: options.createComposeMessages,
     resolveCleaningRules: options.resolveCleaningRules,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
@@ -786,7 +824,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     );
   });
 
-  it("createComposeSystemPrompt：提交时构造的组合器注入 ProposalAgent（system prompt 含占位符展开文本）", async () => {
+  it("createComposeMessages：提交时构造的工厂注入 ProposalAgent（system 消息展开进 system prompt）", async () => {
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
       seenSystemPrompt = context.systemPrompt;
@@ -794,13 +832,20 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      // 与插件真实装配同构：预设文本 + 提交时快照的对话名字 → 组合器
-      createComposeSystemPrompt: async () =>
-        composePresetSystemPrompt(
-          "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
-          { user: "小明", char: "爱丽丝" },
-          "",
-        ),
+      // 与插件真实装配同构：预设消息 + 提交时快照 → 编排消息组合器
+      createComposeMessages: async () => ({
+        referencesMsg: false,
+        compose: () =>
+          composePresetMessages(
+            testPreset([
+              {
+                role: "system",
+                content: "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
+              },
+            ]),
+            snapshot({ names: { user: "小明", char: "爱丽丝" } }),
+          ),
+      }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
     await waitForTerminal(harness, view.runId);
@@ -810,7 +855,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(seenSystemPrompt!).not.toContain("{{char}}");
   });
 
-  it("createComposeSystemPrompt：收到任务范围的合并剧情文本，{{worldbook}} 展开为扫描快照", async () => {
+  it("createComposeMessages：收到任务范围的合并剧情文本，{{worldbook}} 展开为扫描快照", async () => {
     let seenStoryText: string | undefined;
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
@@ -819,13 +864,16 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      createComposeSystemPrompt: async (storyText) => {
+      createComposeMessages: async (storyText) => {
         seenStoryText = storyText;
-        return composePresetSystemPrompt(
-          "世界观参考：\n{{worldbook}}",
-          { user: "小明", char: "爱丽丝" },
-          storyText,
-        );
+        return {
+          referencesMsg: false,
+          compose: () =>
+            composePresetMessages(
+              testPreset([{ role: "system", content: "世界观参考：\n{{worldbook}}" }]),
+              snapshot({ worldbookText: storyText }),
+            ),
+        };
       },
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
@@ -837,7 +885,70 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     );
   });
 
-  it("createComposeSystemPrompt 缺省：使用核心默认组合器（system prompt 为默认指令）", async () => {
+  it("createComposeMessages：{{msg}} 引用时块内容只经占位符展开，不追加块提示词", async () => {
+    let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
+    const stream = scriptedStreamFn((context) => {
+      seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createComposeMessages: async () => ({
+        // 引用 {{msg}}：接管消息编排
+        referencesMsg: true,
+        compose: (blockText) =>
+          composePresetMessages(
+            testPreset([
+              { role: "system", content: "你是记忆助手。" },
+              { role: "user", content: "请总结：\n{{msg}}" },
+            ]),
+            snapshot({ msgText: blockText }),
+          ),
+      }),
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    await waitForTerminal(harness, view.runId);
+    // 对话 = system（进 systemPrompt，不在 messages）+ 编排 user（含块内容）；
+    // 没有追加的块提示词（referencesMsg = true）
+    expect(seenMessages.map((m) => m.role)).toEqual(["user"]);
+    expect(seenMessages[0]!.text).toContain("请总结：");
+    expect(seenMessages[0]!.text).toContain("[0] 爱丽丝：消息 1");
+    expect(seenMessages[0]!.text).toContain("[1] 鲍勃：[reg] 原始内容 **带标记**");
+    expect(seenMessages[0]!.text).not.toContain("请依据这些消息更新记忆表格");
+    // system 消息内容进入 system prompt（对话消息不含 system 角色）
+    expect(seenMessages.some((m) => m.role === "system")).toBe(false);
+  });
+
+  it("createComposeMessages：编排 user/assistant 消息作为对话前缀，块提示词追加在最后", async () => {
+    let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
+    const stream = scriptedStreamFn((context) => {
+      seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createComposeMessages: async () => ({
+        referencesMsg: false,
+        compose: () =>
+          composePresetMessages(
+            testPreset([
+              { role: "user", content: "开场设定问题" },
+              { role: "assistant", content: "开场回答" },
+            ]),
+            snapshot(),
+          ),
+      }),
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 0 });
+    await waitForTerminal(harness, view.runId);
+    // 前缀（编排 user/assistant）+ 追加的块提示词（最后一条 user）
+    expect(seenMessages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(seenMessages[0]!.text).toBe("开场设定问题");
+    expect(seenMessages[1]!.text).toBe("开场回答");
+    expect(seenMessages[2]!.text).toContain("以下是需要处理的对话消息（消息 0 到 0，共 1 条）：");
+  });
+
+  it("createComposeMessages 缺省：使用核心默认组合器（system prompt 为默认指令）", async () => {
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
       seenSystemPrompt = context.systemPrompt;
@@ -889,7 +1000,11 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
       streamFn: capturePrompts((text) => rawPrompts.push(text)),
       resolveCleaningRules: () => [],
     });
-    const view2 = await harness2.service.submit({ memorySpaceId: harness2.spaceId, from: 0, to: 5 });
+    const view2 = await harness2.service.submit({
+      memorySpaceId: harness2.spaceId,
+      from: 0,
+      to: 5,
+    });
     await waitForTerminal(harness2, view2.runId);
     expect(rawPrompts.join("\n")).toContain("**带标记**");
   });
@@ -911,7 +1026,16 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
       resolveCleaningRules: () => {
         calls += 1;
         return calls === 1
-          ? [{ id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }]
+          ? [
+              {
+                id: "c1",
+                name: "去标记",
+                mode: "discard",
+                pattern: "\\*\\*",
+                flags: "g",
+                enabled: true,
+              },
+            ]
           : [];
       },
     });

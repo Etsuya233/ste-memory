@@ -43,7 +43,12 @@ export async function buildBlockEvidence(
   return result;
 }
 
-export function composeBlockPrompt(
+/**
+ * 块消息文本（{{msg}} 占位符展开输入）：`[楼层] 名字：内容` 逐行拼接
+ * （保留传入顺序——调用方 messagesInRange 保证楼层升序；无名消息裸内容）。
+ * composeBlockPrompt 的正文与 {{msg}} 展开共用同一格式。
+ */
+export function composeBlockMessagesText(
   from: number,
   to: number,
   messages: readonly FillSourceMessage[],
@@ -55,6 +60,16 @@ export function composeBlockPrompt(
   return [
     `以下是需要处理的对话消息（消息 ${from} 到 ${to}，共 ${messages.length} 条）：`,
     ...lines,
+  ].join("\n");
+}
+
+export function composeBlockPrompt(
+  from: number,
+  to: number,
+  messages: readonly FillSourceMessage[],
+): string {
+  return [
+    composeBlockMessagesText(from, to, messages),
     "",
     "请依据这些消息更新记忆表格；确认无需变更时直接结束对话。",
   ].join("\n");

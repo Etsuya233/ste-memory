@@ -1866,6 +1866,46 @@
   font-size: 12px;
 }
 
+.stm-preset-role-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.stm-preset-role-tag--system {
+  color: var(--stm-accent);
+  background: color-mix(in srgb, var(--stm-accent) 14%, transparent);
+}
+
+.stm-preset-role-tag--user {
+  color: var(--stm-ink);
+  background: color-mix(in srgb, var(--stm-ink) 10%, transparent);
+}
+
+.stm-preset-role-tag--assistant {
+  color: var(--stm-accent-2, var(--stm-accent));
+  background: color-mix(in srgb, var(--stm-accent) 8%, transparent);
+}
+
+.stm-preset-fragment-fields {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stm-preset-fragment-fields .stm-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-preset-role-select {
+  flex: none;
+  width: 130px;
+}
+
 .stm-preset-fragment-preview {
   overflow: hidden;
   text-overflow: ellipsis;

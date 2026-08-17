@@ -1,7 +1,7 @@
 /**
  * Agent 预设管理器冒烟测试（react-dom/server renderToString，无 jsdom）：
  * 验证渲染契约（data-action / data-stm-field）与关键态（系统默认只读视图、
- * 自定义预设片段卡片、digest 缺失警告）。交互逻辑在 preset-model 测试覆盖。
+ * 自定义预设消息卡片、角色标签、digest 缺失警告）。交互逻辑在 preset-model 测试覆盖。
  */
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -18,15 +18,21 @@ function presetSettings(overrides: Partial<AgentPresetSettings> = {}): AgentPres
       {
         id: "p1",
         name: "破限",
-        fragments: [
-          { id: "f1", name: "规则A", content: "你是{{char}}的破限填写员", enabled: true },
-          { id: "f2", name: "", content: "{{tablesDigest}}", enabled: true },
+        messages: [
+          {
+            id: "f1",
+            name: "规则A",
+            role: "system",
+            content: "你是{{char}}的破限填写员",
+            enabled: true,
+          },
+          { id: "f2", name: "", role: "user", content: "{{tablesDigest}}", enabled: true },
         ],
       },
       {
         id: "p2",
         name: "无摘要",
-        fragments: [{ id: "f3", name: "", content: "只管填", enabled: true }],
+        messages: [{ id: "f3", name: "", role: "system", content: "只管填", enabled: true }],
       },
     ],
     activePresetId: "p1",
@@ -93,15 +99,20 @@ describe("AgentPresetManager（预设管理区块冒烟）", () => {
     expect(html).toContain('data-action="duplicate-preset" disabled');
   });
 
-  it("自定义预设：片段卡片（拖拽手柄/开关/标题/删除）就位，卡片编号显示", () => {
+  it("自定义预设：消息卡片（拖拽手柄/开关/标题/角色标签/删除）就位，卡片编号显示", () => {
     const html = render(settings());
     expect(html).toContain('data-stm-section="preset-editor"');
     expect(html).toContain('data-stm-field="preset-name"');
-    expect(html).toContain('data-action="drag-fragment"');
-    expect(html).toContain('data-stm-field="fragment-enabled-f1"');
-    expect(html).toContain('data-action="toggle-fragment"');
-    expect(html).toContain('data-action="remove-fragment"');
-    expect(html).toContain('data-action="add-fragment"');
+    expect(html).toContain('data-action="drag-message"');
+    expect(html).toContain('data-stm-field="message-enabled-f1"');
+    expect(html).toContain('data-action="toggle-message"');
+    expect(html).toContain('data-action="remove-message"');
+    expect(html).toContain('data-action="add-message"');
+    // 角色标签就位：f1 = System，f2 = User
+    expect(html).toContain('data-stm-field="message-role-f1"');
+    expect(html).toContain(">System</span>");
+    expect(html).toContain('data-stm-field="message-role-f2"');
+    expect(html).toContain(">User</span>");
     // 名称回退首行：f2 无名 → 预览 = 内容首行
     expect(html).toContain("{{tablesDigest}}");
   });

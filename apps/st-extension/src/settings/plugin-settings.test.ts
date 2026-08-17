@@ -71,22 +71,25 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({ agentPresets: [] }).agentPresets).toEqual(DEFAULT_SETTINGS.agentPresets);
   });
 
-  it("agentPresets 合法数据保留；损坏的预设项丢弃，损坏的片段项跳过（预设保留）", () => {
+  it("agentPresets 合法数据保留；损坏的预设项丢弃，损坏的消息项跳过（预设保留）", () => {
     const raw = {
       agentPresets: {
         presets: [
           {
             id: "p1",
             name: "破限",
-            fragments: [{ id: "f1", name: "规则", content: "内容", enabled: true }],
+            messages: [
+              { id: "f1", name: "规则", role: "system", content: "内容", enabled: true },
+              { id: "f4", name: "问题", role: "user", content: "问", enabled: true },
+            ],
           },
-          { id: "p2", name: "坏预设", fragments: "oops" },
+          { id: "p2", name: "坏预设", messages: "oops" },
           {
             id: "p3",
-            name: "坏片段",
-            fragments: [
+            name: "坏消息",
+            messages: [
               { id: "f2", content: 42, enabled: true },
-              { id: "f3", name: "好", content: "好的", enabled: true },
+              { id: "f3", name: "好", role: "assistant", content: "好的", enabled: true },
             ],
           },
         ],
@@ -95,8 +98,35 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     };
     const merged = mergeSettings(raw).agentPresets;
     expect(merged.presets.map((p) => p.id)).toEqual(["p1", "p3"]);
-    expect(merged.presets[1]!.fragments.map((f) => f.id)).toEqual(["f3"]);
+    expect(merged.presets[1]!.messages.map((m) => m.id)).toEqual(["f3"]);
     expect(merged.activePresetId).toBe("p1");
+    // 角色字段原样保留
+    expect(merged.presets[0]!.messages[1]!.role).toBe("user");
+  });
+
+  it("agentPresets 旧版片段（fragments，无角色）按 system 消息迁移；非法角色回退 system", () => {
+    const raw = {
+      agentPresets: {
+        presets: [
+          {
+            id: "p1",
+            name: "旧预设",
+            fragments: [{ id: "f1", name: "规则", content: "内容", enabled: true }],
+          },
+          {
+            id: "p2",
+            name: "非法角色",
+            messages: [{ id: "f2", name: "", role: "tool", content: "x", enabled: true }],
+          },
+        ],
+        activePresetId: "p1",
+      },
+    };
+    const merged = mergeSettings(raw).agentPresets;
+    expect(merged.presets[0]!.messages).toEqual([
+      { id: "f1", name: "规则", role: "system", content: "内容", enabled: true },
+    ]);
+    expect(merged.presets[1]!.messages[0]!.role).toBe("system");
   });
 
   it("agentPresets activePresetId 未知/损坏：回退系统默认", () => {
@@ -105,14 +135,14 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     );
     expect(
       mergeSettings({
-        agentPresets: { presets: [{ id: "p1", name: "一", fragments: [] }], activePresetId: 42 },
+        agentPresets: { presets: [{ id: "p1", name: "一", messages: [] }], activePresetId: 42 },
       }).agentPresets.activePresetId,
     ).toBe("systemDefault");
     // 活动 id 指向被丢弃的损坏预设 → 回退系统默认
     expect(
       mergeSettings({
         agentPresets: {
-          presets: [{ id: "p1", name: "一", fragments: "bad" }],
+          presets: [{ id: "p1", name: "一", messages: "bad" }],
           activePresetId: "p1",
         },
       }).agentPresets.activePresetId,
@@ -137,7 +167,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
           {
             id: "p1",
             name: "破限",
-            fragments: [{ id: "f1", name: "", content: "内容", enabled: true }],
+            messages: [{ id: "f1", name: "", role: "system", content: "内容", enabled: true }],
           },
         ],
         activePresetId: "p1",
@@ -180,13 +210,39 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({}).cleaningRuleLists).toEqual([]);
     const merged = mergeSettings({
       cleaningRuleLists: [
-        { id: "l1", name: "清洗A", rules: [{ id: "r1", name: "去粗体", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }] },
+        {
+          id: "l1",
+          name: "清洗A",
+          rules: [
+            {
+              id: "r1",
+              name: "去粗体",
+              mode: "discard",
+              pattern: "\\*\\*",
+              flags: "g",
+              enabled: true,
+            },
+          ],
+        },
         { id: "", name: "缺 id", rules: [] },
         "junk",
       ],
     });
     expect(merged.cleaningRuleLists).toEqual([
-      { id: "l1", name: "清洗A", rules: [{ id: "r1", name: "去粗体", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true }] },
+      {
+        id: "l1",
+        name: "清洗A",
+        rules: [
+          {
+            id: "r1",
+            name: "去粗体",
+            mode: "discard",
+            pattern: "\\*\\*",
+            flags: "g",
+            enabled: true,
+          },
+        ],
+      },
     ]);
   });
 });

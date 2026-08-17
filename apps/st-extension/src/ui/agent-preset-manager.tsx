@@ -1,11 +1,13 @@
 /**
- * Agent 提示词预设管理器（ticket 17 / ADR 0006）：设置 Tab 的「Agent 提示词预设」区块。
+ * Agent 提示词预设管理器（ticket 17 / ADR 0006 + 消息编排扩展）：设置 Tab 的
+ * 「Agent 提示词预设」区块。
  *
  * 纯展示层：所有状态变更走 preset-model 纯函数 → onChange(nextSettings)（宿主写 settings）。
  * 结构：
  * - 预设选择行（下拉 = 系统默认 + 用户预设）+ 操作按钮（新建/复制/删除/导入/导出）；
- * - 编辑区：系统默认 = 只读视图 + 「复制为自定义」；自定义预设 = 片段卡片列表
- *   （开关 + dnd-kit 拖拽排序 + 名称 + 展开编辑内容 + 占位符插入 chips + 删除）；
+ * - 编辑区：系统默认 = 只读视图 + 「复制为自定义」；自定义预设 = 消息卡片列表
+ *   （开关 + dnd-kit 拖拽排序 + 名称 + 角色（system/user/assistant）+ 展开编辑内容
+ *   + 占位符插入 chips + 删除）；
  * - 当前预设未引用 {{tablesDigest}}/{{systemDefaultPrompt}} 时编辑区常驻提示。
  */
 import {
@@ -22,24 +24,26 @@ import { useRef, useState } from "react";
 import { PROPOSAL_AGENT_BASE_INSTRUCTIONS } from "@ste-memory/core/memory/agent";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
 import {
+  AGENT_PRESET_ROLES,
   BUILTIN_AGENT_PRESET_ID,
-  addAgentPresetFragment,
+  addAgentPresetMessage,
   containsDigestReference,
   createAgentPreset,
   deleteAgentPreset,
   duplicateAgentPreset,
   importAgentPreset,
   moveAgentPreset,
-  moveAgentPresetFragment,
+  moveAgentPresetMessage,
   parseAgentPresetExport,
   presetPromptText,
-  removeAgentPresetFragment,
+  removeAgentPresetMessage,
   renameAgentPreset,
   serializeAgentPresetExport,
   setActiveAgentPreset,
-  updateAgentPresetFragment,
+  updateAgentPresetMessage,
+  type AgentPresetRole,
   type AgentPresetSettings,
-  type AgentPromptFragment,
+  type AgentPresetMessage,
   type AgentPromptPreset,
 } from "../agent-presets/preset-model.ts";
 import {
@@ -48,6 +52,13 @@ import {
   type AgentPresetPlaceholderName,
 } from "../agent-presets/preset-composer.ts";
 import { createUiId, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
+
+/** 角色显示名（编辑器角色下拉 + 卡片预览标签共用） */
+export const AGENT_PRESET_ROLE_LABELS: Record<AgentPresetRole, string> = {
+  system: "System",
+  user: "User",
+  assistant: "Assistant",
+};
 
 /** 复制文本：优先 Clipboard API；非安全上下文降级 textarea + execCommand */
 async function copyText(text: string): Promise<boolean> {
@@ -89,7 +100,7 @@ export function AgentPresetManager(props: {
   const agentPresets = props.settings.agentPresets;
   const activeId = agentPresets.activePresetId;
   const activePreset = agentPresets.presets.find((p) => p.id === activeId);
-  const [expandedFragmentId, setExpandedFragmentId] = useState<string | undefined>(undefined);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | undefined>(undefined);
   const importInputRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   /** 变更入口：mutate 预设设置 → 宿主写 settings */
@@ -112,18 +123,18 @@ export function AgentPresetManager(props: {
     apply((presets) => duplicateAgentPreset(presets, activePreset.id, createUiId));
   }
 
-  /** 复制系统默认（虚拟预设）为自定义：基础指令片段 + {{tablesDigest}} 摘要片段 */
+  /** 复制系统默认（虚拟预设）为自定义：基础指令消息 + {{tablesDigest}} 摘要消息 */
   function copyBuiltinAsCustom(): void {
     apply((presets) => {
       let next = createAgentPreset(presets, "系统默认 (副本)", createUiId);
       const created = next.presets[next.presets.length - 1]!;
-      next = updateAgentPresetFragment(next, created.id, created.fragments[0]!.id, {
+      next = updateAgentPresetMessage(next, created.id, created.messages[0]!.id, {
         name: "系统默认指令",
         content: PROPOSAL_AGENT_BASE_INSTRUCTIONS,
       });
-      next = addAgentPresetFragment(next, created.id, createUiId);
-      const digestFragment = next.presets[next.presets.length - 1]!.fragments[1]!;
-      next = updateAgentPresetFragment(next, created.id, digestFragment.id, {
+      next = addAgentPresetMessage(next, created.id, createUiId);
+      const digestMessage = next.presets[next.presets.length - 1]!.messages[1]!;
+      next = updateAgentPresetMessage(next, created.id, digestMessage.id, {
         name: "表格摘要",
         content: AGENT_PRESET_PLACEHOLDERS.tablesDigest,
       });
@@ -184,11 +195,11 @@ export function AgentPresetManager(props: {
     if (!activePreset) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const fromIndex = activePreset.fragments.findIndex((f) => f.id === active.id);
-    const toIndex = activePreset.fragments.findIndex((f) => f.id === over.id);
+    const fromIndex = activePreset.messages.findIndex((m) => m.id === active.id);
+    const toIndex = activePreset.messages.findIndex((m) => m.id === over.id);
     if (fromIndex < 0 || toIndex < 0) return;
     apply((presets) =>
-      moveAgentPresetFragment(presets, activePreset.id, String(active.id), toIndex),
+      moveAgentPresetMessage(presets, activePreset.id, String(active.id), toIndex),
     );
   }
 
@@ -336,28 +347,28 @@ export function AgentPresetManager(props: {
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext
-              items={activePreset.fragments.map((f) => f.id)}
+              items={activePreset.messages.map((m) => m.id)}
               strategy={verticalListSortingStrategy}
             >
-              {activePreset.fragments.map((fragment, index) => (
-                <FragmentCard
-                  key={fragment.id}
-                  fragment={fragment}
+              {activePreset.messages.map((message, index) => (
+                <MessageCard
+                  key={message.id}
+                  message={message}
                   index={index}
-                  expanded={expandedFragmentId === fragment.id}
+                  expanded={expandedMessageId === message.id}
                   onToggleExpand={() =>
-                    setExpandedFragmentId((current) =>
-                      current === fragment.id ? undefined : fragment.id,
+                    setExpandedMessageId((current) =>
+                      current === message.id ? undefined : message.id,
                     )
                   }
                   onUpdate={(patch) =>
                     apply((presets) =>
-                      updateAgentPresetFragment(presets, activePreset.id, fragment.id, patch),
+                      updateAgentPresetMessage(presets, activePreset.id, message.id, patch),
                     )
                   }
                   onRemove={() =>
                     apply((presets) =>
-                      removeAgentPresetFragment(presets, activePreset.id, fragment.id),
+                      removeAgentPresetMessage(presets, activePreset.id, message.id),
                     )
                   }
                 />
@@ -367,12 +378,12 @@ export function AgentPresetManager(props: {
           <button
             type="button"
             className="stm-button stm-preset-add-fragment"
-            data-action="add-fragment"
+            data-action="add-message"
             onClick={() =>
-              apply((presets) => addAgentPresetFragment(presets, activePreset.id, createUiId))
+              apply((presets) => addAgentPresetMessage(presets, activePreset.id, createUiId))
             }
           >
-            + 添加片段
+            + 添加消息
           </button>
         </div>
       )}
@@ -435,38 +446,38 @@ function SortablePresetRow(props: {
   );
 }
 
-/** 片段卡片：拖拽手柄 + 开关 + 名称 + 内容预览（点击展开编辑 + 占位符插入） */
-function FragmentCard(props: {
-  readonly fragment: AgentPromptFragment;
+/** 消息卡片：拖拽手柄 + 开关 + 角色标签 + 名称 + 内容预览（点击展开编辑 + 占位符插入） */
+function MessageCard(props: {
+  readonly message: AgentPresetMessage;
   readonly index: number;
   readonly expanded: boolean;
   readonly onToggleExpand: () => void;
   readonly onUpdate: (
-    patch: Partial<Pick<AgentPromptFragment, "name" | "content" | "enabled">>,
+    patch: Partial<Pick<AgentPresetMessage, "name" | "role" | "content" | "enabled">>,
   ) => void;
   readonly onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: props.fragment.id,
+    id: props.message.id,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const preview = props.fragment.name || props.fragment.content.split("\n")[0] || "未命名片段";
+  const preview = props.message.name || props.message.content.split("\n")[0] || "未命名消息";
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`stm-preset-fragment${isDragging ? " stm-preset-fragment--dragging" : ""}`}
-      data-stm-field={`fragment-${props.fragment.id}`}
+      data-stm-field={`message-${props.message.id}`}
     >
       <div className="stm-preset-fragment-head">
         <span
           className="stm-preset-fragment-drag"
           aria-label="拖动排序"
-          data-action="drag-fragment"
+          data-action="drag-message"
           {...attributes}
           {...listeners}
         >
@@ -475,8 +486,8 @@ function FragmentCard(props: {
         <label className="stm-switch">
           <input
             type="checkbox"
-            data-stm-field={`fragment-enabled-${props.fragment.id}`}
-            checked={props.fragment.enabled}
+            data-stm-field={`message-enabled-${props.message.id}`}
+            checked={props.message.enabled}
             onChange={(event) => props.onUpdate({ enabled: event.target.checked })}
           />
           <span className="stm-switch-track" aria-hidden="true"></span>
@@ -484,38 +495,59 @@ function FragmentCard(props: {
         <button
           type="button"
           className="stm-preset-fragment-title"
-          data-action="toggle-fragment"
+          data-action="toggle-message"
           onClick={props.onToggleExpand}
           title={props.expanded ? "收起" : "展开编辑"}
         >
           <span className={`stm-preset-fragment-index stm-mono`}>{props.index + 1}</span>
+          <span
+            className={`stm-preset-role-tag stm-preset-role-tag--${props.message.role}`}
+            data-stm-field={`message-role-${props.message.id}`}
+          >
+            {AGENT_PRESET_ROLE_LABELS[props.message.role]}
+          </span>
           <span className="stm-preset-fragment-preview">{preview}</span>
         </button>
         <button
           type="button"
           className="stm-preset-fragment-remove"
-          data-action="remove-fragment"
+          data-action="remove-message"
           onClick={props.onRemove}
-          title="删除片段"
+          title="删除消息"
         >
           ✕
         </button>
       </div>
       {props.expanded && (
         <div className="stm-preset-fragment-body">
-          <input
-            type="text"
-            className="stm-input"
-            data-stm-field={`fragment-name-${props.fragment.id}`}
-            value={props.fragment.name}
-            placeholder="片段名（可选，空则显示内容首行）"
-            onChange={(event) => props.onUpdate({ name: event.target.value })}
-          />
+          <div className="stm-preset-fragment-fields">
+            <input
+              type="text"
+              className="stm-input"
+              data-stm-field={`message-name-${props.message.id}`}
+              value={props.message.name}
+              placeholder="消息名（可选，空则显示内容首行）"
+              onChange={(event) => props.onUpdate({ name: event.target.value })}
+            />
+            <select
+              className="stm-input stm-preset-role-select"
+              data-stm-field={`message-role-select-${props.message.id}`}
+              value={props.message.role}
+              title="消息角色：System 合并进系统提示词；User/Assistant 作为对话消息"
+              onChange={(event) => props.onUpdate({ role: event.target.value as AgentPresetRole })}
+            >
+              {AGENT_PRESET_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {AGENT_PRESET_ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </div>
           <textarea
             className="stm-textarea"
-            data-stm-field={`fragment-content-${props.fragment.id}`}
-            value={props.fragment.content}
-            placeholder="片段内容：提示词文本，可插入占位符"
+            data-stm-field={`message-content-${props.message.id}`}
+            value={props.message.content}
+            placeholder="消息内容：提示词文本，可插入占位符"
             rows={6}
             onChange={(event) => props.onUpdate({ content: event.target.value })}
           />
@@ -533,7 +565,7 @@ function FragmentCard(props: {
                 title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
                 data-action="insert-placeholder"
                 data-placeholder={placeholder}
-                onClick={() => props.onUpdate({ content: props.fragment.content + placeholder })}
+                onClick={() => props.onUpdate({ content: props.message.content + placeholder })}
               >
                 {placeholder}
               </button>

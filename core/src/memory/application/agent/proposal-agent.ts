@@ -22,6 +22,8 @@ import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "./memory-space-reader.ts";
 import {
   composeProposalAgentSystemPrompt,
+  type ComposedAgentMessage,
+  type ProposalMessagesComposer,
   type ProposalSystemPromptComposer,
 } from "./prompt-composer.ts";
 import { createProposalPreviewTool } from "./tools/proposal/proposal-preview-tool.ts";
@@ -42,6 +44,12 @@ export interface ProposalAgentOptions {
   readonly ports: MemoryProposalPorts;
   /** 系统提示词组合器：默认后台填表指令；交互式宿主可注入自定义组合器（如交互式填写）。 */
   readonly composeSystemPrompt?: ProposalSystemPromptComposer;
+  /**
+   * 消息组合器（消息编排）：digest → 编排消息列表，system 合并进系统提示词、
+   * user/assistant 进入对话前缀（本轮消息之前）。提供时取代 composeSystemPrompt
+   * （两者互斥，消息组合器优先）。
+   */
+  readonly composeMessages?: ProposalMessagesComposer;
   /** 单次 run 总超时（毫秒），默认 5 分钟。 */
   readonly timeoutMs?: number;
 }
@@ -61,6 +69,47 @@ export interface ProposalAgentRunResult extends AgentRunSummary {
   readonly proposal: MemoryProposalSubmission | undefined;
 }
 
+/** 编排消息里 system 角色的文本按顺序合并为系统提示词（空行分隔）。 */
+function systemTextOf(composed: readonly ComposedAgentMessage[]): string {
+  return composed
+    .filter((message) => message.role === "system")
+    .map((message) => message.text)
+    .join("\n\n");
+}
+
+/** 零用量占位：编排 assistant 消息的元数据不被 LLM 循环使用（convertToLlm 只按角色过滤）。 */
+const ZERO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+} as const;
+
+/** 编排消息 → pi AgentMessage（初始 transcript）：user / assistant 两种角色。 */
+function toAgentPrefixMessages(
+  composed: readonly ComposedAgentMessage[],
+  model: string,
+): AgentMessage[] {
+  const timestamp = Date.now();
+  return composed.map((message) =>
+    message.role === "user"
+      ? { role: "user", content: [{ type: "text", text: message.text }], timestamp }
+      : {
+          role: "assistant",
+          content: [{ type: "text", text: message.text }],
+          // 元数据占位：预设 assistant 消息是编排文本，不来自真实生成（同 query-chat 先例）
+          api: "agent-preset",
+          provider: "ste-memory",
+          model,
+          usage: ZERO_USAGE,
+          stopReason: "stop",
+          timestamp,
+        },
+  );
+}
+
 /**
  * ProposalAgent：增量构建跨表提案的 Agent。
  *
@@ -74,6 +123,7 @@ export class ProposalAgent {
   readonly #reader: MemorySpaceReader;
   readonly #ports: MemoryProposalPorts;
   readonly #composeSystemPrompt: ProposalSystemPromptComposer;
+  readonly #composeMessages: ProposalMessagesComposer | undefined;
   readonly #timeoutMs: number;
 
   constructor(options: ProposalAgentOptions) {
@@ -81,14 +131,12 @@ export class ProposalAgent {
     this.#reader = options.reader;
     this.#ports = options.ports;
     this.#composeSystemPrompt = options.composeSystemPrompt ?? composeProposalAgentSystemPrompt;
+    this.#composeMessages = options.composeMessages;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_PROPOSAL_AGENT_TIMEOUT_MS;
   }
 
   async run(input: ProposalAgentRunInput, hooks: RunHooks = {}): Promise<ProposalAgentRunResult> {
-    if (input.messages.length === 0) {
-      throw new Error("ProposalAgent.run 需要至少一条消息");
-    }
-    if (input.messages[0]!.role !== "user") {
+    if (input.messages.length > 0 && input.messages[0]!.role !== "user") {
       throw new Error("ProposalAgent.run 的第一条消息必须是用户消息");
     }
     if (hooks.signal?.aborted) {
@@ -97,6 +145,25 @@ export class ProposalAgent {
 
     const { memorySpaceId } = input;
     const digest = await buildMemorySpaceTableDigest(this.#reader, memorySpaceId);
+    // 消息编排：提供 composeMessages 时——system 角色合并进系统提示词（每次请求
+    // 置于最前），user/assistant 进入对话前缀（初始 transcript，run 的本轮消息之前）；
+    // 未提供时退回到 composeSystemPrompt（字符串组合器，旧行为）。
+    const composed = this.#composeMessages ? this.#composeMessages(digest) : undefined;
+    const prefix = composed
+      ? composed.filter(
+          (message): message is ComposedAgentMessage & { role: "user" | "assistant" } =>
+            message.role !== "system",
+        )
+      : [];
+    const combined = [...prefix, ...input.messages];
+    if (combined.length === 0) {
+      throw new Error("ProposalAgent.run 需要至少一条消息（本轮消息或编排消息）");
+    }
+    if (combined[combined.length - 1]!.role !== "user") {
+      throw new Error(
+        "ProposalAgent.run 的对话最后一条消息必须是用户消息（检查编排消息的角色顺序）",
+      );
+    }
     const state = new ProposalState();
     const validateOperation = (operation: Parameters<typeof validateProposalOperation>[2]) =>
       validateProposalOperation(this.#ports, memorySpaceId, operation);
@@ -107,7 +174,9 @@ export class ProposalAgent {
 
     const agent = new Agent({
       initialState: {
-        systemPrompt: this.#composeSystemPrompt(digest),
+        systemPrompt: composed ? systemTextOf(composed) : this.#composeSystemPrompt(digest),
+        // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
+        messages: toAgentPrefixMessages(prefix, this.#llm.model.id),
         model: this.#llm.model,
         tools: [
           createQueryRecordsTool({ reader: this.#reader, digest }),

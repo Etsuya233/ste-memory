@@ -25,9 +25,14 @@ import {
   ProposalAgent,
   type LlmPort,
   type MemorySpaceReader,
-  type ProposalSystemPromptComposer,
+  type ProposalMessagesComposer,
 } from "@ste-memory/core/memory/agent";
-import { buildBlockEvidence, buildMergedStoryText, composeBlockPrompt } from "./fill-task-block.ts";
+import {
+  buildBlockEvidence,
+  buildMergedStoryText,
+  composeBlockMessagesText,
+  composeBlockPrompt,
+} from "./fill-task-block.ts";
 import { applyCleaningRules, type CleaningRule } from "../settings/cleaning-rule-lists.ts";
 import {
   createFillRunRecorder,
@@ -56,6 +61,20 @@ export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
 
 /** 单块 Agent run 的总超时（对齐 ProposalAgent 默认 5 分钟）。 */
 const BLOCK_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * 填表任务提示词工厂（消息编排）：宿主在任务提交时构造一次（预设解析 + 世界书
+ * 扫描 + ST 上下文快照），块处理时按块调用 compose 拿到该块的编排消息组合器。
+ */
+export interface FillTaskPromptFactory {
+  /**
+   * 预设是否引用 {{msg}}：引用 = 用户接管消息编排——块内容只出现在 {{msg}}
+   * 展开处，不再自动追加块提示词；未引用 = 保持旧行为（追加块提示词）。
+   */
+  readonly referencesMsg: boolean;
+  /** 按块构造编排消息组合器：blockText = 本块消息文本（{{msg}} 展开输入）。 */
+  readonly compose: (blockText: string) => ProposalMessagesComposer;
+}
 
 export interface FillTaskSubmitInput {
   readonly memorySpaceId: MemorySpaceId;
@@ -86,14 +105,15 @@ export interface FillTaskServiceOptions {
   /** LLM 端口工厂：任务开始时读 ST 当前配置构造一次（模型+参数快照） */
   readonly createLlm: () => LlmPort;
   /**
-   * 系统提示词组合器工厂（ticket 17 / ADR 0006；世界书占位符 ADR 0007）：
-   * 任务开始时构造一次（预设文本 + 对话双方名字快照），接收任务范围合并剧情
-   * 文本（{{worldbook}} 扫描输入）；缺省 = 核心默认组合器（系统默认预设）。
-   * 返回 undefined 同样用默认。
+   * 编排消息组合器工厂（ticket 17 / ADR 0006 + 消息编排扩展；世界书占位符
+   * ADR 0007）：任务提交时构造一次（预设解析 + 世界书扫描 + ST 上下文快照），
+   * 接收任务范围合并剧情文本（{{worldbook}} 扫描输入）；块处理时按块调用
+   * 返回的工厂（{{msg}} 块内容输入）。缺省/返回 undefined = 核心默认组合器
+   * （系统默认预设）。
    */
-  readonly createComposeSystemPrompt?: (
+  readonly createComposeMessages?: (
     storyText: string,
-  ) => Promise<ProposalSystemPromptComposer | undefined>;
+  ) => Promise<FillTaskPromptFactory | undefined>;
   /** 通用日志仓库（ADR 0008）：块运行记录在此写入（best-effort，失败不影响任务）。 */
   readonly logs: LogRepository;
   /**
@@ -118,8 +138,8 @@ export class FillTaskService {
   readonly #commitContext: MemoryRecordMutationContext;
   readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
-  readonly #createComposeSystemPrompt:
-    ((storyText: string) => Promise<ProposalSystemPromptComposer | undefined>) | undefined;
+  readonly #createComposeMessages:
+    ((storyText: string) => Promise<FillTaskPromptFactory | undefined>) | undefined;
   readonly #logs: LogRepository;
   readonly #resolveCleaningRules: () => readonly CleaningRule[];
   readonly #createRunId: () => string;
@@ -137,7 +157,7 @@ export class FillTaskService {
     this.#commitContext = options.commitContext;
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
-    this.#createComposeSystemPrompt = options.createComposeSystemPrompt;
+    this.#createComposeMessages = options.createComposeMessages;
     this.#logs = options.logs;
     this.#resolveCleaningRules = options.resolveCleaningRules ?? (() => []);
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
@@ -176,10 +196,10 @@ export class FillTaskService {
     const llm = this.#createLlm();
     // 合并剧情文本（世界书扫描输入，ADR 0007）：仅当宿主注入组合器工厂时才构建
     //（缺省 = 系统默认预设 → 核心默认组合器，无扫描无构建）。
-    const composeSystemPrompt =
-      this.#createComposeSystemPrompt === undefined
+    const promptFactory =
+      this.#createComposeMessages === undefined
         ? undefined
-        : await this.#createComposeSystemPrompt(
+        : await this.#createComposeMessages(
             buildMergedStoryText(this.#source.messagesInRange(input.from, input.to)),
           );
 
@@ -202,7 +222,7 @@ export class FillTaskService {
     if (conflict) throw new FillTaskConflictError(conflict);
 
     // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
-    void this.#runTask(task, llm, composeSystemPrompt);
+    void this.#runTask(task, llm, promptFactory);
     return this.#toView(task);
   }
 
@@ -285,18 +305,11 @@ export class FillTaskService {
   async #runTask(
     task: FillTask,
     llm: LlmPort,
-    composeSystemPrompt: ProposalSystemPromptComposer | undefined,
+    promptFactory: FillTaskPromptFactory | undefined,
   ): Promise<void> {
     // 填表日志（ADR 0008）：每次 Agent 调用经 recorder 包装的 streamFn 快照请求与
     // 输出，工具执行事件配对工具调用；块结束时组装运行记录写入通用日志。
     const recorder = createFillRunRecorder({ taskRunId: task.runId, now: this.#now });
-    const agent = new ProposalAgent({
-      llm: { ...llm, streamFn: recorder.wrapStreamFn(llm.streamFn) },
-      reader: this.#reader,
-      ports: this.#ports,
-      timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
-      composeSystemPrompt,
-    });
     let failingBlock: { readonly from: number; readonly to: number } | undefined;
     try {
       for (let blockFrom = task.from; blockFrom <= task.to; blockFrom += task.blockSize) {
@@ -313,7 +326,7 @@ export class FillTaskService {
         }
         const blockTo = Math.min(blockFrom + task.blockSize - 1, task.to);
         failingBlock = { from: blockFrom, to: blockTo };
-        await this.#processBlock(agent, recorder, task, blockFrom, blockTo);
+        await this.#processBlock(recorder, llm, promptFactory, task, blockFrom, blockTo);
         // 本块已成功提交：后续失败（如终态标记）不得再把它标记为 error。
         failingBlock = undefined;
       }
@@ -349,8 +362,9 @@ export class FillTaskService {
   }
 
   async #processBlock(
-    agent: ProposalAgent,
     recorder: FillRunRecorder,
+    llm: LlmPort,
+    promptFactory: FillTaskPromptFactory | undefined,
     task: FillTask,
     from: number,
     to: number,
@@ -378,16 +392,31 @@ export class FillTaskService {
         task.memorySpaceId,
         messages,
       );
+      // 编排消息组合器按块构造（{{msg}} 展开输入 = 本块消息文本）；ProposalAgent
+      // 每块新实例（组合器按 run 注入，构造开销可忽略）。
+      const composeMessages = promptFactory?.compose(composeBlockMessagesText(from, to, messages));
+      const agent = new ProposalAgent({
+        llm: { ...llm, streamFn: recorder.wrapStreamFn(llm.streamFn) },
+        reader: this.#reader,
+        ports: this.#ports,
+        timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
+        composeMessages,
+      });
       const result = await agent.run(
         {
           memorySpaceId: task.memorySpaceId,
-          messages: [
-            {
-              role: "user",
-              content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
-              timestamp: Date.now(),
-            },
-          ],
+          // 预设引用 {{msg}} = 用户接管消息编排：块内容只出现在占位符展开处，
+          // 不再追加块提示词（未引用保持旧行为：块提示词作为本轮用户消息）。
+          messages:
+            promptFactory?.referencesMsg === true
+              ? []
+              : [
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
+                    timestamp: Date.now(),
+                  },
+                ],
           messageRange: { from, to },
           evidence,
         },

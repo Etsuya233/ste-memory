@@ -6,7 +6,7 @@ import type {
 } from "../space-binding/chat-space-manager.ts";
 import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.ts";
 import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
-import type { AgentPromptNames } from "../agent-presets/preset-composer.ts";
+import type { AgentPromptNames, AgentPromptSnapshot } from "../agent-presets/preset-composer.ts";
 import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
 import {
   formatCleaningListSelection,
@@ -31,10 +31,28 @@ export interface StContext {
   name2?: string;
   /** 当前用户显示名（name1；Agent 预设 {{user}} 占位符展开用） */
   name1?: string;
-  /** 群聊列表（{{char}} 群聊展开为群名时经 id 查找群名） */
-  groups?: readonly { id: string | number; name?: string }[];
+  /** 群聊列表（{{char}} 群聊展开为群名时经 id 查找群名；{{char_card}} 经 members 取群成员卡） */
+  groups?: readonly {
+    id: string | number;
+    name?: string;
+    members?: readonly (string | number)[];
+  }[];
   /** 当前对话消息数组（同步楼层 = 数组下标，ADR 0003） */
   chat?: readonly unknown[];
+  /**
+   * ST 当前用户 Persona 描述（power_user.persona_description，personas.js 已核实：
+   * 随当前 persona 切换/编辑同步更新）——{{user_card}} 占位符展开用。
+   */
+  powerUserSettings?: { readonly persona_description?: string };
+  /**
+   * 当前角色卡数组（st-context.js 暴露 characters：角色卡 description 读取源，
+   * {{char_card}} 占位符展开用；characterId 即 this_chid 数组下标）。
+   */
+  characters?: readonly {
+    readonly id?: string | number;
+    readonly name?: string;
+    readonly description?: string;
+  }[];
   /** 当前上下文大小（token；ST getContext().maxContext = Number(max_context)） */
   maxContext?: number;
   /**
@@ -63,10 +81,7 @@ export interface StContext {
   getChatCompletionModel?: (settings: Record<string, unknown>) => string;
   /** 防抖持久化 extension_settings（script.js saveSettingsDebounced） */
   saveSettingsDebounced?: () => void;
-  /** 当前角色卡数组（st-context.js 暴露 characters：角色卡 scoped 正则读取源，
-   * 见 stRegexEntries；characterId 即 this_chid 数组下标） */
-  characters?: readonly unknown[];
-  /** ST 预设管理器（st-context.js 暴露 getPresetManager：正则预设条目读取源，
+  /** 当前预设管理器（st-context.js 暴露 getPresetManager：正则预设条目读取源，
    * readPresetExtensionField 读当前预设的扩展字段） */
   getPresetManager?: () =>
     | {
@@ -189,6 +204,43 @@ export class StChatAdapter {
     };
   }
 
+  /**
+   * Agent 提示词预设占位符展开用卡片文本（消息编排扩展）：任务提交时快照一次。
+   * charCard = 当前角色卡 description（单角色）；群聊 = 群成员角色卡
+   * 「名字：描述」逐条拼接（{{char}} 群聊 = 群名，成员名字靠这里补）；
+   * userCard = 当前 Persona 描述（powerUserSettings.persona_description，
+   * ST 随 persona 切换同步）。查不到/缺字段 = 空串（不留占位符原文）。
+   */
+  getPromptSnapshot(): AgentPromptSnapshot {
+    const context = this.#getContext();
+    const characters = context.characters ?? [];
+    const inGroup = context.groupId != null && context.groupId !== "";
+    const group = inGroup
+      ? (context.groups ?? []).find((g) => g.id === context.groupId)
+      : undefined;
+    let charCard = "";
+    if (inGroup && group) {
+      const lines: string[] = [];
+      for (const memberId of group.members ?? []) {
+        const card = characters.find((c) => c.id === memberId);
+        const description = card?.description?.trim() ?? "";
+        if (description === "") continue;
+        lines.push(`${card?.name ?? ""}：${description}`);
+      }
+      charCard = lines.join("\n\n");
+    } else if (context.characterId != null && !inGroup) {
+      const card = characters.find((c) => c.id === context.characterId);
+      charCard = card?.description?.trim() ?? "";
+    }
+    return {
+      names: this.getPromptNames(),
+      charCard,
+      userCard: context.powerUserSettings?.persona_description?.trim() ?? "",
+      worldbookText: "",
+      msgText: "",
+    };
+  }
+
   /** chatMetadata 绑定读写端口：写入即触发防抖持久化（随聊天文件走） */
   get bindingStore(): ChatBindingStore {
     return {
@@ -267,9 +319,7 @@ export class StChatAdapter {
     }
     const chid = context.characterId;
     const character = typeof chid === "number" ? context.characters?.[chid] : undefined;
-    const scoped = isRecord(character)
-      ? (character as { data?: unknown }).data
-      : undefined;
+    const scoped = isRecord(character) ? (character as { data?: unknown }).data : undefined;
     const scopedScripts = isRecord(scoped)
       ? (scoped as { extensions?: unknown }).extensions
       : undefined;

@@ -38,14 +38,17 @@ import type { Table } from "dexie";
 import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
-import { composePresetSystemPrompt } from "./agent-presets/preset-composer.ts";
 import {
+  composePresetMessages,
+  type AgentPromptSnapshot,
+} from "./agent-presets/preset-composer.ts";
+import {
+  containsMsgReference,
   containsWorldbookReference,
-  presetPromptText,
   resolveActivePreset,
 } from "./agent-presets/preset-model.ts";
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
-import type { ProposalSystemPromptComposer } from "@ste-memory/core/memory/agent";
+import type { FillTaskPromptFactory } from "./fill-tasks/fill-task-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
@@ -198,10 +201,7 @@ export async function startSteMemory(
    * （旧行为零变化）。任务开始时构造一次（ST 快照 + 连接快照），之后 streamFn
    * 是纯函数（model, context, options）。
    */
-  const createLlmFor = (
-    target: AgentConnectionTarget,
-    includeReasoning: boolean,
-  ): LlmPort => {
+  const createLlmFor = (target: AgentConnectionTarget, includeReasoning: boolean): LlmPort => {
     const connection = resolveAgentConnection(settings.read(), target);
     if (connection) {
       return createAgentConnectionLlmPort(connection, () => getContext() as StContext, {
@@ -215,15 +215,16 @@ export async function startSteMemory(
   const createLlm = (): LlmPort => createLlmFor("fillTask", false);
   const createQueryChatLlm = (): LlmPort => createLlmFor("queryChat", true);
   /**
-   * 填表任务的系统提示词组合器工厂（ticket 17 / ADR 0006；世界书 ADR 0007）：
-   * 提交时构造一次——活动预设文本 + 对话双方名字快照 + 世界书扫描文本快照；
+   * 填表任务的编排消息组合器工厂（ticket 17 / ADR 0006 + 消息编排扩展；世界书
+   * ADR 0007）：提交时构造一次——活动预设 + 对话双方名字/角色卡/Persona 快照 +
+   * 世界书扫描文本快照；块处理时按块注入块消息文本（{{msg}} 展开输入）。
    * 系统默认预设 → undefined（用核心默认组合器）。
-   * 预设启用片段含 {{worldbook}} 才扫描（零引用零开销）；扫描失败 → 空串 + warn，
-   * 不阻断任务（用户决策）；每次任务首次组合时 log 最终 system prompt。
+   * 预设启用消息含 {{worldbook}} 才扫描（零引用零开销）；扫描失败 → 空串 + warn，
+   * 不阻断任务（用户决策）；每次任务首次组合时 log 最终编排消息。
    */
-  const createComposeSystemPrompt = async (
+  const createComposeMessages = async (
     storyText: string,
-  ): Promise<ProposalSystemPromptComposer | undefined> => {
+  ): Promise<FillTaskPromptFactory | undefined> => {
     const preset = resolveActivePreset(settings.read().agentPresets);
     if (!preset) return undefined;
     let worldbookText = "";
@@ -238,19 +239,29 @@ export async function startSteMemory(
         );
       }
     }
-    const compose = composePresetSystemPrompt(
-      presetPromptText(preset),
-      adapter.getPromptNames(),
+    const snapshotBase: AgentPromptSnapshot = {
+      ...adapter.getPromptSnapshot(),
       worldbookText,
-    );
+    };
     let logged = false;
-    return (digest) => {
-      const prompt = compose(digest);
-      if (!logged) {
-        logged = true;
-        log.info(`[${PLUGIN_DISPLAY_NAME}] Agent 预设「${preset.name}」system prompt：\n${prompt}`);
-      }
-      return prompt;
+    return {
+      // {{msg}} 引用 = 用户接管消息编排（块内容只出现在占位符处，不追加块提示词）
+      referencesMsg: containsMsgReference(preset),
+      compose: (msgText) => {
+        const compose = composePresetMessages(preset, { ...snapshotBase, msgText });
+        return (digest) => {
+          const messages = compose(digest);
+          if (!logged) {
+            logged = true;
+            log.info(
+              `[${PLUGIN_DISPLAY_NAME}] Agent 预设「${preset.name}」编排消息：\n${messages
+                .map((message) => `[${message.role}] ${message.text}`)
+                .join("\n---\n")}`,
+            );
+          }
+          return messages;
+        };
+      },
     };
   };
   const logs = new DexieLogRepository(db, { now });
@@ -299,7 +310,7 @@ export async function startSteMemory(
       db.floorFillLedger,
     ]),
     createLlm,
-    createComposeSystemPrompt,
+    createComposeMessages,
     createRunId: () => createId("task"),
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,

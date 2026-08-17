@@ -678,6 +678,152 @@ describe("ProposalAgent", () => {
     expect(systemPrompt).not.toContain("secret_notes");
   });
 
+  describe("消息编排（composeMessages）", () => {
+    /** 编排消息：system 合并进系统提示词；user/assistant 进入对话前缀 */
+    function messageComposer(
+      messages: readonly { role: "system" | "user" | "assistant"; text: string }[],
+    ) {
+      return () => messages;
+    }
+
+    it("system 角色合并进系统提示词（空行分隔），user/assistant 作为对话前缀（run 消息之前）", async () => {
+      const space = createTestMemorySpace();
+      const contexts: Context[] = [];
+      const streamFn = scriptedStreamFn((context) => {
+        contexts.push(context);
+        return assistantMessage([textMessage("无需变更。")], "stop");
+      });
+      const agent = new ProposalAgent({
+        llm: { streamFn, model: fakeModel() },
+        reader: space.reader,
+        ports: space.ports,
+        composeMessages: messageComposer([
+          { role: "system", text: "编排指令 A" },
+          { role: "user", text: "编排问题" },
+          { role: "assistant", text: "编排回答" },
+        ]),
+      });
+
+      const result = await agent.run({
+        memorySpaceId: SPACE_ID,
+        messages: [userMessage("填写表格")],
+        messageRange: MESSAGE_RANGE,
+        evidence: EVIDENCE,
+      });
+
+      expect(result.errorMessage).toBeUndefined();
+      // system 文本进系统提示词（对话消息里没有 system 角色）
+      expect(contexts[0]?.systemPrompt).toContain("编排指令 A");
+      expect(contexts[0]?.systemPrompt).not.toContain("编排问题");
+      // 对话前缀 = 编排 user/assistant + run 消息，顺序原样
+      const roles = contexts[0]!.messages.map((m) => m.role);
+      expect(roles).toEqual(["user", "assistant", "user"]);
+      const texts = contexts[0]!.messages
+        .filter((m) => m.role !== "toolResult")
+        .map((m) =>
+          typeof m.content === "string"
+            ? m.content
+            : m.content.map((c) => (c.type === "text" ? c.text : "")).join(""),
+        );
+      expect(texts).toEqual(["编排问题", "编排回答", "填写表格"]);
+    });
+
+    it("编排消息为空：system prompt 为空，对话只有 run 消息（模板模式无安全兜底）", async () => {
+      const space = createTestMemorySpace();
+      const contexts: Context[] = [];
+      const streamFn = scriptedStreamFn((context) => {
+        contexts.push(context);
+        return assistantMessage([textMessage("无需变更。")], "stop");
+      });
+      const agent = new ProposalAgent({
+        llm: { streamFn, model: fakeModel() },
+        reader: space.reader,
+        ports: space.ports,
+        composeMessages: messageComposer([]),
+      });
+      const result = await agent.run({
+        memorySpaceId: SPACE_ID,
+        messages: [userMessage("填写表格")],
+        messageRange: MESSAGE_RANGE,
+        evidence: EVIDENCE,
+      });
+      expect(result.errorMessage).toBeUndefined();
+      expect(contexts[0]?.systemPrompt).toBe("");
+      expect(contexts[0]!.messages.map((m) => m.role)).toEqual(["user"]);
+    });
+
+    it("run 消息为空 + 编排消息兜底：对话由编排消息驱动（{{msg}} 接管场景）", async () => {
+      const space = createTestMemorySpace();
+      const contexts: Context[] = [];
+      const streamFn = scriptedStreamFn((context) => {
+        contexts.push(context);
+        return assistantMessage([textMessage("无需变更。")], "stop");
+      });
+      const agent = new ProposalAgent({
+        llm: { streamFn, model: fakeModel() },
+        reader: space.reader,
+        ports: space.ports,
+        composeMessages: messageComposer([
+          { role: "system", text: "指令" },
+          { role: "user", text: "请总结：块内容" },
+        ]),
+      });
+      const result = await agent.run({
+        memorySpaceId: SPACE_ID,
+        messages: [],
+        messageRange: MESSAGE_RANGE,
+        evidence: EVIDENCE,
+      });
+      expect(result.errorMessage).toBeUndefined();
+      expect(contexts[0]!.messages.map((m) => m.role)).toEqual(["user"]);
+    });
+
+    it("run 消息与编排消息都为空：明确报错", async () => {
+      const space = createTestMemorySpace();
+      const agent = new ProposalAgent({
+        llm: {
+          streamFn: scriptedStreamFn(() => assistantMessage([textMessage("x")], "stop")),
+          model: fakeModel(),
+        },
+        reader: space.reader,
+        ports: space.ports,
+        composeMessages: messageComposer([]),
+      });
+      await expect(
+        agent.run({
+          memorySpaceId: SPACE_ID,
+          messages: [],
+          messageRange: MESSAGE_RANGE,
+          evidence: EVIDENCE,
+        }),
+      ).rejects.toThrow(/需要至少一条消息/);
+    });
+
+    it("编排对话最后一条不是 user 消息：明确报错（角色顺序守卫）", async () => {
+      const space = createTestMemorySpace();
+      const agent = new ProposalAgent({
+        llm: {
+          streamFn: scriptedStreamFn(() => assistantMessage([textMessage("x")], "stop")),
+          model: fakeModel(),
+        },
+        reader: space.reader,
+        ports: space.ports,
+        composeMessages: messageComposer([
+          { role: "user", text: "问题" },
+          { role: "assistant", text: "回答" },
+        ]),
+      });
+      await expect(
+        agent.run({
+          memorySpaceId: SPACE_ID,
+          messages: [],
+          messageRange: MESSAGE_RANGE,
+          evidence: EVIDENCE,
+        }),
+      ).rejects.toThrow(/最后一条消息必须是用户消息/);
+    });
+  });
+
   it("同一轮消息内的多个工具调用按顺序执行（状态工具 sequential，防并行竞态）", async () => {
     const space = createTestMemorySpace();
     const { streamFn, agent } = runAgent(space, (context) => {

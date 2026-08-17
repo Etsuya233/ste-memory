@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   composeInteractiveProposalAgentSystemPrompt,
+  composeProposalAgentMessages,
   composeProposalAgentSystemPrompt,
   composeQueryAgentSystemPrompt,
 } from "../../src/memory/application/agent/prompt-composer.ts";
@@ -71,5 +72,16 @@ describe("composeInteractiveProposalAgentSystemPrompt", () => {
     const query = composeQueryAgentSystemPrompt(DIGEST);
     expect(query).not.toContain("submit_proposal");
     expect(query).not.toContain("mutate");
+  });
+});
+
+describe("composeProposalAgentMessages（消息编排缺省组合器）", () => {
+  it("单条 system 消息：内容 = 系统默认提示词全文（指令 + 摘要）", () => {
+    const messages = composeProposalAgentMessages(DIGEST);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.role).toBe("system");
+    expect(messages[0]!.text).toBe(composeProposalAgentSystemPrompt(DIGEST));
+    expect(messages[0]!.text).toContain("你是记忆表格填写助手");
+    expect(messages[0]!.text).toContain("characters");
   });
 });

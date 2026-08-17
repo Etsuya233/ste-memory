@@ -4,6 +4,35 @@ import type { MemorySpaceTableDigest } from "./digest.ts";
 export type ProposalSystemPromptComposer = (digest: MemorySpaceTableDigest) => string;
 
 /**
+ * 编排消息（消息组合器输出）：role 决定去向——system 合并进系统提示词（每次请求
+ * 都置于最前，pi 的消息类型无 system 角色，系统提示词只经 AgentState.systemPrompt），
+ * user / assistant 进入对话前缀（run 的本轮消息之前）。
+ */
+export interface ComposedAgentMessage {
+  readonly role: "system" | "user" | "assistant";
+  readonly text: string;
+}
+
+/**
+ * 提案类 Agent 的消息组合器：digest → 编排消息列表（消息和消息的组合，取代
+ * 单一 system prompt 字符串）。宿主编排时用它注入用户/助手消息；缺省 = 单条
+ * system 消息（等价于系统默认组合器）。
+ */
+export type ProposalMessagesComposer = (
+  digest: MemorySpaceTableDigest,
+) => readonly ComposedAgentMessage[];
+
+/**
+ * 组合默认的提案 Agent 编排消息：单条 system 消息（内容 = 系统默认提示词全文）。
+ * 与 composeProposalAgentSystemPrompt 等价，供需要消息形态组合器的宿主使用。
+ */
+export function composeProposalAgentMessages(
+  digest: MemorySpaceTableDigest,
+): readonly ComposedAgentMessage[] {
+  return [{ role: "system", text: composeProposalAgentSystemPrompt(digest) }];
+}
+
+/**
  * 组合 QueryAgent 系统提示词：基础问答指令 + 启用表/字段摘要。
  * 摘要与 query_records 工具校验共用同一份 digest，模型可见范围 = 工具可用范围。
  * 不含来源消息（来源消息与提案提示词归 12）。

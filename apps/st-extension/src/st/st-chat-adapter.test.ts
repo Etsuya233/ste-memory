@@ -335,7 +335,63 @@ describe("StChatAdapter.getPromptNames（Agent 预设占位符名字，ticket 17
   it("群聊找不到群名 / 缺名字：对应字段为空串", () => {
     const { adapter } = stableAdapter({ groupId: "g1", groups: [{ id: "g2", name: "别的组" }] });
     expect(adapter.getPromptNames()).toEqual({ user: "", char: "" });
-    expect(stableAdapter({ groupId: "g1" }).adapter.getPromptNames()).toEqual({ user: "", char: "" });
+    expect(stableAdapter({ groupId: "g1" }).adapter.getPromptNames()).toEqual({
+      user: "",
+      char: "",
+    });
+  });
+});
+
+describe("StChatAdapter.getPromptSnapshot（消息编排占位符卡片，{{char_card}}/{{user_card}}）", () => {
+  it("单角色：charCard = 当前角色卡 description，userCard = Persona 描述", () => {
+    const { adapter } = stableAdapter({
+      name1: "小明",
+      name2: "爱丽丝",
+      characterId: 0,
+      characters: [{ id: 0, name: "爱丽丝", description: "见习魔女。" }],
+      powerUserSettings: { persona_description: "我是旅行商人。" },
+    });
+    expect(adapter.getPromptSnapshot()).toMatchObject({
+      names: { user: "小明", char: "爱丽丝" },
+      charCard: "见习魔女。",
+      userCard: "我是旅行商人。",
+    });
+  });
+
+  it("群聊：charCard = 群成员角色卡「名字：描述」逐条拼接", () => {
+    const { adapter } = stableAdapter({
+      groupId: "g1",
+      groups: [{ id: "g1", name: "夜谈组", members: [0, 2] }],
+      characters: [
+        { id: 0, name: "爱丽丝", description: "见习魔女。" },
+        { id: 1, name: "路人", description: "" },
+        { id: 2, name: "云烬", description: "上古神族后裔。" },
+      ],
+    });
+    expect(adapter.getPromptSnapshot().charCard).toBe("爱丽丝：见习魔女。\n\n云烬：上古神族后裔。");
+  });
+
+  it("查不到角色卡 / 无 Persona / 群成员无描述：对应字段为空串（不留占位符原文）", () => {
+    const { adapter } = stableAdapter({
+      characterId: 9,
+      characters: [{ id: 0, name: "爱丽丝", description: "见习魔女。" }],
+    });
+    const snapshot = adapter.getPromptSnapshot();
+    expect(snapshot.charCard).toBe("");
+    expect(snapshot.userCard).toBe("");
+    // 群聊无成员卡描述 → 空串
+    const group = stableAdapter({
+      groupId: "g1",
+      groups: [{ id: "g1", name: "夜谈组", members: [1] }],
+      characters: [{ id: 1, name: "路人", description: "" }],
+    });
+    expect(group.adapter.getPromptSnapshot().charCard).toBe("");
+  });
+
+  it("快照字段缺省为空串：worldbookText / msgText 由宿主按块/扫描填充", () => {
+    const { adapter } = stableAdapter();
+    expect(adapter.getPromptSnapshot().worldbookText).toBe("");
+    expect(adapter.getPromptSnapshot().msgText).toBe("");
   });
 });
 

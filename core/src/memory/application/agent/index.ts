@@ -11,11 +11,16 @@ export {
 export {
   PROPOSAL_AGENT_BASE_INSTRUCTIONS,
   composeInteractiveProposalAgentSystemPrompt,
+  composeProposalAgentMessages,
   composeProposalAgentSystemPrompt,
   composeQueryAgentSystemPrompt,
   composeTableDigestSummary,
 } from "./prompt-composer.ts";
-export type { ProposalSystemPromptComposer } from "./prompt-composer.ts";
+export type {
+  ComposedAgentMessage,
+  ProposalMessagesComposer,
+  ProposalSystemPromptComposer,
+} from "./prompt-composer.ts";
 export {
   QUERY_RECORDS_TOOL_NAME,
   QueryRecordsToolError,
