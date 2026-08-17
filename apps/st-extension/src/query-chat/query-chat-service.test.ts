@@ -274,6 +274,25 @@ describe("QueryChatService（问答双模式 run 编排，ticket 20）", () => {
     expect(records?.records ?? []).toHaveLength(1);
   });
 
+  it("填写模式：软闸门提示词进 system prompt（digest 摘要展开）", async () => {
+    let seenSystemPrompt: string | undefined;
+    const stream = scriptedStreamFn((context) => {
+      seenSystemPrompt = context.systemPrompt;
+      return assistantMessage([textMessage("好的，未做任何变更。")], "stop");
+    });
+    const harness = await createHarness({ streamFn: stream });
+    await run(harness, {
+      mode: "fill",
+      messages: [{ role: "user", text: "你好" }],
+    });
+    // 编排：composeInteractiveProposalAgentSystemPrompt(digest) 单条 system 消息
+    // 合并进系统提示词；对话消息在 messages 里，不进 systemPrompt。
+    expect(seenSystemPrompt).toBeDefined();
+    expect(seenSystemPrompt!).toContain("只有用户明确同意后，才允许调用 submit_proposal"); // 软闸门
+    expect(seenSystemPrompt!).toContain("可用表与字段"); // digest 摘要展开
+    expect(seenSystemPrompt!).toContain("【characters｜人物】"); // 表在摘要中
+  });
+
   it("填写模式：用户不同意 → Agent 不提交自然结束，无 commit", async () => {
     const harness = await createHarness({ streamFn: scriptedDeclineAgent() });
     const { events, result } = await run(harness, {

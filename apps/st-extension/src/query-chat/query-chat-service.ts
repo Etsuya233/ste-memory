@@ -7,10 +7,10 @@
  *
  * - 查询模式：QueryAgent 只读问答（core 固定提示词 composeQueryAgentSystemPrompt）；
  *   多轮历史由客户端回传（user/assistant 文本），工具结果与思考不跨轮；
- * - 填写模式：ProposalAgent + composeInteractiveProposalAgentSystemPrompt
- *   （prompt 软闸门：Agent 陈述变更并征得用户明确同意后提交）；run 结束后
- *   冻结提案直通 repository（revisionSource "agent"，core 修订校验兜底并发），
- *   不经活动任务守卫（web 决策 8/10）；
+ * - 填写模式：共享组装模块 runFillAgent（src/agent，ADR 0024）+
+ *   composeInteractiveProposalAgentSystemPrompt（prompt 软闸门：Agent 陈述变更
+ *   并征得用户明确同意后提交）；run 结束后冻结提案直通 repository
+ *   （revisionSource "agent"，core 修订校验兜底并发），不经活动任务守卫（web 决策 8/10）；
  * - 空间切换守卫（决策 7）：提交前校验当前绑定空间 == run 起始空间，不一致
  *   放弃提案（abandoned，提示「对话已切换，变更未提交」）；查询模式继续跑完；
  * - 取消：AbortController；适配器以 stopReason "aborted" 收尾，本模块翻译为
@@ -28,12 +28,14 @@ import type {
 } from "@ste-memory/core/memory";
 import { commitMemoryProposalBatch } from "@ste-memory/core/memory";
 import {
-  ProposalAgent,
   QueryAgent,
+  buildMemorySpaceTableDigest,
   composeInteractiveProposalAgentSystemPrompt,
+  type ComposedAgentMessage,
   type LlmPort,
   type MemorySpaceReader,
 } from "@ste-memory/core/memory/agent";
+import { runFillAgent } from "../agent/fill-agent-runner.ts";
 import {
   errorMessage,
   type QueryChatCommitResult,
@@ -166,32 +168,35 @@ export class QueryChatService {
   }
 
   /**
-   * 填写模式：ProposalAgent + 交互式填写提示词（软闸门）；run 结束后冻结提案
-   * 经空间一致性校验直通 repository。
+   * 填写模式：共享组装模块 + 交互式填写提示词（软闸门，ADR 0024）；run 结束后
+   * 冻结提案经空间一致性校验直通 repository。
    */
   async #runFill(
     input: QueryChatRunInput,
     llm: LlmPort,
     messages: readonly AgentMessage[],
   ): Promise<QueryChatRunResult> {
-    const agent = new ProposalAgent({
+    // digest 在 run 前构建一次，同时喂消息展开（软闸门提示词）与工具装配。
+    const digest = await buildMemorySpaceTableDigest(this.#reader, input.memorySpaceId);
+    const composed: readonly ComposedAgentMessage[] = [
+      { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
+    ];
+    const result = await runFillAgent({
       llm,
       reader: this.#reader,
       ports: this.#ports,
-      composeSystemPrompt: composeInteractiveProposalAgentSystemPrompt,
+      memorySpaceId: input.memorySpaceId,
+      digest,
+      composedMessages: composed,
+      messages,
+      // 聊天无消息范围概念：合成占位（commit 不使用它，仅预览元数据，对齐 api）。
+      messageRange: { from: 0, to: 0 },
+      // v1 交互式填写不注入证据（零剧情注入，决策 2）。
+      evidence: [],
       timeoutMs: this.#timeoutMs,
+      signal: input.signal,
+      onEvent: this.#translate(input),
     });
-    const result = await agent.run(
-      {
-        memorySpaceId: input.memorySpaceId,
-        messages,
-        // 聊天无消息范围概念：合成占位（commit 不使用它，仅预览元数据，对齐 api）。
-        messageRange: { from: 0, to: 0 },
-        // v1 交互式填写不注入证据（零剧情注入，决策 2）。
-        evidence: [],
-      },
-      { signal: input.signal, onEvent: this.#translate(input) },
-    );
 
     // 自动落库（ADR 0019）：只有正常结束（非取消/超时）才提交冻结提案。
     let commit: QueryChatCommitResult | undefined;
