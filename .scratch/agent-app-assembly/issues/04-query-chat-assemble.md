@@ -6,14 +6,18 @@
 
 **Blocked by:** 02 — ST 层提案 Agent 组装模块
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 填写模式改用组装模块：`composeInteractiveProposalAgentSystemPrompt(digest)` 包成 `{ role: "system" }` 编排消息（同形状），digest 在 run 前构建一次
-- [ ] 软闸门语义保持：只有正常结束（非取消/超时）才提交冻结提案；`messageRange` 合成占位与零证据注入保持现状
-- [ ] 提交链路不动：空间一致性校验（运行中切换对话放弃提案）→ 单事务直通 repository（revisionSource "agent"）
-- [ ] 查询模式（QueryAgent）零改动
-- [ ] query-chat-service 既有测试全绿（填写模式经 scriptedStreamFn 断言：软闸门提示词进 system prompt、提交前空间校验、自动落库）
-- [ ] 插件 typecheck 与测试全绿
+- [x] 填写模式改用组装模块：`composeInteractiveProposalAgentSystemPrompt(digest)` 包成 `{ role: "system" }` 编排消息（同形状），digest 在 run 前构建一次
+- [x] 软闸门语义保持：只有正常结束（非取消/超时）才提交冻结提案；`messageRange` 合成占位与零证据注入保持现状
+- [x] 提交链路不动：空间一致性校验（运行中切换对话放弃提案）→ 单事务直通 repository（revisionSource "agent"）
+- [x] 查询模式（QueryAgent）零改动
+- [x] query-chat-service 既有测试全绿（填写模式经 scriptedStreamFn 断言：软闸门提示词进 system prompt、提交前空间校验、自动落库）
+- [x] 插件 typecheck 与测试全绿
+
+## Answer
+
+`apps/st-extension/src/query-chat/query-chat-service.ts`：`#runFill` 删除 `ProposalAgent` 装配，digest 在 run 前用 `buildMemorySpaceTableDigest` 构建一次（同时喂消息展开与工具装配），`composed = [{ role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) }]`（与填表任务同形状），交共享组装模块 `runFillAgent`；软闸门提交守卫（仅正常结束提交）、`messageRange {0,0}` 占位、零证据注入、`#commitProposal` 空间校验 + 单事务直通 repository（revisionSource "agent"）逐字未动；查询模式（QueryAgent）与 `#runQuery` 零改动。新增 1 个测试锁定软闸门提示词进 system prompt（含 digest 摘要与表行）。测试 16/16 全绿（插件全量 65 文件 733 测试）、typecheck、esbuild 构建全过。
 
 ## Comments
 
