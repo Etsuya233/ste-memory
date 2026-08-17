@@ -28,8 +28,8 @@ import {
   FillTaskStateError,
   type FillTaskSource,
 } from "./fill-task.ts";
-import { FillTaskService, type FillTaskPromptFactory } from "./fill-task-service.ts";
-import { composePresetMessages } from "../agent-presets/preset-composer.ts";
+import { FillTaskService, type FillTaskPromptContext } from "./fill-task-service.ts";
+import type { composePresetMessages } from "../agent-presets/preset-composer.ts";
 import type { AgentPromptPreset } from "../agent-presets/preset-model.ts";
 import {
   assistantMessage,
@@ -179,9 +179,9 @@ async function createHarness(
     readonly streamFn?: StreamFn;
     readonly createLlmThrows?: boolean;
     readonly source?: FillTaskSource;
-    readonly createComposeMessages?: (
+    readonly createPromptContext?: (
       storyText: string,
-    ) => Promise<FillTaskPromptFactory | undefined>;
+    ) => Promise<FillTaskPromptContext | undefined>;
     readonly logs?: LogRepository;
     readonly resolveCleaningRules?: () => readonly CleaningRule[];
   } = {},
@@ -269,7 +269,7 @@ async function createHarness(
     createEvidenceId: () => `evidence-${++evidenceSeq}` as MemoryEvidenceId,
     now: () => NOW,
     logs,
-    createComposeMessages: options.createComposeMessages,
+    createPromptContext: options.createPromptContext,
     resolveCleaningRules: options.resolveCleaningRules,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
@@ -824,7 +824,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     );
   });
 
-  it("createComposeMessages：提交时构造的工厂注入 ProposalAgent（system 消息展开进 system prompt）", async () => {
+  it("createPromptContext：system 消息展开进 system prompt（占位符单遍展开）", async () => {
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
       seenSystemPrompt = context.systemPrompt;
@@ -832,19 +832,15 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      // 与插件真实装配同构：预设消息 + 提交时快照 → 编排消息组合器
-      createComposeMessages: async () => ({
-        referencesMsg: false,
-        compose: () =>
-          composePresetMessages(
-            testPreset([
-              {
-                role: "system",
-                content: "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
-              },
-            ]),
-            snapshot({ names: { user: "小明", char: "爱丽丝" } }),
-          ),
+      // 与插件真实装配同构：预设 + 提交时快照 → service 块循环展开编排消息
+      createPromptContext: async () => ({
+        preset: testPreset([
+          {
+            role: "system",
+            content: "你是{{char}}的破限填写员，服务于{{user}}\n\n{{tablesDigest}}",
+          },
+        ]),
+        snapshot: snapshot({ names: { user: "小明", char: "爱丽丝" } }),
       }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
@@ -855,7 +851,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(seenSystemPrompt!).not.toContain("{{char}}");
   });
 
-  it("createComposeMessages：收到任务范围的合并剧情文本，{{worldbook}} 展开为扫描快照", async () => {
+  it("createPromptContext：收到任务范围的合并剧情文本，{{worldbook}} 展开为扫描快照", async () => {
     let seenStoryText: string | undefined;
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
@@ -864,15 +860,11 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      createComposeMessages: async (storyText) => {
+      createPromptContext: async (storyText) => {
         seenStoryText = storyText;
         return {
-          referencesMsg: false,
-          compose: () =>
-            composePresetMessages(
-              testPreset([{ role: "system", content: "世界观参考：\n{{worldbook}}" }]),
-              snapshot({ worldbookText: storyText }),
-            ),
+          preset: testPreset([{ role: "system", content: "世界观参考：\n{{worldbook}}" }]),
+          snapshot: snapshot({ worldbookText: storyText }),
         };
       },
     });
@@ -885,7 +877,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     );
   });
 
-  it("createComposeMessages：{{msg}} 引用时块内容只经占位符展开，不追加块提示词", async () => {
+  it("createPromptContext：{{msg}} 引用时本轮消息为空，块内容只经占位符展开", async () => {
     let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
     const stream = scriptedStreamFn((context) => {
       seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
@@ -893,23 +885,19 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      createComposeMessages: async () => ({
-        // 引用 {{msg}}：接管消息编排
-        referencesMsg: true,
-        compose: (blockText) =>
-          composePresetMessages(
-            testPreset([
-              { role: "system", content: "你是记忆助手。" },
-              { role: "user", content: "请总结：\n{{msg}}" },
-            ]),
-            snapshot({ msgText: blockText }),
-          ),
+      createPromptContext: async () => ({
+        // 预设引用 {{msg}}：接管消息编排（本轮消息 = []，块内容只经占位符展开）
+        preset: testPreset([
+          { role: "system", content: "你是记忆助手。" },
+          { role: "user", content: "请总结：\n{{msg}}" },
+        ]),
+        snapshot: snapshot(),
       }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
     await waitForTerminal(harness, view.runId);
     // 对话 = system（进 systemPrompt，不在 messages）+ 编排 user（含块内容）；
-    // 没有追加的块提示词（referencesMsg = true）
+    // 没有追加的块提示词（{{msg}} 接管）
     expect(seenMessages.map((m) => m.role)).toEqual(["user"]);
     expect(seenMessages[0]!.text).toContain("请总结：");
     expect(seenMessages[0]!.text).toContain("[0] 爱丽丝：消息 1");
@@ -919,7 +907,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(seenMessages.some((m) => m.role === "system")).toBe(false);
   });
 
-  it("createComposeMessages：编排 user/assistant 消息作为对话前缀，块提示词追加在最后", async () => {
+  it("createPromptContext：编排 user/assistant 消息作为对话前缀，块提示词追加在最后", async () => {
     let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
     const stream = scriptedStreamFn((context) => {
       seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
@@ -927,16 +915,12 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     });
     const harness = await createHarness({
       streamFn: stream,
-      createComposeMessages: async () => ({
-        referencesMsg: false,
-        compose: () =>
-          composePresetMessages(
-            testPreset([
-              { role: "user", content: "开场设定问题" },
-              { role: "assistant", content: "开场回答" },
-            ]),
-            snapshot(),
-          ),
+      createPromptContext: async () => ({
+        preset: testPreset([
+          { role: "user", content: "开场设定问题" },
+          { role: "assistant", content: "开场回答" },
+        ]),
+        snapshot: snapshot(),
       }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 0 });
@@ -948,7 +932,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(seenMessages[2]!.text).toContain("以下是需要处理的对话消息（消息 0 到 0，共 1 条）：");
   });
 
-  it("createComposeMessages 缺省：使用核心默认组合器（system prompt 为默认指令）", async () => {
+  it("createPromptContext 缺省：使用核心默认提示词（system prompt 为默认指令）", async () => {
     let seenSystemPrompt: string | undefined;
     const stream = scriptedStreamFn((context) => {
       seenSystemPrompt = context.systemPrompt;
@@ -959,6 +943,31 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await waitForTerminal(harness, view.runId);
     expect(seenSystemPrompt).toContain("你是记忆表格填写助手");
     expect(seenSystemPrompt).toContain("可用表与字段");
+  });
+
+  it("assistant 结尾预设直接进入 run（守卫已删）：{{msg}} 接管 + 无 user 消息不报错", async () => {
+    let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
+    const stream = scriptedStreamFn((context) => {
+      seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createPromptContext: async () => ({
+        preset: testPreset([
+          { role: "system", content: "你是记忆助手。" },
+          { role: "assistant", content: "开场回答\n{{msg}}" },
+        ]),
+        snapshot: snapshot(),
+      }),
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    const terminal = await waitForTerminal(harness, view.runId);
+    // 任务成功：assistant 结尾的编排消息直接进入 run（不再抛「最后一条必须 user」）
+    expect(terminal.status).toBe("succeeded");
+    expect(seenMessages.map((m) => m.role)).toEqual(["assistant"]);
+    expect(seenMessages[0]!.text).toContain("[0] 爱丽丝：消息 1");
+    expect(seenMessages[0]!.text).not.toContain("请依据这些消息更新记忆表格");
   });
 });
 

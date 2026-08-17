@@ -39,16 +39,11 @@ import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
 import {
-  composePresetMessages,
-  type AgentPromptSnapshot,
-} from "./agent-presets/preset-composer.ts";
-import {
-  containsMsgReference,
   containsWorldbookReference,
   resolveActivePreset,
 } from "./agent-presets/preset-model.ts";
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
-import type { FillTaskPromptFactory } from "./fill-tasks/fill-task-service.ts";
+import type { FillTaskPromptContext } from "./fill-tasks/fill-task-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
@@ -215,16 +210,17 @@ export async function startSteMemory(
   const createLlm = (): LlmPort => createLlmFor("fillTask", false);
   const createQueryChatLlm = (): LlmPort => createLlmFor("queryChat", true);
   /**
-   * 填表任务的编排消息组合器工厂（ticket 17 / ADR 0006 + 消息编排扩展；世界书
-   * ADR 0007）：提交时构造一次——活动预设 + 对话双方名字/角色卡/Persona 快照 +
-   * 世界书扫描文本快照；块处理时按块注入块消息文本（{{msg}} 展开输入）。
-   * 系统默认预设 → undefined（用核心默认组合器）。
+   * 填表任务的编排上下文工厂（ADR 0024 组装迁移）：提交时构造一次**纯数据**
+   * （活动预设 + 占位符展开快照，无方法）——预设解析 + 对话双方名字/角色卡/
+   * Persona 快照 + 世界书扫描文本快照；块级 {{msg}} 由块循环按块注入，编排
+   * 消息展开（composePresetMessages）归属 service 块循环。
+   * 系统默认预设 → undefined（service 走核心默认提示词）。
    * 预设启用消息含 {{worldbook}} 才扫描（零引用零开销）；扫描失败 → 空串 + warn，
-   * 不阻断任务（用户决策）；每次任务首次组合时 log 最终编排消息。
+   * 不阻断任务（用户决策）。
    */
-  const createComposeMessages = async (
+  const createPromptContext = async (
     storyText: string,
-  ): Promise<FillTaskPromptFactory | undefined> => {
+  ): Promise<FillTaskPromptContext | undefined> => {
     const preset = resolveActivePreset(settings.read().agentPresets);
     if (!preset) return undefined;
     let worldbookText = "";
@@ -239,29 +235,9 @@ export async function startSteMemory(
         );
       }
     }
-    const snapshotBase: AgentPromptSnapshot = {
-      ...adapter.getPromptSnapshot(),
-      worldbookText,
-    };
-    let logged = false;
     return {
-      // {{msg}} 引用 = 用户接管消息编排（块内容只出现在占位符处，不追加块提示词）
-      referencesMsg: containsMsgReference(preset),
-      compose: (msgText) => {
-        const compose = composePresetMessages(preset, { ...snapshotBase, msgText });
-        return (digest) => {
-          const messages = compose(digest);
-          if (!logged) {
-            logged = true;
-            log.info(
-              `[${PLUGIN_DISPLAY_NAME}] Agent 预设「${preset.name}」编排消息：\n${messages
-                .map((message) => `[${message.role}] ${message.text}`)
-                .join("\n---\n")}`,
-            );
-          }
-          return messages;
-        };
-      },
+      preset,
+      snapshot: { ...adapter.getPromptSnapshot(), worldbookText },
     };
   };
   const logs = new DexieLogRepository(db, { now });
@@ -310,7 +286,7 @@ export async function startSteMemory(
       db.floorFillLedger,
     ]),
     createLlm,
-    createComposeMessages,
+    createPromptContext,
     createRunId: () => createId("task"),
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,
