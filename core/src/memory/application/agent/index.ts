@@ -71,3 +71,12 @@ export type {
   ProposalAgentRunInput,
   ProposalAgentRunResult,
 } from "./proposal-agent.ts";
+// Agent 运行基础设施（ADR 0024）：App 层独立组装 Agent 的公开零件——
+// App 可用 core 工具工厂 + pi-agent-core Agent + 本组符号自行装配，
+// ProposalAgent 保留为默认装配（convenience default）。
+export {
+  abortedAgentRunSummary,
+  convertAgentMessagesToLlm,
+  runAgentWithTimeout,
+} from "./agent-run.ts";
+export type { AgentRunSummary, RunHooks } from "./agent-run.ts";
