@@ -6,14 +6,18 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 编排：system 角色合并进系统提示词（空行分隔），user/assistant 进初始 transcript（插件自实现，约 10 行；core 不导出编排方法）
-- [ ] 守卫：仅「组合后至少一条消息」抛错；不复制 core `ProposalAgent` 的「第一条/最后一条必须 user」守卫
-- [ ] 装配：`ProposalState`（每 run 新建）+ 校验闭包（`validateProposalOperation` / `validateProposalOperations` / `previewProposal` 包装）+ 5 个工具工厂（`createQueryRecordsTool` / `createMutateTool` / `createProposalPreviewTool` / `createDropMutateTool` / `createSubmitProposalTool`）+ `new Agent`（pi-agent-core）
-- [ ] run：`runAgentWithTimeout`（超时/取消语义沿用 core）；`proposal` 取 `state.frozenProposal`；digest 由调用方传入（模块不内置 digest 构建）
-- [ ] 模块单测（fixture digest + scriptedStreamFn）：守卫抛错、system 合并、前缀顺序、run 结果形状、submit_proposal 冻结提案
-- [ ] 插件 typecheck 通过；esbuild 构建通过（pi-agent-core 从 type-only 变运行时依赖，打进单文件 bundle）
+- [x] 编排：system 角色合并进系统提示词（空行分隔），user/assistant 进初始 transcript（插件自实现，约 10 行；core 不导出编排方法）
+- [x] 守卫：仅「组合后至少一条消息」抛错；不复制 core `ProposalAgent` 的「第一条/最后一条必须 user」守卫
+- [x] 装配：`ProposalState`（每 run 新建）+ 校验闭包（`validateProposalOperation` / `validateProposalOperations` / `previewProposal` 包装）+ 5 个工具工厂（`createQueryRecordsTool` / `createMutateTool` / `createProposalPreviewTool` / `createDropMutateTool` / `createSubmitProposalTool`）+ `new Agent`（pi-agent-core）
+- [x] run：`runAgentWithTimeout`（超时/取消语义沿用 core）；`proposal` 取 `state.frozenProposal`；digest 由调用方传入（模块不内置 digest 构建）
+- [x] 模块单测（fixture digest + scriptedStreamFn）：守卫抛错、system 合并、前缀顺序、run 结果形状、submit_proposal 冻结提案
+- [x] 插件 typecheck 通过；esbuild 构建通过（pi-agent-core 从 type-only 变运行时依赖，打进单文件 bundle）
+
+## Answer
+
+`apps/st-extension/src/agent/fill-agent-runner.ts`：`runFillAgent(input: FillAgentRunInput)` 函数式组装模块（`FillAgentRunInput` 在 spec 接口草案基础上补充 `digest` 字段——digest 由调用方传入，模块不内置构建）。system 合并（空行分隔）/user+assistant 前缀构造为 ST 自实现（`systemTextOf` / `toAgentPrefixMessages`）；守卫仅「组合后至少一条消息」抛错；每 run 新建 `ProposalState` + 校验闭包 + 5 工具工厂 + `new Agent`；`runAgentWithTimeout` 沿用 core 超时/取消语义，结果形状对齐 `ProposalAgentRunResult`。单测 7 个（Dexie fixture digest + scriptedStreamFn）全绿；插件 typecheck 与 esbuild 构建通过（pi-agent-core 变运行时依赖打进单文件 bundle，~1024kb）。
 
 ## Comments
 
