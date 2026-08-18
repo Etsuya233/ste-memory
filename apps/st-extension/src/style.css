@@ -2014,6 +2014,10 @@
   width: 100%;
 }
 
+.stm-task-field--batch {
+  flex: 0 1 110px;
+}
+
 .stm-task-field--grow {
   flex: 1;
 }

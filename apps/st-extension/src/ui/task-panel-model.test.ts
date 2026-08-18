@@ -5,6 +5,7 @@ import {
   buildTasksTabViewModel,
   taskStatusViewModel,
   unprocessedRanges,
+  validateBlockSize,
   validateFloorRange,
   type CoverageViewModel,
   type TasksTabViewModel,
@@ -68,6 +69,37 @@ describe("unprocessedRanges（未处理范围：台账 untracked = 无行）", (
     ]);
     expect(unprocessedRanges([], 5)).toEqual([{ from: 0, to: 4 }]);
     expect(unprocessedRanges([], 0)).toEqual([]);
+  });
+});
+
+describe("validateBlockSize（每批楼层数输入校验）", () => {
+  it("空输入 = 默认块大小（20，与 service 同值）", () => {
+    expect(validateBlockSize("")).toEqual({ kind: "ok", value: 20 });
+    expect(validateBlockSize("   ")).toEqual({ kind: "ok", value: 20 });
+  });
+
+  it("合法正整数 → ok（含边界 1）", () => {
+    expect(validateBlockSize("1")).toEqual({ kind: "ok", value: 1 });
+    expect(validateBlockSize("50")).toEqual({ kind: "ok", value: 50 });
+  });
+
+  it("非整数/小于 1 → error 且原因可读", () => {
+    expect(validateBlockSize("abc")).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("整数"),
+    });
+    expect(validateBlockSize("2.5")).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("整数"),
+    });
+    expect(validateBlockSize("0")).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(">= 1"),
+    });
+    expect(validateBlockSize("-3")).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining(">= 1"),
+    });
   });
 });
 

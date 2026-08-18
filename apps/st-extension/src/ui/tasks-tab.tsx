@@ -4,7 +4,7 @@
  *
  * 纯逻辑在 task-panel-model（可测），本组件只做「状态 → DOM」投影与事件接线：
  * - 覆盖视图：楼层条（每消息一格，已处理/任务中/出错/未计划）+ 图例计数；
- * - 触发表单：from/to 楼层输入（预填首个未处理范围）+ 触发按钮；输入校验错误内联展示；
+ * - 触发表单：from/to 楼层输入（预填首个未处理范围）+ 每批楼层数（默认 20）+ 触发按钮；输入校验错误内联展示；
  * - 活动任务区：状态/范围/进度 + 取消（用户取消 = 与关 tab 同态落 interrupted）；
  * - 任务历史：终态任务列表（状态/范围/时间/错误），失败与中断可重试；
  * - 数据轮询：本票无事件总线（ticket 16 引入），有活动任务时每 1s 刷新进度。
@@ -21,10 +21,12 @@ import {
 import {
   buildTasksTabViewModel,
   COVERAGE_STATUS_LABELS,
+  validateBlockSize,
   validateFloorRange,
   type CoverageStatus,
   type TasksTabViewModel,
 } from "./task-panel-model.ts";
+import { DEFAULT_FILL_TASK_BLOCK_SIZE } from "../fill-tasks/fill-task-service.ts";
 import { activeStatus, Placeholder, reportError, reportSuccess } from "./ui-helpers.tsx";
 
 /** 轮询间隔：任务运行期进度刷新（无事件总线时的 v1 方案） */
@@ -75,6 +77,7 @@ export function TasksTab(props: {
   const [view, setView] = useState<TasksTabViewModel | undefined>(undefined);
   const [fromText, setFromText] = useState("");
   const [toText, setToText] = useState("");
+  const [blockSizeText, setBlockSizeText] = useState("");
   const [initText, setInitText] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -195,21 +198,29 @@ export function TasksTab(props: {
     props.onSettingsChange(next);
   }
 
-  /** 触发填表：校验楼层输入（可读错误内联展示）→ 提交（冲突/LLM 缺失经 toastr） */
+  /** 触发填表：校验楼层输入与每批楼层数（可读错误内联展示）→ 提交（冲突/LLM 缺失经 toastr） */
   async function trigger(): Promise<void> {
-    const validation = validateFloorRange(fromText, toText, view!.chatLength);
-    if (validation.kind === "error") {
-      setInputError(validation.message);
+    const rangeValidation = validateFloorRange(fromText, toText, view!.chatLength);
+    if (rangeValidation.kind === "error") {
+      setInputError(rangeValidation.message);
+      return;
+    }
+    const batchValidation = validateBlockSize(blockSizeText);
+    if (batchValidation.kind === "error") {
+      setInputError(batchValidation.message);
       return;
     }
     setInputError(null);
     try {
       await props.runtime.tasks.submit({
         memorySpaceId: currentSpaceId,
-        from: validation.from,
-        to: validation.to,
+        from: rangeValidation.from,
+        to: rangeValidation.to,
+        blockSize: batchValidation.value,
       });
-      reportSuccess(`已触发填表任务（楼层 ${validation.from}–${validation.to}）`);
+      reportSuccess(
+        `已触发填表任务（楼层 ${rangeValidation.from}–${rangeValidation.to}，每批 ${batchValidation.value} 层）`,
+      );
       setReloadKey((key) => key + 1);
     } catch (error) {
       reportError(error);
@@ -352,6 +363,21 @@ export function TasksTab(props: {
                 placeholder="结束"
                 onChange={(event) => {
                   setToText(event.target.value);
+                  setInputError(null);
+                }}
+              />
+            </label>
+            <label className="stm-task-field stm-task-field--batch">
+              <span>每批</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                data-stm-field="batch-size"
+                value={blockSizeText}
+                placeholder={`默认 ${DEFAULT_FILL_TASK_BLOCK_SIZE}`}
+                title="每批处理的楼层数（一次 Agent 调用 + 一个原子批次）"
+                onChange={(event) => {
+                  setBlockSizeText(event.target.value);
                   setInputError(null);
                 }}
               />

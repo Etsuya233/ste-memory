@@ -11,6 +11,7 @@
  */
 import type { FillTaskStatus, FillTaskView, FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
 import { isFillTaskTerminal } from "../fill-tasks/fill-task.ts";
+import { DEFAULT_FILL_TASK_BLOCK_SIZE } from "../fill-tasks/fill-task-service.ts";
 import { formatSyncTime } from "./space-info.ts";
 import type { CleaningRuleList } from "../settings/cleaning-rule-lists.ts";
 
@@ -21,6 +22,10 @@ export interface FloorRange {
 
 export type FloorRangeValidation =
   | { readonly kind: "ok"; readonly from: number; readonly to: number }
+  | { readonly kind: "error"; readonly message: string };
+
+export type BlockSizeValidation =
+  | { readonly kind: "ok"; readonly value: number }
   | { readonly kind: "error"; readonly message: string };
 
 export interface TaskStatusViewModel {
@@ -85,6 +90,23 @@ export function unprocessedRanges(
   }
   if (rangeStart !== undefined) ranges.push({ from: rangeStart, to: chatLength - 1 });
   return ranges;
+}
+
+/**
+ * 分块大小（每批楼层数）输入校验：空输入 = 默认块大小（20，与 service 同值）；
+ * 非整数/小于 1 → 可读错误信息。
+ */
+export function validateBlockSize(text: string): BlockSizeValidation {
+  const trimmed = text.trim();
+  if (trimmed === "") return { kind: "ok", value: DEFAULT_FILL_TASK_BLOCK_SIZE };
+  const value = Number(trimmed);
+  if (!Number.isInteger(value)) {
+    return { kind: "error", message: "每批楼层数请输入整数（每批处理的楼层数）" };
+  }
+  if (value < 1) {
+    return { kind: "error", message: "每批楼层数必须 >= 1（每批至少 1 层）" };
+  }
+  return { kind: "ok", value };
 }
 
 /**
