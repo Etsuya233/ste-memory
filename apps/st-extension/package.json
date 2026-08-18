@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node --experimental-strip-types scripts/build.ts",
+    "sync": "node --experimental-strip-types scripts/sync.ts",
+    "deploy:st": "npm run build && npm run sync",
     "dev": "node --experimental-strip-types scripts/dev.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
