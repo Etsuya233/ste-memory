@@ -1180,10 +1180,18 @@ describe("FillTaskService 填表日志（通用日志写入，ADR 0008）", () =
     }
     await service.cancel(spaceId, view.runId);
     streamFn.gate.open();
-    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
 
-    const entries = await logs.byKey(view.runId, 10);
+    // 中断块日志在 in-flight 块跑完后的安全点才落库，固定等待在高负载下会读早
+    // （全仓并行时曾出现 entries 只有 1 条的漂移失败）；轮询到两条齐
+    // （对齐 waitForTerminal 的写法）。
+    const logDeadline = Date.now() + 5_000;
+    let entries: readonly LogEntry[] = [];
+    while (Date.now() < logDeadline) {
+      entries = await logs.byKey(view.runId, 10);
+      if (entries.length >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     expect(entries).toHaveLength(2);
     // 最新一条 = 中断块
     const interrupted = record(entries[0]!);
