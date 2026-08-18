@@ -377,8 +377,9 @@ export async function startSteMemory(
   // 镜像同步在 R2 拉取之后启动：拉取恢复的数据会在轮询中回填进对话文件（文件自洽）
   await mirror.start();
 
-  // 记忆宏（ticket 15 / ADR 0004）：注册由设置面板配置的宏名，预计算快照随变更指纹
-  // 重建（与镜像/云同步同机制）；handler 同步返回快照（ST 宏引擎同步约束）
+  // 记忆宏（ticket 15 / ADR 0004 + ticket 02 / ADR 0025）：注册由设置面板配置的宏名
+  // （带可选视图名参数），预计算快照（默认 + 每视图）随变更指纹/视图设置重建
+  // （与镜像/云同步同机制）；handler 同步返回快照（ST 宏引擎同步约束）
   const macro = new MemoryMacroService({
     getSpaceId: () => {
       const status = manager.getStatus();
@@ -388,12 +389,15 @@ export async function startSteMemory(
       listTables: (id) => tableRepository.list(id),
       listRecords: (id, tableId) => recordRepository.list(id, tableId),
     },
+    // 视图翻译/查询/引用解析共用既有 reader（queryRecords → MemoryRecordQueryService）
+    reader,
     readSettings: () => {
       const settingsValue = settings.read();
       return {
         enabled: settingsValue.enabled,
         macroName: settingsValue.macroName,
         macroLimit: settingsValue.macroLimit,
+        memoryViews: settingsValue.memoryViews,
       };
     },
     registerMacro: adapter.macroRegistration,

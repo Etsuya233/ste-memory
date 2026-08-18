@@ -23,7 +23,7 @@ import type { MemoryRecord } from "@ste-memory/core/memory";
 export const TRUNCATION_MARKER = "……（已截断）";
 
 /** 单行化：显示文本/表名里的换行替换为空格（格式契约「每条记录一行」） */
-function toSingleLine(text: string): string {
+export function toSingleLine(text: string): string {
   return text.replace(/\r?\n/g, " ");
 }
 

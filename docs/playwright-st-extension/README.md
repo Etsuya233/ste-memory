@@ -204,3 +204,25 @@ node verify-chat-metadata-mirror.mjs   # exit 0 = 全流程通过（17 项断言
   成普通状态（标记属于恢复那一次同步，与 created 同语义）。头部断言必须用
   MutationObserver 在 DOM 更新瞬间记录，不能事后读文本。另核实：reload 后 ST
   **不会**自动打开最后对话（boot 不触发恢复，恢复日志来自 openChat）。
+
+## ticket 02 验收脚本（verify-memory-views.mjs）
+
+```bash
+node verify-memory-views.mjs   # exit 0 = 全流程通过（11 项断言）
+```
+
+真实 ST 中走完「建表建记录 → 设置面板级视图配置（settings.write + macro.kick）→
+`{{memoryContext::视图名}}` 展开（in 多值筛选排除（含已放弃）+ 投影渲染 + 条数上限/ 倒序 + 无投影显示文本）→
+无参宏回归 → 未知视图空串 → **世界书条目关键词触发注入**（getWorldInfoPrompt
+dry run 真实路径：建书 → 条目内容放宏 → 分配给当前对话 → 剧情文本命中关键词 →
+条目激活时宏展开）→ 设置面板记忆视图区块冒烟」全流程。
+
+踩过的坑（2026-08-17）：
+
+- **WI 书分配走 chat_metadata**：`getContext().getChatLore()` 直接读
+  `chat_metadata.world_info`（world-info.js:4433），建书（saveWorldInfo +
+  updateWorldInfoList）后赋值该键即可被扫描命中，无需 UI 操作。
+- **createWorldInfoEntry 未暴露到 getContext**：条目对象手工构造（模板字段见
+  world-info.js newWorldInfoEntryTemplate；缺失字段在 load 时自动补齐）。
+- **dry run 扫描不写定时状态**：getWorldInfoPrompt(chat, maxContext, true)
+  是插件 worldbook-text.ts 同款调用（ADR 0007），不会污染对话 sticky/cooldown。

@@ -184,8 +184,36 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
       cleaningRuleLists: [],
+      memoryViews: [
+        {
+          name: "未完成伏笔",
+          tableKey: "plots",
+          condition: { fieldKey: "status", values: ["埋设中"] },
+          limit: 50,
+          projection: ["name", "status"],
+        },
+      ],
     };
     expect(mergeSettings(settings)).toEqual(settings);
+  });
+
+  it("记忆视图：缺省空数组，损坏项逐项丢弃（ticket 02）", () => {
+    expect(mergeSettings({}).memoryViews).toEqual([]);
+    const merged = mergeSettings({
+      memoryViews: [
+        {
+          name: "未完成伏笔",
+          tableKey: "plots",
+          condition: { fieldKey: "status", values: ["埋设中", "已触发"] },
+          limit: 50,
+          projection: ["name", "status"],
+        },
+        { name: "非法 名", tableKey: "plots", condition: null, limit: null, projection: [] },
+        "garbage",
+      ],
+    });
+    expect(merged.memoryViews.map((v) => v.name)).toEqual(["未完成伏笔"]);
+    expect(mergeSettings({ memoryViews: "oops" }).memoryViews).toEqual([]);
   });
 
   it("Agent 连接（ADR 0010）：损坏项丢弃、悬空选择回退跟随 ST", () => {

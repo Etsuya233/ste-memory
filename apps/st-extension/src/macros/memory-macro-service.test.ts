@@ -1,17 +1,25 @@
 import type {
+  MemoryField,
+  MemoryFieldId,
+  MemoryFieldKey,
   MemoryRecord,
   MemoryRecordId,
+  MemoryRecordPayload,
   MemoryRevisionId,
   MemorySpaceId,
   MemoryTable,
   MemoryTableId,
   MemoryTableKey,
 } from "@ste-memory/core/memory";
+import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
+import type { QueryRecordsInput, QueryRecordsPage } from "@ste-memory/core/memory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpaceFingerprint, SyncChangeSource } from "../cloud/space-fingerprint.ts";
+import type { MemoryView } from "../settings/memory-views.ts";
 import {
   MemoryMacroService,
   type MemoryMacroDataPorts,
+  type MemoryMacroExecutionContext,
   type MemoryMacroRegistrationPort,
   type MemoryMacroServicePorts,
 } from "./memory-macro-service.ts";
@@ -62,6 +70,45 @@ function record(id: string, displayText: string, updatedAt: string = BASE): Memo
   };
 }
 
+function field(id: string, key: string, type: MemoryField["type"] = "short_text", options: readonly string[] = [], name: string = key): MemoryField {
+  return {
+    id: id as MemoryFieldId,
+    memorySpaceId: "space-1" as MemorySpaceId,
+    tableId: "table-plots" as MemoryTableId,
+    key: key as MemoryFieldKey,
+    name,
+    type,
+    required: false,
+    prompt: "",
+    enabled: true,
+    position: 0,
+    options,
+    referenceTableId: null,
+    maxChars: null,
+    valuePattern: null,
+    valuePatternMessage: null,
+    createdAt: BASE,
+    updatedAt: BASE,
+  };
+}
+
+/** 视图专用表（digest 与查询结果的载体）：plots 表 + name/status 字段 */
+function plotsTable(): MemoryTable {
+  return {
+    id: "table-plots" as MemoryTableId,
+    memorySpaceId: "space-1" as MemorySpaceId,
+    key: "plots" as MemoryTableKey,
+    kind: "custom",
+    name: "伏笔",
+    description: "",
+    prompt: "",
+    displayStrategy: null,
+    enabled: true,
+    createdAt: BASE,
+    updatedAt: BASE,
+  };
+}
+
 class FakeData implements MemoryMacroDataPorts {
   tables: readonly MemoryTable[] = [];
   recordsByTable = new Map<MemoryTableId, readonly MemoryRecord[]>();
@@ -74,15 +121,60 @@ class FakeData implements MemoryMacroDataPorts {
 }
 
 class FakeRegistrar implements MemoryMacroRegistrationPort {
-  registered = new Map<string, () => string>();
+  registered = new Map<string, (context: MemoryMacroExecutionContext) => string>();
+  registeredArgs = new Map<string, readonly { name: string; optional?: boolean; defaultValue?: string }[]>();
   unregistered: string[] = [];
-  register(name: string, handler: () => string) {
+  register(
+    name: string,
+    handler: (context: MemoryMacroExecutionContext) => string,
+    args?: readonly { name: string; optional?: boolean; defaultValue?: string }[],
+  ) {
     this.registered.set(name, handler);
+    if (args) this.registeredArgs.set(name, args);
   }
   unregister(name: string) {
     this.registered.delete(name);
     this.unregistered.push(name);
   }
+}
+
+/** 视图查询端口：digest 构建（listTables/listFields）+ queryRecords 结果/错误可配置 */
+class FakeReader implements MemorySpaceReader {
+  tables: readonly MemoryTable[] = [plotsTable()];
+  fieldsByTable = new Map<MemoryTableId, readonly MemoryField[]>([
+    ["table-plots" as MemoryTableId, [field("field-name", "name", "short_text", [], "名称"), field("field-status", "status", "single_select", ["埋设中", "已触发", "已回收"], "状态")]],
+  ]);
+  /** 查询结果（按表 id）；缺省空页 */
+  resultsByTable = new Map<MemoryTableId, QueryRecordsPage>();
+  queryError: Error | undefined;
+  queryCalls: readonly QueryRecordsInput[] = [];
+  async listTables(_memorySpaceId: MemorySpaceId) {
+    return this.tables;
+  }
+  async listFields(_memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
+    return this.fieldsByTable.get(tableId) ?? [];
+  }
+  async queryRecords(_memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage> {
+    this.queryCalls = [...this.queryCalls, input];
+    if (this.queryError) throw this.queryError;
+    return (
+      this.resultsByTable.get(input.tableId) ?? {
+        records: [],
+        page: 1,
+        pageSize: input.paging.pageSize,
+        total: 0,
+        totalPages: 0,
+      }
+    );
+  }
+}
+
+/** 视图记录（payload 以字段 id 键控，displayText 与投影值分开给） */
+function viewRecord(id: string, displayText: string, payload: MemoryRecordPayload): MemoryRecord {
+  return {
+    ...record(id, displayText),
+    payload,
+  };
 }
 
 class FakeChangeSource implements SyncChangeSource {
@@ -99,12 +191,20 @@ function createHarness(overrides: Partial<MemoryMacroServicePorts> = {}) {
   const data = new FakeData();
   const registrar = new FakeRegistrar();
   const changes = new FakeChangeSource();
+  const reader = new FakeReader();
   let currentSpaceId: MemorySpaceId | undefined = "space-1" as MemorySpaceId;
-  let settings = { enabled: true, macroName: "{{memoryContext}}", macroLimit: 2000 };
+  let settings = {
+    enabled: true,
+    macroName: "{{memoryContext}}",
+    macroLimit: 2000,
+    memoryViews: [] as readonly MemoryView[],
+  };
   const errors: string[] = [];
+  const warns: string[] = [];
   const service = new MemoryMacroService({
     getSpaceId: () => currentSpaceId,
     data,
+    reader,
     readSettings: () => settings,
     registerMacro: registrar,
     changes,
@@ -113,23 +213,25 @@ function createHarness(overrides: Partial<MemoryMacroServicePorts> = {}) {
       setTimeout: (handler, ms) => setTimeout(handler, ms),
       clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     },
-    log: { info: () => {}, warn: () => {}, error: (message) => errors.push(message) },
+    log: { info: () => {}, warn: (message) => warns.push(message), error: (message) => errors.push(message) },
     ...overrides,
   });
   return {
     data,
     registrar,
     changes,
+    reader,
     service,
     errors,
+    warns,
     setSpace(spaceId: MemorySpaceId | undefined) {
       currentSpaceId = spaceId;
     },
     setSettings(next: Partial<typeof settings>) {
       settings = { ...settings, ...next };
     },
-    invokeHandler(name: string): string {
-      return registrar.registered.get(name)?.() ?? "<not-registered>";
+    invokeHandler(name: string, args: readonly string[] = []): string {
+      return registrar.registered.get(name)?.({ unnamedArgs: args }) ?? "<not-registered>";
     },
   };
 }
@@ -323,5 +425,210 @@ describe("MemoryMacroService 快照重建", () => {
     expect(h.errors).toHaveLength(1);
     expect(h.errors[0]).toContain("Dexie 故障");
     expect(h.invokeHandler("memoryContext")).toBe("【人物】\n张三"); // 旧快照仍在
+  });
+});
+
+describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
+  /** 标准视图环境：伏笔表 + 1 条记录（投影字段 name/status） */
+  function seedViewHarness(h: ReturnType<typeof createHarness>, view: MemoryView): void {
+    h.data.tables = [plotsTable()];
+    // 默认快照数据源（listRecords）与视图数据源（queryRecords）分离：各自可独立断言
+    h.data.recordsByTable.set("table-plots" as MemoryTableId, [record("r1", "深夜的钟声")]);
+    h.reader.resultsByTable.set("table-plots" as MemoryTableId, {
+      records: [
+        viewRecord("r1", "深夜的钟声", {
+          "field-name": "深夜的钟声",
+          "field-status": "埋设中",
+        }),
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+      totalPages: 1,
+    });
+    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1, records: 1 }));
+    h.setSettings({ memoryViews: [view] });
+  }
+
+  it("注册携带可选视图名参数声明（unnamedArgs viewName）", async () => {
+    const h = createHarness();
+    await h.service.start();
+    expect(h.registrar.registeredArgs.get("memoryContext")).toEqual([
+      { name: "viewName", optional: true, defaultValue: "" },
+    ]);
+  });
+
+  it("{{宏名::视图名}} = 视图快照（翻译 → 查询 → 渲染 → 缓存）", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: { fieldKey: "status", values: ["埋设中", "已触发"] },
+      limit: 50,
+      projection: ["name", "status"],
+    });
+    await h.service.start();
+
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe(
+      "名称：深夜的钟声，状态：埋设中",
+    );
+    // 翻译契约：in 算子 + $updated_at desc + pageSize = limit
+    expect(h.reader.queryCalls[0]).toEqual({
+      tableId: "table-plots",
+      fieldIds: ["field-name", "field-status"],
+      conditions: [{ fieldId: "field-status", operator: "in", value: ["埋设中", "已触发"] }],
+      order: { fieldId: "$updated_at", direction: "desc" },
+      paging: { page: 1, pageSize: 50 },
+    });
+    // 数据变更（指纹变化）：轮询重建视图快照
+    h.reader.resultsByTable.set("table-plots" as MemoryTableId, {
+      records: [
+        viewRecord("r1", "深夜的钟声", { "field-name": "深夜的钟声", "field-status": "埋设中" }),
+        viewRecord("r2", "断剑", { "field-name": "断剑", "field-status": "已回收" }),
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+      totalPages: 1,
+    });
+    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T01:00:00.000Z", { tables: 1, records: 2 }));
+    await tick();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe(
+      "名称：深夜的钟声，状态：埋设中\n名称：断剑，状态：已回收",
+    );
+  });
+
+  it("无参 = 默认快照（与 ticket 15 输出契约一致）；视图名与默认快照互不干扰", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    await h.service.start();
+
+    // 无参：默认快照（全启用表分组）；视图：无投影 → 显示文本单行化
+    expect(h.invokeHandler("memoryContext")).toBe("【伏笔】\n深夜的钟声");
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+  });
+
+  it("未知视图名/空参数：空串 + 日志（不阻断）；两个以上参数由 ST 校验拒绝", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    await h.service.start();
+
+    expect(h.invokeHandler("memoryContext", ["不存在的视图"])).toBe("");
+    expect(h.invokeHandler("memoryContext", [""])).toBe(""); // {{宏名::}}
+    expect(h.warns.some((w) => w.includes("不存在的视图"))).toBe(true);
+    expect(h.warns.some((w) => w.includes("空视图名"))).toBe(true);
+  });
+
+  it("视图 CRUD（设置变化）kick 立即生效：新增/删除视图无需等轮询", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+
+    // 新增视图：kick 立即重建（指纹未变也必须重建——设置参与判定）
+    h.setSettings({
+      memoryViews: [
+        {
+          name: "未完成伏笔",
+          tableKey: "plots",
+          condition: null,
+          limit: null,
+          projection: [],
+        },
+        {
+          name: "全部伏笔",
+          tableKey: "plots",
+          condition: { fieldKey: "status", values: ["已回收"] },
+          limit: 10,
+          projection: ["name"],
+        },
+      ],
+    });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["全部伏笔"])).toBe("名称：深夜的钟声");
+
+    // 删除视图：kick 后该视图名展开为空串 + 日志
+    h.setSettings({ memoryViews: [] });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("");
+    expect(h.warns.some((w) => w.includes("未知视图"))).toBe(true);
+    // 默认快照不受影响
+    expect(h.invokeHandler("memoryContext")).toBe("【伏笔】\n深夜的钟声");
+  });
+
+  it("翻译失败（表/字段缺失）：该视图快照 = 空串 + 日志（面板可显示配置错误）", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "坏视图",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    // 表不存在（digest 构建后查不到）
+    h.setSettings({ memoryViews: [{ name: "坏视图", tableKey: "ghost", condition: null, limit: null, projection: [] }] });
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["坏视图"])).toBe("");
+    expect(h.warns.some((w) => w.includes("坏视图") && w.includes("配置错误"))).toBe(true);
+  });
+
+  it("查询/渲染失败：单轮保旧值 + 日志（下轮轮询重试）", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+
+    // 查询端口抛错（模拟 Dexie 故障）：快照保持旧值，只记日志
+    h.reader.queryError = new Error("查询故障");
+    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }));
+    await tick();
+    expect(h.errors.some((e) => e.includes("查询故障"))).toBe(true);
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+  });
+
+  it("插件停用：视图快照一并清空；重新启用恢复", async () => {
+    const h = createHarness();
+    seedViewHarness(h, {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    });
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+
+    h.setSettings({ enabled: false });
+    await h.service.kick();
+    expect(h.registrar.registered.size).toBe(0); // 停用即注销（无注入）
+    expect(h.service.getViewSnapshot("未完成伏笔")).toBeUndefined();
+
+    h.setSettings({ enabled: true });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
   });
 });

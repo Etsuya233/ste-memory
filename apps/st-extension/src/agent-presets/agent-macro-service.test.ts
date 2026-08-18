@@ -17,7 +17,7 @@ import type { QueryRecordsInput, QueryRecordsPage } from "@ste-memory/core/memor
 import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpaceFingerprint, SyncChangeSource } from "../cloud/space-fingerprint.ts";
-import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
+import type { MemoryMacroExecutionContext, MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
 import {
   AGENT_SYSTEM_DEFAULT_PROMPT_MACRO,
   AGENT_TABLES_DIGEST_MACRO,
@@ -89,9 +89,12 @@ class FakeReader implements MemorySpaceReader {
 }
 
 class FakeRegistrar implements MemoryMacroRegistrationPort {
-  registered = new Map<string, () => string>();
+  registered = new Map<string, (context: MemoryMacroExecutionContext) => string>();
   unregistered: string[] = [];
-  register(name: string, handler: () => string) {
+  register(
+    name: string,
+    handler: (context: MemoryMacroExecutionContext) => string,
+  ) {
     this.registered.set(name, handler);
   }
   unregister(name: string) {
@@ -144,7 +147,7 @@ function createHarness(overrides: Partial<AgentMacroServicePorts> = {}) {
       enabled = next;
     },
     invokeHandler(name: string): string {
-      return registrar.registered.get(name)?.() ?? "<not-registered>";
+      return registrar.registered.get(name)?.({}) ?? "<not-registered>";
     },
   };
 }

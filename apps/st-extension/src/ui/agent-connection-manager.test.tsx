@@ -40,6 +40,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     fillTaskConnectionId: undefined,
     queryChatConnectionId: undefined,
     cleaningRuleLists: [],
+    memoryViews: [],
     ...overrides,
   };
 }

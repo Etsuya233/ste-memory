@@ -14,6 +14,7 @@ import type {
   MemoryFieldId,
   MemoryRecord,
   MemoryRecordPayload,
+  MemorySpaceId,
   MemoryTable,
   MemoryTableDisplayStrategy,
   MemoryTableId,
@@ -80,6 +81,7 @@ import { LogTab } from "./log-tab.tsx";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import { AgentConnectionManager } from "./agent-connection-manager.tsx";
 import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
+import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
@@ -1589,10 +1591,25 @@ function SettingsTab(props: {
           onChange={(event) => updateMacroLimit(event.target.value)}
         />
         <div className="stm-setting-hint">
-          宏名放入提示词预设（角色卡/系统提示/作者注释）后，生成时展开当前记忆上下文：
-          按启用表分组、空表省略，超过上方字符上限从尾部截断并附「……（已截断）」标记；
-          不填宏名则不注入
+          宏名放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
+          当前记忆：无参 = 全部启用表分组快照；{"{{宏名::视图名}}"} = 对应视图快照；
+          超过上方字符上限从尾部截断并附「……（已截断）」标记；不填宏名则不注入
         </div>
+        <MemoryViewsManager
+          spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+          readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+          readFields={(spaceId, tableId) =>
+            props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+          }
+          views={props.settings.memoryViews}
+          onChange={(views) => {
+            const next = { ...props.settings, memoryViews: views };
+            props.runtime.settings.write(next);
+            props.onSettingsChange(next);
+            // 视图 CRUD 立即生效：kick 重建对应视图快照（不等轮询）
+            void props.runtime.macro.kick().catch(reportError);
+          }}
+        />
       </div>
       <AgentConnectionManager
         settings={props.settings}

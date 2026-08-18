@@ -5,7 +5,7 @@ import type {
   ChatSpaceBinding,
 } from "../space-binding/chat-space-manager.ts";
 import type { ChatMirrorStore } from "../chat-mirror/chat-metadata-mirror-sync.ts";
-import type { MemoryMacroRegistrationPort } from "../macros/memory-macro-service.ts";
+import type { MemoryMacroRegistrationPort, MemoryMacroExecutionContext, MemoryMacroArgSpec } from "../macros/memory-macro-service.ts";
 import type { AgentPromptNames, AgentPromptSnapshot } from "../agent-presets/preset-composer.ts";
 import type { ChatMirrorFile } from "@ste-memory/core/memory/chat-mirror";
 import {
@@ -98,14 +98,23 @@ export interface StContext {
   };
   /**
    * ST 新宏引擎（public/scripts/macros/macro-system.js 已核实，release 1.18.0）：
-   * register(name, { handler, description, ... }) 的 name 是裸标识符（不含花括号），
+   * register(name, { handler, unnamedArgs, ... }) 的 name 是裸标识符（不含花括号），
    * 查找大小写不敏感；同名注册覆盖并警告；handler 严格同步（Promise 会被字符串化）；
-   * registry.unregisterMacro(name) 注销。记忆宏（ticket 15 / ADR 0004）经此注册。
+   * 位置参数 unnamedArgs（{{name::arg}}，可选参数声明）随 register options 传入；
+   * registry.unregisterMacro(name) 注销。记忆宏（ticket 15 / ADR 0004 + ticket 02）
+   * 经此注册，带一个可选视图名参数（ADR 0025）。
    */
   macros?: {
     readonly register: (
       name: string,
-      options: { readonly handler: (context: unknown) => string },
+      options: {
+        readonly handler: (context: unknown) => string;
+        readonly unnamedArgs?: readonly {
+          readonly name: string;
+          readonly optional?: boolean;
+          readonly defaultValue?: string;
+        }[];
+      },
     ) => unknown;
     readonly registry?: {
       readonly unregisterMacro: (name: string) => boolean;
@@ -338,13 +347,22 @@ export class StChatAdapter {
   }
 
   /**
-   * 记忆宏注册端口（ticket 15 / ADR 0004）：name 为裸标识符（含花括号会被 ST
-   * 校验拒绝）；宿主缺失 macros 时静默跳过（无宏引擎 = 无注入，不报错）。
+   * 记忆宏注册端口（ticket 15 / ADR 0004 + ticket 02 / ADR 0025）：name 为裸标识符
+   * （含花括号会被 ST 校验拒绝）；宿主缺失 macros 时静默跳过（无宏引擎 = 无注入，
+   * 不报错）。ST 调用 handler 时传入完整 MacroExecutionContext——插件只消费
+   * 位置参数子集（unnamedArgs），适配器负责类型收窄。
    */
   get macroRegistration(): MemoryMacroRegistrationPort {
     return {
-      register: (name, handler) => {
-        this.#getContext().macros?.register(name, { handler });
+      register: (name, handler, args) => {
+        const options: {
+          readonly handler: (context: unknown) => string;
+          readonly unnamedArgs?: readonly MemoryMacroArgSpec[];
+        } = {
+          handler: (context) => handler(context as MemoryMacroExecutionContext),
+          ...(args !== undefined && args.length > 0 ? { unnamedArgs: args } : {}),
+        };
+        this.#getContext().macros?.register(name, options);
       },
       unregister: (name) => {
         this.#getContext().macros?.registry?.unregisterMacro(name);

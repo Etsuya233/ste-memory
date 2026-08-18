@@ -17,6 +17,7 @@ import {
 } from "../agent-presets/preset-model.ts";
 import type { AgentConnection } from "./agent-connections.ts";
 import { mergeCleaningRuleLists, type CleaningRuleList } from "./cleaning-rule-lists.ts";
+import { mergeMemoryViews, type MemoryView } from "./memory-views.ts";
 
 /** R2 云同步配置（ticket 08 生效；ticket 06 仅占位展示，UI 控件禁用） */
 export interface R2Settings {
@@ -55,6 +56,8 @@ export interface PluginSettings {
   readonly queryChatConnectionId?: string;
   /** 清洗规则列表（ticket 22 / ADR 0011）：插件级命名列表，对话选择其一 */
   readonly cleaningRuleLists: readonly CleaningRuleList[];
+  /** 记忆视图（ticket 02 / ADR 0025）：插件级命名视图，{{宏名::视图名}} 展开 */
+  readonly memoryViews: readonly MemoryView[];
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -71,6 +74,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   fillTaskConnectionId: undefined,
   queryChatConnectionId: undefined,
   cleaningRuleLists: [],
+  memoryViews: [],
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -103,6 +107,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
     fillTaskConnectionId: mergeConnectionSelection(source.fillTaskConnectionId, agentConnections),
     queryChatConnectionId: mergeConnectionSelection(source.queryChatConnectionId, agentConnections),
     cleaningRuleLists: mergeCleaningRuleLists(source.cleaningRuleLists),
+    memoryViews: mergeMemoryViews(source.memoryViews),
   };
 }
 
