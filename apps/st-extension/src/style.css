@@ -1099,8 +1099,9 @@
   background: color-mix(in srgb, var(--stm-accent) 9%, var(--stm-surface));
 }
 
-/* 查看模式单元格：默认态，整行只读文本；3 行 / ~8 字截断（ticket 21），
-   点击进入编辑模式（停用字段不可点击） */
+/* 查看模式单元格：默认态，整行只读文本；行数按行高计算（默认 60px ≈ 3 行，拖高后
+   显示可容纳的整行数、无上限，行数由 grid-editor 按行高算出并以行内
+   -webkit-line-clamp 覆盖，见 gridViewLineCount），点击进入编辑模式（停用字段不可点击） */
 .stm-grid-cell--view {
   padding: 4px 6px;
   cursor: pointer;
@@ -1113,7 +1114,6 @@
   color: var(--stm-ink);
   overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.5;

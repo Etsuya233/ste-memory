@@ -132,6 +132,19 @@ export const GRID_ROW_HEIGHT = 60;
 export const GRID_ROW_MIN_HEIGHT = 40;
 export const GRID_ROW_MAX_HEIGHT = 240;
 
+/** 查看模式文本行高（px）：style.css `.stm-grid-view-text` 13px 字号 × 1.5 行高 */
+export const GRID_VIEW_LINE_HEIGHT = 19.5;
+
+/**
+ * 查看模式可容纳的文本行数：按行高计算（最少 1 行、无上限）。
+ * 默认行高 60px ≈ 3 行；拖高行后按实际可容纳的整行数显示更多文字
+ * （grid-editor 以行内 -webkit-line-clamp 应用，见 style.css）。
+ */
+export function gridViewLineCount(rowHeight: number): number {
+  if (!Number.isFinite(rowHeight)) return 1;
+  return Math.max(1, Math.floor(rowHeight / GRID_VIEW_LINE_HEIGHT));
+}
+
 export type GridRowHeights = Readonly<Record<string, number>>;
 
 /** 行高 clamp 到可调范围并取整 */

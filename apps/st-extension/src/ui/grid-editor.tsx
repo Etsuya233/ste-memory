@@ -6,7 +6,8 @@
  * grid-editor-model 的 load/saveGridColumnWidths / load/saveGridRowHeights）。
  *
  * 查看/编辑模式（ticket 21）：每行处于两种模式之一——查看模式默认，整行格式化
- * 只读文本（引用解析 + 3 行 / 8 字截断），点击单元格进入编辑模式；编辑模式控件
+ * 只读文本（引用解析 + 按行高显示可容纳的整行数，默认 60px ≈ 3 行，拖高无上限），
+ * 点击单元格进入编辑模式；编辑模式控件
  * 铺满单元格（短/长文本/列表均为 textarea；多选为原生 <select multiple>），焦点
  * 离开该行退回查看模式，Esc 撤销该行改动。已修改行背景色标记；保存中行号格替换
  * 为转圈状态；校验/提交错误显示在行底错误条（跨整行宽）。
@@ -27,6 +28,7 @@ import {
   gridDisplayValueText,
   gridRowErrorLines,
   gridRowHeight,
+  gridViewLineCount,
   type GridColumnWidths,
   type GridRowErrors,
   type GridRowHeights,
@@ -247,6 +249,7 @@ function GridRow(props: {
             ) : (
               <div
                 className={`stm-grid-view-text${field.enabled ? "" : " stm-grid-view-text--disabled"}`}
+                style={{ WebkitLineClamp: gridViewLineCount(props.rowHeight) }}
                 title={gridDisplayValueText(field, value, props.referenceLabels)}
                 data-stm-field={dataField}
                 onClick={field.enabled ? () => props.onEditRow(row.key, field.id) : undefined}

@@ -114,6 +114,8 @@ describe("GridEditor（记录网格投影）", () => {
     expect(html).toContain("stm-grid-cell--view");
     expect(html).toContain('data-stm-field="record-value-name"');
     expect(html).toContain("阿尔法");
+    // 查看文本行数按行高计算：默认行高 60px → -webkit-line-clamp: 3（拖高后递增）
+    expect(html).toContain("-webkit-line-clamp:3");
     // 停用字段单元格：查看文本（无输入控件）
     expect(html).not.toContain("stm-grid-readonly");
     expect(html).not.toContain("<textarea");

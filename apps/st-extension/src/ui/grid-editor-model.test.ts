@@ -27,6 +27,7 @@ import {
   gridRowIsDirty,
   gridRowIsEmpty,
   gridRowsFromRecords,
+  gridViewLineCount,
   gridWidthsStorageKey,
   hasUnsavedGridChanges,
   loadGridColumnWidths,
@@ -372,6 +373,21 @@ describe("行高：默认 / clamp / 读取", () => {
     expect(clampGridRowHeight(123.6)).toBe(124);
     expect(clampGridRowHeight(9999)).toBe(GRID_ROW_MAX_HEIGHT);
     expect(clampGridRowHeight(Number.NaN)).toBe(GRID_ROW_MIN_HEIGHT);
+  });
+
+  it("查看模式行数：默认 60px ≈ 3 行，按行高递增无上限", () => {
+    // 默认行高 60px → 3 行
+    expect(gridViewLineCount(GRID_ROW_HEIGHT)).toBe(3);
+    // 拖矮只容纳 2 行 → 显示 2 行
+    expect(gridViewLineCount(50)).toBe(2);
+    // 最小行高 40px → 2 行
+    expect(gridViewLineCount(GRID_ROW_MIN_HEIGHT)).toBe(2);
+    // 不足一行 → 至少 1 行
+    expect(gridViewLineCount(10)).toBe(1);
+    // 最大行高 240px → 12 行（无上限）
+    expect(gridViewLineCount(GRID_ROW_MAX_HEIGHT)).toBe(12);
+    // 非有限数值 → 兜底 1 行
+    expect(gridViewLineCount(Number.NaN)).toBe(1);
   });
 
   it("存储 key 按表独立", () => {
