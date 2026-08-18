@@ -12,5 +12,11 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "tmp/**", ".worktrees/**"],
+    // 全仓并行时 16 fork 风暴造成内存/transform 抖动：api 集成测试与 esbuild 构建链
+    // 测试出现漂移式超时（放宽到 20s/30s 仍不够）。实测限并发到 4 后 124/124 全绿，
+    // 墙钟与 16 worker 持平（~176s），故以 maxWorkers 治本。
+    maxWorkers: 4,
+    // 兜底：负载异常时避免被 vitest 默认 5s 超时误报（默认 testTimeout = 5000ms）。
+    testTimeout: 20_000,
   },
 });
