@@ -1,5 +1,5 @@
 import { Dexie } from "dexie";
-import type { MemorySpace, MemorySpaceId } from "@ste-memory/core/memory";
+import type { MemorySpace, MemorySpaceId, MemoryTableId } from "@ste-memory/core/memory";
 import type { MemorySpaceRepository } from "@ste-memory/core/memory/adapter";
 import type { SteMemoryDatabase } from "./database.ts";
 
@@ -36,18 +36,7 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
         if (!space) return false;
         const tables = await this.#db.memoryTables.where("memorySpaceId").equals(id).toArray();
         for (const table of tables) {
-          await this.#db.memoryFields
-            .where("[memorySpaceId+tableId]")
-            .equals([id, table.id])
-            .delete();
-          await this.#db.memoryRecords
-            .where("[memorySpaceId+tableId]")
-            .equals([id, table.id])
-            .delete();
-          await this.#db.memoryRecordHistory
-            .where("[memorySpaceId+tableId+recordId]")
-            .between([id, table.id, Dexie.minKey], [id, table.id, Dexie.maxKey])
-            .delete();
+          await this.#deleteTableData(id, table.id);
         }
         await this.#db.memoryRecordHistory.where("memorySpaceId").equals(id).delete();
         await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
@@ -63,6 +52,69 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
 
   async find(id: MemorySpaceId): Promise<MemorySpace | undefined> {
     return this.#db.memorySpaces.get(id);
+  }
+
+  /**
+   * 清除空间记录（spec reset-space）：单事务删除该空间全部记录派生数据
+   * （记录 / 历史 / 证据），表格定义与字段保留（与 SQLite 参照实现同语义）。
+   */
+  async clearRecords(id: MemorySpaceId): Promise<boolean> {
+    return this.#db.transaction(
+      "rw",
+      [
+        this.#db.memorySpaces,
+        this.#db.memoryRecords,
+        this.#db.memoryRecordHistory,
+        this.#db.memoryEvidence,
+      ],
+      async () => {
+        if (!(await this.#db.memorySpaces.get(id))) return false;
+        await this.#db.memoryRecords.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryRecordHistory.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
+        return true;
+      },
+    );
+  }
+
+  /**
+   * 重置空间（spec reset-space）：单事务删除该空间全部表格（字段/记录/历史
+   * 一并删除），证据按空间删除；空间实体本身保留（与 SQLite 参照实现同语义）。
+   */
+  async deleteAllTables(id: MemorySpaceId): Promise<boolean> {
+    return this.#db.transaction(
+      "rw",
+      [
+        this.#db.memorySpaces,
+        this.#db.memoryTables,
+        this.#db.memoryFields,
+        this.#db.memoryRecords,
+        this.#db.memoryRecordHistory,
+        this.#db.memoryEvidence,
+      ],
+      async () => {
+        if (!(await this.#db.memorySpaces.get(id))) return false;
+        const tables = await this.#db.memoryTables.where("memorySpaceId").equals(id).toArray();
+        for (const table of tables) {
+          await this.#deleteTableData(id, table.id);
+        }
+        // 孤儿历史兜底（与 delete 同语义）：历史行可能因更早的部分删除而无归属表
+        await this.#db.memoryRecordHistory.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
+        await this.#db.memoryTables.where("memorySpaceId").equals(id).delete();
+        return true;
+      },
+    );
+  }
+
+  /** 删除一张表的字段/记录/历史（空间级联删除与重置空间共用，与 SQLite 参照实现同语义）。 */
+  async #deleteTableData(id: MemorySpaceId, tableId: MemoryTableId): Promise<void> {
+    await this.#db.memoryFields.where("[memorySpaceId+tableId]").equals([id, tableId]).delete();
+    await this.#db.memoryRecords.where("[memorySpaceId+tableId]").equals([id, tableId]).delete();
+    await this.#db.memoryRecordHistory
+      .where("[memorySpaceId+tableId+recordId]")
+      .between([id, tableId, Dexie.minKey], [id, tableId, Dexie.maxKey])
+      .delete();
   }
 
   async list(): Promise<MemorySpace[]> {

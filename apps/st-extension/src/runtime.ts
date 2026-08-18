@@ -33,15 +33,13 @@ import {
   SteMemoryDatabase,
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
+import { SpaceMaintenanceService } from "./space-maintenance/space-maintenance-service.ts";
 import { QueryChatService } from "./query-chat/query-chat-service.ts";
 import type { Table } from "dexie";
 import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
 import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
-import {
-  containsWorldbookReference,
-  resolveActivePreset,
-} from "./agent-presets/preset-model.ts";
+import { containsWorldbookReference, resolveActivePreset } from "./agent-presets/preset-model.ts";
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { FillTaskPromptContext } from "./fill-tasks/fill-task-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
@@ -77,6 +75,8 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
+  /** 空间维护（spec reset-space）：清除空间记录 / 重置空间（危险操作区） */
+  readonly spaceMaintenance: SpaceMaintenanceService;
   /** 通用日志（ADR 0008）：本地审计日志（填表运行记录）；纯本地，不同步不备份 */
   readonly logs: LogRepository;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
@@ -268,9 +268,11 @@ export async function startSteMemory(
         payload,
       ),
   };
+  const fillTaskRepository = new DexieFillTaskRepository(db, now);
+  const floorLedgerRepository = new DexieFloorLedgerRepository(db);
   const tasks = new FillTaskService({
-    tasks: new DexieFillTaskRepository(db, now),
-    ledger: new DexieFloorLedgerRepository(db),
+    tasks: fillTaskRepository,
+    ledger: floorLedgerRepository,
     logs,
     source: adapter,
     reader,
@@ -316,11 +318,12 @@ export async function startSteMemory(
       error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
     },
   });
+  const systemInstaller = new SystemMemoryTableInstaller(tables, fields);
   const manager = new ChatSpaceManager({
     getChat: () => adapter.getChatSnapshot(),
     bindingStore: adapter.bindingStore,
     spaces,
-    installer: new SystemMemoryTableInstaller(tables, fields),
+    installer: systemInstaller,
     mirrorRestore: {
       // 空间缺失时从对话文件镜像恢复（镜像有效 + spaceId 与绑定一致才恢复）
       restore: (binding) => mirror.restoreFromMirror(binding),
@@ -347,6 +350,20 @@ export async function startSteMemory(
       const status = manager.getStatus();
       return status?.kind === "active" ? status.space.id : undefined;
     },
+  });
+
+  // 空间维护（spec reset-space）：清除空间记录 / 重置空间（设置 Tab 危险操作区）。
+  // 执行前取消进行中填表任务；重置重装失败上抛（空间保持无表状态，可重试）。
+  const spaceMaintenance = new SpaceMaintenanceService({
+    clearRecords: (id) => spaces.clearRecords(id),
+    deleteAllTables: (id) => spaces.deleteAllTables(id),
+    cancelActiveTask: async (id) => {
+      const active = await tasks.activeTask(id);
+      if (active) await tasks.cancel(id, active.runId);
+    },
+    clearTasks: (id) => fillTaskRepository.clear(id),
+    clearLedger: (id) => floorLedgerRepository.clear(id),
+    installSystemTables: (id) => systemInstaller.install(id),
   });
 
   // 云同步协调器：R2 配置齐全 + 插件总开关开启时生效（设置面板实时修改立即生效，
@@ -469,6 +486,7 @@ export async function startSteMemory(
     sync,
     mirror,
     tasks,
+    spaceMaintenance,
     logs,
     macro,
     agentMacro,

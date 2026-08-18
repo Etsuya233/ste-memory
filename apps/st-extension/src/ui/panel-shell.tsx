@@ -49,6 +49,7 @@ import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts"
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import type { QueryChatService } from "../query-chat/query-chat-service.ts";
+import type { SpaceMaintenanceService } from "../space-maintenance/space-maintenance-service.ts";
 import { QueryChatStore } from "../query-chat/query-chat-state.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
 import {
@@ -138,6 +139,8 @@ export interface PanelRuntime {
     FillTaskService,
     "submit" | "submitInit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
   >;
+  /** 空间维护（spec reset-space）：清除空间记录 / 重置空间（设置 Tab 危险操作区） */
+  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords" | "reset">;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */
@@ -512,6 +515,7 @@ export function PanelShell(props: {
               settings={settings}
               syncStatus={syncStatus}
               mirrorStatus={mirrorStatus}
+              queryChatStore={queryChatStore}
               onSettingsChange={setSettings}
               onDataChanged={() => setDataVersion((version) => version + 1)}
             />
@@ -1257,14 +1261,16 @@ function SettingsTab(props: {
   readonly syncStatus: CloudSyncStatus;
   /** 对话文件镜像状态（ticket 16：体积 + 上次写回时间） */
   readonly mirrorStatus: ChatMirrorStatus;
+  /** 问答面板页面内存历史（spec reset-space：清除/重置后清空当前空间历史） */
+  readonly queryChatStore: QueryChatStore;
   readonly onSettingsChange: (settings: PluginSettings) => void;
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
 }) {
   // 当前对话的清洗列表选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
   // 变更即写 chatMetadata（防抖持久化）；对话切换（status 变化）后重新读取。
-  const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(
-    () => props.runtime.cleaning.readSelection(),
+  const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(() =>
+    props.runtime.cleaning.readSelection(),
   );
   useEffect(() => {
     setChatCleaningListId(props.runtime.cleaning.readSelection());
@@ -1365,6 +1371,59 @@ function SettingsTab(props: {
     } catch (error) {
       reportError(error);
     }
+  }
+
+  /**
+   * 空间维护操作（spec reset-space）：清除空间记录 / 重置空间。
+   * 仅当前对话绑定空间（active 状态）且插件开启时可执行；原生 confirm 确认，
+   * 文案写明删除范围与「云同步/对话文件镜像副本也会被清空」。执行成功后刷新
+   * 面板数据、重建记忆宏快照、kick 云同步与镜像、清空问答面板当前空间历史。
+   */
+  const canMaintainSpace = props.status?.kind === "active" && props.settings.enabled;
+
+  async function clearSpaceRecords(): Promise<void> {
+    const status = props.status;
+    if (status?.kind !== "active") return;
+    const space = status.space;
+    const confirmed = window.confirm(
+      `清除「${space.name}」的全部记录？将删除所有表格中的记录、历史与证据，表格结构保留；云同步与对话文件镜像中的副本也会被清空。`,
+    );
+    if (!confirmed) return;
+    try {
+      await props.runtime.spaceMaintenance.clearRecords(space.id);
+      reportSuccess(`已清除「${space.name}」的全部记录`);
+      afterSpaceReset(space.id);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function resetSpace(): Promise<void> {
+    const status = props.status;
+    if (status?.kind !== "active") return;
+    const space = status.space;
+    const confirmed = window.confirm(
+      `重置「${space.name}」？将删除所有表格并恢复为系统默认的 8 张表（自定义表与修改过的表定义将被移除）；云同步与对话文件镜像中的副本也会被清空。`,
+    );
+    if (!confirmed) return;
+    try {
+      await props.runtime.spaceMaintenance.reset(space.id);
+      reportSuccess(`已重置「${space.name}」`);
+      afterSpaceReset(space.id);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  /** 空间内容已变更（清除/重置成功）后的面板侧收尾。 */
+  function afterSpaceReset(spaceId: MemorySpaceId): void {
+    props.onDataChanged();
+    // 记忆宏快照立即重建（不等轮询）；云同步与镜像按既有机制传播空单元
+    void props.runtime.macro.kick().catch(reportError);
+    void props.runtime.sync.kick().catch(reportError);
+    void props.runtime.mirror.kick().catch(reportError);
+    // 问答面板历史按（空间 × 模式）存页面内存：旧问答会误导，清空当前空间全部历史
+    props.queryChatStore.clearSpaceHistory(spaceId);
   }
 
   /** 记忆宏名变化：写设置 + 立即重新注册/重建（宏名不合法时注销 = 无注入） */
@@ -1639,6 +1698,32 @@ function SettingsTab(props: {
         }}
         readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
       />
+      <div className="stm-setting-group">
+        <div className="stm-setting-group-title">危险操作</div>
+        <div className="stm-setting-hint">
+          以下操作会清空当前对话记忆空间的内容，且云同步与对话文件镜像中的副本也会随之清空，操作不可恢复
+        </div>
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button stm-button--danger"
+            data-action="clear-space-records"
+            disabled={!canMaintainSpace}
+            onClick={() => void clearSpaceRecords()}
+          >
+            清除空间记录
+          </button>
+          <button
+            type="button"
+            className="stm-button stm-button--danger"
+            data-action="reset-space"
+            disabled={!canMaintainSpace}
+            onClick={() => void resetSpace()}
+          >
+            重置空间
+          </button>
+        </div>
+      </div>
     </>
   );
 }

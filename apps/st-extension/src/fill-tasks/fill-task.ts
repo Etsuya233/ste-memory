@@ -107,6 +107,8 @@ export interface FloorLedgerRepository {
   ): Promise<readonly FloorLedgerEntry[]>;
   /** 闭区间 [from, to] 内已 processed 楼层数（任务轮询进度）。 */
   processedCount(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<number>;
+  /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部台账行。 */
+  clear(memorySpaceId: MemorySpaceId): Promise<void>;
 }
 
 export interface FillTaskRepository {
@@ -129,6 +131,8 @@ export interface FillTaskRepository {
   markInterruptedOnStartup(): Promise<void>;
   /** 最近任务（createdAt 倒序，id 兜底），供触发 UI 展示最近一次任务结果。 */
   listRecent(memorySpaceId: MemorySpaceId, limit: number): Promise<readonly FillTask[]>;
+  /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部任务行（含历史条目）。 */
+  clear(memorySpaceId: MemorySpaceId): Promise<void>;
 }
 
 /** 提交冲突：该记忆空间已有非终态任务（守卫，失败原因可读）。 */

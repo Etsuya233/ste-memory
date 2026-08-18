@@ -44,7 +44,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
   try {
     const context = new DatabaseContext(database);
     const unitOfWork = new KyselyUnitOfWork(database, context);
-    const memorySpaceRepository = new KyselyMemorySpaceRepository(context);
+    const memorySpaceRepository = new KyselyMemorySpaceRepository(context, unitOfWork);
     const cleaningRuleRepository = new KyselyCleaningRuleRepository(
       context,
       unitOfWork,

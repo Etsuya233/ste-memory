@@ -108,6 +108,12 @@ export function createTestMemorySpace(): TestMemorySpace {
     async rename() {
       return undefined;
     },
+    async clearRecords() {
+      return false;
+    },
+    async deleteAllTables() {
+      return false;
+    },
   };
   const createId = (() => `id-${Math.random().toString(36).slice(2)}`) as () => MemoryTableId;
 

@@ -559,6 +559,22 @@
   filter: brightness(1.08);
 }
 
+/* 危险操作（spec reset-space 设置 Tab）：危险色描边 + 危险色文字 */
+.stm-button--danger {
+  color: var(--stm-danger);
+  border-color: var(--stm-danger);
+}
+
+.stm-button--danger:hover:not(:disabled) {
+  border-color: var(--stm-danger);
+  background: var(--stm-danger-dim);
+}
+
+.stm-button--danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* 顶部操作行（建表入口）与卡片内操作行 */
 .stm-table-actions {
   display: flex;

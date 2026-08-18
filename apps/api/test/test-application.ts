@@ -63,7 +63,7 @@ export async function createTestApplication(
   await migrateDatabase(database);
   const context = new DatabaseContext(database);
   const unitOfWork = new KyselyUnitOfWork(database, context);
-  const spaceRepository = new KyselyMemorySpaceRepository(context);
+  const spaceRepository = new KyselyMemorySpaceRepository(context, unitOfWork);
   const tableRepository = new KyselyMemoryTableRepository(context);
   const fieldRepository = new KyselyMemoryFieldRepository(context);
   const recordRepository = new KyselyMemoryRecordRepository(context, unitOfWork);

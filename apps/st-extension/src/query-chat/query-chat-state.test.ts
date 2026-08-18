@@ -271,6 +271,43 @@ describe("QueryChatStore（按 key 历史 + run 状态）", () => {
     expect(store.cancel(KEY_A_QUERY)).toBe(false);
   });
 
+  it("clearSpaceHistory 清空该空间两种模式历史并中断在途 run，其他空间不受影响（spec reset-space）", () => {
+    const store = new QueryChatStore();
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    store.beginRun(
+      KEY_A_QUERY,
+      createUserMessage("u1", "问 A"),
+      createPendingAssistantMessage("a1"),
+      controllerA,
+    );
+    store.beginRun(
+      KEY_A_FILL,
+      createUserMessage("u2", "填 A"),
+      createPendingAssistantMessage("a2"),
+      controllerA,
+    );
+    store.beginRun(
+      KEY_B_QUERY,
+      createUserMessage("u3", "问 B"),
+      createPendingAssistantMessage("a3"),
+      controllerB,
+    );
+    const abortSpyA = vi.spyOn(controllerA, "abort");
+
+    store.clearSpaceHistory(SPACE_A);
+
+    expect(store.getHistory(KEY_A_QUERY)).toEqual([]);
+    expect(store.getHistory(KEY_A_FILL)).toEqual([]);
+    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
+    expect(store.getRun(KEY_A_FILL)).toBeUndefined();
+    expect(abortSpyA).toHaveBeenCalled();
+    // 其他空间历史与在途 run 不受影响
+    expect(store.getHistory(KEY_B_QUERY)).toHaveLength(2);
+    expect(store.getRun(KEY_B_QUERY)).toEqual({ pendingId: "a3", controller: controllerB });
+    expect(controllerB.signal.aborted).toBe(false);
+  });
+
   it("订阅/退订（useSyncExternalStore 契约）", () => {
     const store = new QueryChatStore();
     const listener = vi.fn();

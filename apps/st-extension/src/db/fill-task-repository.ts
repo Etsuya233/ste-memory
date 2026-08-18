@@ -82,6 +82,11 @@ export class DexieFloorLedgerRepository implements FloorLedgerRepository {
     return statuses.filter((entry) => entry.status === "processed").length;
   }
 
+  /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部台账行。 */
+  async clear(memorySpaceId: MemorySpaceId): Promise<void> {
+    await this.#db.floorFillLedger.where("memorySpaceId").equals(memorySpaceId).delete();
+  }
+
   async #upsert(
     memorySpaceId: MemorySpaceId,
     floors: readonly number[],
@@ -175,6 +180,11 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       .equals(memorySpaceId)
       .toArray();
     return rows.map(normalizeTaskRow).sort(byCreatedAtDesc).slice(0, limit);
+  }
+
+  /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部任务行（含历史条目）。 */
+  async clear(memorySpaceId: MemorySpaceId): Promise<void> {
+    await this.#db.memoryFillTasks.where("memorySpaceId").equals(memorySpaceId).delete();
   }
 
   /** 状态转换守卫：仅 running → 目标终态（事务内读改写，取消竞态先落地者胜出）。 */

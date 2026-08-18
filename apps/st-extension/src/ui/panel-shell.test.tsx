@@ -89,6 +89,10 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
     },
+    spaceMaintenance: {
+      clearRecords: vi.fn(async () => false),
+      reset: vi.fn(async () => false),
+    },
     queryChat: {
       run: vi.fn(async () => ({
         stopReason: "stop" as const,
@@ -269,6 +273,60 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-stm-field="cloud-sync-last"');
     expect(html).toContain("尚未同步");
     expect(html).toContain('data-action="sync-now"');
+  });
+
+  it("设置 Tab：危险操作区两个按钮就位（spec reset-space，active 状态可用）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    expect(html).toContain("危险操作");
+    expect(html).toContain("清除空间记录");
+    expect(html).toContain("重置空间");
+    const clearButton =
+      html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
+    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
+    expect(clearButton).not.toContain("disabled");
+    expect(resetButton).not.toContain("disabled");
+  });
+
+  it("设置 Tab：无有效空间时危险操作按钮置灰（spec reset-space）", () => {
+    const missing: SpaceContextStatus = {
+      kind: "space-missing",
+      binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+      humanMsg: "空间数据未就绪",
+    };
+    const runtime = fakeRuntime({
+      manager: {
+        getStatus: () => missing,
+        onStatusChange: () => () => {},
+        syncToCurrentChat: vi.fn(async () => missing),
+      },
+    });
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model, runtime);
+    const clearButton =
+      html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
+    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
+    expect(clearButton).toContain("disabled");
+    expect(resetButton).toContain("disabled");
+  });
+
+  it("设置 Tab：插件停用时危险操作按钮置灰（spec reset-space）", () => {
+    const runtime = fakeRuntime({
+      settings: {
+        read: () => ({ ...DEFAULT_SETTINGS, enabled: false }),
+        write: vi.fn(),
+      },
+    });
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model, runtime);
+    const clearButton =
+      html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
+    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
+    expect(clearButton).toContain("disabled");
+    expect(resetButton).toContain("disabled");
   });
 
   it("设置 Tab：同步失败时失败提示可见（含消息文本）", () => {

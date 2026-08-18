@@ -249,6 +249,30 @@ export class QueryChatStore {
     return true;
   }
 
+  /**
+   * 清除空间记录/重置空间（spec reset-space）：清空该空间（两种模式）的页面内存
+   * 聊天历史并中断在途 run。迟到的事件因 run 已删除而被丢弃（applyEvent 对未知
+   * key 返回），不会污染其他空间的历史。
+   */
+  clearSpaceHistory(spaceId: MemorySpaceId): void {
+    const prefix = `${spaceId}:`;
+    let changed = false;
+    for (const key of [...this.#runs.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.#runs.get(key)!.controller.abort();
+        this.#runs.delete(key);
+        changed = true;
+      }
+    }
+    for (const key of [...this.#history.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.#history.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) this.#notify();
+  }
+
   /** 订阅变化（useSyncExternalStore）；返回退订函数。 */
   onStoreChange(listener: () => void): () => void {
     this.#listeners.add(listener);

@@ -109,6 +109,14 @@ class MemoryRepository
     return undefined;
   }
 
+  async clearRecords(): Promise<boolean> {
+    return false;
+  }
+
+  async deleteAllTables(): Promise<boolean> {
+    return false;
+  }
+
   update(value: MemoryTable): Promise<boolean>;
   update(value: MemoryField): Promise<boolean>;
   async update(value: MemoryTable | MemoryField): Promise<boolean> {
@@ -267,7 +275,8 @@ describe("system memory table initialization", () => {
         type: "short_text",
         key: "current_time",
         maxChars: 30,
-        valuePattern: "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日.*|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
+        valuePattern:
+          "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日.*|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
         valuePatternMessage: expect.stringContaining("2025年5月14日 傍晚至23:10"),
       },
       { type: "short_text", key: "current_location", maxChars: 30, valuePattern: null },
@@ -279,7 +288,8 @@ describe("system memory table initialization", () => {
       valuePattern: "^世界状态$",
     });
     expect(fieldsByTable.get("plots")!.find((field) => field.key === "time_hint")).toMatchObject({
-      valuePattern: "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日.*|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
+      valuePattern:
+        "^(?:20\\d{2}年\\d{1,2}月\\d{1,2}日.*|第\\s*[0-9一二两三四五六七八九十]+\\s*天[·、]?.+)$",
     });
 
     const characters = repository.tables.find((table) => table.key === "characters")!;

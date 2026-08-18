@@ -72,6 +72,14 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     return renamed;
   }
 
+  async clearRecords(): Promise<boolean> {
+    return false;
+  }
+
+  async deleteAllTables(): Promise<boolean> {
+    return false;
+  }
+
   async update(memoryTable: MemoryTable): Promise<boolean> {
     const current = this.tables.get(memoryTable.id);
     if (current?.memorySpaceId !== memoryTable.memorySpaceId) return false;
