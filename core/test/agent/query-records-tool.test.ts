@@ -74,6 +74,34 @@ describe("query_records 参数 schema", () => {
       ),
     ).toThrow(/Validation failed/);
   });
+
+  it("in/not_in 接受数组 value（多值查询）通过 pi 校验", async () => {
+    const tool = await toolWith();
+    const args = {
+      table: "characters",
+      conditions: [
+        { field: "current_status", op: "in", value: ["正常", "受伤"] },
+        { field: "name", op: "not_in", value: ["周遥"] },
+      ],
+    };
+    const toolCall = { id: "call-1", name: QUERY_RECORDS_TOOL_NAME, arguments: args };
+    expect(() => validateToolArguments(tool, toolCall)).not.toThrow();
+  });
+
+  it("数组元素也限标量：嵌套对象 value 被 pi 校验拦截", async () => {
+    const tool = await toolWith();
+    const call = (args: Record<string, unknown>) => ({
+      id: "call-1",
+      name: QUERY_RECORDS_TOOL_NAME,
+      arguments: args,
+    });
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ table: "characters", conditions: [{ field: "name", op: "in", value: [{ x: 1 }] }] }),
+      ),
+    ).toThrow(/Validation failed/);
+  });
 });
 
 describe("query_records 执行器：key 校验与错误回喂", () => {
@@ -215,5 +243,52 @@ describe("query_records 执行器：结果形状", () => {
       }),
     );
     expect(result).toMatchObject({ total: 0, totalPages: 0, records: [] });
+  });
+
+  it("in/not_in 执行：single_select 成员匹配与 $record_id 多值", async () => {
+    const tool = await toolWith();
+    const ids = (result: Record<string, unknown>) =>
+      (result.records as { id: string }[]).map((record) => record.id);
+
+    const inStatus = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "current_status", op: "in", value: ["正常", "死亡"] }],
+      }),
+    );
+    expect(ids(inStatus)).toEqual(["record-2"]);
+
+    const notInStatus = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "current_status", op: "not_in", value: ["受伤"] }],
+      }),
+    );
+    expect(ids(notInStatus)).toEqual(["record-2"]);
+
+    const byId = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "$record_id", op: "in", value: ["record-1", "record-3"] }],
+      }),
+    );
+    expect(ids(byId)).toEqual(["record-1", "record-3"]);
+  });
+
+  it("in 配标量 value 通过 schema 但被服务层拒绝并回喂可读错误", async () => {
+    const tool = await toolWith();
+    await expect(
+      tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "current_status", op: "in", value: "正常" }],
+      }),
+    ).rejects.toThrow(/查询被拒绝：操作符或值与字段类型不匹配，字段：current_status/);
+  });
+
+  it("工具描述说明 in/not_in 多值语义与列表字段指引", async () => {
+    const tool = await toolWith();
+    expect(tool.description).toContain("in / not_in");
+    expect(tool.description).toContain("无需拆多次 equals");
+    expect(tool.description).toContain("列表字段");
   });
 });

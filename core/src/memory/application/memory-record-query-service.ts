@@ -12,6 +12,7 @@ import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import { validateMemoryFieldValue } from "./memory-record-validation.ts";
 import {
   equalityOperators,
+  inOperators,
   listOperators,
   orderedOperators,
   systemFields,
@@ -125,12 +126,12 @@ export class MemoryRecordQueryService {
         condition.fieldId === "$display_text"
           ? textOperators
           : condition.fieldId === "$record_id"
-            ? equalityOperators
+            ? scalarValueOperators
             : orderedOperators;
-      if (
-        !operators.has(condition.operator) ||
-        (condition.value !== null && typeof condition.value !== "string")
-      ) {
+      const valueValid = inOperators.has(condition.operator)
+        ? isNonEmptyStringArray(condition.value)
+        : condition.value === null || typeof condition.value === "string";
+      if (!operators.has(condition.operator) || !valueValid) {
         this.#invalid(input, "condition_invalid", condition.fieldId);
       }
       return;
@@ -165,7 +166,7 @@ export class MemoryRecordQueryService {
     switch (type) {
       case "short_text":
       case "long_text":
-        return textOperators;
+        return textFieldOperators;
       case "short_text_list":
       case "multi_select":
       case "multi_reference":
@@ -174,15 +175,22 @@ export class MemoryRecordQueryService {
       case "decimal":
       case "date":
       case "datetime":
-        return orderedOperators;
+        return orderedFieldOperators;
       case "boolean":
       case "single_select":
       case "single_reference":
-        return equalityOperators;
+        return scalarValueOperators;
     }
   }
 
   #conditionValueMatches(field: MemoryField, condition: QueryRecordsCondition): boolean {
+    if (inOperators.has(condition.operator)) {
+      return (
+        Array.isArray(condition.value) &&
+        condition.value.length > 0 &&
+        condition.value.every((item) => isValidFieldValue(field, item))
+      );
+    }
     if (condition.value === null) return equalityOperators.has(condition.operator);
     if (
       field.type === "short_text_list" ||
@@ -200,12 +208,7 @@ export class MemoryRecordQueryService {
       case "boolean":
         return typeof condition.value === "boolean";
       default:
-        try {
-          validateMemoryFieldValue({ ...field, required: false }, condition.value);
-          return true;
-        } catch {
-          return false;
-        }
+        return isValidFieldValue(field, condition.value);
     }
   }
 
@@ -216,6 +219,10 @@ export class MemoryRecordQueryService {
         return actual === condition.value;
       case "not_equals":
         return actual !== condition.value;
+      case "in":
+        return arrayContains(condition.value, actual);
+      case "not_in":
+        return !arrayContains(condition.value, actual);
       case "contains":
         return Array.isArray(actual)
           ? actual.includes(condition.value as string)
@@ -291,4 +298,36 @@ export class MemoryRecordQueryService {
       humanMsg: "记录查询参数无效",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// 算子×字段类型矩阵：in/not_in 是 equality 的多值推广——单值用户字段与 $record_id
+// 在既有算子集上并集 inOperators；列表字段仍走 contains/not_contains；
+// $display_text / $created_at / $updated_at 维持原矩阵（ticket 01 只放行 $record_id）。
+// ---------------------------------------------------------------------------
+
+const scalarValueOperators = new Set<QueryRecordOperator>([...equalityOperators, ...inOperators]);
+const textFieldOperators = new Set<QueryRecordOperator>([...textOperators, ...inOperators]);
+const orderedFieldOperators = new Set<QueryRecordOperator>([...orderedOperators, ...inOperators]);
+
+/** 值校验复用写路径规则（元素可为 null，命中空值成员语义；required 在查询语境不适用）。 */
+function isValidFieldValue(field: MemoryField, value: unknown): boolean {
+  try {
+    validateMemoryFieldValue({ ...field, required: false }, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 运行时的数组成员匹配：契约类型只表达 readonly string[]，in/not_in 元素可含任意标量。 */
+function arrayContains(value: MemoryFieldValue, item: MemoryFieldValue | undefined): boolean {
+  return Array.isArray(value) && (value as readonly unknown[]).includes(item);
+}
+
+/** $record_id 的 in/not_in 只接受非空字符串数组。 */
+function isNonEmptyStringArray(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string")
+  );
 }

@@ -16,7 +16,9 @@ export type QueryRecordOperator =
   | "greater_than"
   | "greater_than_or_equal"
   | "less_than"
-  | "less_than_or_equal";
+  | "less_than_or_equal"
+  | "in"
+  | "not_in";
 
 export interface QueryRecordsCondition {
   readonly fieldId: QueryRecordFieldId;
@@ -50,6 +52,7 @@ export const systemFields = new Set<QueryRecordSystemFieldId>([
   "$updated_at",
 ]);
 export const equalityOperators = new Set<QueryRecordOperator>(["equals", "not_equals"]);
+export const inOperators = new Set<QueryRecordOperator>(["in", "not_in"]);
 export const orderedOperators = new Set<QueryRecordOperator>([
   ...equalityOperators,
   "greater_than",

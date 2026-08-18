@@ -30,6 +30,8 @@ export const QUERY_RECORDS_TOOL_NAME = "query_records";
 const queryRecordOperatorSchema = Type.Enum([
   "equals",
   "not_equals",
+  "in",
+  "not_in",
   "contains",
   "not_contains",
   "greater_than",
@@ -38,10 +40,17 @@ const queryRecordOperatorSchema = Type.Enum([
   "less_than_or_equal",
 ]);
 
+const queryRecordScalarValueSchema = Type.Union([
+  Type.String(),
+  Type.Number(),
+  Type.Boolean(),
+  Type.Null(),
+]);
+
 const queryRecordConditionSchema = Type.Object({
   field: Type.String(),
   op: queryRecordOperatorSchema,
-  value: Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
+  value: Type.Union([queryRecordScalarValueSchema, Type.Array(queryRecordScalarValueSchema)]),
 });
 
 const queryRecordsParamsSchema = Type.Object({
@@ -118,12 +127,15 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "- table：表 key，必填。可用表 key 见系统提示中的摘要；填错会报错并附带可用 key 列表。",
   "- fields：返回的字段 key 列表；省略时返回该表全部启用字段。",
   "- conditions：过滤条件列表，多个条件为 AND 语义（OR 请分多次查询）。",
-  "  每项为 { field, op, value }：field 是字段 key 或系统字段（$record_id 仅支持 equals/not_equals，",
+  "  每项为 { field, op, value }：field 是字段 key 或系统字段（$record_id 支持 equals/not_equals/in/not_in，",
   "  $display_text 支持文本操作符，$created_at/$updated_at 支持有序操作符）；",
-  "  op 取值 equals / not_equals / contains / not_contains / greater_than /",
-  "  greater_than_or_equal / less_than / less_than_or_equal，其中 contains 对文本是大小写不敏感",
-  "  的子串匹配、对列表字段（多选/多引用/短文本列表）是成员匹配，not_contains 仅限列表字段；",
-  "  value 为 string / number / boolean / null，操作符与字段类型不匹配会被拒绝。",
+  "  op 取值 equals / not_equals / in / not_in / contains / not_contains / greater_than /",
+  "  greater_than_or_equal / less_than / less_than_or_equal；",
+  "  in/not_in 的 value 为数组（如 [\"正常\", \"受伤\"]），一次匹配多个值、无需拆多次 equals，",
+  "  适用于单值字段与 $record_id；contains 对文本是大小写不敏感的子串匹配、",
+  "  对列表字段（多选/多引用/短文本列表）是成员匹配，not_contains 仅限列表字段，",
+  "  列表字段的多值筛选请用 contains/not_contains；",
+  "  value 为 string / number / boolean / null 或它们的数组，操作符与字段类型不匹配会被拒绝。",
   "- paging：可选，默认 { page: 1, pageSize: 20 }，pageSize 上限 100。",
   "- orderBy：可选，{ field, direction: asc|desc }，field 为字段 key 或系统字段；多值字段不可排序。",
   "结果 records 中的 values 以字段 key 键控，引用字段的值为目标记录 id，revisionId 是记录版本号；",
@@ -153,7 +165,8 @@ async function executeQueryRecords(
     (condition) => ({
       fieldId: resolveQueryFieldKey(table, condition.field, "条件字段"),
       operator: condition.op,
-      value: condition.value,
+      // schema 允许标量或数组；契约值类型数组为 readonly string[]，元素级校验在服务层完成
+      value: condition.value as MemoryFieldValue,
     }),
   );
   const order = params.orderBy
