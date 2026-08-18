@@ -41,13 +41,16 @@ function task(overrides: Partial<FillTask> = {}): FillTask {
     from: 0,
     to: 9,
     blockSize: 20,
+    kind: "floor",
+    initText: null,
     chatId: null,
     status: "running",
     errorMessage: null,
     createdAt: NOW,
     updatedAt: NOW,
+    // 测试数据构造：overrides 可覆盖 kind/initText（联合成员由调用方保证一致）
     ...overrides,
-  };
+  } as FillTask;
 }
 
 describe("DexieFloorLedgerRepository（楼层进度台账，ticket 13）", () => {
@@ -198,6 +201,44 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     expect(await tasks.findActive(SPACE_A)).toBeUndefined();
   });
 
+  it("旧任务行（无 kind/initText 字段）读取时缺省视为 floor，initText 补 null", async () => {
+    const db = createTestDatabase();
+    const tasks = new DexieFillTaskRepository(db, () => NOW);
+    // 模拟初始化填表之前写入的旧行：直接以缺字段的行形状落库（IndexedDB 行是动态对象）
+    const legacy = { ...task() } as Record<string, unknown>;
+    delete legacy.kind;
+    delete legacy.initText;
+    await db.memoryFillTasks.add(legacy as unknown as FillTask);    // find / findActive / listRecent 全部补默认（floor + null），不改变旧行数据
+    expect(await tasks.find("run-1")).toMatchObject({ kind: "floor", initText: null });
+    expect(await tasks.findActive(SPACE_A)).toMatchObject({ kind: "floor", initText: null });
+    expect(await tasks.listRecent(SPACE_A, 5)).toMatchObject([{ kind: "floor", initText: null }]);
+    // 状态转换读写不丢字段（转换后行仍可被识别为 floor 任务）
+    await tasks.markSucceeded("run-1");
+    expect(await tasks.find("run-1")).toMatchObject({ kind: "floor", status: "succeeded" });
+  });
+
+  it("init 任务行读写：kind/initText 原样持久化，守卫与终态转换通用", async () => {
+    const db = createTestDatabase();
+    const tasks = new DexieFillTaskRepository(db, () => NOW);
+    const initTask = task({
+      runId: "run-init",
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      kind: "init",
+      initText: "爱丽丝是咖啡店店员，故事发生在雨城",
+    });
+
+    await tasks.create(initTask);
+    expect(await tasks.find("run-init")).toEqual(initTask);
+    expect(await tasks.findActive(SPACE_A)).toMatchObject({ runId: "run-init", kind: "init" });
+
+    // 终态转换与楼层任务同语义（仅 running 生效）
+    expect(await tasks.markSucceeded("run-init")).toBe(true);
+    expect(await tasks.find("run-init")).toMatchObject({ kind: "init", status: "succeeded" });
+    expect(await tasks.findActive(SPACE_A)).toBeUndefined();
+  });
+
   it("listRecent：按 createdAt 倒序（id 兜底）并截断 limit", async () => {
     const db = createTestDatabase();
     const tasks = new DexieFillTaskRepository(db, () => NOW);
@@ -292,6 +333,8 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
         memorySpaceId: SPACE_A,
         from: 0,
         to: 1,
+        kind: "floor",
+        initText: null,
         blockSize: 20,
         chatId: null,
         status: "succeeded",

@@ -971,23 +971,24 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
   });
 });
 
-describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
-  /** 捕获每块喂给 Agent 的块提示词全文。 */
-  function capturePrompts(onPrompt: (text: string) => void) {
-    return scriptedStreamFn((context) => {
-      for (const message of context.messages) {
-        if (message.role !== "user") continue;
-        for (const part of message.content) {
-          if (typeof part === "string") {
-            onPrompt(part);
-          } else if (part.type === "text") {
-            onPrompt(part.text);
-          }
+/** 捕获每块喂给 Agent 的块提示词全文。 */
+function capturePrompts(onPrompt: (text: string) => void) {
+  return scriptedStreamFn((context) => {
+    for (const message of context.messages) {
+      if (message.role !== "user") continue;
+      for (const part of message.content) {
+        if (typeof part === "string") {
+          onPrompt(part);
+        } else if (part.type === "text") {
+          onPrompt(part.text);
         }
       }
-      return assistantMessage([textMessage("确认无需变更")], "stop");
-    });
-  }
+    }
+    return assistantMessage([textMessage("确认无需变更")], "stop");
+  });
+}
+
+describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
 
   it("注入 resolveCleaningRules：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
     const prompts: string[] = [];
@@ -1227,5 +1228,298 @@ describe("FillTaskService 填表日志（通用日志写入，ADR 0008）", () =
       "untracked",
       "untracked",
     ]);
+  });
+});
+
+describe("FillTaskService（初始化填表，spec init-fill）", () => {
+  const INIT_TEXT = "爱丽丝是雨城咖啡店店员，今天第一次见到客人小明";
+
+  it("端到端：submitInit 创建 init 任务，单块 Agent 跑完，记录与 snapshot 证据落库，无台账行，任务 succeeded", async () => {
+    const streamFn = scriptedFillAgent();
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId } = harness;
+
+    const view = await service.submitInit({ memorySpaceId: spaceId, text: INIT_TEXT });
+    expect(view).toMatchObject({
+      status: "running",
+      kind: "init",
+      initText: INIT_TEXT,
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      processedCount: 0,
+      totalCount: 1,
+    });
+
+    const terminal = await waitForTerminal(harness, view.runId);
+    expect(terminal).toEqual({ status: "succeeded", errorMessage: null });
+
+    // 记录落库（修订来源 agent）；证据 = 单条 snapshot（source_type init、source_id runId、内容原文）
+    const characters = (await harness.services.tableRepository.findByKey(
+      spaceId,
+      "characters" as never,
+    ))!;
+    const records = await harness.services.recordRepository.list(spaceId, characters.id);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.revisionSource).toBe("agent");
+    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    expect(evidenceRows).toHaveLength(1);
+    expect(evidenceRows[0]).toMatchObject({
+      storage_mode: "snapshot",
+      source_type: "init",
+      source_id: view.runId,
+      content: INIT_TEXT,
+    });
+    // 无台账行（init 任务不读写楼层台账）
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+    ]);
+    // 单块 = 一次 Agent run（工具轮 + 回答轮）
+    expect(streamFn.calls.count).toBe(2);
+  });
+
+  it("重复 submitInit：每次生成独立 snapshot 证据（source_id = runId 不同）", async () => {
+    const harness = await createHarness({ streamFn: scriptedFillAgent() });
+    const { service, spaceId } = harness;
+
+    const first = await service.submitInit({ memorySpaceId: spaceId, text: "第一版设定" });
+    await waitForTerminal(harness, first.runId);
+    const second = await service.submitInit({ memorySpaceId: spaceId, text: "第二版设定" });
+    await waitForTerminal(harness, second.runId);
+
+    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    expect(evidenceRows).toHaveLength(2);
+    expect(
+      evidenceRows.map((row) => [
+        row.source_type,
+        row.source_id,
+        row.storage_mode,
+        row.storage_mode === "snapshot" ? row.content : undefined,
+      ]),
+    ).toEqual([
+      ["init", first.runId, "snapshot", "第一版设定"],
+      ["init", second.runId, "snapshot", "第二版设定"],
+    ]);
+  });
+
+  it("清洗规则应用于初始化文本：喂给 Agent 的文本已清洗，证据存原文", async () => {
+    const prompts: string[] = [];
+    // 捕获提示词的同时提交提案（空提案不落证据，无法验证证据原文）
+    const streamFn = scriptedStreamFn((context) => {
+      for (const message of context.messages) {
+        if (message.role !== "user") continue;
+        for (const part of message.content) {
+          if (typeof part === "string") {
+            prompts.push(part);
+          } else if (part.type === "text") {
+            prompts.push(part.text);
+          }
+        }
+      }
+      if (!lastToolResult(context)) {
+        return assistantMessage(
+          [
+            toolCallMessage("call-1", MUTATE_TOOL_NAME, {
+              op: "create",
+              table: "characters",
+              patch: { name: "云烬" },
+            }),
+            toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
+            toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
+          ],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("已提交")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn,
+      resolveCleaningRules: () => [
+        { id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true },
+      ],
+    });
+    const view = await harness.service.submitInit({
+      memorySpaceId: harness.spaceId,
+      text: "设定 **带标记** 原文",
+    });
+    const terminal = await waitForTerminal(harness, view.runId);
+    expect(terminal.status).toBe("succeeded");
+
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain("设定 带标记 原文");
+    expect(prompt).not.toContain("**");
+    // 证据存原文（清洗只作用于 Agent 输入，不破坏证据）
+    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    expect(evidenceRows[0]).toMatchObject({ content: "设定 **带标记** 原文" });
+  });
+
+  it("{{msg}} 引用：初始化文本经占位符展开（合成消息格式），本轮无自动追加", async () => {
+    let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
+    const stream = scriptedStreamFn((context) => {
+      seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createPromptContext: async () => ({
+        preset: testPreset([
+          { role: "system", content: "你是记忆助手。" },
+          { role: "user", content: "请根据以下设定初始化表格：\n{{msg}}" },
+        ]),
+        snapshot: snapshot(),
+      }),
+    });
+    const view = await harness.service.submitInit({
+      memorySpaceId: harness.spaceId,
+      text: INIT_TEXT,
+    });
+    await waitForTerminal(harness, view.runId);
+
+    expect(seenMessages).toHaveLength(1);
+    expect(seenMessages[0]!.role).toBe("user");
+    expect(seenMessages[0]!.text).toContain("请根据以下设定初始化表格：");
+    expect(seenMessages[0]!.text).toContain(INIT_TEXT);
+    // 合成消息格式 = composeBlockMessagesText(0, 0, [楼层 0 合成消息])
+    expect(seenMessages[0]!.text).toContain("[0]");
+  });
+
+  it("{{msg}} 未引用：块提示词自动追加（含初始化文本），与楼层任务旧行为一致", async () => {
+    let seenMessages: readonly { readonly role: string; readonly text: string }[] = [];
+    const stream = scriptedStreamFn((context) => {
+      seenMessages = context.messages.map((m) => ({ role: m.role, text: textOf(m) }));
+      return assistantMessage([textMessage("确认无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn: stream,
+      createPromptContext: async () => ({
+        preset: testPreset([{ role: "system", content: "你是记忆助手。" }]),
+        snapshot: snapshot(),
+      }),
+    });
+    const view = await harness.service.submitInit({
+      memorySpaceId: harness.spaceId,
+      text: INIT_TEXT,
+    });
+    await waitForTerminal(harness, view.runId);
+
+    expect(seenMessages).toHaveLength(1);
+    expect(seenMessages[0]!.text).toContain("以下是需要处理的对话消息（消息 0 到 0，共 1 条）");
+    expect(seenMessages[0]!.text).toContain(INIT_TEXT);
+    expect(seenMessages[0]!.text).toContain("请依据这些消息更新记忆表格");
+  });
+
+  it("{{worldbook}} 扫描输入 = 初始化文本", async () => {
+    let seenStoryText: string | undefined;
+    const harness = await createHarness({
+      streamFn: emptyProposalAgent(),
+      createPromptContext: async (storyText) => {
+        seenStoryText = storyText;
+        return {
+          preset: testPreset([{ role: "system", content: "参考：\n{{worldbook}}" }]),
+          snapshot: snapshot({ worldbookText: storyText }),
+        };
+      },
+    });
+    const view = await harness.service.submitInit({
+      memorySpaceId: harness.spaceId,
+      text: INIT_TEXT,
+    });
+    await waitForTerminal(harness, view.runId);
+    expect(seenStoryText).toBe(INIT_TEXT);
+  });
+
+  it("空文本允许：空白初始化文本也提交并成功（Agent 空提案）", async () => {
+    const harness = await createHarness({ streamFn: emptyProposalAgent() });
+    const view = await harness.service.submitInit({ memorySpaceId: harness.spaceId, text: "   " });
+    const terminal = await waitForTerminal(harness, view.runId);
+    expect(terminal.status).toBe("succeeded");
+    // 空提案不落数据（与楼层空提案语义一致：证据随批次提交保存）
+    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
+  });
+
+  it("与楼层任务互斥（双向）：init 运行中提交楼层任务抛冲突，反之亦然", async () => {
+    const harness = await createHarness({ streamFn: hangingStreamFn() });
+    const { service, spaceId } = harness;
+
+    const init = await service.submitInit({ memorySpaceId: spaceId, text: INIT_TEXT });
+    const floorWhileInit = await service
+      .submit({ memorySpaceId: spaceId, from: 0, to: 1 })
+      .catch((error) => {
+        expect(error).toBeInstanceOf(FillTaskConflictError);
+        expect((error as FillTaskConflictError).task.runId).toBe(init.runId);
+        return null;
+      });
+    expect(floorWhileInit).toBeNull();
+
+    await service.cancel(spaceId, init.runId);
+    const floor = await service.submit({ memorySpaceId: spaceId, from: 0, to: 1 });
+    expect(floor.status).toBe("running");
+    const initWhileFloor = await service
+      .submitInit({ memorySpaceId: spaceId, text: INIT_TEXT })
+      .catch((error) => {
+        expect(error).toBeInstanceOf(FillTaskConflictError);
+        expect((error as FillTaskConflictError).task.runId).toBe(floor.runId);
+        return null;
+      });
+    expect(initWhileFloor).toBeNull();
+  });
+
+  it("失败任务重试：init 任务复用原文本重跑为新任务（kind=init），旧任务保持 failed", async () => {
+    const harness = await createHarness({ streamFn: failOnceThenFill() });
+    const { service, spaceId } = harness;
+
+    const first = await service.submitInit({ memorySpaceId: spaceId, text: INIT_TEXT });
+    const failed = await waitForTerminal(harness, first.runId);
+    expect(failed.status).toBe("failed");
+
+    const retried = await service.retry(spaceId, first.runId);
+    expect(retried).toMatchObject({
+      status: "running",
+      kind: "init",
+      initText: INIT_TEXT,
+      totalCount: 1,
+    });
+    const terminal = await waitForTerminal(harness, retried.runId);
+    expect(terminal.status).toBe("succeeded");
+  });
+
+  it("用户取消：init 任务立即 interrupted，未提交提案丢弃、无数据落库", async () => {
+    const streamFn = gatedStreamFn(scriptedFillAgent().respond, 1);
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId } = harness;
+
+    const view = await service.submitInit({ memorySpaceId: spaceId, text: INIT_TEXT });
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(streamFn.calls.count).toBe(1);
+
+    await service.cancel(spaceId, view.runId);
+    expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
+
+    // 放行 Agent：提交前安全点检测到中断，提案丢弃、证据不落库
+    streamFn.gate.open();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
+    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
+    const characters = (await harness.services.tableRepository.findByKey(
+      spaceId,
+      "characters" as never,
+    ))!;
+    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
+  });
+
+  it("LLM 配置缺失：submitInit 提交即失败且不创建任务", async () => {
+    const harness = await createHarness({ createLlmThrows: true });
+    await expect(
+      harness.service.submitInit({ memorySpaceId: harness.spaceId, text: INIT_TEXT }),
+    ).rejects.toThrow(/Chat Completion 源未知/);
+    expect(await harness.tasks.findActive(harness.spaceId)).toBeUndefined();
   });
 });

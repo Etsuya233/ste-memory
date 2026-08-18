@@ -4,3 +4,6 @@ export const PLUGIN_DISPLAY_NAME = "STE Memory";
 /** 同步楼层证据的来源类型（ADR 0003：source_id = ST 消息数组下标）；
  *  证据 chip（ui/evidence-chip-model）与填表任务（fill-tasks）共用，故上移到共享常量 */
 export const EVIDENCE_FLOOR_SOURCE_TYPE = "sync_floor";
+
+/** 初始化填表证据的来源类型（source_id = 任务 runId；snapshot 模式存原文）。 */
+export const EVIDENCE_INIT_SOURCE_TYPE = "init";

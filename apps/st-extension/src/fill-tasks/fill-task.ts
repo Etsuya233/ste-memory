@@ -30,18 +30,26 @@ export function isFillTaskTerminal(status: FillTaskStatus): boolean {
   return (FILL_TASK_TERMINAL_STATUSES as readonly string[]).includes(status);
 }
 
-export interface FillTask {
+/**
+ * 填表任务类型：
+ * - floor：楼层填表任务，输入 = 同步楼层消息（ticket 13，默认）；
+ * - init：初始化填表任务，输入 = 用户初始化文本框内容（initText），无楼层、
+ *   无台账、单块执行；与楼层任务共享单空间单活动任务守卫。
+ * 判别联合：kind=init 必有 initText（无防御性兜底）。
+ */
+export type FillTaskKind = "floor" | "init";
+
+interface FillTaskBase {
   readonly runId: string;
   readonly memorySpaceId: MemorySpaceId;
-  /** 楼层范围（闭区间；同步楼层 = ST 消息数组下标，0 基，ADR 0003） */
+  /**
+   * 楼层范围（闭区间；同步楼层 = ST 消息数组下标，0 基，ADR 0003）。
+   * init 任务写入占位值（0–0），不参与语义。
+   */
   readonly from: number;
   readonly to: number;
   readonly blockSize: number;
-  /**
-   * 提交时的对话身份（ST chatId；未保存对话为 null）。块开始前的安全点检查：
-   * 对话已切换 → 楼层归属的对话已变化，任务失败停止（防止把新对话的消息
-   * 写进旧空间的台账/记录）。未保存对话无法识别切换，跳过检查。
-   */
+  /** 对话身份快照（ST chatId；未保存对话为 null）：块开始前检测对话切换。 */
   readonly chatId: string | null;
   readonly status: FillTaskStatus;
   /** 失败原因（可读中文；非 failed 为 null） */
@@ -50,11 +58,15 @@ export interface FillTask {
   readonly updatedAt: string;
 }
 
+export type FillTask =
+  | (FillTaskBase & { readonly kind: "floor"; readonly initText: null })
+  | (FillTaskBase & { readonly kind: "init"; readonly initText: string });
+
 /** 任务视图：任务行 + 实时已处理计数（台账 processed 楼层数）+ 范围总楼层数。 */
-export interface FillTaskView extends FillTask {
+export type FillTaskView = FillTask & {
   readonly processedCount: number;
   readonly totalCount: number;
-}
+};
 
 /** 楼层填表状态（语义与 api SourceMessageStatusValue 一致）。 */
 export type FloorFillStatus = "untracked" | "processed" | "error";

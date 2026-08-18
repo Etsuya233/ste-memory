@@ -35,6 +35,8 @@ export interface TasksTabViewModel {
   readonly chatLength: number;
   /** 是否允许触发（插件启用 + 对话非空 + 无活动任务） */
   readonly canTrigger: boolean;
+  /** 是否允许触发初始化填表（仅要求无活动任务；不依赖对话消息数） */
+  readonly canTriggerInit: boolean;
   /** 对话为空（无消息可填表） */
   readonly noMessages: boolean;
   /** 是否有运行中的任务（有则占用触发区） */
@@ -127,11 +129,14 @@ export function validateFloorRange(
   return { kind: "ok", from, to };
 }
 
-/** 任务状态 → 文案：running 带进度；failed 带可读失败原因；succeeded/interrupted 终态短语。 */
+/** 任务状态 → 文案：running 带进度；failed 带可读失败原因；succeeded/interrupted 终态短语。
+ *  初始化任务（kind=init）无楼层：running 显示初始化文案，不显示楼层进度。 */
 export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
   switch (task.status) {
     case "running":
-      return { label: "运行中", detail: `已处理 ${task.processedCount}/${task.totalCount} 层` };
+      return task.kind === "init"
+        ? { label: "运行中", detail: "正在初始化…" }
+        : { label: "运行中", detail: `已处理 ${task.processedCount}/${task.totalCount} 层` };
     case "succeeded":
       return { label: "已完成", detail: "" };
     case "failed":
@@ -139,6 +144,21 @@ export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
     case "interrupted":
       return { label: "已中断", detail: "" };
   }
+}
+
+/** 任务类型短标签（历史条目与活动任务区展示：初始化 / 填表）。 */
+export function taskKindLabel(kind: FillTaskView["kind"]): string {
+  return kind === "init" ? "初始化" : "填表";
+}
+
+/** 任务范围展示：init 任务无楼层，显示「初始化填表」；楼层任务显示楼层闭区间。 */
+export function taskRangeText(task: FillTaskView): string {
+  return task.kind === "init" ? "初始化填表" : `楼层 ${task.from}–${task.to}`;
+}
+
+/** 历史条目进度文本：init 任务无楼层，显示「初始化」；楼层任务显示已处理进度。 */
+export function taskProgressText(task: FillTaskView): string {
+  return task.kind === "init" ? "初始化" : `已处理 ${task.processedCount}/${task.totalCount} 层`;
 }
 
 // ---- 覆盖视图（ticket 14）：逐消息类别 = 台账（processed/error）+ 活动任务范围（任务中）----
@@ -222,12 +242,14 @@ export function buildCoverageViewModel(input: {
 
 // ---- 任务历史（ticket 14）：终态任务列表条目 ----
 
-/** 历史任务条目：状态/楼层范围/时间/进度/错误信息；失败与中断可重试。 */
+/** 历史任务条目：状态/类型/楼层范围/时间/进度/错误信息；失败与中断可重试。 */
 export interface TaskHistoryItemViewModel {
   readonly runId: string;
   /** 终态（历史列表只列终态任务；运行中任务在活动任务区展示） */
   readonly status: FillTaskStatus;
   readonly statusLabel: string;
+  /** 任务类型标签（初始化 / 填表） */
+  readonly kindLabel: string;
   readonly rangeText: string;
   /** 任务创建时间（ISO → "YYYY-MM-DD HH:mm"，与设置面板同步时间同格式） */
   readonly timeText: string;
@@ -244,10 +266,11 @@ function toHistoryItem(task: FillTaskView): TaskHistoryItemViewModel {
     runId: task.runId,
     status: task.status,
     statusLabel: status.label,
-    rangeText: `楼层 ${task.from}–${task.to}`,
+    kindLabel: taskKindLabel(task.kind),
+    rangeText: taskRangeText(task),
     // 时间展示复用 formatSyncTime（ISO → "YYYY-MM-DD HH:mm"，与设置面板同步时间同格式）
     timeText: formatSyncTime(task.createdAt),
-    progressText: `已处理 ${task.processedCount}/${task.totalCount} 层`,
+    progressText: taskProgressText(task),
     errorMessage: task.errorMessage,
     retryable: task.status === "failed" || task.status === "interrupted",
   };
@@ -281,12 +304,14 @@ export function buildTasksTabViewModel(input: {
   return {
     chatLength: input.chatLength,
     canTrigger: !active && input.chatLength > 0,
+    // 初始化填表不依赖对话消息数（新对话 0 消息也可初始化）；活动任务占用时禁用
+    canTriggerInit: !active,
     noMessages: input.chatLength <= 0,
     hasActiveTask: active !== undefined,
     activeTaskRunId: active?.runId ?? null,
     activeTaskLabel: active ? taskStatusViewModel(active).label : "",
     activeTaskDetail: active ? taskStatusViewModel(active).detail : "",
-    activeRange: active ? `楼层 ${active.from}–${active.to}` : "",
+    activeRange: active ? taskRangeText(active) : "",
     unprocessedHint:
       ranges.length === 0
         ? null

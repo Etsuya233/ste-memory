@@ -1589,6 +1589,30 @@
   margin-top: 10px;
 }
 
+.stm-task-form--column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.stm-task-init-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font-mono);
+  resize: vertical;
+}
+
+.stm-task-init-input:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
+}
+
 .stm-task-field {
   display: flex;
   align-items: center;
@@ -1757,6 +1781,14 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--stm-ink);
+}
+
+.stm-history-kind {
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 .stm-history-time {

@@ -43,6 +43,7 @@ import {
   composeBlockPrompt,
 } from "./fill-task-block.ts";
 import { applyCleaningRules, type CleaningRule } from "../settings/cleaning-rule-lists.ts";
+import { EVIDENCE_INIT_SOURCE_TYPE } from "../constants.ts";
 import {
   createFillRunRecorder,
   FILL_RUN_LOG_TYPE,
@@ -89,6 +90,13 @@ export interface FillTaskSubmitInput {
   readonly from: number;
   readonly to: number;
   readonly blockSize?: number;
+}
+
+/** 初始化填表提交输入（spec init-fill）：输入 = 用户初始化文本框内容，无楼层。 */
+export interface FillTaskInitInput {
+  readonly memorySpaceId: MemorySpaceId;
+  /** 初始化输入文本（允许为空串：仅凭预设内容初始化；trim 后为空不拦截）。 */
+  readonly text: string;
 }
 
 export interface FillTaskServiceOptions {
@@ -216,6 +224,8 @@ export class FillTaskService {
       from: input.from,
       to: input.to,
       blockSize,
+      kind: "floor",
+      initText: null,
       // 对话身份快照：块开始前检测对话切换（防止把新对话的消息写进旧空间）
       chatId: this.#source.chatId() ?? null,
       status: "running",
@@ -241,14 +251,59 @@ export class FillTaskService {
   }
 
   /**
+   * 初始化填表提交（spec init-fill）：输入 = 初始化文本框内容（作为 {{msg}}
+   * 语义的 msg，无楼层）。与楼层任务共享单空间单活动任务守卫与 LLM 配置预检；
+   * 任务行持久化 initText（retry 依赖）；无楼层校验、不做任何状态干预。
+   */
+  async submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
+    // 单空间单活动任务守卫——与 submit 同语义（init 与楼层任务互斥）
+    const active = await this.#tasks.findActive(input.memorySpaceId);
+    if (active) throw new FillTaskConflictError(active);
+    // 配置缺失在提交时立即失败（同 submit）
+    const llm = this.#createLlm();
+    // 世界书扫描输入 = 初始化文本（{{worldbook}} 展开源，同 submit 的合并剧情文本）
+    const promptContext =
+      this.#createPromptContext === undefined
+        ? undefined
+        : await this.#createPromptContext(input.text);
+
+    const now = this.#now();
+    const task: FillTask = {
+      runId: this.#createRunId(),
+      memorySpaceId: input.memorySpaceId,
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      kind: "init",
+      initText: input.text,
+      // 对话身份快照：与楼层任务同语义（块开始前检测对话切换）
+      chatId: this.#source.chatId() ?? null,
+      status: "running",
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    // 原子守卫创建（并发双提交兜底，同 submit）
+    const conflict = await this.#tasks.createIfIdle(input.memorySpaceId, task);
+    if (conflict) throw new FillTaskConflictError(conflict);
+
+    void this.#runTask(task, llm, promptContext);
+    return this.#toView(task);
+  }
+
+  /**
    * 任务重试（ticket 14）：把任务的楼层范围与分块大小重新提交为新任务——
    * 失败/中断任务的历史条目由此回到运行中；原任务保持终态留在历史列表。
    * 重试运行中任务被活动任务守卫拒绝（冲突原因可读，快速双击重试时第二次
    * 提交落在新任务的活动名额上，不会产生双任务）；重试已成功任务等同于手动
    * 重新触发同一范围（触发 UI 不提供该入口）。
+   * 初始化任务（kind=init）重试复用持久化的 initText 走 submitInit。
    */
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
+    if (task.kind === "init") {
+      return this.submitInit({ memorySpaceId, text: task.initText });
+    }
     return this.submit({
       memorySpaceId,
       from: task.from,
@@ -291,8 +346,12 @@ export class FillTaskService {
     return task;
   }
 
-  /** 任务视图：任务行 + 实时已处理计数（台账 processed 楼层数）+ 范围总楼层数。 */
+  /** 任务视图：任务行 + 实时已处理计数（台账 processed 楼层数）+ 范围总楼层数。
+   *  初始化任务无楼层：totalCount = 1（单块），进度不查台账。 */
   async #toView(task: FillTask): Promise<FillTaskView> {
+    if (task.kind === "init") {
+      return { ...task, processedCount: 0, totalCount: 1 };
+    }
     const processedCount = await this.#ledger.processedCount(
       task.memorySpaceId,
       task.from,
@@ -377,12 +436,17 @@ export class FillTaskService {
   ): Promise<void> {
     recorder.beginBlock();
     try {
-      const rawMessages = this.#source.messagesInRange(from, to);
+      // 输入源：楼层任务 = 对话消息（实时读）；初始化任务 = 合成单条消息
+      // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
+      const rawMessages =
+        task.kind === "init"
+          ? [{ floor: 0, name: "", content: task.initText }]
+          : this.#source.messagesInRange(from, to);
       if (rawMessages.length === 0) {
         throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
       }
       // 清洗规则在块处理时实时读取（ADR 0011）：原文证据不变，喂给 Agent 的是
-      // 清洗后内容；世界书扫描输入（submit 时合并的剧情文本）保持原文。
+      // 清洗后内容（初始化文本同路径）；世界书扫描输入（submit 时合并的剧情文本）保持原文。
       const cleaningRules = this.#resolveCleaningRules();
       const messages =
         cleaningRules.length === 0
@@ -391,13 +455,28 @@ export class FillTaskService {
               ...message,
               content: applyCleaningRules(message.content, cleaningRules),
             }));
-      const evidence = await buildBlockEvidence(
-        (memorySpaceId, sourceType, sourceId) =>
-          this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
-        this.#createEvidenceId,
-        task.memorySpaceId,
-        messages,
-      );
+      // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
+      // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于
+      // Agent 输入，证据永远存原文；重复初始化每次生成新证据，同源唯一不冲突）。
+      const evidence =
+        task.kind === "init"
+          ? [
+              {
+                evidence_id: this.#createEvidenceId(),
+                source_type: EVIDENCE_INIT_SOURCE_TYPE,
+                source_id: task.runId,
+                storage_mode: "snapshot" as const,
+                content: task.initText,
+                extraProps: {},
+              },
+            ]
+          : await buildBlockEvidence(
+              (memorySpaceId, sourceType, sourceId) =>
+                this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
+              this.#createEvidenceId,
+              task.memorySpaceId,
+              messages,
+            );
       // 编排（ADR 0024 组装迁移）：digest 块内构建一次，同时喂消息展开与工具装配；
       // 活动预设 → composePresetMessages 纯函数展开（{{msg}} 输入 = 本块消息文本）；
       // 缺省 → 核心默认提示词文本函数（composeProposalAgentMessages，与预设展开
@@ -447,6 +526,7 @@ export class FillTaskService {
       }
       if (result.proposal) {
         // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
+        // 初始化任务无楼层：只提交批次，不标记台账。
         await this.#runInTransaction(async () => {
           await commitMemoryProposalBatch(
             this.#commitContext,
@@ -454,17 +534,21 @@ export class FillTaskService {
             result.proposal!,
             "agent",
           );
+          if (task.kind !== "init") {
+            await this.#ledger.markProcessed(
+              task.memorySpaceId,
+              messages.map((message) => message.floor),
+            );
+          }
+        });
+      } else {
+        // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
+        if (task.kind !== "init") {
           await this.#ledger.markProcessed(
             task.memorySpaceId,
             messages.map((message) => message.floor),
           );
-        });
-      } else {
-        // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
-        await this.#ledger.markProcessed(
-          task.memorySpaceId,
-          messages.map((message) => message.floor),
-        );
+        }
       }
       await this.#appendRunLog(task, recorder, { from, to }, "succeeded", null);
     } catch (error) {
@@ -499,7 +583,8 @@ export class FillTaskService {
     }
   }
 
-  /** 失败收口：只把出错块的楼层标记 error，已成功批次保持 processed，任务置 failed。 */
+  /** 失败收口：只把出错块的楼层标记 error，已成功批次保持 processed，任务置 failed。
+   *  初始化任务无楼层：跳过台账标记，只置 failed。 */
   async #failTask(
     task: FillTask,
     failingBlock: { readonly from: number; readonly to: number } | undefined,
@@ -507,7 +592,7 @@ export class FillTaskService {
   ): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     try {
-      if (failingBlock) {
+      if (failingBlock && task.kind !== "init") {
         const failing = this.#source.messagesInRange(failingBlock.from, failingBlock.to);
         if (failing.length > 0) {
           await this.#ledger.markError(

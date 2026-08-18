@@ -9,6 +9,18 @@ import { isFillTaskTerminal } from "../fill-tasks/fill-task.ts";
 import type { FloorLedgerRow, SteMemoryDatabase } from "./database.ts";
 
 /**
+ * 旧任务行兼容（初始化填表新增 kind/initText 字段前的行）：缺省视为楼层填表任务
+ * （kind: "floor"、initText: null）。IndexedDB 行是动态对象，旧行不迁移、读取时
+ * 补齐默认——状态转换写回时也保留补齐后的字段，旧数据行为不变。
+ */
+function normalizeTaskRow(row: FillTask): FillTask {
+  if (row.kind === "init") {
+    return { ...row, kind: "init", initText: row.initText };
+  }
+  return { ...row, kind: "floor", initText: null };
+}
+
+/**
  * 填表任务 + 楼层进度台账的 Dexie 实现（ticket 13，ADR 0002）。
  *
  * - 任务行状态转换带守卫（仅 running → 终态）：取消与完成竞态下先落地者胜出，
@@ -118,12 +130,16 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       .where("memorySpaceId")
       .equals(memorySpaceId)
       .toArray();
-    const active = rows.filter((row) => !isFillTaskTerminal(row.status)).sort(byCreatedAtDesc);
+    const active = rows
+      .map(normalizeTaskRow)
+      .filter((row) => !isFillTaskTerminal(row.status))
+      .sort(byCreatedAtDesc);
     return active[0];
   }
 
   async find(runId: string): Promise<FillTask | undefined> {
-    return this.#db.memoryFillTasks.get(runId);
+    const row = await this.#db.memoryFillTasks.get(runId);
+    return row === undefined ? undefined : normalizeTaskRow(row);
   }
 
   async markSucceeded(runId: string): Promise<boolean> {
@@ -138,13 +154,14 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "interrupted", null);
   }
 
+  /** 状态转换守卫：仅 running → 目标终态（事务内读改写，取消竞态先落地者胜出）。 */
   async markInterruptedOnStartup(): Promise<void> {
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
         if (isFillTaskTerminal(row.status)) continue;
         await this.#db.memoryFillTasks.put({
-          ...row,
+          ...normalizeTaskRow(row),
           status: "interrupted",
           updatedAt: this.#now(),
         });
@@ -157,7 +174,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       .where("memorySpaceId")
       .equals(memorySpaceId)
       .toArray();
-    return rows.sort(byCreatedAtDesc).slice(0, limit);
+    return rows.map(normalizeTaskRow).sort(byCreatedAtDesc).slice(0, limit);
   }
 
   /** 状态转换守卫：仅 running → 目标终态（事务内读改写，取消竞态先落地者胜出）。 */
@@ -171,7 +188,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       const row = await this.#db.memoryFillTasks.get(runId);
       if (!row || row.status !== "running") return;
       await this.#db.memoryFillTasks.put({
-        ...row,
+        ...normalizeTaskRow(row),
         status,
         errorMessage,
         updatedAt: this.#now(),

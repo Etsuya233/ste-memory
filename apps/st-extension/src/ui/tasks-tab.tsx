@@ -47,7 +47,13 @@ const COVERAGE_LEGEND_ITEMS: readonly {
 export interface TasksTabRuntime {
   readonly tasks: Pick<
     FillTaskService,
-    "submit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
+    | "submit"
+    | "submitInit"
+    | "cancel"
+    | "retry"
+    | "activeTask"
+    | "recentTasks"
+    | "ledgerStatuses"
   >;
   readonly st: { readonly chatMessageCount: () => number };
   /** 设置写入（ticket 17：任务 Tab 快捷切换活动预设） */
@@ -69,6 +75,7 @@ export function TasksTab(props: {
   const [view, setView] = useState<TasksTabViewModel | undefined>(undefined);
   const [fromText, setFromText] = useState("");
   const [toText, setToText] = useState("");
+  const [initText, setInitText] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // 表单预填标记（按空间记录：切换空间后重新预填未处理范围）
@@ -222,6 +229,20 @@ export function TasksTab(props: {
     }
   }
 
+  /** 触发初始化填表：文本框内容作为 msg 输入（无楼层），与楼层任务共享活动守卫 */
+  async function triggerInit(): Promise<void> {
+    try {
+      await props.runtime.tasks.submitInit({
+        memorySpaceId: currentSpaceId,
+        text: initText,
+      });
+      reportSuccess("已触发初始化填表");
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
   /** 失败/中断任务重试：按原楼层范围重新提交为新任务（原任务保留在历史） */
   async function retryTask(runId: string): Promise<void> {
     try {
@@ -352,6 +373,29 @@ export function TasksTab(props: {
           ) : null}
         </div>
       )}
+      <div className="stm-task-card" data-stm-section="init-fill">
+        <div className="stm-task-card-title">初始化填表</div>
+        <div className="stm-task-hint">新对话开始时，用设定文本初始化记忆表格（无需消息）</div>
+        <div className="stm-task-form stm-task-form--column">
+          <textarea
+            className="stm-task-init-input"
+            data-stm-field="init-text"
+            value={initText}
+            placeholder="输入角色、地点、剧情背景等设定…（可留空，仅凭预设内容初始化）"
+            rows={4}
+            onChange={(event) => setInitText(event.target.value)}
+          />
+          <button
+            type="button"
+            className="stm-button stm-button--primary"
+            data-action="trigger-init-fill"
+            disabled={!view.canTriggerInit}
+            onClick={() => void triggerInit()}
+          >
+            初始化
+          </button>
+        </div>
+      </div>
       {view.history.length > 0 ? (
         <div className="stm-task-card" data-stm-section="history">
           <div className="stm-task-card-title">任务历史</div>
@@ -362,6 +406,7 @@ export function TasksTab(props: {
                   <span className={`stm-task-status stm-task-status--${item.status}`}>
                     {item.statusLabel}
                   </span>
+                  <span className="stm-history-kind">{item.kindLabel}</span>
                   <span className="stm-history-range">{item.rangeText}</span>
                   <span className="stm-history-time">{item.timeText}</span>
                 </div>

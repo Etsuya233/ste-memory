@@ -21,6 +21,8 @@ function task(overrides: Partial<FillTaskView> = {}): FillTaskView {
     from: 0,
     to: 9,
     blockSize: 20,
+    kind: "floor",
+    initText: null,
     chatId: null,
     status: "running",
     errorMessage: null,
@@ -28,8 +30,9 @@ function task(overrides: Partial<FillTaskView> = {}): FillTaskView {
     updatedAt: "2026-07-30T01:02:03.000Z",
     processedCount: 4,
     totalCount: 10,
+    // 测试数据构造：overrides 可覆盖 kind/initText（联合成员由调用方保证一致）
     ...overrides,
-  };
+  } as FillTaskView;
 }
 
 function entries(
@@ -292,6 +295,7 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
       runId: "run-failed",
       status: "failed",
       statusLabel: "失败",
+      kindLabel: "填表",
       rangeText: "楼层 0–3",
       timeText: "2026-07-30 01:02",
       progressText: "已处理 2/4 层",
@@ -348,5 +352,100 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
       cleaning: { selectedListId: "l1", lists: [{ id: "l1", name: "我的清洗", rules: [] }] },
     });
     expect(active.cleaningHint).toBe("清洗：我的清洗");
+  });
+});
+
+
+describe("初始化填表（spec init-fill）：任务类型标签与视图", () => {
+  function initTask(overrides: Partial<FillTaskView> = {}): FillTaskView {
+    return task({
+      kind: "init",
+      initText: "爱丽丝是咖啡店店员",
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      processedCount: 0,
+      totalCount: 1,
+      ...overrides,
+    } as FillTaskView);
+  }
+
+  it("taskStatusViewModel：init 任务运行中显示初始化文案，不显示楼层进度", () => {
+    expect(taskStatusViewModel(initTask())).toEqual({ label: "运行中", detail: "正在初始化…" });
+    expect(taskStatusViewModel(initTask({ status: "succeeded" }))).toEqual({
+      label: "已完成",
+      detail: "",
+    });
+    expect(
+      taskStatusViewModel(initTask({ status: "failed", errorMessage: "模型炸了" })),
+    ).toEqual({ label: "失败", detail: "模型炸了" });
+  });
+
+  it("buildTasksTabViewModel：init 活动任务 activeRange 显示「初始化填表」而非楼层范围", () => {
+    const view = buildTasksTabViewModel({
+      chatLength: 6,
+      ledger: [],
+      activeTask: initTask({ status: "running" }),
+      historyTasks: [],
+      cleaning: { selectedListId: undefined, lists: [] },
+    });
+    expect(view).toMatchObject({
+      hasActiveTask: true,
+      activeTaskLabel: "运行中",
+      activeTaskDetail: "正在初始化…",
+      activeRange: "初始化填表",
+      canTrigger: false,
+      canTriggerInit: false,
+    });
+  });
+
+  it("buildTasksTabViewModel：无活动任务时 canTriggerInit 为 true，不依赖对话消息数", () => {
+    const empty = buildTasksTabViewModel({
+      chatLength: 0,
+      ledger: [],
+      activeTask: undefined,
+      historyTasks: [],
+      cleaning: { selectedListId: undefined, lists: [] },
+    });
+    expect(empty.canTriggerInit).toBe(true);
+    expect(empty.canTrigger).toBe(false);
+    expect(empty.noMessages).toBe(true);
+  });
+
+  it("历史条目：init 任务显示「初始化」类型标签与进度文本，不显示楼层范围", () => {
+    const view = buildTasksTabViewModel({
+      chatLength: 6,
+      ledger: [],
+      activeTask: undefined,
+      historyTasks: [initTask({ status: "succeeded", runId: "run-init" })],
+      cleaning: { selectedListId: undefined, lists: [] },
+    });
+    expect(view.history).toHaveLength(1);
+    expect(view.history[0]).toEqual({
+      runId: "run-init",
+      status: "succeeded",
+      statusLabel: "已完成",
+      kindLabel: "初始化",
+      rangeText: "初始化填表",
+      timeText: "2026-07-30 01:02",
+      progressText: "初始化",
+      errorMessage: null,
+      retryable: false,
+    });
+  });
+
+  it("历史条目：楼层任务保持原样，类型标签为「填表」", () => {
+    const view = buildTasksTabViewModel({
+      chatLength: 6,
+      ledger: [],
+      activeTask: undefined,
+      historyTasks: [task({ status: "succeeded", runId: "run-floor" })],
+      cleaning: { selectedListId: undefined, lists: [] },
+    });
+    expect(view.history[0]).toMatchObject({
+      kindLabel: "填表",
+      rangeText: "楼层 0–9",
+      progressText: "已处理 4/10 层",
+    });
   });
 });

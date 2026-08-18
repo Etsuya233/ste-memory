@@ -136,7 +136,7 @@ export interface PanelRuntime {
   /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
-    "submit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
+    "submit" | "submitInit" | "cancel" | "retry" | "activeTask" | "recentTasks" | "ledgerStatuses"
   >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
