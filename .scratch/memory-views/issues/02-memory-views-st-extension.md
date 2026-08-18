@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — core 记忆查询 in/not_in 算子
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Decisions
 
@@ -24,3 +24,7 @@
 - 真机验收（`docs/playwright-st-extension/` 延续 verify-memory-macro 先例）：宏放 WI 条目（关键词触发）真实生成展开；预算展示；面板冒烟。
 
 事实调研：`docs/research/st-macros-args-and-worldinfo.md`；设计决策：ADR 0025。
+
+## Answer
+
+`apps/st-extension/src/settings/memory-views.ts`（视图模型 + 名称校验 + 合并）、`macros/memory-view-query.ts`（翻译层：视图 → QueryRecordsInput，digest key→id，缺表/缺字段翻译失败 + 引用解析补充查询）、`macros/memory-view-render.ts`（渲染层：投影「字段名：值」/无投影 displayText、空值省略、宏语法消毒、macroLimit 截断）；`macros/memory-macro-service.ts` 升级（注册带 `unnamedArgs viewName` 可选参数、handler 同步查默认/每视图快照 Map、重建判定 = 指纹 + 上限 + 视图设置、翻译失败空串 + 日志、查询异常单轮保旧值、reader 端口复用 runtime 既有 reader）；`st/st-chat-adapter.ts` 注册端口签名升级（MacroExecutionContext 子集 + 参数声明透传）；`runtime.ts` 接线 memoryViews + reader；`ui/memory-views-manager.tsx` + model（记忆宏组下视图 CRUD：名称/表/筛选字段/枚举多选或手输/条数/投影，配置错误徽标，改动即写设置 + macro.kick()）；`docs/memory-views.md`（语法/求值语义/世界书用法/预算/限制）+ `docs/playwright-st-extension/verify-memory-views.mjs` 真机验收脚本（WI 条目关键词触发展开）。测试：设置合并/名称校验、翻译层（投影/in/排序/分页/缺表缺字段/引用分片）、渲染层（投影/引用/消毒/截断）、宏服务扩展（带参注册/多快照/重建判定/失败保旧值/kick/未知视图空串）、UI 模型与冒烟——插件 70 文件 792 测试全绿；typecheck/lint 干净。真机脚本需 ST 运行环境（本机未起）待执行。
