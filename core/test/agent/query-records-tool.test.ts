@@ -6,8 +6,26 @@ import {
   buildMemorySpaceTableDigest,
   createQueryRecordsTool,
 } from "../../src/memory/application/agent/index.ts";
-import type { QueryRecordsInput } from "../../src/memory/index.ts";
+import {
+  MemoryFieldService,
+  MemoryRecordQueryService,
+  MemoryTableService,
+  type MemoryField,
+  type MemoryRecord,
+  type MemoryRevisionId,
+  type MemoryTable,
+  type MemoryTableId,
+  type QueryRecordsInput,
+} from "../../src/memory/index.ts";
+import type { MemorySpaceReader } from "../../src/memory/application/agent/index.ts";
+import type {
+  MemoryFieldRepository,
+  MemoryRecordRepository,
+  MemorySpaceRepository,
+  MemoryTableRepository,
+} from "../../src/memory/adapter.ts";
 import { createTestMemorySpace, type TestMemorySpace } from "./memory-space-fixture.ts";
+import { SPACE_ID } from "./memory-space-data.ts";
 
 async function toolWith(space: TestMemorySpace = createTestMemorySpace()) {
   const digest = await buildMemorySpaceTableDigest(space.reader, space.memorySpaceId);
@@ -167,6 +185,277 @@ describe("query_records 执行器：key 校验与错误回喂", () => {
   });
 });
 
+describe("query_records 执行器：读时显示文本（模板策略按当前目标记录解析）", () => {
+  it("存储 displayText 过期的模板策略表：引用字段按目标记录显示文本重新渲染", async () => {
+    // 模拟修复前的历史数据：关系记录存储 displayText 为「 <-> 」（批内引用曾解析为空）
+    const space = relationshipsSpace();
+    const digest = await buildMemorySpaceTableDigest(space.reader, space.memorySpaceId);
+    const tool = createQueryRecordsTool({ reader: space.reader, digest });
+
+    const result = textOf(
+      await tool.execute("call-1", {
+        table: "relationships",
+        fields: ["character_a", "character_b"],
+      }),
+    );
+    const records = result.records as {
+      id: string;
+      display: string;
+      values: Record<string, unknown>;
+    }[];
+    expect(records).toHaveLength(1);
+    expect(records[0]!.display).toBe("秋元悦也 <-> 平野健介");
+    // values 仍是裸 id（引用字段 v1 语义不变）
+    expect(records[0]!.values.character_a).toBe("char-1");
+    expect(records[0]!.values.character_b).toBe("char-2");
+  });
+
+  it("field 策略表直接使用存储 displayText，不做额外查询", async () => {
+    const space = relationshipsSpace();
+    const captured: QueryRecordsInput[] = [];
+    const original = space.reader.queryRecords;
+    space.reader.queryRecords = async (memorySpaceId, input) => {
+      captured.push(input);
+      return original(memorySpaceId, input);
+    };
+    const digest = await buildMemorySpaceTableDigest(space.reader, space.memorySpaceId);
+    const tool = createQueryRecordsTool({ reader: space.reader, digest });
+
+    await tool.execute("call-1", { table: "characters" });
+    // 只有主查询本身，没有读时解析的额外目标表查询
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.tableId).toBe("table-characters");
+  });
+
+  it("目标记录不存在：读时解析渲染为空（与提交路径同语义）", async () => {
+    const space = relationshipsSpace();
+    // 关系记录引用一个不存在的角色 id（char-1 → char-missing）
+    const relationship = space.recordsByTableId.get("table-relationships")![0]!;
+    (relationship.payload as Record<string, string>)["field-char-a"] = "char-missing";
+    const digest = await buildMemorySpaceTableDigest(space.reader, space.memorySpaceId);
+    const tool = createQueryRecordsTool({ reader: space.reader, digest });
+
+    const result = textOf(await tool.execute("call-1", { table: "relationships" }));
+    const records = result.records as { display: string }[];
+    expect(records[0]!.display).toBe(" <-> 平野健介");
+  });
+});
+
+/**
+ * 人物 + 关系的双表空间：characters 用 field 策略（name），
+ * relationships 用模板策略 `{character_a} <-> {character_b}`（引用 characters）。
+ */
+function relationshipsSpace(): TestMemorySpace {
+  const timestamp = "2026-07-30T00:00:00.000Z";
+  const charactersTableId = "table-characters" as MemoryTableId;
+  const relationshipsTableId = "table-relationships" as MemoryTableId;
+  const nameId = "field-name" as MemoryField["id"];
+  const charAId = "field-char-a" as MemoryField["id"];
+  const charBId = "field-char-b" as MemoryField["id"];
+
+  const charactersTable: MemoryTable = {
+    id: charactersTableId,
+    memorySpaceId: SPACE_ID,
+    key: "characters",
+    kind: "custom",
+    name: "人物",
+    description: "",
+    prompt: "",
+    enabled: true,
+    displayStrategy: { type: "field", fieldId: nameId },
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const relationshipsTable: MemoryTable = {
+    id: relationshipsTableId,
+    memorySpaceId: SPACE_ID,
+    key: "relationships",
+    kind: "custom",
+    name: "人际关系",
+    description: "",
+    prompt: "",
+    enabled: true,
+    displayStrategy: {
+      type: "template",
+      template: `{${charAId}} <-> {${charBId}}`,
+    },
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const nameField: MemoryField = {
+    id: nameId,
+    memorySpaceId: SPACE_ID,
+    tableId: charactersTableId,
+    key: "name",
+    name: "名称",
+    type: "short_text",
+    required: true,
+    prompt: "",
+    enabled: true,
+    position: 0,
+    options: [],
+    referenceTableId: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const charAField: MemoryField = {
+    ...nameField,
+    id: charAId,
+    tableId: relationshipsTableId,
+    key: "character_a",
+    name: "人物 A",
+    type: "single_reference",
+    required: true,
+    position: 0,
+    referenceTableId: charactersTableId,
+  };
+  const charBField: MemoryField = {
+    ...charAField,
+    id: charBId,
+    key: "character_b",
+    name: "人物 B",
+    position: 1,
+  };
+  const tables = [charactersTable, relationshipsTable];
+  const fieldsByTableId = new Map<MemoryTableId, readonly MemoryField[]>([
+    [charactersTableId, [nameField]],
+    [relationshipsTableId, [charAField, charBField]],
+  ]);
+  const charA: MemoryRecord = {
+    id: "char-1" as MemoryRecord["id"],
+    memorySpaceId: SPACE_ID,
+    tableId: charactersTableId,
+    payload: { [nameId]: "秋元悦也" },
+    fieldEvidence: {},
+    displayText: "秋元悦也",
+    source: { type: "manual" },
+    revisionId: "revision-char-1" as MemoryRevisionId,
+    revisionSource: "user",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const charB: MemoryRecord = {
+    ...charA,
+    id: "char-2" as MemoryRecord["id"],
+    payload: { [nameId]: "平野健介" },
+    displayText: "平野健介",
+    revisionId: "revision-char-2" as MemoryRevisionId,
+  };
+  // 存储 displayText 是修复前的过期值（引用解析为空）——读时解析应纠正展示
+  const relationship: MemoryRecord = {
+    id: "rel-1" as MemoryRecord["id"],
+    memorySpaceId: SPACE_ID,
+    tableId: relationshipsTableId,
+    payload: { [charAId]: "char-1", [charBId]: "char-2" },
+    fieldEvidence: {},
+    displayText: " <-> ",
+    source: { type: "manual" },
+    revisionId: "revision-rel-1" as MemoryRevisionId,
+    revisionSource: "user",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const recordsByTableId = new Map<MemoryTableId, readonly MemoryRecord[]>([
+    [charactersTableId, [charA, charB]],
+    [relationshipsTableId, [relationship]],
+  ]);
+
+  const tablesRepo: MemoryTableRepository = {
+    async create() {},
+    async delete() {
+      return false;
+    },
+    async find(memorySpaceId, id) {
+      return memorySpaceId === SPACE_ID
+        ? tables.find((candidate) => candidate.id === id)
+        : undefined;
+    },
+    async findByKey() {
+      return undefined;
+    },
+    async list(memorySpaceId) {
+      return memorySpaceId === SPACE_ID ? [...tables] : [];
+    },
+    async update() {
+      return false;
+    },
+  };
+  const fieldsRepo: MemoryFieldRepository = {
+    async create() {},
+    async delete() {
+      return false;
+    },
+    async find(memorySpaceId, tableId, id) {
+      return memorySpaceId === SPACE_ID
+        ? fieldsByTableId.get(tableId)?.find((candidate) => candidate.id === id)
+        : undefined;
+    },
+    async findByKey() {
+      return undefined;
+    },
+    async list(memorySpaceId, tableId) {
+      return memorySpaceId === SPACE_ID ? [...(fieldsByTableId.get(tableId) ?? [])] : [];
+    },
+    async update() {
+      return false;
+    },
+  };
+  const recordsRepo: MemoryRecordRepository = {
+    async create() {},
+    async find(memorySpaceId, tableId, id) {
+      return memorySpaceId === SPACE_ID
+        ? recordsByTableId.get(tableId)?.find((candidate) => candidate.id === id)
+        : undefined;
+    },
+    async list(memorySpaceId, tableId) {
+      return memorySpaceId === SPACE_ID ? [...(recordsByTableId.get(tableId) ?? [])] : [];
+    },
+    async commit() {
+      return false;
+    },
+    async listHistory() {
+      return [];
+    },
+  };
+  const spacesRepo: MemorySpaceRepository = {
+    async create() {},
+    async delete() {
+      return false;
+    },
+    async find() {
+      return undefined;
+    },
+    async list() {
+      return [];
+    },
+    async rename() {
+      return undefined;
+    },
+    async clearRecords() {
+      return false;
+    },
+    async deleteAllTables() {
+      return false;
+    },
+  };
+  const createId = (() => `id-${Math.random().toString(36).slice(2)}`) as () => MemoryTableId;
+  const tableService = new MemoryTableService(spacesRepo, tablesRepo, createId, () => timestamp);
+  const fieldService = new MemoryFieldService(tablesRepo, fieldsRepo, createId, () => timestamp);
+  const queryService = new MemoryRecordQueryService(tablesRepo, fieldsRepo, recordsRepo);
+  const reader: MemorySpaceReader = {
+    listTables: (memorySpaceId) => tableService.list(memorySpaceId),
+    listFields: (memorySpaceId, tableId) => fieldService.list(memorySpaceId, tableId),
+    queryRecords: (memorySpaceId, input) => queryService.query(memorySpaceId, input),
+  };
+  return {
+    memorySpaceId: SPACE_ID,
+    reader,
+    ports: { tables: tablesRepo, fields: fieldsRepo, records: recordsRepo },
+    tables,
+    fieldsByTableId,
+    recordsByTableId,
+  };
+}
 describe("query_records 执行器：结果形状", () => {
   it("返回 { id, revisionId, display, values }，values 用字段 key 键控，剥掉证据/来源噪音", async () => {
     const tool = await toolWith();

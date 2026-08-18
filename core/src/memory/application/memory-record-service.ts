@@ -218,8 +218,15 @@ export class MemoryRecordService {
         createHistoryId: this.createHistoryId,
         createRevisionId: this.createRevisionId,
         now: this.now,
-        displayText: (table, fields, payload) =>
-          computeMemoryRecordDisplayText(this.records, table.memorySpaceId, table, fields, payload),
+        displayText: (table, fields, payload, resolveReference) =>
+          computeMemoryRecordDisplayText(
+            this.records,
+            table.memorySpaceId,
+            table,
+            fields,
+            payload,
+            resolveReference,
+          ),
       },
       memorySpaceId,
       input,

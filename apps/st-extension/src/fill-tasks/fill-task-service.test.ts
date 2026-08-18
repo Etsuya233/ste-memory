@@ -231,8 +231,15 @@ async function createHarness(
     createHistoryId: () => `history-${++historySeq}` as MemoryRecordHistoryId,
     createRevisionId: () => `revision-${++revisionSeq}` as MemoryRevisionId,
     now: () => NOW,
-    displayText: (table, fieldList, payload) =>
-      computeMemoryRecordDisplayText(services.recordRepository, spaceId, table, fieldList, payload),
+    displayText: (table, fieldList, payload, resolveReference) =>
+      computeMemoryRecordDisplayText(
+        services.recordRepository,
+        spaceId,
+        table,
+        fieldList,
+        payload,
+        resolveReference,
+      ),
   };
   let runSeq = 0;
   const service = new FillTaskService({
@@ -989,7 +996,6 @@ function capturePrompts(onPrompt: (text: string) => void) {
 }
 
 describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
-
   it("注入 resolveCleaningRules：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
     const prompts: string[] = [];
     const harness = await createHarness({

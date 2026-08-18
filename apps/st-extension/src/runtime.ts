@@ -259,13 +259,14 @@ export async function startSteMemory(
     createHistoryId: () => createId("record-history") as MemoryRecordHistoryId,
     createRevisionId: () => createId("revision") as MemoryRevisionId,
     now,
-    displayText: (table, fieldList, payload) =>
+    displayText: (table, fieldList, payload, resolveReference) =>
       computeMemoryRecordDisplayText(
         recordRepository,
         table.memorySpaceId,
         table,
         fieldList,
         payload,
+        resolveReference,
       ),
   };
   const fillTaskRepository = new DexieFillTaskRepository(db, now);

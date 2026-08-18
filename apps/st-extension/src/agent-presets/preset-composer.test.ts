@@ -38,6 +38,7 @@ function digest(): MemorySpaceTableDigest {
         key: "person" as MemoryTableKey,
         name: "人物",
         description: "登场角色",
+        displayStrategy: null,
         fields: [
           {
             id: "f1" as MemorySpaceTableDigest["tables"][number]["fields"][number]["id"],
@@ -47,6 +48,7 @@ function digest(): MemorySpaceTableDigest {
             required: true,
             options: [],
             referenceTableKey: null,
+            referenceTableId: null,
             maxChars: 50,
             valuePatternMessage: null,
           },
@@ -58,6 +60,7 @@ function digest(): MemorySpaceTableDigest {
             required: false,
             options: ["主角", "配角"],
             referenceTableKey: null,
+            referenceTableId: null,
             maxChars: null,
             valuePatternMessage: null,
           },

@@ -122,14 +122,37 @@ function normalizeDatetime(value: MemoryFieldValue): MemoryFieldValue {
   return value.replace("T", " ").slice(0, 16);
 }
 
-/** 详情字段值展示文本（null=—、数组=顿号连接、布尔=是/否） */
+/**
+ * 详情字段值展示文本（null=—、数组=顿号连接、布尔=是/否）。
+ * 引用字段：有标签映射时解析为目标记录显示文本（未知 id 回退原 id，与网格同语义）；
+ * 无标签映射（引用目标表记录未加载）时显示原 id。
+ */
 export function recordFieldValueText(
   field: MemoryField,
   value: MemoryFieldValue | undefined,
+  referenceLabels?: ReadonlyMap<string, string>,
 ): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (Array.isArray(value)) return value.length > 0 ? value.join("、") : "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    if (field.type === "multi_reference" && referenceLabels) {
+      return value.map((id) => referenceLabels.get(id) ?? id).join("、");
+    }
+    return value.join("、");
+  }
+  if (field.type === "single_reference" && typeof value === "string" && value.length === 0) {
+    // 引用字段空串 = 未选择（表单语义与 null 一致），与 null 同渲染 —
+    return "—";
+  }
+  if (
+    field.type === "single_reference" &&
+    referenceLabels &&
+    typeof value === "string" &&
+    value.length > 0
+  ) {
+    return referenceLabels.get(value) ?? value;
+  }
   return String(value);
 }
 

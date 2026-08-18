@@ -137,8 +137,15 @@ async function createHarness(
     createHistoryId: () => `history-${++historySeq}` as MemoryRecordHistoryId,
     createRevisionId: () => `revision-${++revisionSeq}` as MemoryRevisionId,
     now: () => NOW,
-    displayText: (table, fieldList, payload) =>
-      computeMemoryRecordDisplayText(services.recordRepository, spaceId, table, fieldList, payload),
+    displayText: (table, fieldList, payload, resolveReference) =>
+      computeMemoryRecordDisplayText(
+        services.recordRepository,
+        spaceId,
+        table,
+        fieldList,
+        payload,
+        resolveReference,
+      ),
   };
   const currentSpace = { value: spaceId };
   const runInTransaction = (work: () => Promise<void>): Promise<void> =>

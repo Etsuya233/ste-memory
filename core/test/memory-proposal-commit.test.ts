@@ -169,7 +169,8 @@ function setup() {
     createHistoryId: () => `history-${++historyNumber}`,
     createRevisionId: () => "revision-batch" as MemoryRevisionId,
     now: () => "2026-07-28T02:00:00.000Z",
-    displayText: async (_table, _fields, payload) => String(payload[nameId] ?? ""),
+    displayText: async (_table, _fields, payload, _resolveReference) =>
+      String(payload[nameId] ?? ""),
   };
   return { records, context };
 }

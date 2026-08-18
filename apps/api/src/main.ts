@@ -105,6 +105,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
         table: Parameters<typeof computeMemoryRecordDisplayText>[2],
         fields: Parameters<typeof computeMemoryRecordDisplayText>[3],
         payload: Parameters<typeof computeMemoryRecordDisplayText>[4],
+        resolveReference: Parameters<typeof computeMemoryRecordDisplayText>[5],
       ) =>
         computeMemoryRecordDisplayText(
           memoryRecordRepository,
@@ -112,6 +113,7 @@ export async function startApi(environment: NodeJS.ProcessEnv): Promise<void> {
           table,
           fields,
           payload,
+          resolveReference,
         ),
     };
     const chat = new DefaultChatManager({

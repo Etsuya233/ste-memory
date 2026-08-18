@@ -32,6 +32,10 @@ import {
   validateMemoryRecordPatch,
   validatedMemoryRecordPayload,
 } from "./memory-record-validation.ts";
+import {
+  createBatchReferenceResolver,
+  type MemoryRecordDisplayTextResolver,
+} from "./memory-record-display.ts";
 
 export type MemoryRecordMutationOperation =
   | {
@@ -77,10 +81,16 @@ export interface MemoryRecordMutationContext {
   readonly createHistoryId: () => MemoryRecordHistoryId;
   readonly createRevisionId: () => MemoryRevisionId;
   readonly now: () => string;
+  /**
+   * 显示文本计算（领域规则由宿主接入 computeMemoryRecordDisplayText）。
+   * resolveReference 必传：提交批次内新建、尚未落库的记录由批次感知解析器解析
+   * （不传会退化为只查仓库，同批新建的引用目标渲染为空）。
+   */
   readonly displayText: (
     table: MemoryTable,
     fields: readonly MemoryField[],
     payload: MemoryRecordPayload,
+    resolveReference: MemoryRecordDisplayTextResolver,
   ) => Promise<string>;
 }
 
@@ -103,6 +113,49 @@ export async function commitMemoryRecordMutationBatch(
     if (operation.type === "create") tempIdToRecordId.set(operation.tempId, context.createId());
   }
 
+  // 批内 create 的待落库形态预计算（显示文本引用解析与 mutation 构建共用）：
+  // 引用解析器能看到整批新建记录，displayText 渲染不再因「同批记录尚未落库」而空白。
+  const pendingCreates: PendingCreate[] = [];
+  for (const operation of input.operations) {
+    if (operation.type !== "create") continue;
+    const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
+    const fields = await context.fields.list(memorySpaceId, operation.tableId);
+    const recordId = tempIdToRecordId.get(operation.tempId);
+    if (!recordId) {
+      throw new DomainError({
+        type: "memory_record_reference_invalid",
+        param: { fieldId: operation.tempId },
+        humanMsg: `批内临时 ID ${operation.tempId} 不存在`,
+      });
+    }
+    pendingCreates.push({
+      operation,
+      recordId,
+      table,
+      fields,
+      payload: validatedMemoryRecordPayload(
+        fields,
+        resolveTempReferences(fields, operation.patch, tempIdToRecordId),
+      ),
+    });
+  }
+  const pendingByTempId = new Map(
+    pendingCreates.map((item) => [item.operation.tempId, item] as const),
+  );
+  const resolveReference = createBatchReferenceResolver({
+    pending: pendingCreates.map((item) => ({
+      id: item.recordId,
+      table: item.table,
+      fields: item.fields,
+      payload: item.payload,
+    })),
+    fallback: async (tableId, recordId) =>
+      (await context.records.find(memorySpaceId, tableId, recordId as MemoryRecord["id"]))
+        ?.displayText ?? "",
+    compute: async (record, resolve) =>
+      context.displayText(record.table, record.fields, record.payload, resolve),
+  });
+
   const mutations: MemoryRecordMutation[] = [];
   for (const operation of input.operations) {
     if (operation.type === "create") {
@@ -110,11 +163,11 @@ export async function commitMemoryRecordMutationBatch(
         await buildCreateMutation(
           context,
           memorySpaceId,
-          operation,
+          pendingByTempId.get(operation.tempId)!,
           revisionId,
           archivedAt,
           input.revisionSource,
-          tempIdToRecordId,
+          resolveReference,
         ),
       );
       continue;
@@ -144,7 +197,7 @@ export async function commitMemoryRecordMutationBatch(
         ...patchPayload,
       };
       const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
-      const displayText = await context.displayText(table, fields, payload);
+      const displayText = await context.displayText(table, fields, payload, resolveReference);
       if (
         JSON.stringify(payload) === JSON.stringify(previous.payload) &&
         JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence) ===
@@ -186,27 +239,14 @@ export async function commitMemoryRecordMutationBatch(
 async function buildCreateMutation(
   context: MemoryRecordMutationContext,
   memorySpaceId: MemorySpaceId,
-  operation: Extract<MemoryRecordMutationOperation, { type: "create" }>,
+  pending: PendingCreate,
   revisionId: MemoryRevisionId,
   archivedAt: string,
   revisionSource: MemoryRevisionSource,
-  tempIdToRecordId: ReadonlyMap<string, MemoryRecordId>,
+  resolveReference: MemoryRecordDisplayTextResolver,
 ): Promise<MemoryRecordMutation> {
-  const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
-  const fields = await context.fields.list(memorySpaceId, operation.tableId);
-  const payload = validatedMemoryRecordPayload(
-    fields,
-    resolveTempReferences(fields, operation.patch, tempIdToRecordId),
-  );
+  const { operation, recordId, table, fields, payload } = pending;
   const fieldEvidence = operation.fieldEvidence ?? {};
-  const recordId = tempIdToRecordId.get(operation.tempId);
-  if (!recordId) {
-    throw new DomainError({
-      type: "memory_record_reference_invalid",
-      param: { fieldId: operation.tempId },
-      humanMsg: `批内临时 ID ${operation.tempId} 不存在`,
-    });
-  }
   return {
     kind: "create",
     current: {
@@ -215,7 +255,7 @@ async function buildCreateMutation(
       tableId: operation.tableId,
       payload,
       fieldEvidence,
-      displayText: await context.displayText(table, fields, payload),
+      displayText: await context.displayText(table, fields, payload, resolveReference),
       source:
         operation.source ??
         (Object.keys(fieldEvidence).length > 0
@@ -227,6 +267,15 @@ async function buildCreateMutation(
       updatedAt: archivedAt,
     },
   };
+}
+
+/** 批内 create 的已编译形态：表/字段/解析后 payload 预计算一次，mutation 构建与引用解析共用。 */
+interface PendingCreate {
+  readonly operation: Extract<MemoryRecordMutationOperation, { type: "create" }>;
+  readonly recordId: MemoryRecordId;
+  readonly table: MemoryTable;
+  readonly fields: readonly MemoryField[];
+  readonly payload: MemoryRecordPayload;
 }
 
 /**

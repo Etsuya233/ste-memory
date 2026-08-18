@@ -53,6 +53,7 @@ import {
   saveGridColumnWidths,
   saveGridRowHeights,
   validateGridRows,
+  buildReferenceLabelMap,
   type GridColumnWidths,
   type GridRowErrors,
   type GridRowHeights,
@@ -348,6 +349,7 @@ export function RecordsTab(props: {
     );
   }
   const currentSpaceId = active.space.id;
+  const referenceLabels = buildReferenceLabelMap(referenceRecords);
   if (tables === undefined) {
     return <Placeholder title="正在加载…" hint="记录列表准备中" />;
   }
@@ -716,6 +718,7 @@ export function RecordsTab(props: {
             displayText={detailDisplayText}
             fields={fields}
             history={history}
+            referenceLabels={referenceLabels}
             unsavedDraft={detailDirty}
             onBack={() => setDetailRecordId(null)}
             onDelete={() => void deleteRecord()}
@@ -802,6 +805,8 @@ function RecordDetail(props: {
   readonly displayText: string;
   readonly fields: readonly MemoryField[];
   readonly history: readonly MemoryRecordHistory[];
+  /** 引用字段值标签（id → 目标记录显示文本）；缺省时引用字段回退显示原 id */
+  readonly referenceLabels: ReadonlyMap<string, string>;
   /** 该记录在网格中有未保存草稿（详情显示的是已提交值） */
   readonly unsavedDraft: boolean;
   readonly onBack: () => void;
@@ -879,7 +884,9 @@ function RecordDetail(props: {
                 </span>
                 {!field.enabled ? <span className="stm-field-disabled">已停用</span> : null}
               </div>
-              <div className="stm-record-field-value">{recordFieldValueText(field, value)}</div>
+              <div className="stm-record-field-value">
+                {recordFieldValueText(field, value, props.referenceLabels)}
+              </div>
               {chips.length > 0 ? (
                 <div className="stm-evidence-row">
                   {chips.map((chip, index) =>

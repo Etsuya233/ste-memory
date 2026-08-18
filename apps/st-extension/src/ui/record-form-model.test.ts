@@ -288,6 +288,41 @@ describe("recordFieldValueText（详情展示）", () => {
     expect(recordFieldValueText(f, "文本")).toBe("文本");
     expect(recordFieldValueText(f, 42)).toBe("42");
   });
+
+  it("引用字段：有标签映射时解析为目标记录显示文本，未知 id 回退原 id", () => {
+    const single = field({
+      type: "single_reference",
+      referenceTableId: "t2" as MemoryField["referenceTableId"],
+    });
+    const multi = field({
+      type: "multi_reference",
+      referenceTableId: "t2" as MemoryField["referenceTableId"],
+    });
+    const labels = new Map([
+      ["char-1", "秋元悦也"],
+      ["char-2", "平野健介"],
+    ]);
+    expect(recordFieldValueText(single, "char-1", labels)).toBe("秋元悦也");
+    expect(recordFieldValueText(single, "char-missing", labels)).toBe("char-missing");
+    expect(recordFieldValueText(single, "", labels)).toBe("—");
+    expect(recordFieldValueText(multi, ["char-1", "char-missing"], labels)).toBe(
+      "秋元悦也、char-missing",
+    );
+    expect(recordFieldValueText(multi, [], labels)).toBe("—");
+  });
+
+  it("引用字段：无标签映射（目标表未加载）时显示原 id", () => {
+    const single = field({
+      type: "single_reference",
+      referenceTableId: "t2" as MemoryField["referenceTableId"],
+    });
+    const multi = field({
+      type: "multi_reference",
+      referenceTableId: "t2" as MemoryField["referenceTableId"],
+    });
+    expect(recordFieldValueText(single, "char-1")).toBe("char-1");
+    expect(recordFieldValueText(multi, ["char-1", "char-2"])).toBe("char-1、char-2");
+  });
 });
 
 describe("recordFormPatchFromDraft（datetime 往返）", () => {

@@ -1,11 +1,13 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
+  derivedDisplayTemplate,
   DomainError,
   type MemoryFieldId,
   type MemoryFieldValue,
   type MemoryRecordId,
   type MemoryRevisionId,
+  type MemoryTableId,
 } from "../../../../domain/index.ts";
 import type {
   QueryRecordFieldId,
@@ -20,6 +22,7 @@ import {
   type MemorySpaceTableDigest,
 } from "../../digest.ts";
 import type { MemorySpaceReader } from "../../memory-space-reader.ts";
+import { renderMemoryRecordDisplayTemplate } from "../../../memory-record-display.ts";
 
 export const QUERY_RECORDS_TOOL_NAME = "query_records";
 
@@ -131,7 +134,7 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "  $display_text 支持文本操作符，$created_at/$updated_at 支持有序操作符）；",
   "  op 取值 equals / not_equals / in / not_in / contains / not_contains / greater_than /",
   "  greater_than_or_equal / less_than / less_than_or_equal；",
-  "  in/not_in 的 value 为数组（如 [\"正常\", \"受伤\"]），一次匹配多个值、无需拆多次 equals，",
+  '  in/not_in 的 value 为数组（如 ["正常", "受伤"]），一次匹配多个值、无需拆多次 equals，',
   "  适用于单值字段与 $record_id；contains 对文本是大小写不敏感的子串匹配、",
   "  对列表字段（多选/多引用/短文本列表）是成员匹配，not_contains 仅限列表字段，",
   "  列表字段的多值筛选请用 contains/not_contains；",
@@ -139,6 +142,7 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "- paging：可选，默认 { page: 1, pageSize: 20 }，pageSize 上限 100。",
   "- orderBy：可选，{ field, direction: asc|desc }，field 为字段 key 或系统字段；多值字段不可排序。",
   "结果 records 中的 values 以字段 key 键控，引用字段的值为目标记录 id，revisionId 是记录版本号；",
+  "display 为读时计算的显示文本：引用字段按当前目标记录的显示文本即时解析（不依赖可能过期的存储值）。",
   "查不到记录时 records 为空数组，请如实回答。",
 ].join("\n");
 
@@ -190,19 +194,101 @@ async function executeQueryRecords(
     throw translateQueryError(error, fieldKeyById);
   }
 
+  // 读时显示文本：模板策略表按当前表/字段定义与目标记录显示文本重新渲染，
+  // 存储 displayText 可能过期（历史批内引用 bug 曾渲染为空、策略变更、目标改名）。
+  const resolveDisplay = await createReadTimeDisplayResolver(deps, table, page);
+
   return {
     table: table.key,
     page: page.page,
     pageSize: page.pageSize,
     total: page.total,
     totalPages: page.totalPages,
-    records: page.records.map((record) => ({
-      id: record.id,
-      revisionId: record.revisionId,
-      display: record.displayText,
-      values: Object.fromEntries(payloadEntriesKeyedByFieldKey(record, fieldKeyById)),
-    })),
+    records: await Promise.all(
+      page.records.map(async (record) => ({
+        id: record.id,
+        revisionId: record.revisionId,
+        display: await resolveDisplay(record),
+        values: Object.fromEntries(payloadEntriesKeyedByFieldKey(record, fieldKeyById)),
+      })),
+    ),
   };
+}
+
+/**
+ * 读时显示文本解析器：field 策略与无策略直接取存储 displayText（= 字段值，无过期风险）；
+ * template 策略按当前字段定义重新渲染——引用字段经 reader 查询目标记录显示文本
+ * （按目标表批量 $record_id in 取回，结果缓存）。解析失败回退存储 displayText
+ * （显示是辅助信息，不阻断查询）。策略与字段定义取自 run 启动时构建的 digest。
+ */
+async function createReadTimeDisplayResolver(
+  deps: QueryRecordsToolDependencies,
+  table: MemorySpaceTableDigest["tables"][number],
+  page: QueryRecordsPage,
+): Promise<(record: QueryRecordsPage["records"][number]) => Promise<string>> {
+  const stored = async (record: QueryRecordsPage["records"][number]) => record.displayText;
+  const strategy = table.displayStrategy;
+  if (!strategy || strategy.type !== "template") return stored;
+  const fields = table.fields;
+
+  // 模板占位符按字段定义分组：引用字段 → 目标表 id → 批量取显示文本；其余字段直接用 payload 值
+  const templateFieldIds = new Set(derivedDisplayTemplate(strategy.template).fieldIds);
+  const referenceIdsByTable = new Map<string, Set<string>>();
+  for (const record of page.records) {
+    for (const field of fields) {
+      if (!templateFieldIds.has(field.id) || field.referenceTableId === null) continue;
+      const value = record.payload[field.id];
+      const ids = Array.isArray(value)
+        ? value
+        : value === null || value === undefined
+          ? []
+          : [value];
+      for (const id of ids) {
+        const set = referenceIdsByTable.get(field.referenceTableId) ?? new Set<string>();
+        set.add(String(id));
+        referenceIdsByTable.set(field.referenceTableId, set);
+      }
+    }
+  }
+
+  const displayTextById = new Map<string, string>();
+  try {
+    for (const [targetTableId, ids] of referenceIdsByTable) {
+      for (const chunk of chunkIds([...ids], 100)) {
+        const result = await deps.reader.queryRecords(deps.digest.memorySpaceId, {
+          tableId: targetTableId as MemoryTableId,
+          fieldIds: [],
+          conditions: [{ fieldId: "$record_id", operator: "in", value: chunk }],
+          paging: { page: 1, pageSize: 100 },
+        });
+        for (const record of result.records) displayTextById.set(record.id, record.displayText);
+      }
+    }
+  } catch {
+    return stored; // 目标记录读取失败：回退存储 displayText
+  }
+
+  return async (record) => {
+    try {
+      return await renderMemoryRecordDisplayTemplate(
+        strategy!.template,
+        fields,
+        record.payload,
+        async (_tableId, recordId) => displayTextById.get(recordId) ?? "",
+      );
+    } catch {
+      return record.displayText; // 渲染异常（字段漂移等）：回退存储 displayText
+    }
+  };
+}
+
+/** 把 id 列表切成上限 size 的块（$record_id in 与分页上限都用 100）。 */
+function chunkIds(ids: readonly string[], size: number): readonly (readonly string[])[] {
+  const chunks: (readonly string[])[] = [];
+  for (let offset = 0; offset < ids.length; offset += size) {
+    chunks.push(ids.slice(offset, offset + size));
+  }
+  return chunks;
 }
 
 const DEFAULT_PAGING = { page: 1, pageSize: 20 } as const;

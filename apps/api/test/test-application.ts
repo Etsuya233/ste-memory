@@ -134,6 +134,7 @@ export async function createTestApplication(
       table: Parameters<typeof computeMemoryRecordDisplayText>[2],
       tableFields: Parameters<typeof computeMemoryRecordDisplayText>[3],
       payload: Parameters<typeof computeMemoryRecordDisplayText>[4],
+      resolveReference: Parameters<typeof computeMemoryRecordDisplayText>[5],
     ) =>
       computeMemoryRecordDisplayText(
         recordRepository,
@@ -141,6 +142,7 @@ export async function createTestApplication(
         table,
         tableFields,
         payload,
+        resolveReference,
       ),
   };
   const chat = new DefaultChatManager({

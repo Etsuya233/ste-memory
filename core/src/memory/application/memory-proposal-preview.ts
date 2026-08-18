@@ -3,13 +3,18 @@ import {
   type MemoryField,
   type MemoryFieldId,
   type MemoryFieldValue,
+  type MemoryRecord,
   type MemoryRecordPayload,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
 } from "../domain/index.ts";
 import type { MemoryProposalPorts } from "./memory-proposal-validation.ts";
-import { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
+import {
+  computeMemoryRecordDisplayText,
+  createBatchReferenceResolver,
+  type MemoryRecordDisplayTextResolver,
+} from "./memory-record-display.ts";
 import type { MemoryMutationBatch, MemoryProposalOperation } from "./memory-proposal.ts";
 
 /** 处理块消息范围：任意闭区间（1-based），由外部传入。 */
@@ -74,6 +79,35 @@ export async function previewProposal(
   const previewOperations: MemoryProposalPreviewOperation[] = [];
   const tableKeys: string[] = [];
   const seenTableKeys = new Set<string>();
+  // 批次感知引用解析：create 操作的显示文本（含链式引用）可解析同批其他 create（临时 ID），
+  // 其余回退仓库——与提交路径同一份领域规则，预览不再显示空白引用。
+  const resolveReference = createBatchReferenceResolver({
+    pending: operations.flatMap((operation) => {
+      if (operation.type !== "create") return [];
+      const table = tableById.get(operation.tableId);
+      if (!table) return [];
+      return [
+        {
+          id: operation.tempId,
+          table,
+          fields: fieldsByTableId.get(operation.tableId) ?? [],
+          payload: operation.patch as MemoryRecordPayload,
+        },
+      ];
+    }),
+    fallback: async (tableId, recordId) =>
+      (await ports.records.find(memorySpaceId, tableId, recordId as MemoryRecord["id"]))
+        ?.displayText ?? "",
+    compute: async (record, resolve) =>
+      computeMemoryRecordDisplayText(
+        ports.records,
+        memorySpaceId,
+        record.table,
+        record.fields,
+        record.payload,
+        resolve,
+      ),
+  });
   for (const operation of operations) {
     const table = tableById.get(operation.tableId);
     if (!table) continue;
@@ -82,7 +116,9 @@ export async function previewProposal(
       tableKeys.push(table.key);
     }
     const fields = fieldsByTableId.get(operation.tableId) ?? [];
-    previewOperations.push(await previewOperation(ports, memorySpaceId, table, fields, operation));
+    previewOperations.push(
+      await previewOperation(ports, memorySpaceId, table, fields, operation, resolveReference),
+    );
   }
   return { tables: tableKeys, operations: previewOperations };
 }
@@ -93,6 +129,7 @@ async function previewOperation(
   table: MemoryTable,
   fields: readonly MemoryField[],
   operation: MemoryProposalOperation,
+  resolveReference: MemoryRecordDisplayTextResolver,
 ): Promise<MemoryProposalPreviewOperation> {
   const fieldKeyById = new Map(fields.map((field) => [field.id, field.key]));
   if (operation.type === "create") {
@@ -108,7 +145,14 @@ async function previewOperation(
       tableKey: table.key,
       tableId: operation.tableId,
       tempId: operation.tempId,
-      display: await previewDisplayText(ports, memorySpaceId, table, fields, operation.patch),
+      display: await previewDisplayText(
+        ports,
+        memorySpaceId,
+        table,
+        fields,
+        operation.patch,
+        resolveReference,
+      ),
       values,
       changes,
     };
@@ -137,7 +181,14 @@ async function previewOperation(
     tableKey: table.key,
     tableId: operation.tableId,
     recordId: operation.recordId,
-    display: await previewDisplayText(ports, memorySpaceId, table, fields, merged),
+    display: await previewDisplayText(
+      ports,
+      memorySpaceId,
+      table,
+      fields,
+      merged,
+      resolveReference,
+    ),
     changes,
   };
 }
@@ -158,6 +209,7 @@ function keyedPayload(
 /**
  * 预览用显示文本：与提交共用同一领域规则（computeMemoryRecordDisplayText）；
  * 表未配置显示策略时校验器已报错，预览侧直接返回空串（display 无意义）。
+ * resolveReference 由 previewProposal 注入批次感知解析器（同批 create 按临时 ID 解析）。
  */
 async function previewDisplayText(
   ports: MemoryProposalPorts,
@@ -165,6 +217,7 @@ async function previewDisplayText(
   table: MemoryTable,
   fields: readonly MemoryField[],
   payload: Readonly<Record<string, unknown>>,
+  resolveReference: MemoryRecordDisplayTextResolver,
 ): Promise<string> {
   if (!table.displayStrategy) return "";
   return computeMemoryRecordDisplayText(
@@ -173,6 +226,7 @@ async function previewDisplayText(
     table,
     fields,
     payload as MemoryRecordPayload,
+    resolveReference,
   );
 }
 
