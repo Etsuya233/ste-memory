@@ -39,7 +39,6 @@ function field(key: string, overrides: Partial<MemoryFieldDigest> = {}): MemoryF
     required: false,
     options: [],
     referenceTableKey: null,
-    referenceTableId: null,
     maxChars: null,
     valuePatternMessage: null,
     ...overrides,
@@ -52,7 +51,6 @@ function digest(overrides: Partial<MemorySpaceTableDigest> = {}): MemorySpaceTab
     key: "plots" as MemoryTableKey,
     name: "伏笔",
     description: "",
-    displayStrategy: null,
     fields: [
       field("name", { name: "名称" }),
       field("status", {
@@ -76,7 +74,6 @@ function digest(overrides: Partial<MemorySpaceTableDigest> = {}): MemorySpaceTab
         key: "characters" as MemoryTableKey,
         name: "人物",
         description: "",
-        displayStrategy: null,
         fields: [field("name", { name: "名称" })],
       },
     ],

@@ -70,7 +70,13 @@ function record(id: string, displayText: string, updatedAt: string = BASE): Memo
   };
 }
 
-function field(id: string, key: string, type: MemoryField["type"] = "short_text", options: readonly string[] = [], name: string = key): MemoryField {
+function field(
+  id: string,
+  key: string,
+  type: MemoryField["type"] = "short_text",
+  options: readonly string[] = [],
+  name: string = key,
+): MemoryField {
   return {
     id: id as MemoryFieldId,
     memorySpaceId: "space-1" as MemorySpaceId,
@@ -122,7 +128,10 @@ class FakeData implements MemoryMacroDataPorts {
 
 class FakeRegistrar implements MemoryMacroRegistrationPort {
   registered = new Map<string, (context: MemoryMacroExecutionContext) => string>();
-  registeredArgs = new Map<string, readonly { name: string; optional?: boolean; defaultValue?: string }[]>();
+  registeredArgs = new Map<
+    string,
+    readonly { name: string; optional?: boolean; defaultValue?: string }[]
+  >();
   unregistered: string[] = [];
   register(
     name: string,
@@ -142,7 +151,13 @@ class FakeRegistrar implements MemoryMacroRegistrationPort {
 class FakeReader implements MemorySpaceReader {
   tables: readonly MemoryTable[] = [plotsTable()];
   fieldsByTable = new Map<MemoryTableId, readonly MemoryField[]>([
-    ["table-plots" as MemoryTableId, [field("field-name", "name", "short_text", [], "名称"), field("field-status", "status", "single_select", ["埋设中", "已触发", "已回收"], "状态")]],
+    [
+      "table-plots" as MemoryTableId,
+      [
+        field("field-name", "name", "short_text", [], "名称"),
+        field("field-status", "status", "single_select", ["埋设中", "已触发", "已回收"], "状态"),
+      ],
+    ],
   ]);
   /** 查询结果（按表 id）；缺省空页 */
   resultsByTable = new Map<MemoryTableId, QueryRecordsPage>();
@@ -154,7 +169,10 @@ class FakeReader implements MemorySpaceReader {
   async listFields(_memorySpaceId: MemorySpaceId, tableId: MemoryTableId) {
     return this.fieldsByTable.get(tableId) ?? [];
   }
-  async queryRecords(_memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage> {
+  async queryRecords(
+    _memorySpaceId: MemorySpaceId,
+    input: QueryRecordsInput,
+  ): Promise<QueryRecordsPage> {
     this.queryCalls = [...this.queryCalls, input];
     if (this.queryError) throw this.queryError;
     return (
@@ -213,7 +231,11 @@ function createHarness(overrides: Partial<MemoryMacroServicePorts> = {}) {
       setTimeout: (handler, ms) => setTimeout(handler, ms),
       clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     },
-    log: { info: () => {}, warn: (message) => warns.push(message), error: (message) => errors.push(message) },
+    log: {
+      info: () => {},
+      warn: (message) => warns.push(message),
+      error: (message) => errors.push(message),
+    },
     ...overrides,
   });
   return {
@@ -327,7 +349,10 @@ describe("MemoryMacroService 快照重建", () => {
       record("r1", "张三"),
       record("r2", "李四", "2026-07-28T01:00:00.000Z"),
     ]);
-    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T01:00:00.000Z", { tables: 1, records: 2 }));
+    h.changes.fingerprints.set(
+      "space-1",
+      fingerprint("2026-07-28T01:00:00.000Z", { tables: 1, records: 2 }),
+    );
     await tick();
 
     expect(h.invokeHandler("memoryContext")).toBe("【人物】\n李四\n张三");
@@ -419,12 +444,93 @@ describe("MemoryMacroService 快照重建", () => {
     h.data.listRecords = async () => {
       throw new Error("Dexie 故障");
     };
-    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }));
+    h.changes.fingerprints.set(
+      "space-1",
+      fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }),
+    );
     await tick();
 
     expect(h.errors).toHaveLength(1);
     expect(h.errors[0]).toContain("Dexie 故障");
     expect(h.invokeHandler("memoryContext")).toBe("【人物】\n张三"); // 旧快照仍在
+  });
+});
+
+describe("MemoryMacroService 默认快照读时显示文本", () => {
+  it("模板策略表按当前目标记录重渲：地点改名后快照显示新名（存储值过期也不误读）", async () => {
+    const h = createHarness();
+    const locTableId = "table-locs" as MemoryTableId;
+    const relTableId = "table-rels" as MemoryTableId;
+    const locNameId = "field-loc-name" as MemoryFieldId;
+    const relFromId = "field-rel-from" as MemoryFieldId;
+    const strategyTable = (
+      id: MemoryTableId,
+      key: string,
+      name: string,
+      displayStrategy: MemoryTable["displayStrategy"],
+    ): MemoryTable => ({
+      id,
+      memorySpaceId: "space-1" as MemorySpaceId,
+      key: key as MemoryTableKey,
+      kind: "custom",
+      name,
+      description: "",
+      prompt: "",
+      displayStrategy,
+      enabled: true,
+      createdAt: BASE,
+      updatedAt: BASE,
+    });
+    const refField = (id: string, key: string, tableId: MemoryTableId): MemoryField => ({
+      id: id as MemoryFieldId,
+      memorySpaceId: "space-1" as MemorySpaceId,
+      tableId,
+      key: key as MemoryFieldKey,
+      name: key,
+      type: "single_reference",
+      required: false,
+      prompt: "",
+      enabled: true,
+      position: 0,
+      options: [],
+      referenceTableId: null,
+      maxChars: null,
+      valuePattern: null,
+      valuePatternMessage: null,
+      createdAt: BASE,
+      updatedAt: BASE,
+    });
+    h.data.tables = [
+      strategyTable(locTableId, "locs", "地点", { type: "field", fieldId: locNameId }),
+      strategyTable(relTableId, "rels", "关系", {
+        type: "template",
+        template: `{${relFromId}}`,
+      }),
+    ];
+    h.reader.tables = h.data.tables;
+    h.reader.fieldsByTable = new Map([
+      [locTableId, [refField("field-loc-name", "loc-name", locTableId)]],
+      [
+        relTableId,
+        [{ ...refField("field-rel-from", "rel-from", relTableId), referenceTableId: locTableId }],
+      ],
+    ]);
+    // 存储 displayText 是过期快照（地点还叫旧名时渲染的），payload 已指向改名后的目标
+    h.data.recordsByTable = new Map([
+      [
+        locTableId,
+        [{ ...record("loc-1", "雾都"), tableId: locTableId, payload: { [locNameId]: "雾都" } }],
+      ],
+      [
+        relTableId,
+        [{ ...record("rel-1", "旧都"), tableId: relTableId, payload: { [relFromId]: "loc-1" } }],
+      ],
+    ]);
+
+    await h.service.start();
+    await tick();
+    expect(h.invokeHandler("memoryContext")).toContain("雾都");
+    expect(h.invokeHandler("memoryContext")).not.toContain("旧都");
   });
 });
 
@@ -469,9 +575,7 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
     });
     await h.service.start();
 
-    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe(
-      "名称：深夜的钟声，状态：埋设中",
-    );
+    expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("名称：深夜的钟声，状态：埋设中");
     // 翻译契约：in 算子 + $updated_at desc + pageSize = limit
     expect(h.reader.queryCalls[0]).toEqual({
       tableId: "table-plots",
@@ -491,7 +595,10 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
       total: 2,
       totalPages: 1,
     });
-    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T01:00:00.000Z", { tables: 1, records: 2 }));
+    h.changes.fingerprints.set(
+      "space-1",
+      fingerprint("2026-07-28T01:00:00.000Z", { tables: 1, records: 2 }),
+    );
     await tick();
     expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe(
       "名称：深夜的钟声，状态：埋设中\n名称：断剑，状态：已回收",
@@ -584,7 +691,11 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
       projection: [],
     });
     // 表不存在（digest 构建后查不到）
-    h.setSettings({ memoryViews: [{ name: "坏视图", tableKey: "ghost", condition: null, limit: null, projection: [] }] });
+    h.setSettings({
+      memoryViews: [
+        { name: "坏视图", tableKey: "ghost", condition: null, limit: null, projection: [] },
+      ],
+    });
     await h.service.start();
     expect(h.invokeHandler("memoryContext", ["坏视图"])).toBe("");
     expect(h.warns.some((w) => w.includes("坏视图") && w.includes("配置错误"))).toBe(true);
@@ -604,7 +715,10 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
 
     // 查询端口抛错（模拟 Dexie 故障）：快照保持旧值，只记日志
     h.reader.queryError = new Error("查询故障");
-    h.changes.fingerprints.set("space-1", fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }));
+    h.changes.fingerprints.set(
+      "space-1",
+      fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }),
+    );
     await tick();
     expect(h.errors.some((e) => e.includes("查询故障"))).toBe(true);
     expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");

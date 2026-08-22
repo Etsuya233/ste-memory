@@ -4,6 +4,7 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "@ste-memory/core/memory";
+import { createReadTimeDisplayTextResolver } from "@ste-memory/core/memory";
 import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
 import { buildMemorySpaceTableDigest } from "@ste-memory/core/memory/agent";
 import {
@@ -200,11 +201,9 @@ export class MemoryMacroService {
     }
     if (name !== this.#registeredName) {
       this.#unregisterCurrent();
-      this.#ports.registerMacro.register(
-        name,
-        (context) => this.#snapshotFor(context),
-        [MEMORY_MACRO_VIEW_NAME_ARG],
-      );
+      this.#ports.registerMacro.register(name, (context) => this.#snapshotFor(context), [
+        MEMORY_MACRO_VIEW_NAME_ARG,
+      ]);
       this.#registeredName = name;
     }
     this.#evaluator.armPoll();
@@ -262,8 +261,8 @@ export class MemoryMacroService {
     return viewSnapshot;
   }
 
-  /** 重建快照：默认快照维持 ticket 15 现状（listTables + listRecords +
-   *  assembleMemoryContextSnapshot）；视图快照 = 翻译 → queryRecords（异步）→
+  /** 重建快照：默认快照 = listTables + listRecords + 读时重渲显示文本 +
+   *  assembleMemoryContextSnapshot；视图快照 = 翻译 → queryRecords（异步）→
    *  渲染 → 缓存（digest 每轮构建一次，全部视图共用）。 */
   async #rebuild(
     spaceId: MemorySpaceId,
@@ -274,15 +273,37 @@ export class MemoryMacroService {
     },
   ): Promise<void> {
     const tables = await this.#ports.data.listTables(spaceId);
+    const recordsByTable = new Map<MemoryTableId, readonly MemoryRecord[]>();
+    await Promise.all(
+      tables.map(async (table) => {
+        if (!table.enabled) return;
+        recordsByTable.set(table.id, await this.#ports.data.listRecords(spaceId, table.id));
+      }),
+    );
+    // 组装期间切走了空间：放弃本轮（下轮轮询按新状态重建）
+    if (this.#ports.getSpaceId() !== spaceId) return;
+
+    // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
+    // 默认快照与视图快照同语义。引用查找走本轮预载的全空间记录映射（引用必在同
+    // 空间内），零额外查询；预载未命中（如目标表停用未加载）按未找到渲染空串。
+    const resolveDisplay = createReadTimeDisplayTextResolver({
+      getTable: async (tableId) => tables.find((candidate) => candidate.id === tableId),
+      getFields: (tableId) => this.#ports.reader.listFields(spaceId, tableId),
+      findRecord: async (tableId, recordId) =>
+        recordsByTable.get(tableId)?.find((candidate) => candidate.id === recordId),
+    });
     const tableInputs = await Promise.all(
       tables.map(async (table) => ({
         name: table.name,
         enabled: table.enabled,
-        records: table.enabled ? await this.#ports.data.listRecords(spaceId, table.id) : [],
+        records: await Promise.all(
+          (recordsByTable.get(table.id) ?? []).map(async (record) => ({
+            ...record,
+            displayText: await resolveDisplay(record),
+          })),
+        ),
       })),
     );
-    // 组装期间切走了空间：放弃本轮（下轮轮询按新状态重建）
-    if (this.#ports.getSpaceId() !== spaceId) return;
     const snapshot = assembleMemoryContextSnapshot(tableInputs, settings.macroLimit);
 
     const digest = await buildMemorySpaceTableDigest(this.#ports.reader, spaceId);

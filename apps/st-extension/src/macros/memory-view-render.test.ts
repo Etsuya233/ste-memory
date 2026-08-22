@@ -33,7 +33,6 @@ function field(key: string, overrides: Partial<MemoryFieldDigest> = {}): MemoryF
     required: false,
     options: [],
     referenceTableKey: null,
-    referenceTableId: null,
     maxChars: null,
     valuePatternMessage: null,
     ...overrides,

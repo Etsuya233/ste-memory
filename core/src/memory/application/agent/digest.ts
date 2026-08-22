@@ -5,7 +5,6 @@ import type {
   MemoryFieldId,
   MemorySpaceId,
   MemoryTable,
-  MemoryTableDisplayStrategy,
   MemoryTableId,
   MemoryTableKey,
 } from "../../domain/index.ts";
@@ -14,8 +13,7 @@ import type { MemorySpaceReader } from "./memory-space-reader.ts";
 /**
  * 单个启用字段的 schema 摘要（模型可见范围 = 工具可用范围）。
  * `referenceTableKey` 是该字段引用目标表的 key（引用字段 v1 返回裸记录 id，
- * 目标表 key 供模型理解值含义）；`id` 与 `referenceTableId` 仅用于工具内部
- * key→id 映射与显示文本解析，不进提示词。
+ * 目标表 key 供模型理解值含义）；`id` 仅用于工具内部 key→id 映射，不进提示词。
  */
 export interface MemoryFieldDigest {
   readonly id: MemoryFieldId;
@@ -25,8 +23,6 @@ export interface MemoryFieldDigest {
   readonly required: boolean;
   readonly options: readonly string[];
   readonly referenceTableKey: MemoryTableKey | null;
-  /** 引用目标表 id（显示文本解析时读时查询目标记录用），仅工具内部使用。 */
-  readonly referenceTableId: MemoryTableId | null;
   /** 文本类字段值长度上限（字符数）；null 表示不限。 */
   readonly maxChars: number | null;
   /** 文本类字段非空值的格式要求说明（人类可读，含示例）；null 表示无格式要求。 */
@@ -39,8 +35,6 @@ export interface MemoryTableDigest {
   readonly key: MemoryTableKey;
   readonly name: string;
   readonly description: string;
-  /** 显示策略（读时显示文本解析用）：field/null 不需要额外解析，template 按模板重渲染。 */
-  readonly displayStrategy: MemoryTableDisplayStrategy | null;
   readonly fields: readonly MemoryFieldDigest[];
 }
 
@@ -84,7 +78,6 @@ async function digestTable(
     key: table.key,
     name: table.name,
     description: table.description,
-    displayStrategy: table.displayStrategy,
     fields: fields
       .filter((field) => field.enabled)
       .map((field) => digestField(field, tableKeyById)),
@@ -105,7 +98,6 @@ function digestField(
     referenceTableKey: field.referenceTableId
       ? (tableKeyById.get(field.referenceTableId) ?? null)
       : null,
-    referenceTableId: field.referenceTableId,
     maxChars: field.maxChars,
     valuePatternMessage: field.valuePatternMessage,
   };

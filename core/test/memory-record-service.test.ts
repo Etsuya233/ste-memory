@@ -427,3 +427,127 @@ describe("字段定义漂移后的读路径与更新路径（ticket 11 修复）
     ).rejects.toThrowError(expect.objectContaining({ type: "memory_record_field_value_invalid" }));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 读时显示文本：list 搜索与返回值都用按当前目标记录重渲的显示文本
+// ---------------------------------------------------------------------------
+
+describe("MemoryRecordService list 读时显示文本", () => {
+  it("搜索命中计算后的显示文本（目标改名即可搜到），返回值也是新文本", async () => {
+    const timestamp = "2026-08-01T00:00:00.000Z";
+    const locTable = "locs" as MemoryTableId;
+    const relTable = "rels" as MemoryTableId;
+    const locName = "loc-name" as MemoryFieldId;
+    const relFrom = "rel-from" as MemoryFieldId;
+    const tables: MemoryTable[] = [
+      {
+        id: locTable,
+        memorySpaceId: spaceId,
+        key: locTable,
+        kind: "custom",
+        name: locTable,
+        description: "",
+        prompt: "",
+        enabled: true,
+        displayStrategy: { type: "field", fieldId: locName },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: relTable,
+        memorySpaceId: spaceId,
+        key: relTable,
+        kind: "custom",
+        name: relTable,
+        description: "",
+        prompt: "",
+        enabled: true,
+        displayStrategy: { type: "template", template: `{${relFrom}}` },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ];
+    const fields: MemoryField[] = [
+      field(locName, locTable, "short_text", true),
+      field(relFrom, relTable, "single_reference", false, [], locTable),
+    ];
+    const stored: MemoryRecord[] = [
+      {
+        id: "loc-1" as MemoryRecordId,
+        memorySpaceId: spaceId,
+        tableId: locTable,
+        payload: { [locName]: "雾都" },
+        fieldEvidence: {},
+        displayText: "雾都",
+        source: { type: "manual" },
+        revisionId: "rev-1" as MemoryRevisionId,
+        revisionSource: "user",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: "rel-1" as MemoryRecordId,
+        memorySpaceId: spaceId,
+        tableId: relTable,
+        payload: { [relFrom]: "loc-1" },
+        fieldEvidence: {},
+        // 过期快照：地点还叫旧名时渲染的
+        displayText: "旧都",
+        source: { type: "manual" },
+        revisionId: "rev-2" as MemoryRevisionId,
+        revisionSource: "user",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ];
+    const tableRepository: MemoryTableRepository = {
+      async create() {},
+      delete: async () => false,
+      find: async (_spaceId, id) => tables.find((item) => item.id === id),
+      findByKey: async () => undefined,
+      list: async () => tables,
+      update: async () => false,
+    };
+    const fieldRepository: MemoryFieldRepository = {
+      async create() {},
+      delete: async () => false,
+      find: async (_spaceId, tableId, id) =>
+        fields.find((item) => item.tableId === tableId && item.id === id),
+      findByKey: async () => undefined,
+      list: async (_spaceId, tableId) => fields.filter((item) => item.tableId === tableId),
+      update: async () => false,
+    };
+    const recordRepository: MemoryRecordRepository = {
+      async create() {},
+      find: async (_spaceId, tableId, id) =>
+        stored.find((item) => item.tableId === tableId && item.id === id),
+      list: async (_spaceId, tableId) => stored.filter((item) => item.tableId === tableId),
+      commit: async () => false,
+      listHistory: async () => [],
+    };
+    const service = new MemoryRecordService(
+      tableRepository,
+      fieldRepository,
+      recordRepository,
+      () => "record-new" as MemoryRecordId,
+      () => "history-new" as MemoryRecordHistoryId,
+      () => "revision-new" as MemoryRevisionId,
+      () => timestamp,
+    );
+
+    const byNewName = await service.list(spaceId, relTable, {
+      page: 1,
+      pageSize: 10,
+      search: "雾都",
+    });
+    expect(byNewName?.records.map((record) => record.id)).toEqual(["rel-1"]);
+    expect(byNewName?.records[0]!.displayText).toBe("雾都");
+
+    const byOldName = await service.list(spaceId, relTable, {
+      page: 1,
+      pageSize: 10,
+      search: "旧都",
+    });
+    expect(byOldName?.records).toEqual([]);
+  });
+});

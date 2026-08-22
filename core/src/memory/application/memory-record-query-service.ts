@@ -10,6 +10,7 @@ import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 import type { MemoryRecordRepository } from "./ports/memory-record-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 import { validateMemoryFieldValue } from "./memory-record-validation.ts";
+import { createReadTimeDisplayTextResolver } from "./memory-record-display.ts";
 import {
   equalityOperators,
   inOperators,
@@ -65,13 +66,39 @@ export class MemoryRecordQueryService {
     }
     this.#validateOrder(input, fieldsById);
 
-    const matches = (await this.#records.list(memorySpaceId, input.tableId)).filter((record) =>
+    // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
+    // $display_text 条件/排序同样对计算值求值——「搜到的 = 看到的」。
+    const resolveDisplay =
+      table.displayStrategy?.type === "template"
+        ? createReadTimeDisplayTextResolver({
+            getTable: (tableId) => this.#tables.find(memorySpaceId, tableId),
+            getFields: (tableId) => this.#fields.list(memorySpaceId, tableId),
+            findRecord: (tableId, recordId) =>
+              this.#records.find(memorySpaceId, tableId, recordId as MemoryRecord["id"]),
+          })
+        : undefined;
+    const freshen = async (rows: readonly MemoryRecord[]): Promise<MemoryRecord[]> =>
+      resolveDisplay
+        ? Promise.all(
+            rows.map(async (record) => ({ ...record, displayText: await resolveDisplay(record) })),
+          )
+        : [...rows];
+
+    let rows = await this.#records.list(memorySpaceId, input.tableId);
+    if (
+      resolveDisplay &&
+      ((input.conditions ?? []).some((condition) => condition.fieldId === "$display_text") ||
+        input.order?.fieldId === "$display_text")
+    ) {
+      rows = await freshen(rows); // 条件/排序引用显示文本：全表先算，求值对象一致
+    }
+    const matches = rows.filter((record) =>
       (input.conditions ?? []).every((condition) => this.#matches(record, condition)),
     );
     matches.sort((left, right) => this.#compareRecords(left, right, input));
 
     const offset = (input.paging.page - 1) * input.paging.pageSize;
-    const pageRecords = matches.slice(offset, offset + input.paging.pageSize);
+    const pageRecords = await freshen(matches.slice(offset, offset + input.paging.pageSize));
     return {
       records: pageRecords.map((record) => this.#project(record, input.fieldIds)),
       page: input.paging.page,

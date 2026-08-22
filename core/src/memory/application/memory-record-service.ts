@@ -27,7 +27,10 @@ import {
   projectStoredMemoryRecordPayload,
   validatedMemoryRecordPayload,
 } from "./memory-record-validation.ts";
-import { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
+import {
+  computeMemoryRecordDisplayText,
+  createReadTimeDisplayTextResolver,
+} from "./memory-record-display.ts";
 import { validateMemoryRecordReferences } from "./memory-record-reference-validation.ts";
 import {
   commitMemoryRecordMutationBatch,
@@ -288,7 +291,8 @@ export class MemoryRecordService {
     tableId: MemoryTableId,
     query: { readonly page: number; readonly pageSize: number; readonly search?: string },
   ): Promise<MemoryRecordPage | undefined> {
-    if (!(await this.tables.find(memorySpaceId, tableId))) return undefined;
+    const table = await this.tables.find(memorySpaceId, tableId);
+    if (!table) return undefined;
     if (
       !Number.isInteger(query.page) ||
       query.page < 1 ||
@@ -299,7 +303,23 @@ export class MemoryRecordService {
       throw new DomainError({ type: "memory_record_paging_invalid", humanMsg: "分页参数无效" });
     }
     const search = query.search?.trim().toLocaleLowerCase();
-    const records = await this.records.list(memorySpaceId, tableId);
+    const listed = await this.records.list(memorySpaceId, tableId);
+    // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
+    // 搜索与返回值都用计算后的文本——「搜到的 = 看到的」；field 策略零额外查询。
+    const resolveDisplay =
+      table.displayStrategy?.type === "template"
+        ? createReadTimeDisplayTextResolver({
+            getTable: (candidateTableId) => this.tables.find(memorySpaceId, candidateTableId),
+            getFields: (candidateTableId) => this.fields.list(memorySpaceId, candidateTableId),
+            findRecord: (candidateTableId, recordId) =>
+              this.records.find(memorySpaceId, candidateTableId, recordId as MemoryRecord["id"]),
+          })
+        : undefined;
+    const records = resolveDisplay
+      ? await Promise.all(
+          listed.map(async (record) => ({ ...record, displayText: await resolveDisplay(record) })),
+        )
+      : listed;
     const matches = (
       await Promise.all(records.map((record) => this.validatedRecord(record)))
     ).filter((record) => {

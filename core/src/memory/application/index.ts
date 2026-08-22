@@ -13,7 +13,15 @@ export type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 export { MemoryRecordService } from "./memory-record-service.ts";
 export { MemoryRecordQueryService } from "./memory-record-query-service.ts";
 export { commitMemoryProposalBatch } from "./memory-proposal-commit.ts";
-export { computeMemoryRecordDisplayText } from "./memory-record-display.ts";
+export {
+  computeMemoryRecordDisplayText,
+  createReadTimeDisplayTextResolver,
+} from "./memory-record-display.ts";
+export type {
+  DisplayTextLookups,
+  MemoryRecordDisplayResolver,
+  MemoryRecordDisplayTextResolver,
+} from "./memory-record-display.ts";
 export type {
   QueryRecordFieldId,
   QueryRecordOperator,
