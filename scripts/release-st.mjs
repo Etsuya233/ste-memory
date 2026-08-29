@@ -63,6 +63,16 @@ function ensureReleaseWorktree() {
 
   const alignToRemote = shouldPush && remoteBranch;
 
+  // --push 将以远端为准重建，若本地有未推送的 release commit，先明确提示（避免静默丢弃）
+  if (alignToRemote && localBranch) {
+    const localHead = git(["rev-parse", RELEASE_BRANCH]);
+    const remoteHead = git(["rev-parse", `${REMOTE}/${RELEASE_BRANCH}`]);
+    if (localHead !== remoteHead) {
+      const ahead = git(["rev-list", "--count", `${REMOTE}/${RELEASE_BRANCH}..${RELEASE_BRANCH}`]);
+      console.log(`  提示：本地 release 分支领先远端 ${ahead} 个未推送 commit，--push 将以远端重建并取代它们`);
+    }
+  }
+
   if (worktreeExists) {
     if (alignToRemote) {
       git(["checkout", "-B", RELEASE_BRANCH, `${REMOTE}/${RELEASE_BRANCH}`], WORKTREE_DIR);
