@@ -6,7 +6,8 @@
 // 分支根目录必须存在 manifest.json 才能安装成功（SillyTavern 的 /api/extensions/install）。
 //
 // 用法：
-//   node scripts/release-st.mjs            # 构建 → 重生成 release 分支 → commit → push
+//   node scripts/release-st.mjs            # 构建 → 重生成 release 分支 → 本地 commit（不 push）
+//   node scripts/release-st.mjs --push     # 上述 + push 远端 release/sillytavern-plugin
 //   node scripts/release-st.mjs --dry-run  # 只构建 + 暂存，不 commit / 不 push
 //
 // 发版流程：
@@ -27,6 +28,7 @@ const DIST_FILES = ["index.js", "manifest.json", "style.css"];
 const REMOTE = "origin";
 
 const dryRun = process.argv.includes("--dry-run") || process.argv.includes("-n");
+const shouldPush = process.argv.includes("--push");
 
 function git(args, cwd = REPO_ROOT) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -130,7 +132,12 @@ function writeReleaseReadme(version, sourceBranch, sourceCommit, sourceCommitSho
 }
 
 // ---------- 1. 预检 ----------
-log("预检", `仓库：${REPO_ROOT}\n目标分支：${RELEASE_BRANCH}${dryRun ? "（--dry-run，不 commit / 不 push）" : ""}`);
+const modeNote = dryRun
+  ? "（--dry-run，不 commit / 不 push）"
+  : shouldPush
+    ? "（--push，commit 后推送远端）"
+    : "（本地模式，只更新分支不 push；加 --push 推送远端）";
+log("预检", `仓库：${REPO_ROOT}\n目标分支：${RELEASE_BRANCH}${modeNote}`);
 
 const dirty = git(["status", "--porcelain", "--untracked-files=no"]);
 if (dirty) {
@@ -179,13 +186,17 @@ git(["add", "-A"], WORKTREE_DIR);
 const staged = git(["status", "--porcelain"], WORKTREE_DIR);
 if (!staged) {
   log("无变更", "release 分支内容与上次发版一致，跳过 commit");
-  // 首次发布边界：本地已有分支历史但 remote 从未建立 → 仍需推送到位
+  // 首次发布边界：本地已有分支历史但 remote 从未建立 → 需要 --push 才推送
   const remoteBranch = git(["ls-remote", "--heads", REMOTE, RELEASE_BRANCH]);
-  if (!remoteBranch) {
-    console.log("  remote 尚无该分支（首次发布），将推送建立分支");
-    if (!dryRun) {
-      git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
-    }
+  const firstRelease = !remoteBranch;
+  if (firstRelease) {
+    console.log("  remote 尚无该分支（首次发布）");
+  }
+  if (shouldPush && firstRelease) {
+    console.log("  --push：推送建立远端分支");
+    git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
+  } else if (firstRelease) {
+    console.log("  未推送（本地模式）。加 --push 推送建立远端分支。");
   }
 } else {
   log("变更", staged);
@@ -193,21 +204,26 @@ if (!staged) {
     console.log("[dry-run] 跳过 commit 与 push");
   } else {
     git(["commit", "-m", `release v${version}（源提交 ${sourceCommitShort} @ ${sourceBranch}）`], WORKTREE_DIR);
-    git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
+    if (shouldPush) {
+      git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
+    } else {
+      console.log("  已提交到本地 release 分支，未推送（本地模式）。确认无误后加 --push 推送。");
+    }
   }
 }
 
 // ---------- 4. 结果 ----------
 if (dryRun) {
-  console.log("\n[dry-run] 验证通过。正式发版去掉 --dry-run 重跑即可。");
+  console.log("\n[dry-run] 验证通过。去掉 --dry-run 重跑即可（默认本地更新，--push 推送远端）。");
 } else {
+  const pushNote = shouldPush ? "，已推送远端" : "（未推送；加 --push 推送远端）";
   console.log(`
-发布完成 ✓  v${version} → ${RELEASE_BRANCH}
+发布完成 ✓  v${version} → ${RELEASE_BRANCH} ${pushNote}
 
 用户安装方式（SillyTavern）：
   URL: https://github.com/Etsuya233/ste-memory
   Branch or tag name: ${RELEASE_BRANCH}
 
-下次发版：先在 main 更新 version（apps/st-extension/package.json + manifest.json），
+下次发版：先在 main 更新 version（apps/st-extension/package.json），
 再重跑本脚本。`);
 }

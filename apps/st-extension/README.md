@@ -42,8 +42,9 @@ ST 通过「仓库 URL + 分支」安装插件，分支根目录必须存在 `ma
 # 1. 在 main 上把 apps/st-extension/package.json 的 version 更新为新版本号（唯一版本真相，
 #    构建时注入 __STE_MEMORY_VERSION__；产物 manifest.json 的 version 由发版脚本自动回写对齐）
 # 2. 提交合并到 main 后，执行：
-pnpm release:st            # 构建 → 重生成 release 分支 → commit → push
-pnpm release:st --dry-run  # 只构建与暂存，不 commit / 不 push
+pnpm release:st            # 构建 → 重生成 release 分支 → 本地 commit（不 push）
+pnpm release:st --push    # 上述 + push 远端 release/sillytavern-plugin
+pnpm release:st --dry-run # 只构建与暂存，不 commit / 不 push
 ```
 
 用户安装：扩展 → Install extension → URL `https://github.com/Etsuya233/ste-memory` +
