@@ -1563,9 +1563,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">记忆宏</div>
-            {!isSettingsGroupExpanded(expandedGroups, "macro") && (
-              <div className="stm-setting-group-summary">{macroSummary(props.settings)}</div>
-            )}
+            <div className="stm-setting-group-summary">{macroSummary(props.settings)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "macro") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1626,9 +1624,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">Agent 连接</div>
-            {!isSettingsGroupExpanded(expandedGroups, "agent-connections") && (
-              <div className="stm-setting-group-summary">{agentConnectionsSummary(props.settings)}</div>
-            )}
+            <div className="stm-setting-group-summary">{agentConnectionsSummary(props.settings)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-connections") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1661,9 +1657,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">Agent 提示词预设</div>
-            {!isSettingsGroupExpanded(expandedGroups, "agent-presets") && (
-              <div className="stm-setting-group-summary">{agentPresetsSummary(props.settings)}</div>
-            )}
+            <div className="stm-setting-group-summary">{agentPresetsSummary(props.settings)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-presets") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1695,9 +1689,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">清洗规则</div>
-            {!isSettingsGroupExpanded(expandedGroups, "cleaning") && (
-              <div className="stm-setting-group-summary">{cleaningSummary(props.settings, chatCleaningListId)}</div>
-            )}
+            <div className="stm-setting-group-summary">{cleaningSummary(props.settings, chatCleaningListId)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "cleaning") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1735,9 +1727,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">数据备份</div>
-            {!isSettingsGroupExpanded(expandedGroups, "backup") && (
-              <div className="stm-setting-group-summary">导出/导入全库</div>
-            )}
+            <div className="stm-setting-group-summary">导出/导入全库</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "backup") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1795,9 +1785,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">对话文件镜像</div>
-            {!isSettingsGroupExpanded(expandedGroups, "mirror") && (
-              <div className="stm-setting-group-summary">{mirrorSummary(props.settings, props.mirrorStatus)}</div>
-            )}
+            <div className="stm-setting-group-summary">{mirrorSummary(props.settings, props.mirrorStatus)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "mirror") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1860,9 +1848,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">云同步（Cloudflare R2）</div>
-            {!isSettingsGroupExpanded(expandedGroups, "r2") && (
-              <div className="stm-setting-group-summary">{r2Summary(props.settings, props.syncStatus)}</div>
-            )}
+            <div className="stm-setting-group-summary">{r2Summary(props.settings, props.syncStatus)}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "r2") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1960,9 +1946,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">版本与运行状态</div>
-            {!isSettingsGroupExpanded(expandedGroups, "version") && (
-              <div className="stm-setting-group-summary">{`v${props.runtime.version} · ${runtimeStatusLabel(props.status)}`}</div>
-            )}
+            <div className="stm-setting-group-summary">{`v${props.runtime.version} · ${runtimeStatusLabel(props.status)}`}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "version") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1995,9 +1979,7 @@ function SettingsTab(props: {
         >
           <div className="stm-setting-group-header-main">
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">危险操作</div>
-            {!isSettingsGroupExpanded(expandedGroups, "danger") && (
-              <div className="stm-setting-group-summary">操作不可恢复</div>
-            )}
+            <div className="stm-setting-group-summary">操作不可恢复</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "danger") ? "fa-chevron-up" : "fa-chevron-down"}`}
