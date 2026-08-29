@@ -120,7 +120,6 @@ function writeReleaseReadme(version, sourceBranch, sourceCommit, sourceCommitSho
 
 - 版本：${version}
 - 源提交：${sourceCommitShort}（${sourceBranch}）
-- 构建时间：${new Date().toISOString()}
 
 ## 卸载
 
