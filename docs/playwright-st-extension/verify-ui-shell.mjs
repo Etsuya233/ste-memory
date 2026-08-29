@@ -405,6 +405,16 @@ async function main() {
     await page.evaluate(() => {
       document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
     });
+    // 展开常用分组（默认折叠，需先展开再校验内部控件）
+    await page.evaluate(() => {
+      const expand = (group) => {
+        const btn = document.querySelector(`#stm-panel button[data-action="toggle-settings-group"][data-group="${group}"]`);
+        if (btn && btn.getAttribute("aria-expanded") === "false") btn.click();
+      };
+      // 按 spec 常用顺序展开，便于后续校验
+      ["macro", "r2", "version", "backup", "mirror"].forEach(expand);
+    });
+    await waitMs(150);
     const settings = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="settings"]');
       const text = section?.textContent ?? "";
@@ -430,6 +440,14 @@ async function main() {
         hasMirror: !!section?.querySelector('input[data-action="toggle-mirror"]')
           && !!section?.querySelector('input[data-action="toggle-mirror-history"]')
           && !!section?.querySelector('[data-stm-field="mirror-status"]'),
+        // collapsible：默认折叠，标题与摘要可见
+        hasCollapsible: !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="macro"]')
+          && !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="r2"]'),
+        orderOk: (() => {
+          const titles = [...section.querySelectorAll('button[data-action="toggle-settings-group"]')].map(b => b.textContent ?? "");
+          const idx = (kw) => titles.findIndex(t => t.includes(kw));
+          return idx("记忆宏") < idx("Agent 连接") && idx("Agent 连接") < idx("Agent 提示词预设") && idx("清洗规则") < idx("数据备份");
+        })(),
       };
     });
     check("设置 Tab：插件开关 + 版本 + 运行状态", settings.hasPluginSwitch && settings.hasStatus, JSON.stringify(settings));
@@ -439,6 +457,8 @@ async function main() {
     check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
     check("设置 Tab：记忆宏配置可编辑（宏名默认 {{memoryContext}} + 上限 2000，ticket 15 生效）", settings.macroEditable);
     check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);
+    check("设置 Tab：可折叠分组（标题 + 摘要 + 展开）", settings.hasCollapsible, JSON.stringify(settings));
+    check("设置 Tab：重排序（记忆宏 < Agent 连接 < 预设 < 清洗 < 备份）", settings.orderOk);
 
     // 插件总开关：关闭 → extensionSettings 持久化；打开 → 恢复
     await page.evaluate(() => {

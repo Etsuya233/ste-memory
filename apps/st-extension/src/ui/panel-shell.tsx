@@ -45,6 +45,19 @@ import {
   type R2Settings,
   type SettingsStore,
 } from "../settings/plugin-settings.ts";
+import {
+  agentConnectionsSummary,
+  agentPresetsSummary,
+  cleaningSummary,
+  isExpanded as isSettingsGroupExpanded,
+  loadExpandedGroups,
+  macroSummary,
+  mirrorSummary,
+  r2Summary,
+  saveExpandedGroups,
+  toggleGroup as toggleSettingsGroup,
+  type SettingsGroupKey,
+} from "./settings-collapsed-model.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
@@ -1502,9 +1515,25 @@ function SettingsTab(props: {
     void props.runtime.macro.kick().catch(reportError);
   }
 
+  // ---- 折叠状态（纯展示偏好，持久化到 localStorage，不进 PluginSettings） ----
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<SettingsGroupKey>>(() => {
+    try {
+      return loadExpandedGroups(safeLocalStorage());
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    saveExpandedGroups(safeLocalStorage(), expandedGroups);
+  }, [expandedGroups]);
+  function toggleGroup(key: SettingsGroupKey): void {
+    setExpandedGroups((prev) => toggleSettingsGroup(prev, key));
+  }
+
   return (
     <>
-      <div className="stm-setting-group">
+      {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
+      <div className="stm-setting-group" data-group="plugin-toggle">
         <div className="stm-setting-row">
           <div className="stm-setting-label">
             <div className="stm-setting-name">插件总开关</div>
@@ -1521,267 +1550,489 @@ function SettingsTab(props: {
           </label>
         </div>
       </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">版本与运行状态</div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-name">版本</div>
-          <div className="stm-setting-value stm-mono">{`v${props.runtime.version}`}</div>
-        </div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-name">运行状态</div>
-          <div className="stm-setting-value">{runtimeStatusLabel(props.status)}</div>
-        </div>
-      </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">数据备份</div>
-        <div className="stm-setting-actions">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="export-backup"
-            onClick={() => void exportBackup()}
-          >
-            导出备份
-          </button>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="import-backup"
-            onClick={() => importInputRef.current?.click()}
-          >
-            导入备份
-          </button>
-        </div>
-        <input
-          ref={importInputRef}
-          type="file"
-          accept="application/json,.json"
-          data-stm-field="import-backup-file"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void importBackup(file);
-            event.target.value = "";
-          }}
-        />
-        <div className="stm-setting-hint">
-          导出下载全库 JSON 备份文件；导入前校验文件并整体替换当前数据
-        </div>
-      </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">云同步（Cloudflare R2）</div>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="r2-account-id"
-          placeholder="Account ID"
-          value={r2.accountId}
-          onChange={(event) => updateR2Field("accountId", event.target.value)}
-        />
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="r2-access-key-id"
-          placeholder="Access Key ID"
-          value={r2.accessKeyId}
-          onChange={(event) => updateR2Field("accessKeyId", event.target.value)}
-        />
-        <input
-          className="stm-input"
-          type="password"
-          data-stm-field="r2-secret-access-key"
-          placeholder="Secret Access Key"
-          value={r2.secretAccessKey}
-          onChange={(event) => updateR2Field("secretAccessKey", event.target.value)}
-        />
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="r2-bucket"
-          placeholder="Bucket"
-          value={r2.bucket}
-          onChange={(event) => updateR2Field("bucket", event.target.value)}
-        />
-        <div className="stm-setting-hint">
-          四项填齐即自动启用：数据变更防抖推送、空库启动自动拉取、较新版本胜出；Bucket 需配置
-          CORS（详见插件文档 R2 云同步配置）
-        </div>
-      </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">同步状态</div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-name">状态</div>
-          <div className="stm-setting-value" data-stm-field="cloud-sync-status">
-            {syncStatusSummary(props.syncStatus)}
+
+      {/* 记忆宏：常用首位 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="macro">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="macro"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "macro")}
+          onClick={() => toggleGroup("macro")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">记忆宏</div>
+            {!isSettingsGroupExpanded(expandedGroups, "macro") && (
+              <div className="stm-setting-group-summary">{macroSummary(props.settings)}</div>
+            )}
           </div>
-        </div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-name">最近同步</div>
-          <div className="stm-setting-value stm-mono" data-stm-field="cloud-sync-last">
-            {(props.syncStatus.kind === "idle" || props.syncStatus.kind === "error") &&
-            props.syncStatus.lastSyncAt
-              ? formatSyncTime(props.syncStatus.lastSyncAt)
-              : "尚未同步"}
-          </div>
-        </div>
-        {props.syncStatus.kind === "error" ? (
-          <div className="stm-setting-row">
-            <div className="stm-setting-name">失败提示</div>
-            <div className="stm-setting-value stm-sync-error" data-stm-field="cloud-sync-error">
-              {props.syncStatus.message}
-            </div>
-          </div>
-        ) : null}
-        <div className="stm-setting-actions">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="sync-now"
-            disabled={!configured}
-            onClick={() => void syncNow()}
-          >
-            立即同步
-          </button>
-        </div>
-        <div className="stm-setting-hint">
-          断网或配置错误时这里显示失败提示，插件会按退避自动重试
-        </div>
-      </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">对话文件镜像</div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-label">
-            <div className="stm-setting-name">随对话文件同步记忆镜像</div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "macro") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "macro") && (
+          <div className="stm-setting-group-body">
+            <input
+              className="stm-input"
+              type="text"
+              data-stm-field="macro-name"
+              value={props.settings.macroName}
+              placeholder="{{memoryContext}}"
+              onChange={(event) => updateMacroName(event.target.value)}
+            />
+            <input
+              className="stm-input"
+              type="number"
+              min="0"
+              step="100"
+              data-stm-field="macro-limit"
+              value={props.settings.macroLimit}
+              onChange={(event) => updateMacroLimit(event.target.value)}
+            />
             <div className="stm-setting-hint">
-              记忆快照写入聊天文件随对话走；换设备或本地库被清时自动恢复
+              宏名放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
+              当前记忆：无参 = 全部启用表分组快照；{"{{宏名::视图名}}"} = 对应视图快照；
+              超过上方字符上限从尾部截断并附「……（已截断）」标记；不填宏名则不注入
+            </div>
+            <MemoryViewsManager
+              spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+              readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+              readFields={(spaceId, tableId) =>
+                props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+              }
+              views={props.settings.memoryViews}
+              onChange={(views) => {
+                const next = { ...props.settings, memoryViews: views };
+                props.runtime.settings.write(next);
+                props.onSettingsChange(next);
+                void props.runtime.macro.kick().catch(reportError);
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Agent 连接 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="agent-connections">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="agent-connections"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "agent-connections")}
+          onClick={() => toggleGroup("agent-connections")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">Agent 连接</div>
+            {!isSettingsGroupExpanded(expandedGroups, "agent-connections") && (
+              <div className="stm-setting-group-summary">{agentConnectionsSummary(props.settings)}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-connections") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "agent-connections") && (
+          <div className="stm-setting-group-body stm-setting-group-body--manager">
+            <AgentConnectionManager
+              settings={props.settings}
+              onChange={(next) => {
+                props.runtime.settings.write(next);
+                props.onSettingsChange(next);
+              }}
+              onTestConnection={(connection) => testAgentConnection(connection)}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Agent 提示词预设 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="agent-presets">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="agent-presets"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "agent-presets")}
+          onClick={() => toggleGroup("agent-presets")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">Agent 提示词预设</div>
+            {!isSettingsGroupExpanded(expandedGroups, "agent-presets") && (
+              <div className="stm-setting-group-summary">{agentPresetsSummary(props.settings)}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-presets") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "agent-presets") && (
+          <div className="stm-setting-group-body stm-setting-group-body--manager">
+            <AgentPresetManager
+              settings={props.settings}
+              onChange={(next) => {
+                props.runtime.settings.write(next);
+                props.onSettingsChange(next);
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 清洗规则 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="cleaning">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="cleaning"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "cleaning")}
+          onClick={() => toggleGroup("cleaning")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">清洗规则</div>
+            {!isSettingsGroupExpanded(expandedGroups, "cleaning") && (
+              <div className="stm-setting-group-summary">{cleaningSummary(props.settings, chatCleaningListId)}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "cleaning") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "cleaning") && (
+          <div className="stm-setting-group-body stm-setting-group-body--manager">
+            <CleaningRulesManager
+              settings={props.settings}
+              selectedListId={chatCleaningListId}
+              onSelectList={(listId) => {
+                props.runtime.cleaning.writeSelection(listId);
+                setChatCleaningListId(listId);
+              }}
+              onChange={(next) => {
+                props.runtime.settings.write(next);
+                props.onSettingsChange(next);
+              }}
+              readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 数据备份 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="backup">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="backup"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "backup")}
+          onClick={() => toggleGroup("backup")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">数据备份</div>
+            {!isSettingsGroupExpanded(expandedGroups, "backup") && (
+              <div className="stm-setting-group-summary">导出/导入全库</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "backup") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "backup") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="export-backup"
+                onClick={() => void exportBackup()}
+              >
+                导出备份
+              </button>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="import-backup"
+                onClick={() => importInputRef.current?.click()}
+              >
+                导入备份
+              </button>
+            </div>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              data-stm-field="import-backup-file"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importBackup(file);
+                event.target.value = "";
+              }}
+            />
+            <div className="stm-setting-hint">
+              导出下载全库 JSON 备份文件；导入前校验文件并整体替换当前数据
             </div>
           </div>
-          <label className="stm-switch">
-            <input
-              type="checkbox"
-              data-action="toggle-mirror"
-              checked={props.settings.mirror.enabled}
-              onChange={(event) => toggleMirror(event.target.checked)}
-            />
-            <span className="stm-switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-label">
-            <div className="stm-setting-name">镜像包含修订历史</div>
-            <div className="stm-setting-hint">关闭后镜像不含修订记录，体积更小</div>
-          </div>
-          <label className="stm-switch">
-            <input
-              type="checkbox"
-              data-action="toggle-mirror-history"
-              checked={props.settings.mirror.includeHistory}
-              onChange={(event) => toggleMirrorHistory(event.target.checked)}
-            />
-            <span className="stm-switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div className="stm-setting-row">
-          <div className="stm-setting-name">镜像状态</div>
-          <div className="stm-setting-value" data-stm-field="mirror-status">
-            {mirrorStatusSummary(props.mirrorStatus)}
-          </div>
-        </div>
+        )}
       </div>
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">记忆宏</div>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="macro-name"
-          value={props.settings.macroName}
-          placeholder="{{memoryContext}}"
-          onChange={(event) => updateMacroName(event.target.value)}
-        />
-        <input
-          className="stm-input"
-          type="number"
-          min="0"
-          step="100"
-          data-stm-field="macro-limit"
-          value={props.settings.macroLimit}
-          onChange={(event) => updateMacroLimit(event.target.value)}
-        />
-        <div className="stm-setting-hint">
-          宏名放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
-          当前记忆：无参 = 全部启用表分组快照；{"{{宏名::视图名}}"} = 对应视图快照；
-          超过上方字符上限从尾部截断并附「……（已截断）」标记；不填宏名则不注入
-        </div>
-        <MemoryViewsManager
-          spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-          readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
-          readFields={(spaceId, tableId) =>
-            props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-          }
-          views={props.settings.memoryViews}
-          onChange={(views) => {
-            const next = { ...props.settings, memoryViews: views };
-            props.runtime.settings.write(next);
-            props.onSettingsChange(next);
-            // 视图 CRUD 立即生效：kick 重建对应视图快照（不等轮询）
-            void props.runtime.macro.kick().catch(reportError);
-          }}
-        />
+
+      {/* 对话文件镜像 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="mirror">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="mirror"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "mirror")}
+          onClick={() => toggleGroup("mirror")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">对话文件镜像</div>
+            {!isSettingsGroupExpanded(expandedGroups, "mirror") && (
+              <div className="stm-setting-group-summary">{mirrorSummary(props.settings, props.mirrorStatus)}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "mirror") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "mirror") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-row">
+              <div className="stm-setting-label">
+                <div className="stm-setting-name">随对话文件同步记忆镜像</div>
+                <div className="stm-setting-hint">
+                  记忆快照写入聊天文件随对话走；换设备或本地库被清时自动恢复
+                </div>
+              </div>
+              <label className="stm-switch">
+                <input
+                  type="checkbox"
+                  data-action="toggle-mirror"
+                  checked={props.settings.mirror.enabled}
+                  onChange={(event) => toggleMirror(event.target.checked)}
+                />
+                <span className="stm-switch-track" aria-hidden="true"></span>
+              </label>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-label">
+                <div className="stm-setting-name">镜像包含修订历史</div>
+                <div className="stm-setting-hint">关闭后镜像不含修订记录，体积更小</div>
+              </div>
+              <label className="stm-switch">
+                <input
+                  type="checkbox"
+                  data-action="toggle-mirror-history"
+                  checked={props.settings.mirror.includeHistory}
+                  onChange={(event) => toggleMirrorHistory(event.target.checked)}
+                />
+                <span className="stm-switch-track" aria-hidden="true"></span>
+              </label>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">镜像状态</div>
+              <div className="stm-setting-value" data-stm-field="mirror-status">
+                {mirrorStatusSummary(props.mirrorStatus)}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <AgentConnectionManager
-        settings={props.settings}
-        onChange={(next) => {
-          props.runtime.settings.write(next);
-          props.onSettingsChange(next);
-        }}
-        onTestConnection={(connection) => testAgentConnection(connection)}
-      />
-      <AgentPresetManager
-        settings={props.settings}
-        onChange={(next) => {
-          props.runtime.settings.write(next);
-          props.onSettingsChange(next);
-        }}
-      />
-      <CleaningRulesManager
-        settings={props.settings}
-        selectedListId={chatCleaningListId}
-        onSelectList={(listId) => {
-          props.runtime.cleaning.writeSelection(listId);
-          setChatCleaningListId(listId);
-        }}
-        onChange={(next) => {
-          props.runtime.settings.write(next);
-          props.onSettingsChange(next);
-        }}
-        readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
-      />
-      <div className="stm-setting-group">
-        <div className="stm-setting-group-title">危险操作</div>
-        <div className="stm-setting-hint">
-          以下操作会清空当前对话记忆空间的内容，且云同步与对话文件镜像中的副本也会随之清空，操作不可恢复
-        </div>
-        <div className="stm-setting-actions">
-          <button
-            type="button"
-            className="stm-button stm-button--danger"
-            data-action="clear-space-records"
-            disabled={!canMaintainSpace}
-            onClick={() => void clearSpaceRecords()}
-          >
-            清除空间记录
-          </button>
-          <button
-            type="button"
-            className="stm-button stm-button--danger"
-            data-action="reset-space"
-            disabled={!canMaintainSpace}
-            onClick={() => void resetSpace()}
-          >
-            重置空间
-          </button>
-        </div>
+
+      {/* 云同步（合并配置+状态） */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="r2">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="r2"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "r2")}
+          onClick={() => toggleGroup("r2")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">云同步（Cloudflare R2）</div>
+            {!isSettingsGroupExpanded(expandedGroups, "r2") && (
+              <div className="stm-setting-group-summary">{r2Summary(props.settings, props.syncStatus)}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "r2") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "r2") && (
+          <div className="stm-setting-group-body">
+            <input
+              className="stm-input"
+              type="text"
+              data-stm-field="r2-account-id"
+              placeholder="Account ID"
+              value={r2.accountId}
+              onChange={(event) => updateR2Field("accountId", event.target.value)}
+            />
+            <input
+              className="stm-input"
+              type="text"
+              data-stm-field="r2-access-key-id"
+              placeholder="Access Key ID"
+              value={r2.accessKeyId}
+              onChange={(event) => updateR2Field("accessKeyId", event.target.value)}
+            />
+            <input
+              className="stm-input"
+              type="password"
+              data-stm-field="r2-secret-access-key"
+              placeholder="Secret Access Key"
+              value={r2.secretAccessKey}
+              onChange={(event) => updateR2Field("secretAccessKey", event.target.value)}
+            />
+            <input
+              className="stm-input"
+              type="text"
+              data-stm-field="r2-bucket"
+              placeholder="Bucket"
+              value={r2.bucket}
+              onChange={(event) => updateR2Field("bucket", event.target.value)}
+            />
+            <div className="stm-setting-hint">
+              四项填齐即自动启用：数据变更防抖推送、空库启动自动拉取、较新版本胜出；Bucket 需配置
+              CORS（详见插件文档 R2 云同步配置）
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">状态</div>
+              <div className="stm-setting-value" data-stm-field="cloud-sync-status">
+                {syncStatusSummary(props.syncStatus)}
+              </div>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">最近同步</div>
+              <div className="stm-setting-value stm-mono" data-stm-field="cloud-sync-last">
+                {(props.syncStatus.kind === "idle" || props.syncStatus.kind === "error") &&
+                props.syncStatus.lastSyncAt
+                  ? formatSyncTime(props.syncStatus.lastSyncAt)
+                  : "尚未同步"}
+              </div>
+            </div>
+            {props.syncStatus.kind === "error" ? (
+              <div className="stm-setting-row">
+                <div className="stm-setting-name">失败提示</div>
+                <div className="stm-setting-value stm-sync-error" data-stm-field="cloud-sync-error">
+                  {props.syncStatus.message}
+                </div>
+              </div>
+            ) : null}
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="sync-now"
+                disabled={!configured}
+                onClick={() => void syncNow()}
+              >
+                立即同步
+              </button>
+            </div>
+            <div className="stm-setting-hint">
+              断网或配置错误时这里显示失败提示，插件会按退避自动重试
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 版本与运行状态 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="version">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="version"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "version")}
+          onClick={() => toggleGroup("version")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">版本与运行状态</div>
+            {!isSettingsGroupExpanded(expandedGroups, "version") && (
+              <div className="stm-setting-group-summary">{`v${props.runtime.version} · ${runtimeStatusLabel(props.status)}`}</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "version") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "version") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">版本</div>
+              <div className="stm-setting-value stm-mono">{`v${props.runtime.version}`}</div>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">运行状态</div>
+              <div className="stm-setting-value">{runtimeStatusLabel(props.status)}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 危险操作：钉底 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="danger">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="danger"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "danger")}
+          onClick={() => toggleGroup("danger")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">危险操作</div>
+            {!isSettingsGroupExpanded(expandedGroups, "danger") && (
+              <div className="stm-setting-group-summary">操作不可恢复</div>
+            )}
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "danger") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "danger") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-hint">
+              以下操作会清空当前对话记忆空间的内容，且云同步与对话文件镜像中的副本也会随之清空，操作不可恢复
+            </div>
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button stm-button--danger"
+                data-action="clear-space-records"
+                disabled={!canMaintainSpace}
+                onClick={() => void clearSpaceRecords()}
+              >
+                清除空间记录
+              </button>
+              <button
+                type="button"
+                className="stm-button stm-button--danger"
+                data-action="reset-space"
+                disabled={!canMaintainSpace}
+                onClick={() => void resetSpace()}
+              >
+                重置空间
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
 }
+

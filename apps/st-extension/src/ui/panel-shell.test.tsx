@@ -9,6 +9,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import { DEFAULT_SETTINGS } from "../settings/plugin-settings.ts";
+import { SETTINGS_COLLAPSED_STORAGE_KEY } from "./settings-collapsed-model.ts";
 import { PanelModel } from "./panel-model.ts";
 import { PanelShell, ToolbarButton, type PanelRuntime } from "./panel-shell.tsx";
 
@@ -128,6 +129,38 @@ function renderShell(model: PanelModel, runtime: PanelRuntime = fakeRuntime()): 
   return renderToString(<PanelShell runtime={runtime} model={model} />);
 }
 
+function renderWithExpanded(
+  model: PanelModel,
+  keys: readonly string[],
+  runtime: PanelRuntime = fakeRuntime(),
+): string {
+  const originalWindow = (globalThis as unknown as { window?: unknown }).window as
+    | { localStorage?: { getItem?: (k: string) => string | null } }
+    | undefined;
+  const prevWindow = (globalThis as unknown as Record<string, unknown>).window;
+  (globalThis as unknown as Record<string, unknown>).window = {
+    ...((prevWindow as object) ?? {}),
+    localStorage: {
+      getItem: (k: string) =>
+        k === SETTINGS_COLLAPSED_STORAGE_KEY
+          ? JSON.stringify(keys)
+          : (originalWindow as { localStorage?: { getItem: (k: string) => string | null } })?.localStorage?.getItem?.(
+              k,
+            ) ?? null,
+      setItem: () => {},
+    },
+  } as unknown;
+  try {
+    return renderToString(<PanelShell runtime={runtime} model={model} />);
+  } finally {
+    if (prevWindow === undefined) {
+      delete (globalThis as unknown as Record<string, unknown>).window;
+    } else {
+      (globalThis as unknown as Record<string, unknown>).window = prevWindow;
+    }
+  }
+}
+
 describe("ToolbarButton（顶部按钮投影）", () => {
   it("aria-pressed 跟随面板开关状态", () => {
     const model = new PanelModel();
@@ -205,28 +238,44 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏配置（可编辑 + 默认值 + 上限）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("插件总开关");
-    expect(html).toContain('data-action="toggle-plugin"');
-    expect(html).toContain("v0.1.0");
-    expect(html).toContain("已加载 · 空间同步正常");
-    expect(html).toContain('data-stm-field="r2-account-id"');
-    expect(html).toContain('data-stm-field="r2-bucket"');
-    expect(html).toContain('data-stm-field="macro-name"');
-    expect(html).toContain('value="{{memoryContext}}"');
-    expect(html).toContain('data-stm-field="macro-limit"');
-    expect(html).toContain('value="2000"');
+    const collapsed = renderShell(model);
+    // 插件总开关始终可见（不折叠）
+    expect(collapsed).toContain("插件总开关");
+    expect(collapsed).toContain('data-action="toggle-plugin"');
+    // 其余分组默认折叠：标题与摘要可见，内部表单隐藏
+    expect(collapsed).toContain('data-group="version"');
+    expect(collapsed).toContain("版本与运行状态");
+    expect(collapsed).toContain("v0.1.0 · 已加载");
+    expect(collapsed).toContain('data-group="r2"');
+    expect(collapsed).toContain("云同步（Cloudflare R2）");
+    expect(collapsed).not.toContain('data-stm-field="r2-account-id"');
+    expect(collapsed).toContain('data-group="macro"');
+    expect(collapsed).toContain("记忆宏");
+    expect(collapsed).not.toContain('data-stm-field="macro-name"');
+    // 展开后表单可见
+    const expanded = renderWithExpanded(model, ["version", "r2", "macro"]);
+    expect(expanded).toContain('data-stm-field="r2-account-id"');
+    expect(expanded).toContain('data-stm-field="r2-bucket"');
+    expect(expanded).toContain('data-stm-field="macro-name"');
+    expect(expanded).toContain('value="{{memoryContext}}"');
+    expect(expanded).toContain('data-stm-field="macro-limit"');
+    expect(expanded).toContain('value="2000"');
   });
 
   it("设置 Tab：Agent 预设管理器就位（ticket 17）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("Agent 提示词预设");
-    expect(html).toContain('data-stm-section="agent-presets"');
-    expect(html).toContain('data-action="select-agent-preset"');
-    expect(html).toContain('data-action="create-preset"');
-    expect(html).toContain('data-action="copy-builtin-preset"');
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain("Agent 提示词预设");
+    expect(collapsed).toContain('data-group="agent-presets"');
+    expect(collapsed).toContain('aria-expanded="false"');
+    // 折叠态仅标题与摘要，内部管理器隐藏
+    expect(collapsed).not.toContain('data-action="select-agent-preset"');
+    const expanded = renderWithExpanded(model, ["agent-presets"]);
+    expect(expanded).toContain('data-stm-section="agent-presets"');
+    expect(expanded).toContain('data-action="select-agent-preset"');
+    expect(expanded).toContain('data-action="create-preset"');
+    expect(expanded).toContain('data-action="copy-builtin-preset"');
   });
 
   it("任务 Tab：Agent 预设快捷切换下拉就位（ticket 17）", () => {
@@ -241,14 +290,13 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：R2 配置输入可编辑（ticket 08 生效，非禁用）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
+    const html = renderWithExpanded(model, ["r2", "macro"]);
     for (const field of [
       "r2-account-id",
       "r2-access-key-id",
       "r2-secret-access-key",
       "r2-bucket",
     ]) {
-      // 每个 R2 输入都存在且不带 disabled 属性；密码框为 password 类型
       expect(html).toContain(`data-stm-field="${field}"`);
     }
     const r2Inputs = [...html.matchAll(/<input[^>]*data-stm-field="r2-[^"]+"[^>]*>/g)].map(
@@ -257,7 +305,6 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(r2Inputs).toHaveLength(4);
     expect(r2Inputs.every((input) => !input.includes("disabled"))).toBe(true);
     expect(html).toContain('type="password"');
-    // 宏输入已启用（ticket 15 生效）；上限输入就位且非禁用
     const macroInput = html.match(/<input[^>]*data-stm-field="macro-name"[^>]*>/)?.[0] ?? "";
     expect(macroInput).not.toContain("disabled");
     const limitInput = html.match(/<input[^>]*data-stm-field="macro-limit"[^>]*>/)?.[0] ?? "";
@@ -268,8 +315,11 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：云同步状态组（状态/最近同步/立即同步按钮）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("同步状态");
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain("云同步（Cloudflare R2）");
+    expect(collapsed).toContain('data-group="r2"');
+    expect(collapsed).not.toContain('data-stm-field="cloud-sync-status"');
+    const html = renderWithExpanded(model, ["r2"]);
     expect(html).toContain('data-stm-field="cloud-sync-status"');
     expect(html).toContain('data-stm-field="cloud-sync-last"');
     expect(html).toContain("尚未同步");
@@ -279,8 +329,11 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：危险操作区两个按钮就位（spec reset-space，active 状态可用）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("危险操作");
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain("危险操作");
+    expect(collapsed).toContain('data-group="danger"');
+    expect(collapsed).not.toContain("清除空间记录");
+    const html = renderWithExpanded(model, ["danger"]);
     expect(html).toContain("清除空间记录");
     expect(html).toContain("重置空间");
     const clearButton =
@@ -306,7 +359,7 @@ describe("PanelShell（面板骨架投影）", () => {
     });
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model, runtime);
+    const html = renderWithExpanded(model, ["danger"], runtime);
     const clearButton =
       html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
     const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
@@ -323,7 +376,7 @@ describe("PanelShell（面板骨架投影）", () => {
     });
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model, runtime);
+    const html = renderWithExpanded(model, ["danger"], runtime);
     const clearButton =
       html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
     const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
@@ -346,7 +399,11 @@ describe("PanelShell（面板骨架投影）", () => {
     });
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model, runtime);
+    const collapsed = renderShell(model, runtime);
+    // 折叠态摘要应包含失败信息
+    expect(collapsed).toContain("失败");
+    expect(collapsed).toContain("R2 访问被拒绝");
+    const html = renderWithExpanded(model, ["r2"], runtime);
     expect(html).toContain("失败提示");
     expect(html).toContain('data-stm-field="cloud-sync-error"');
     expect(html).toContain("R2 访问被拒绝（HTTP 403）");
@@ -373,12 +430,15 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：对话文件镜像组（开关 + 包含修订历史 + 状态展示）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("对话文件镜像");
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain("对话文件镜像");
+    expect(collapsed).toContain('data-group="mirror"');
+    expect(collapsed).toContain("已启用（尚未写回）");
+    expect(collapsed).not.toContain('data-action="toggle-mirror"');
+    const html = renderWithExpanded(model, ["mirror"]);
     expect(html).toContain('data-action="toggle-mirror"');
     expect(html).toContain('data-action="toggle-mirror-history"');
     expect(html).toContain('data-stm-field="mirror-status"');
-    expect(html).toContain("已启用（尚未写回）");
   });
 
   it("设置 Tab：镜像已写回时状态行展示时间与体积", () => {
@@ -428,8 +488,11 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：数据备份组渲染导出/导入按钮与文件输入（验收脚本契约）", () => {
     const model = new PanelModel();
     model.setTab("settings");
-    const html = renderShell(model);
-    expect(html).toContain("数据备份");
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain("数据备份");
+    expect(collapsed).toContain('data-group="backup"');
+    expect(collapsed).not.toContain('data-action="export-backup"');
+    const html = renderWithExpanded(model, ["backup"]);
     expect(html).toContain('data-action="export-backup"');
     expect(html).toContain("导出备份");
     expect(html).toContain('data-action="import-backup"');
@@ -448,6 +511,45 @@ describe("PanelShell（面板骨架投影）", () => {
     const html = renderShell(new PanelModel(), runtime);
     expect(html).toContain("插件已停用");
     expect(html).not.toContain("爱丽丝 - story");
+  });
+
+  it("设置 Tab：折叠与重排序（spec 移动端优化）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderShell(model);
+    // 插件总开关不折叠，无 aria-expanded
+    expect(html).toContain('data-group="plugin-toggle"');
+    // 其余分组默认折叠：aria-expanded=false + chevron-down
+    for (const group of ["macro", "agent-connections", "agent-presets", "cleaning", "backup", "mirror", "r2", "version", "danger"]) {
+      expect(html).toContain(`data-group="${group}"`);
+      expect(html).toContain(`data-action="toggle-settings-group"`);
+    }
+    expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(9);
+    expect(html).toContain("fa-chevron-down");
+    // 摘要在折叠态可见
+    expect(html).toContain("{{memoryContext}}");
+    expect(html).toContain("未配置");
+    // 顺序：插件总开关 < 记忆宏 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 云同步 < 版本 < 危险操作
+    const order = ["插件总开关", "记忆宏", "Agent 连接", "Agent 提示词预设", "清洗规则", "数据备份", "对话文件镜像", "云同步（Cloudflare R2）", "版本与运行状态", "危险操作"];
+    let lastIdx = -1;
+    for (const title of order) {
+      const idx = html.indexOf(title);
+      expect(idx).toBeGreaterThan(lastIdx);
+      lastIdx = idx;
+    }
+  });
+
+  it("设置 Tab：展开后云同步合并组包含配置与状态", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderWithExpanded(model, ["r2"]);
+    // 合并后同一展开体内包含 4 输入 + 状态 + 立即同步
+    expect(html).toContain('data-stm-field="r2-account-id"');
+    expect(html).toContain('data-stm-field="cloud-sync-status"');
+    expect(html).toContain('data-stm-field="cloud-sync-last"');
+    expect(html).toContain('data-action="sync-now"');
+    // 旧独立“同步状态”标题不再存在，统一为云同步标题
+    expect(html).not.toContain(">同步状态<");
   });
 
   it("记录/任务 Tab：记录视图加载态 + 任务触发区（ticket 13 替换占位，验收脚本契约）", () => {
