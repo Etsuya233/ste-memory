@@ -4,6 +4,14 @@ import {
   serializeBackupFile,
 } from "@ste-memory/core/memory/export";
 import type { MemoryBackupSnapshot } from "@ste-memory/core/memory/export";
+import type {
+  MemoryEvidenceId,
+  MemoryFieldId,
+  MemoryRecordHistoryId,
+  MemoryRecordId,
+  MemorySpaceId,
+  MemoryTableId,
+} from "@ste-memory/core/memory";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { describe, expect, it } from "vitest";
 // 必须先于 ./database.ts 导入：dexie 在模块加载时捕获全局 indexedDB，
@@ -251,12 +259,12 @@ describe("Dexie memory backup repository", () => {
     let historySeq = 0;
     let evidenceSeq = 0;
     const newSpaceId = await repo.cloneSpace(space.id, {
-      space: () => `cloned-space-${++spaceSeq}` as import("@ste-memory/core/memory").MemorySpaceId,
-      table: () => `cloned-table-${++tableSeq}` as import("@ste-memory/core/memory").MemoryTableId,
-      field: () => `cloned-field-${++fieldSeq}` as import("@ste-memory/core/memory").MemoryFieldId,
-      record: () => `cloned-record-${++recordSeq}` as import("@ste-memory/core/memory").MemoryRecordId,
-      history: () => `cloned-history-${++historySeq}` as import("@ste-memory/core/memory").MemoryRecordHistoryId,
-      evidence: () => `cloned-evidence-${++evidenceSeq}` as import("@ste-memory/core/memory").MemoryEvidenceId,
+      space: () => `cloned-space-${++spaceSeq}` as MemorySpaceId,
+      table: () => `cloned-table-${++tableSeq}` as MemoryTableId,
+      field: () => `cloned-field-${++fieldSeq}` as MemoryFieldId,
+      record: () => `cloned-record-${++recordSeq}` as MemoryRecordId,
+      history: () => `cloned-history-${++historySeq}` as MemoryRecordHistoryId,
+      evidence: () => `cloned-evidence-${++evidenceSeq}` as MemoryEvidenceId,
     });
 
     const after = await repo.loadSnapshot();
@@ -302,16 +310,102 @@ describe("Dexie memory backup repository", () => {
     // table 工厂在第三次调用时抛错，导致事务回滚
     await expect(
       repo.cloneSpace(space.id, {
-        space: () => `fail-space-${++seq}` as import("@ste-memory/core/memory").MemorySpaceId,
+        space: () => `fail-space-${++seq}` as MemorySpaceId,
         table: () => {
           const s = ++seq;
           if (s === 3) throw new Error("boom");
-          return `fail-table-${s}` as import("@ste-memory/core/memory").MemoryTableId;
+          return `fail-table-${s}` as MemoryTableId;
         },
-        field: () => `fail-field-${++seq}` as import("@ste-memory/core/memory").MemoryFieldId,
-        record: () => `fail-record-${++seq}` as import("@ste-memory/core/memory").MemoryRecordId,
-        history: () => `fail-history-${++seq}` as import("@ste-memory/core/memory").MemoryRecordHistoryId,
-        evidence: () => `fail-evidence-${++seq}` as import("@ste-memory/core/memory").MemoryEvidenceId,
+        field: () => `fail-field-${++seq}` as MemoryFieldId,
+        record: () => `fail-record-${++seq}` as MemoryRecordId,
+        history: () => `fail-history-${++seq}` as MemoryRecordHistoryId,
+        evidence: () => `fail-evidence-${++seq}` as MemoryEvidenceId,
+      }),
+    ).rejects.toThrow();
+
+    // 整体回滚：数据库与复制前完全一致
+    expect(await repo.loadSnapshot()).toEqual(before);
+  });
+
+  it("cloneSpaceFromUnit 克隆备份单元为全新空间（数据库里无源空间，issue 26）", async () => {
+    const db = createTestDatabase();
+    await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const before = await repo.loadSnapshot();
+    const sourceUnit = before.spaces[0]!;
+
+    let spaceSeq = 0;
+    let tableSeq = 0;
+    let fieldSeq = 0;
+    let recordSeq = 0;
+    let historySeq = 0;
+    let evidenceSeq = 0;
+    const newSpaceId = await repo.cloneSpaceFromUnit(sourceUnit, {
+      space: () => `cloned-unit-space-${++spaceSeq}` as MemorySpaceId,
+      table: () => `cloned-unit-table-${++tableSeq}` as MemoryTableId,
+      field: () => `cloned-unit-field-${++fieldSeq}` as MemoryFieldId,
+      record: () => `cloned-unit-record-${++recordSeq}` as MemoryRecordId,
+      history: () => `cloned-unit-history-${++historySeq}` as MemoryRecordHistoryId,
+      evidence: () => `cloned-unit-evidence-${++evidenceSeq}` as MemoryEvidenceId,
+    });
+
+    const after = await repo.loadSnapshot();
+    // 源空间原样保留（cloneSpaceFromUnit 不动源数据，符合 ADR 0012「保留原空间」）
+    expect(after.spaces).toHaveLength(2);
+    expect(after.spaces.find((u) => u.space.id === sourceUnit.space.id)).toEqual(sourceUnit);
+    const clonedUnit = after.spaces.find((u) => u.space.id === newSpaceId)!;
+    expect(clonedUnit).toBeDefined();
+    expect(newSpaceId).not.toBe(sourceUnit.space.id);
+
+    // 全部实体新 ID（与源无交集），外键重映射指向新空间
+    expect(clonedUnit.tables).toHaveLength(sourceUnit.tables.length);
+    expect(clonedUnit.fields).toHaveLength(sourceUnit.fields.length);
+    expect(clonedUnit.records).toHaveLength(sourceUnit.records.length);
+    expect(clonedUnit.history).toHaveLength(sourceUnit.history.length);
+    expect(clonedUnit.evidence).toHaveLength(sourceUnit.evidence.length);
+    const allClonedIds = [
+      ...clonedUnit.tables.map((t) => t.id),
+      ...clonedUnit.fields.map((f) => f.id),
+      ...clonedUnit.records.map((r) => r.id),
+      ...clonedUnit.history.map((h) => h.id),
+    ];
+    const sourceIds = [
+      ...sourceUnit.tables.map((t) => t.id),
+      ...sourceUnit.fields.map((f) => f.id),
+      ...sourceUnit.records.map((r) => r.id),
+      ...sourceUnit.history.map((h) => h.id),
+    ];
+    expect(allClonedIds.some((id) => sourceIds.includes(id))).toBe(false);
+    expect(clonedUnit.tables.every((t) => t.memorySpaceId === newSpaceId)).toBe(true);
+    expect(clonedUnit.fields.every((f) => f.memorySpaceId === newSpaceId)).toBe(true);
+    expect(clonedUnit.records.every((r) => r.memorySpaceId === newSpaceId)).toBe(true);
+    expect(clonedUnit.history.every((h) => h.memorySpaceId === newSpaceId)).toBe(true);
+    const clonedTableIds = new Set(clonedUnit.tables.map((t) => t.id));
+    expect(clonedUnit.fields.every((f) => clonedTableIds.has(f.tableId))).toBe(true);
+    const clonedRecordIds = new Set(clonedUnit.records.map((r) => r.id));
+    expect(clonedUnit.history.every((h) => clonedRecordIds.has(h.recordId))).toBe(true);
+  });
+
+  it("cloneSpaceFromUnit 失败时原子回滚（无半复制状态）", async () => {
+    const db = createTestDatabase();
+    await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const before = await repo.loadSnapshot();
+    const sourceUnit = before.spaces[0]!;
+
+    let seq = 0;
+    await expect(
+      repo.cloneSpaceFromUnit(sourceUnit, {
+        space: () => `fail-unit-space-${++seq}` as MemorySpaceId,
+        table: () => {
+          const s = ++seq;
+          if (s === 3) throw new Error("boom");
+          return `fail-unit-table-${s}` as MemoryTableId;
+        },
+        field: () => `fail-unit-field-${++seq}` as MemoryFieldId,
+        record: () => `fail-unit-record-${++seq}` as MemoryRecordId,
+        history: () => `fail-unit-history-${++seq}` as MemoryRecordHistoryId,
+        evidence: () => `fail-unit-evidence-${++seq}` as MemoryEvidenceId,
       }),
     ).rejects.toThrow();
 

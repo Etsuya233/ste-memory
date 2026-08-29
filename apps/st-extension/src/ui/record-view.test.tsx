@@ -34,6 +34,7 @@ function fakeRuntime(): PanelRuntime {
       onStatusChange: () => () => {},
       syncToCurrentChat: vi.fn(async () => activeStatus()),
       resolveBranch: vi.fn(async () => activeStatus()),
+      importSpace: vi.fn(async () => activeStatus()),
     },
     tables: {
       list: vi.fn(async () => []),
@@ -69,6 +70,8 @@ function fakeRuntime(): PanelRuntime {
     backup: {
       loadSnapshot: vi.fn(async () => ({ spaces: [] })),
       restoreSnapshot: vi.fn(async () => {}),
+      restoreSpace: vi.fn(async () => {}),
+      cloneSpaceFromUnit: vi.fn(async () => "new-space" as MemorySpaceId),
     },
     sync: {
       getStatus: () => ({ kind: "unconfigured" }),

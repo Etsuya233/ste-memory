@@ -93,6 +93,12 @@ class FakeBackup implements MemoryBackupRepository {
     this.snapshot = snapshot;
   }
   async restoreSpace(_unit: MemorySpaceBackup) {}
+  async cloneSpace(_sourceSpaceId: MemorySpaceId) {
+    return "cloned" as MemorySpaceId;
+  }
+  async cloneSpaceFromUnit(_unit: MemorySpaceBackup) {
+    return "cloned" as MemorySpaceId;
+  }
 }
 
 function createHarness(overrides: Partial<SyncCoordinatorPorts> = {}) {

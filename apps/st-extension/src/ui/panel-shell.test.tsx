@@ -35,6 +35,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       onStatusChange: () => () => {},
       syncToCurrentChat: vi.fn(async () => activeStatus()),
       resolveBranch: vi.fn(async () => activeStatus()),
+      importSpace: vi.fn(async () => activeStatus()),
     },
     tables: {
       list: vi.fn(async () => []),
@@ -70,6 +71,8 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     backup: {
       loadSnapshot: vi.fn(async () => ({ spaces: [] })),
       restoreSnapshot: vi.fn(async () => {}),
+      restoreSpace: vi.fn(async () => {}),
+      cloneSpaceFromUnit: vi.fn(async () => "new-space" as MemorySpaceId),
     },
     sync: {
       getStatus: () => ({ kind: "unconfigured" }),
@@ -356,6 +359,7 @@ describe("PanelShell（面板骨架投影）", () => {
         onStatusChange: () => () => {},
         syncToCurrentChat: vi.fn(async () => missing),
         resolveBranch: vi.fn(async () => missing),
+        importSpace: vi.fn(async () => missing),
       },
     });
     const model = new PanelModel();
@@ -480,6 +484,7 @@ describe("PanelShell（面板骨架投影）", () => {
         onStatusChange: () => () => {},
         syncToCurrentChat: vi.fn(async () => status),
         resolveBranch: vi.fn(async () => status),
+        importSpace: vi.fn(async () => status),
       },
     });
     const html = renderShell(new PanelModel(), runtime);
@@ -500,6 +505,67 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain("导入备份");
     expect(html).toContain('data-stm-field="import-backup-file"');
     expect(html).toContain('type="file"');
+  });
+
+  it("设置 Tab：数据备份组渲染单空间导出/导入入口（issue 26 验收契约）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderWithExpanded(model, ["backup"]);
+    expect(html).toContain('data-action="export-space-backup"');
+    expect(html).toContain("导出当前空间");
+    expect(html).toContain('data-action="import-space-backup"');
+    expect(html).toContain("导入到当前空间");
+    expect(html).toContain('data-stm-field="import-space-backup-file"');
+  });
+
+  it("导出当前空间按钮：绑定空间时可用，无绑定（space-missing）时置灰并提示", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderWithExpanded(model, ["backup"]);
+    const button = html.match(/<button[^>]*data-action="export-space-backup"[^>]*>/)?.[0] ?? "";
+    expect(button).not.toContain("disabled");
+
+    const missing: SpaceContextStatus = {
+      kind: "space-missing",
+      binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+      humanMsg: "空间数据未就绪",
+    };
+    const runtime = fakeRuntime({
+      manager: {
+        getStatus: () => missing,
+        onStatusChange: () => () => {},
+        syncToCurrentChat: vi.fn(async () => missing),
+        resolveBranch: vi.fn(async () => missing),
+        importSpace: vi.fn(async () => missing),
+      },
+    });
+    const html2 = renderWithExpanded(model, ["backup"], runtime);
+    const disabledButton =
+      html2.match(/<button[^>]*data-action="export-space-backup"[^>]*>/)?.[0] ?? "";
+    expect(disabledButton).toContain("disabled");
+    expect(disabledButton).toContain("当前对话未绑定记忆空间");
+  });
+
+  it("导入到当前空间按钮：始终可用（无论是否绑定，issue 26 用户 story 21）", () => {
+    const missing: SpaceContextStatus = {
+      kind: "space-missing",
+      binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+      humanMsg: "空间数据未就绪",
+    };
+    const runtime = fakeRuntime({
+      manager: {
+        getStatus: () => missing,
+        onStatusChange: () => () => {},
+        syncToCurrentChat: vi.fn(async () => missing),
+        resolveBranch: vi.fn(async () => missing),
+        importSpace: vi.fn(async () => missing),
+      },
+    });
+    const model = new PanelModel();
+    model.setTab("settings");
+    const html = renderWithExpanded(model, ["backup"], runtime);
+    const button = html.match(/<button[^>]*data-action="import-space-backup"[^>]*>/)?.[0] ?? "";
+    expect(button).not.toContain("disabled");
   });
 
   it("插件停用：头部提示 + 表格区块占位（设置优先于空间状态）", () => {

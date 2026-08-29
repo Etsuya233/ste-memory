@@ -72,6 +72,12 @@ class FakeBackup implements MemoryBackupRepository {
     if (this.restoreError) throw this.restoreError;
     this.restoredSpaces.push(unit);
   }
+  async cloneSpace(_sourceSpaceId: MemorySpaceId) {
+    return "cloned" as MemorySpaceId;
+  }
+  async cloneSpaceFromUnit(_unit: MemorySpaceBackup) {
+    return "cloned" as MemorySpaceId;
+  }
 }
 
 function createHarness(overrides: Partial<ChatMetadataMirrorSyncPorts> = {}) {

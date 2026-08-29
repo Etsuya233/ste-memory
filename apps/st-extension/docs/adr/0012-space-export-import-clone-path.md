@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted（issue 26 已实现：resolveImportAction 纯函数 + cloneSpaceFromUnit 仓库方法 + ChatSpaceManager.importSpace）
 
 ## Context
 

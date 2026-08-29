@@ -434,6 +434,9 @@ async function main() {
         hasBackup: !!section?.querySelector('button[data-action="export-backup"]')
           && !!section?.querySelector('button[data-action="import-backup"]')
           && !!section?.querySelector('input[data-stm-field="import-backup-file"]'),
+        hasSpaceBackup: !!section?.querySelector('button[data-action="export-space-backup"]')
+          && !!section?.querySelector('button[data-action="import-space-backup"]')
+          && !!section?.querySelector('input[data-stm-field="import-space-backup-file"]'),
         hasSyncStatus: !!section?.querySelector('[data-stm-field="cloud-sync-status"]')
           && !!section?.querySelector('button[data-action="sync-now"]'),
         // ticket 16：对话文件镜像组（开关 + 包含修订历史 + 状态行）
@@ -457,6 +460,7 @@ async function main() {
     check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
     check("设置 Tab：记忆宏配置可编辑（宏名默认 {{memoryContext}} + 上限 2000，ticket 15 生效）", settings.macroEditable);
     check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);
+    check("设置 Tab：单空间导出/导入入口就位（issue 26）", settings.hasSpaceBackup);
     check("设置 Tab：可折叠分组（标题 + 摘要 + 展开）", settings.hasCollapsible, JSON.stringify(settings));
     check("设置 Tab：重排序（记忆宏 < Agent 连接 < 预设 < 清洗 < 备份）", settings.orderOk);
 

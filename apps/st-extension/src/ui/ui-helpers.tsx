@@ -13,6 +13,7 @@ declare global {
         error(message: string, title?: string): void;
         warning(message: string, title?: string): void;
         success(message: string, title?: string): void;
+        info(message: string, title?: string): void;
       }
     | undefined;
 }
@@ -31,6 +32,15 @@ export function reportWarning(message: string): void {
     toastr.warning(message, PLUGIN_DISPLAY_NAME);
   } else {
     console.warn(`[${PLUGIN_DISPLAY_NAME}]`, message);
+  }
+}
+
+/** 进行中提示（如「正在导入…」），供长任务开始时的进度 Toast。 */
+export function reportInfo(message: string): void {
+  if (typeof toastr !== "undefined") {
+    toastr.info(message, PLUGIN_DISPLAY_NAME);
+  } else {
+    console.info(`[${PLUGIN_DISPLAY_NAME}]`, message);
   }
 }
 

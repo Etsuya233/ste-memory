@@ -24,7 +24,11 @@ import {
   parseBackupFile,
   serializeBackupFile,
 } from "@ste-memory/core/memory/export";
-import type { MemoryBackupFile } from "@ste-memory/core/memory/export";
+import type {
+  MemoryBackupFile,
+  MemoryBackupSnapshot,
+  MemorySpaceBackup,
+} from "@ste-memory/core/memory/export";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
 import {
@@ -59,6 +63,8 @@ import {
   type SettingsGroupKey,
 } from "./settings-collapsed-model.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
+import { BINDING_UNRECOGNIZED_MESSAGE } from "../space-binding/chat-space-manager.ts";
+import { resolveImportAction } from "../space-binding/import-action.ts";
 
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
@@ -70,6 +76,7 @@ import {
   activeStatus,
   Placeholder,
   reportError,
+  reportInfo,
   reportSuccess,
   reportWarning,
 } from "./ui-helpers.tsx";
@@ -116,7 +123,7 @@ import {
 export interface PanelRuntime {
   readonly manager: Pick<
     SteMemoryRuntime["manager"],
-    "getStatus" | "onStatusChange" | "syncToCurrentChat" | "resolveBranch"
+    "getStatus" | "onStatusChange" | "syncToCurrentChat" | "resolveBranch" | "importSpace"
   >;
   readonly tables: Pick<SteMemoryRuntime["tables"], "list" | "update" | "create" | "delete">;
   readonly fields: Pick<
@@ -133,8 +140,12 @@ export interface PanelRuntime {
     SteMemoryRuntime["adapter"],
     "scrollToFloor" | "getMessageAt" | "chatMessageCount"
   >;
-  /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
-  readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
+  /** 全库备份（导出读快照 / 导入整体还原，ticket 07）；restoreSpace 单空间替换、
+   *  cloneSpaceFromUnit 从备份单元克隆新空间（均用于 issue 26 单空间导入） */
+  readonly backup: Pick<
+    SteMemoryRuntime["backup"],
+    "loadSnapshot" | "restoreSnapshot" | "restoreSpace" | "cloneSpaceFromUnit"
+  >;
   /** Dexie 备份仓库（扩展方法：cloneSpace 用于分支对话分离） */
   readonly backupRepo?: Pick<SteMemoryRuntime["backupRepo"], "cloneSpace">;
   /** ST 适配器（分支检测需要访问 getChatSnapshot 和 bindingStore） */
@@ -207,6 +218,25 @@ function downloadTextFile(text: string, filename: string): void {
 /** 备份文件名：ste-memory-backup-<导出日期>.json（日期取信封 exportedAt）。 */
 function backupFilename(exportedAt: string): string {
   return `ste-memory-backup-${exportedAt.slice(0, 10)}.json`;
+}
+
+/** 单空间导出文件名：ste-memory-space-export-<导出日期>.json（用户 story 4）。 */
+function spaceExportFilename(exportedAt: string): string {
+  return `ste-memory-space-export-${exportedAt.slice(0, 10)}.json`;
+}
+
+/**
+ * 从全库快照提取当前空间的单单元导出（issue 26 纯函数 seam）：只含当前空间单元，
+ * 按 includeHistory 裁剪修订历史。找不到当前空间返回 null（导出前校验）。
+ */
+export function buildSpaceExportUnit(
+  snapshot: MemoryBackupSnapshot,
+  spaceId: MemorySpaceId,
+  includeHistory: boolean,
+): MemorySpaceBackup | null {
+  const unit = snapshot.spaces.find((item) => item.space.id === spaceId);
+  if (!unit) return null;
+  return includeHistory ? unit : { ...unit, history: [] };
 }
 
 // ---- 顶部工具栏按钮 ----
@@ -1361,6 +1391,8 @@ function SettingsTab(props: {
   const configured = isR2Configured(props.settings);
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
   const importInputRef = useRef<HTMLInputElement>(null);
+  // 单空间导入文件输入
+  const importSpaceInputRef = useRef<HTMLInputElement>(null);
 
   function togglePlugin(enabled: boolean): void {
     const next = { ...props.settings, enabled };
@@ -1450,6 +1482,110 @@ function SettingsTab(props: {
       void props.runtime.macro.kick().catch(reportError);
       // 恢复后立即重同步当前对话的空间绑定
       await props.runtime.manager.syncToCurrentChat().catch(reportError);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  /** 当前对话是否绑定了记忆空间（决定「导出当前空间」按钮是否可用，用户 story 6）。 */
+  const canExportSpace = props.status?.kind === "active";
+
+  /**
+   * 导出当前空间（issue 26）：只序列化当前绑定空间的一个单元（单空间信封格式，
+   * 与全库备份同构），按「包含修订历史」设置裁剪历史，下载为独立 JSON 文件。
+   */
+  async function exportSpaceBackup(): Promise<void> {
+    const active = activeStatus(props.status);
+    if (!active) return;
+    const spaceId = active.space.id;
+    const spaceName = active.space.name;
+    try {
+      const snapshot = await props.runtime.backup.loadSnapshot();
+      // 提取当前空间单单元 + 按「包含修订历史」设置裁剪历史（用户 story 5）
+      const includeHistory = props.settings.mirror.includeHistory;
+      const unit = buildSpaceExportUnit(snapshot, spaceId, includeHistory);
+      if (!unit) {
+        reportError(new Error("未找到当前记忆空间的数据，无法导出"));
+        return;
+      }
+      const file = createBackupFile(
+        { spaces: [unit] },
+        props.runtime.version,
+        new Date().toISOString(),
+      );
+      downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
+      reportSuccess(`已导出记忆空间「${spaceName}」`);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  /**
+   * 导入到当前空间（issue 26）：解析校验 → 解析导入动作 → 按动作执行：
+   * - restore：spaceId 匹配，整体替换当前空间（restoreSpace）；
+   * - clone-and-rebind / create-and-bind：克隆文件空间为新空间 + 重建/建立绑定
+   *   （原空间保留，ADR 0012）。
+   * 全库文件与单空间文件同构（都是 data.spaces[]），自动提取匹配单元；不匹配时
+   * 报错（用户 story 12）。导入后刷新面板 + 重建宏快照 + kick 镜像写回。
+   */
+  async function importSpaceBackup(file: File): Promise<void> {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+    // 导入前校验（信封/结构/完整性）：失败报错且不触碰数据库（复用 issue 07）
+    let decoded: MemoryBackupFile;
+    try {
+      decoded = parseBackupFile(text);
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+    // 读取当前绑定：从空间上下文状态取（active / branch-detected 含 binding；
+    // binding-unrecognized 绝不能当作无绑定去新建覆盖，故报错）；其余视作无绑定。
+    const currentStatus = props.runtime.manager.getStatus();
+    if (currentStatus?.kind === "binding-unrecognized") {
+      reportError(new Error(BINDING_UNRECOGNIZED_MESSAGE));
+      return;
+    }
+    // active / branch-detected / space-missing 都持有有效绑定；space-missing 时若文件
+    // 含该 spaceId 则 restore 直接恢复（符合「空间缺失从备份恢复」），不覆盖绑定。
+    const currentBinding =
+      currentStatus?.kind === "active" ||
+      currentStatus?.kind === "branch-detected" ||
+      currentStatus?.kind === "space-missing"
+        ? currentStatus.binding
+        : null;
+    const action = resolveImportAction(decoded, currentBinding);
+    if (action.kind === "no-match") {
+      reportError(new Error("文件中不包含当前记忆空间的数据"));
+      return;
+    }
+    // 匹配：一行简短确认；不匹配/无绑定：详细说明（cloneSpace 行为 + 原空间保留）
+    const confirmed = window.confirm(
+      action.kind === "restore"
+        ? `将用文件中的数据替换当前记忆空间「${action.unit.space.name}」的全部记录。此操作不可撤销。确认？`
+        : "将创建新的记忆空间并绑定到当前对话，原空间数据保留。确认？",
+    );
+    if (!confirmed) return;
+    try {
+      reportInfo("正在导入…");
+      if (action.kind === "restore") {
+        await props.runtime.backup.restoreSpace(action.unit);
+        // 绑定不变、空间仍在：重同步收敛（与 issue 07 一致）
+        await props.runtime.manager.syncToCurrentChat().catch(reportError);
+      } else {
+        // clone-and-rebind / create-and-bind 共用：克隆新空间 + 重建/建立绑定
+        await props.runtime.manager.importSpace(action.unit);
+      }
+      reportSuccess(`已导入记忆空间「${action.unit.space.name}」`);
+      // 导入后副作用（用户 story 22-24）：刷新面板 + 重建宏快照 + kick 镜像写回
+      props.onDataChanged();
+      void props.runtime.macro.kick().catch(reportError);
+      void props.runtime.mirror.kick().catch(reportError);
     } catch (error) {
       reportError(error);
     }
@@ -1796,6 +1932,42 @@ function SettingsTab(props: {
             />
             <div className="stm-setting-hint">
               导出下载全库 JSON 备份文件；导入前校验文件并整体替换当前数据
+            </div>
+            <div className="stm-setting-divider" />
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="export-space-backup"
+                disabled={!canExportSpace}
+                title={canExportSpace ? undefined : "当前对话未绑定记忆空间"}
+                onClick={() => void exportSpaceBackup()}
+              >
+                导出当前空间
+              </button>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="import-space-backup"
+                onClick={() => importSpaceInputRef.current?.click()}
+              >
+                导入到当前空间
+              </button>
+            </div>
+            <input
+              ref={importSpaceInputRef}
+              type="file"
+              accept="application/json,.json"
+              data-stm-field="import-space-backup-file"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importSpaceBackup(file);
+                event.target.value = "";
+              }}
+            />
+            <div className="stm-setting-hint">
+              仅备份/恢复当前对话的记忆空间；spaceId 不匹配或当前对话无绑定时克隆新空间（原空间保留）
             </div>
           </div>
         )}

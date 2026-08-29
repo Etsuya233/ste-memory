@@ -1,17 +1,23 @@
 import type {
+  BackupIdFactory,
   MemoryBackupRepository,
   MemoryBackupSnapshot,
   MemorySpaceBackup,
 } from "@ste-memory/core/memory/export";
 import type {
   MemoryEvidenceId,
+  MemoryField,
   MemoryFieldId,
+  MemoryRecord,
+  MemoryRecordHistory,
   MemoryRecordHistoryId,
   MemoryRecordId,
   MemorySpaceId,
+  MemorySpace,
+  MemoryTable,
   MemoryTableId,
 } from "@ste-memory/core/memory";
-import type { SteMemoryDatabase } from "./database.ts";
+import type { SteMemoryDatabase, MemoryEvidenceRow } from "./database.ts";
 import { toDomainEvidence, toEvidenceRow } from "./evidence-conversion.ts";
 
 /**
@@ -128,15 +134,12 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
    */
   async cloneSpace(
     sourceSpaceId: MemorySpaceId,
-    createId: {
-      space: () => MemorySpaceId;
-      table: () => MemoryTableId;
-      field: () => MemoryFieldId;
-      record: () => MemoryRecordId;
-      history: () => MemoryRecordHistoryId;
-      evidence: () => MemoryEvidenceId;
-    },
+    createId: BackupIdFactory,
   ): Promise<MemorySpaceId> {
+    const sourceSpace = await this.#db.memorySpaces.get(sourceSpaceId);
+    if (!sourceSpace) {
+      throw new Error(`源空间不存在: ${sourceSpaceId}`);
+    }
     // 读取源空间完整单元
     const [tables, fields, records, history, evidenceRows] = await Promise.all([
       this.#db.memoryTables.where("memorySpaceId").equals(sourceSpaceId).toArray(),
@@ -145,13 +148,49 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       this.#db.memoryRecordHistory.where("memorySpaceId").equals(sourceSpaceId).toArray(),
       this.#db.memoryEvidence.where("memorySpaceId").equals(sourceSpaceId).toArray(),
     ]);
-    const sourceSpace = await this.#db.memorySpaces.get(sourceSpaceId);
-    if (!sourceSpace) {
-      throw new Error(`源空间不存在: ${sourceSpaceId}`);
-    }
+    return this.#writeClonedUnit(
+      { space: sourceSpace, tables, fields, records, history, evidenceRows },
+      createId,
+    );
+  }
 
+  /**
+   * 从内存中的备份单元克隆空间（单空间导入，issue 26）：数据库里没有源空间，
+   * 源就是文件反序列化的单元；为所有实体生成全新 ID，重映射外键引用，原子写入
+   * 新单元。返回新 spaceId。createId 工厂由调用方注入。
+   */
+  async cloneSpaceFromUnit(unit: MemorySpaceBackup, createId: BackupIdFactory): Promise<MemorySpaceId> {
+    const evidenceRows: MemoryEvidenceRow[] = unit.evidence.map((evidence) =>
+      toEvidenceRow(unit.space.id, evidence),
+    );
+    return this.#writeClonedUnit(
+      {
+        space: unit.space,
+        tables: unit.tables,
+        fields: unit.fields,
+        records: unit.records,
+        history: unit.history,
+        evidenceRows,
+      },
+      createId,
+    );
+  }
+
+  /** 克隆源空间单元写入为新空间：生成全新 ID + 重映射全部外键，事务内原子写入。 */
+  async #writeClonedUnit(
+    source: {
+      readonly space: MemorySpace;
+      readonly tables: readonly MemoryTable[];
+      readonly fields: readonly MemoryField[];
+      readonly records: readonly MemoryRecord[];
+      readonly history: readonly MemoryRecordHistory[];
+      readonly evidenceRows: readonly MemoryEvidenceRow[];
+    },
+    createId: BackupIdFactory,
+  ): Promise<MemorySpaceId> {
     // 生成新 space ID
     const newSpaceId = createId.space();
+    const { tables, fields, records, history, evidenceRows } = source;
 
     // 构建旧 ID → 新 ID 映射表
     const tableIdMap = new Map<string, MemoryTableId>();
@@ -193,7 +232,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       async () => {
         // 写入新空间行
         await this.#db.memorySpaces.add({
-          ...sourceSpace,
+          ...source.space,
           id: newSpaceId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),

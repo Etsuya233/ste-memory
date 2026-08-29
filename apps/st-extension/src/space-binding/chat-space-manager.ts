@@ -1,4 +1,17 @@
-import type { MemorySpace, MemorySpaceId, MemorySpaceService } from "@ste-memory/core/memory";
+import type {
+  BackupIdFactory,
+  MemorySpaceBackup,
+} from "@ste-memory/core/memory/export";
+import type {
+  MemoryEvidenceId,
+  MemoryFieldId,
+  MemoryRecordHistoryId,
+  MemoryRecordId,
+  MemorySpace,
+  MemorySpaceId,
+  MemorySpaceService,
+  MemoryTableId,
+} from "@ste-memory/core/memory";
 
 /**
  * 对话 → 记忆空间的上下文管理器（插件的纯逻辑层 seam，spec 测试决策）。
@@ -77,18 +90,11 @@ export interface ChatSpaceManagerPorts {
   readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
   /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
   readonly log?: { info(message: string): void };
-  /** Dexie 备份仓库（分支对话分离：cloneSpace 克隆空间） */
-  readonly backup?: { cloneSpace(
-    sourceSpaceId: MemorySpaceId,
-    createId: {
-      space: () => MemorySpaceId;
-      table: () => import("@ste-memory/core/memory").MemoryTableId;
-      field: () => import("@ste-memory/core/memory").MemoryFieldId;
-      record: () => import("@ste-memory/core/memory").MemoryRecordId;
-      history: () => import("@ste-memory/core/memory").MemoryRecordHistoryId;
-      evidence: () => import("@ste-memory/core/memory").MemoryEvidenceId;
-    },
-  ): Promise<MemorySpaceId> };
+  /** Dexie 备份仓库（分支对话分离：cloneSpace / cloneSpaceFromUnit 克隆空间） */
+  readonly backup?: {
+    cloneSpace(sourceSpaceId: MemorySpaceId, createId: BackupIdFactory): Promise<MemorySpaceId>;
+    cloneSpaceFromUnit(unit: MemorySpaceBackup, createId: BackupIdFactory): Promise<MemorySpaceId>;
+  };
   /** ID 工厂（分支对话分离：cloneSpace 需要为新实体生成 ID） */
   readonly createId?: (prefix: string) => string;
 }
@@ -318,11 +324,11 @@ export class ChatSpaceManager {
       const id = this.#ports.createId!;
       newSpaceId = await this.#ports.backup.cloneSpace(option.sourceSpaceId, {
         space: () => id("space") as MemorySpaceId,
-        table: () => id("table") as import("@ste-memory/core/memory").MemoryTableId,
-        field: () => id("field") as import("@ste-memory/core/memory").MemoryFieldId,
-        record: () => id("record") as import("@ste-memory/core/memory").MemoryRecordId,
-        history: () => id("record-history") as import("@ste-memory/core/memory").MemoryRecordHistoryId,
-        evidence: () => id("evidence") as import("@ste-memory/core/memory").MemoryEvidenceId,
+        table: () => id("table") as MemoryTableId,
+        field: () => id("field") as MemoryFieldId,
+        record: () => id("record") as MemoryRecordId,
+        history: () => id("record-history") as MemoryRecordHistoryId,
+        evidence: () => id("evidence") as MemoryEvidenceId,
       });
       // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
       await this.#ports.spaces.rename(newSpaceId, newSpaceName);
@@ -346,6 +352,47 @@ export class ChatSpaceManager {
     this.#ports.bindingStore.write(newBinding);
     this.#ports.log?.info(
       `分支对话「${chat.chatId}」已${option.action === "clone" ? "克隆" : "创建"}记忆空间「${newSpaceName}」（${newSpaceId}）`,
+    );
+
+    // 重新同步收敛到 active
+    return this.syncToCurrentChat();
+  }
+
+  /**
+   * 单空间导入（issue 26）：把文件反序列化的空间单元克隆为全新 ID 的空间，
+   * 重命名为当前对话的命名规则，把当前对话绑定指向新空间（原空间保留，ADR 0012），
+   * 然后收敛到 active 状态。用于「spaceId 不匹配」与「无绑定」两种导入路径——
+   * 区别仅在于导入前是否已有绑定，克隆 + 重绑定逻辑完全一样。
+   */
+  async importSpace(unit: MemorySpaceBackup): Promise<SpaceContextStatus> {
+    const chat = this.#ports.getChat();
+    const currentIdentity = chatIdentityKey(chat) ?? "";
+    const newSpaceName = buildChatSpaceName(chat);
+    if (!this.#ports.backup || !this.#ports.createId) {
+      throw new Error(BRANCH_CLONE_MISSING_PORTS);
+    }
+    // cloneSpaceFromUnit 内部创建空间行 + 克隆六张表数据（全新 ID、外键重映射）
+    const id = this.#ports.createId;
+    const newSpaceId = await this.#ports.backup.cloneSpaceFromUnit(unit, {
+      space: () => id("space") as MemorySpaceId,
+      table: () => id("table") as MemoryTableId,
+      field: () => id("field") as MemoryFieldId,
+      record: () => id("record") as MemoryRecordId,
+      history: () => id("record-history") as MemoryRecordHistoryId,
+      evidence: () => id("evidence") as MemoryEvidenceId,
+    });
+    // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
+    await this.#ports.spaces.rename(newSpaceId, newSpaceName);
+
+    // 写入新绑定（覆盖原绑定；原空间数据保留，符合 ADR 0012「保留原空间」）
+    const newBinding: ChatSpaceBindingV2 = {
+      version: 2,
+      spaceId: newSpaceId,
+      chatIdentity: currentIdentity,
+    };
+    this.#ports.bindingStore.write(newBinding);
+    this.#ports.log?.info(
+      `已导入记忆空间「${newSpaceName}」（${newSpaceId}）并绑定到当前对话「${chat.chatId}」`,
     );
 
     // 重新同步收敛到 active

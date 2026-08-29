@@ -13,4 +13,8 @@ export {
   serializeBackupFile,
   validateBackupData,
 } from "./backup-codec.ts";
-export type { MemoryBackupRepository, MemoryBackupSnapshot } from "./backup-port.ts";
+export type {
+  BackupIdFactory,
+  MemoryBackupRepository,
+  MemoryBackupSnapshot,
+} from "./backup-port.ts";

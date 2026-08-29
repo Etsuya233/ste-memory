@@ -577,6 +577,13 @@
   margin-top: 4px;
 }
 
+/* 设置组内分隔（全库 / 单空间 备份两组按钮之间） */
+.stm-setting-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--stm-border);
+}
+
 .stm-button {
   min-height: 36px;
   padding: 8px 14px;
@@ -591,6 +598,12 @@
 
 .stm-button:hover {
   border-color: var(--stm-accent);
+}
+
+.stm-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--stm-border);
 }
 
 .stm-button:focus-visible {

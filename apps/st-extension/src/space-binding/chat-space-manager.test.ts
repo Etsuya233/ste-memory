@@ -1,6 +1,16 @@
 import { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
-import type { MemorySpaceId } from "@ste-memory/core/memory";
+import type {
+  MemoryFieldId,
+  MemoryFieldKey,
+  MemoryRecordId,
+  MemoryRevisionId,
+  MemorySpaceId,
+  MemoryTableId,
+  MemoryTableKey,
+} from "@ste-memory/core/memory";
+import type { MemorySpaceBackup } from "@ste-memory/core/memory/export";
 import { describe, expect, it, vi } from "vitest";
+import { DexieMemoryBackupRepository } from "../db/memory-backup-repository.ts";
 import { createServices, createTestDatabase } from "../db/test-support.ts";
 import { StChatAdapter, CHAT_METADATA_BINDING_KEY, type StContext } from "../st/st-chat-adapter.ts";
 import {
@@ -531,5 +541,107 @@ describe("buildChatSpaceName（空间显示名）", () => {
     });
     expect(name.length).toBeLessThanOrEqual(120);
     expect(name.startsWith("爱丽丝 - ")).toBe(true);
+  });
+
+  it("importSpace：克隆文件单元为新空间 + 重建绑定，原空间保留（issue 26 / ADR 0012）", async () => {
+    const h = createHarness();
+    const { context } = chatContext("story", "爱丽丝", 3);
+    const backup = new DexieMemoryBackupRepository(h.db);
+    let seq = 0;
+    const createId = (prefix: string) => `new-${prefix}-${++seq}` as MemorySpaceId;
+    const adapter = new StChatAdapter(() => context);
+    const manager2 = new ChatSpaceManager({
+      getChat: () => adapter.getChatSnapshot(),
+      bindingStore: adapter.bindingStore,
+      spaces: h.services.spaces,
+      installer: new SystemMemoryTableInstaller(h.services.tables, h.services.fields),
+      backup,
+      createId,
+    });
+
+    // 当前对话先有绑定空间 S
+    const before = (await manager2.syncToCurrentChat()) as ActiveStatus;
+    expect(before.kind).toBe("active");
+    const originalSpaceId = before.space.id;
+
+    // 构造一个与当前空间无关的文件单元（记忆空间「旧名」）
+    const unit: MemorySpaceBackup = {
+      space: { id: "imported-space" as MemorySpaceId, name: "旧名", createdAt: "", updatedAt: "" },
+      tables: [
+        {
+          id: "t1" as MemoryTableId,
+          memorySpaceId: "imported-space" as MemorySpaceId,
+          key: "k" as MemoryTableKey,
+          kind: "custom",
+          name: "T",
+          description: "",
+          prompt: "",
+          enabled: true,
+          displayStrategy: null,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      fields: [
+        {
+          id: "f1" as MemoryFieldId,
+          memorySpaceId: "imported-space" as MemorySpaceId,
+          tableId: "t1" as MemoryTableId,
+          key: "k" as MemoryFieldKey,
+          name: "F",
+          type: "short_text",
+          required: false,
+          prompt: "",
+          enabled: true,
+          position: 0,
+          options: [],
+          referenceTableId: null,
+          maxChars: null,
+          valuePattern: null,
+          valuePatternMessage: null,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      records: [
+        {
+          id: "r1" as MemoryRecordId,
+          memorySpaceId: "imported-space" as MemorySpaceId,
+          tableId: "t1" as MemoryTableId,
+          payload: { f1: "v" },
+          fieldEvidence: {},
+          displayText: "v",
+          source: { type: "manual" },
+          revisionId: "rev1" as MemoryRevisionId,
+          revisionSource: "user",
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      history: [],
+      evidence: [],
+    };
+
+    const status = (await manager2.importSpace(unit)) as ActiveStatus;
+    expect(status.kind).toBe("active");
+    // 绑定指向全新空间（非原空间），原空间保留（ADR 0012）
+    expect(status.space.id).not.toBe(originalSpaceId);
+    const binding = adapter.bindingStore.read();
+    expect(binding.kind).toBe("bound");
+    if (binding.kind === "bound") {
+      expect(binding.binding.spaceId).toBe(status.space.id);
+    }
+    // 新空间继承文件中的空间名后按当前对话命名规则重命名
+    expect(status.space.name).toBe("爱丽丝 - story");
+    // 数据库里现在有两个空间：原空间 + 克隆的新空间
+    const snapshot = await backup.loadSnapshot();
+    expect(snapshot.spaces).toHaveLength(2);
+    expect(snapshot.spaces.find((u) => u.space.id === originalSpaceId)).toBeDefined();
+    const cloned = snapshot.spaces.find((u) => u.space.id === status.space.id)!;
+    expect(cloned.tables).toHaveLength(1);
+    expect(cloned.records).toHaveLength(1);
+    // 记录的 payload 键被重映射为克隆后的新字段 id（外键重映射正确）
+    const clonedFieldId = cloned.fields[0]!.id;
+    expect(cloned.records[0]!.payload).toEqual({ [clonedFieldId]: "v" });
   });
 });
