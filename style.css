@@ -91,17 +91,18 @@
  * 注意：不能用 bottom: 0 锚定——ST 给 html 加了 -webkit-transform: translateZ(0)
  * （防模糊闪烁），html 成为 fixed 包含块，而移动端 body 为 fixed 导致 html 高度
  * 塌缩为 0，bottom: 0 会把面板顶到视口上方（真机踩坑，2026-08-08）。改以 top: 0
- * 锚定（html 顶边 = 视口顶边）+ 关闭态 translateY(100%) 推到视口下方。 */
+ * 锚定（html 顶边 = 视口顶边）+ 关闭态 translateY 推到视口下方；底部内缩（面板
+ * 安全区）不能设 bottom，只能以高度计算表达，关闭位移相应补上底部内缩避免残影。 */
 .stm-panel {
   position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
+  left: var(--stm-safe-left, 0);
+  right: var(--stm-safe-right, 0);
+  top: var(--stm-safe-top, 0);
   z-index: 3010;
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh;
+  height: calc(100dvh - var(--stm-safe-top, 0px) - var(--stm-safe-bottom, 0px));
   background: var(--stm-surface);
   color: var(--stm-ink);
   font-family: var(--stm-font);
@@ -109,7 +110,7 @@
   border-top: 1px solid var(--stm-border);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
   visibility: hidden;
-  transform: translateY(100%);
+  transform: translateY(calc(100% + var(--stm-safe-bottom, 0px)));
   transition:
     transform 0.22s ease-out,
     visibility 0.22s;
@@ -556,6 +557,21 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--stm-ink-secondary);
+}
+
+/* 面板安全区：四边输入 2×2 网格；面板内缩变量（--stm-safe-*）由面板宿主设置，
+ * 仅移动媒体查询消费——桌面查询显式覆盖 left/top/right/height，这些变量对桌面惰性。 */
+.stm-safe-area-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.stm-safe-area-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 /* 设置行内的表单控件（ticket 22 清洗规则）：stm-input 默认 width:100%，直接作
