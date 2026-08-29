@@ -32,3 +32,22 @@ watch 模式下 esbuild 监听 src 变化重建 bundle，并把 dist 产物同�
 - 打开已有对话：控制台出现 `已为对话「…」创建记忆空间「…」`（首次）——空间绑定存
   chatMetadata（`steMemory` 键），重命名对话不丢；切对话自动切换空间上下文
 - 空间绑定全流程验收脚本：`docs/playwright-st-extension/verify-space-binding.mjs`（14 项断言）
+
+## 发布到 GitHub（SillyTavern 在线安装）
+
+ST 通过「仓库 URL + 分支」安装插件，分支根目录必须存在 `manifest.json`，安装后以 git pull 更新。
+发版走 `release/sillytavern-plugin` 分支（**构建产物分支**，由脚本重生成，不手工 merge）：
+
+```bash
+# 1. 在 main 上把 apps/st-extension/package.json 的 version 更新为新版本号（唯一版本真相，
+#    构建时注入 __STE_MEMORY_VERSION__；产物 manifest.json 的 version 由发版脚本自动回写对齐）
+# 2. 提交合并到 main 后，执行：
+pnpm release:st            # 构建 → 重生成 release 分支 → commit → push
+pnpm release:st --dry-run  # 只构建与暂存，不 commit / 不 push
+```
+
+用户安装：扩展 → Install extension → URL `https://github.com/Etsuya233/ste-memory` +
+Branch or tag name `release/sillytavern-plugin`。更新走扩展面板的 Update 按钮
+（按 commit 对比，push 到 release 分支即提示更新；`auto_update` 决定是否每日自动检查）。
+
+注意：同一仓库只能同时装一个分支（插件目录名 = 仓库名），换渠道用「Switch branch」按钮。

@@ -13,6 +13,7 @@
     "seed:jp": "node scripts/seed/seed-jp.mjs",
     "seed:zh": "node scripts/seed/seed-zh.mjs",
     "seed": "pnpm seed:jp && pnpm seed:zh",
+    "release:st": "node scripts/release-st.mjs",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present run typecheck"
   },
