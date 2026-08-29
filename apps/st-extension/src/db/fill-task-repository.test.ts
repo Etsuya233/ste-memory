@@ -107,6 +107,41 @@ describe("DexieFloorLedgerRepository（楼层进度台账，ticket 13）", () =>
     expect(await ledger.statuses(SPACE_A, 0, 0)).toEqual([{ floor: 0, status: "processed" }]);
     expect(await ledger.statuses(SPACE_B, 0, 0)).toEqual([{ floor: 0, status: "error" }]);
   });
+
+  it("deleteStatuses 删除范围内台账行（目标 untracked 语义）；不存在的行不报错", async () => {
+    const db = createTestDatabase();
+    const ledger = new DexieFloorLedgerRepository(db);
+
+    await ledger.markProcessed(SPACE_A, [0, 1, 2]);
+    await ledger.markError(SPACE_A, [4]);
+    // 楼层 3 本来就没有行（untracked）
+
+    await ledger.deleteStatuses(SPACE_A, 1, 4);
+
+    // 楼层 0 保留（范围外）
+    expect(await ledger.statuses(SPACE_A, 0, 5)).toEqual([
+      { floor: 0, status: "processed" },
+      { floor: 1, status: "untracked" },
+      { floor: 2, status: "untracked" },
+      { floor: 3, status: "untracked" },
+      { floor: 4, status: "untracked" },
+      { floor: 5, status: "untracked" },
+    ]);
+    expect(await ledger.processedCount(SPACE_A, 0, 5)).toBe(1);
+  });
+
+  it("deleteStatuses 跨空间隔离：只删除目标空间的行", async () => {
+    const db = createTestDatabase();
+    const ledger = new DexieFloorLedgerRepository(db);
+
+    await ledger.markProcessed(SPACE_A, [2]);
+    await ledger.markProcessed(SPACE_B, [2]);
+
+    await ledger.deleteStatuses(SPACE_A, 2, 2);
+
+    expect(await ledger.statuses(SPACE_A, 2, 2)).toEqual([{ floor: 2, status: "untracked" }]);
+    expect(await ledger.statuses(SPACE_B, 2, 2)).toEqual([{ floor: 2, status: "processed" }]);
+  });
 });
 
 describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () => {
@@ -208,7 +243,7 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     const legacy = { ...task() } as Record<string, unknown>;
     delete legacy.kind;
     delete legacy.initText;
-    await db.memoryFillTasks.add(legacy as unknown as FillTask);    // find / findActive / listRecent 全部补默认（floor + null），不改变旧行数据
+    await db.memoryFillTasks.add(legacy as unknown as FillTask); // find / findActive / listRecent 全部补默认（floor + null），不改变旧行数据
     expect(await tasks.find("run-1")).toMatchObject({ kind: "floor", initText: null });
     expect(await tasks.findActive(SPACE_A)).toMatchObject({ kind: "floor", initText: null });
     expect(await tasks.listRecent(SPACE_A, 5)).toMatchObject([{ kind: "floor", initText: null }]);

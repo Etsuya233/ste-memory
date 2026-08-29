@@ -31,11 +31,11 @@ import {
 } from "@ste-memory/core/memory/agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { runFillAgent } from "../agent/fill-agent-runner.ts";
-import { composePresetMessages, type AgentPromptSnapshot } from "../agent-presets/preset-composer.ts";
 import {
-  containsMsgReference,
-  type AgentPromptPreset,
-} from "../agent-presets/preset-model.ts";
+  composePresetMessages,
+  type AgentPromptSnapshot,
+} from "../agent-presets/preset-composer.ts";
+import { containsMsgReference, type AgentPromptPreset } from "../agent-presets/preset-model.ts";
 import {
   buildBlockEvidence,
   buildMergedStoryText,
@@ -125,9 +125,7 @@ export interface FillTaskServiceOptions {
    * （{{worldbook}} 扫描输入）；块处理时由 service 直接展开编排消息。
    * 缺省/返回 undefined = 系统默认预设（核心默认提示词）。
    */
-  readonly createPromptContext?: (
-    storyText: string,
-  ) => Promise<FillTaskPromptContext | undefined>;
+  readonly createPromptContext?: (storyText: string) => Promise<FillTaskPromptContext | undefined>;
   /** 通用日志仓库（ADR 0008）：块运行记录在此写入（best-effort，失败不影响任务）。 */
   readonly logs: LogRepository;
   /**
@@ -336,6 +334,48 @@ export class FillTaskService {
     to: number,
   ): Promise<readonly FloorLedgerEntry[]> {
     return this.#ledger.statuses(memorySpaceId, from, to);
+  }
+
+  /**
+   * 手动标记楼层进度（ticket 25）：对指定楼层区间批量设置台账状态。
+   * - processed / error：upsert 对应状态行；
+   * - untracked：删除范围内台账行（目标 untracked 语义）。
+   * 运行中任务时拒绝操作（FillTaskConflictError）。
+   */
+  async markFloorStatuses(
+    memorySpaceId: MemorySpaceId,
+    from: number,
+    to: number,
+    status: "processed" | "untracked" | "error",
+  ): Promise<void> {
+    // 运行中任务守卫（与 submit 同语义）
+    const active = await this.#tasks.findActive(memorySpaceId);
+    if (active) throw new FillTaskConflictError(active);
+    // 范围校验（与 submit 一致）
+    const chatLength = this.#source.chatMessageCount();
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to < from ||
+      to >= chatLength
+    ) {
+      throw new FillTaskRangeError(
+        `消息楼层范围无效：请选择 [0, ${Math.max(chatLength - 1, 0)}] 内的闭区间（同步楼层从 0 开始）`,
+      );
+    }
+    const floors = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    switch (status) {
+      case "processed":
+        await this.#ledger.markProcessed(memorySpaceId, floors);
+        break;
+      case "error":
+        await this.#ledger.markError(memorySpaceId, floors);
+        break;
+      case "untracked":
+        await this.#ledger.deleteStatuses(memorySpaceId, from, to);
+        break;
+    }
   }
 
   async #requireTask(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTask> {

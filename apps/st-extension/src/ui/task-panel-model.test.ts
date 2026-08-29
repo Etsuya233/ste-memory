@@ -7,6 +7,7 @@ import {
   unprocessedRanges,
   validateBlockSize,
   validateFloorRange,
+  validateFloorRangeIntegers,
   type CoverageViewModel,
   type TasksTabViewModel,
 } from "./task-panel-model.ts";
@@ -136,6 +137,41 @@ describe("validateFloorRange（楼层输入校验：同步楼层 0 基）", () =
   });
 });
 
+describe("validateFloorRangeIntegers（楼层整数校验：同步楼层 0 基）", () => {
+  it("合法整数闭区间 → ok（含边界 0 与 chatLength-1）", () => {
+    expect(validateFloorRangeIntegers(2, 5, 8)).toEqual({ kind: "ok", from: 2, to: 5 });
+    expect(validateFloorRangeIntegers(0, 7, 8)).toEqual({ kind: "ok", from: 0, to: 7 });
+  });
+
+  it("from > to → error", () => {
+    expect(validateFloorRangeIntegers(5, 2, 8)).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("不能大于"),
+    });
+  });
+
+  it("负值 → error", () => {
+    expect(validateFloorRangeIntegers(-1, 5, 8)).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("0"),
+    });
+  });
+
+  it("越界 → error（to >= chatLength）", () => {
+    expect(validateFloorRangeIntegers(2, 8, 8)).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("共 8 条"),
+    });
+  });
+
+  it("空对话 → error", () => {
+    expect(validateFloorRangeIntegers(0, 0, 0)).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("没有消息"),
+    });
+  });
+});
+
 describe("taskStatusViewModel（任务状态 → 文案，失败原因可读）", () => {
   it("running：状态 + 进度；succeeded/failed/interrupted：终态文案，failed 带错误信息", () => {
     expect(taskStatusViewModel(task())).toEqual({ label: "运行中", detail: "已处理 4/10 层" });
@@ -244,7 +280,10 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
     ledger: entries([0, "processed"], [5, "error"]),
     activeTask: undefined as FillTaskView | undefined,
     historyTasks: [] as readonly FillTaskView[],
-    cleaning: { selectedListId: undefined as string | undefined, lists: [] as readonly CleaningRuleList[] },
+    cleaning: {
+      selectedListId: undefined as string | undefined,
+      lists: [] as readonly CleaningRuleList[],
+    },
   };
 
   it("无活动任务：可触发，表单预填首个未处理范围", () => {
@@ -283,7 +322,7 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
       activeTaskLabel: "运行中",
       activeTaskDetail: "已处理 3/6 层",
       activeRange: "楼层 2–7",
-    });    // 覆盖视图：0 已处理、5 出错（台账为准）；2–7 内未台账楼层（2,3,4,6,7）任务中；1 未计划
+    }); // 覆盖视图：0 已处理、5 出错（台账为准）；2–7 内未台账楼层（2,3,4,6,7）任务中；1 未计划
     expect(view.coverage).toMatchObject({
       processedCount: 1,
       errorCount: 1,
@@ -387,7 +426,6 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
   });
 });
 
-
 describe("初始化填表（spec init-fill）：任务类型标签与视图", () => {
   function initTask(overrides: Partial<FillTaskView> = {}): FillTaskView {
     return task({
@@ -408,9 +446,10 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       label: "已完成",
       detail: "",
     });
-    expect(
-      taskStatusViewModel(initTask({ status: "failed", errorMessage: "模型炸了" })),
-    ).toEqual({ label: "失败", detail: "模型炸了" });
+    expect(taskStatusViewModel(initTask({ status: "failed", errorMessage: "模型炸了" }))).toEqual({
+      label: "失败",
+      detail: "模型炸了",
+    });
   });
 
   it("buildTasksTabViewModel：init 活动任务 activeRange 显示「初始化填表」而非楼层范围", () => {

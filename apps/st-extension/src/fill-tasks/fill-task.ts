@@ -107,6 +107,8 @@ export interface FloorLedgerRepository {
   ): Promise<readonly FloorLedgerEntry[]>;
   /** 闭区间 [from, to] 内已 processed 楼层数（任务轮询进度）。 */
   processedCount(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<number>;
+  /** 闭区间 [from, to] 内删除全部台账行（目标 untracked 语义；不存在的行不报错）。 */
+  deleteStatuses(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<void>;
   /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部台账行。 */
   clear(memorySpaceId: MemorySpaceId): Promise<void>;
 }

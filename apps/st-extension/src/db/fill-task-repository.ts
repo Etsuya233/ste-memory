@@ -82,6 +82,13 @@ export class DexieFloorLedgerRepository implements FloorLedgerRepository {
     return statuses.filter((entry) => entry.status === "processed").length;
   }
 
+  async deleteStatuses(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<void> {
+    await this.#db.floorFillLedger
+      .where("[memorySpaceId+floor]")
+      .between([memorySpaceId, from], [memorySpaceId, to], true, true)
+      .delete();
+  }
+
   /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部台账行。 */
   async clear(memorySpaceId: MemorySpaceId): Promise<void> {
     await this.#db.floorFillLedger.where("memorySpaceId").equals(memorySpaceId).delete();

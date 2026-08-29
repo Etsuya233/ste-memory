@@ -110,6 +110,35 @@ export function validateBlockSize(text: string): BlockSizeValidation {
 }
 
 /**
+ * 楼层整数校验（同步楼层 0 基，闭区间）：from/to 为已解析整数时的纯校验逻辑；
+ * 负值/from > to/越界 → 可读错误信息。由 validateFloorRange（文本解析）与
+ * FillTaskService.markFloorStatuses（整数直接调用）共用。
+ */
+export function validateFloorRangeIntegers(
+  from: number,
+  to: number,
+  chatLength: number,
+): FloorRangeValidation {
+  if (chatLength <= 0) {
+    return { kind: "error", message: "当前对话没有消息，无法触发填表" };
+  }
+  const last = chatLength - 1;
+  if (from < 0 || to < 0) {
+    return { kind: "error", message: "楼层不能为负数（同步楼层从 0 开始）" };
+  }
+  if (from > to) {
+    return { kind: "error", message: "起始楼层不能大于结束楼层" };
+  }
+  if (to > last) {
+    return {
+      kind: "error",
+      message: `结束楼层超出范围：当前对话共 ${chatLength} 条消息（楼层 0–${last}）`,
+    };
+  }
+  return { kind: "ok", from, to };
+}
+
+/**
  * 楼层输入校验（同步楼层 0 基，闭区间）：空输入 = 全量范围；
  * 非整数/负值/from > to/越界 → 可读错误信息。
  */
@@ -134,21 +163,7 @@ export function validateFloorRange(
   if (fromRaw === undefined || toRaw === undefined) {
     return { kind: "error", message: "楼层请输入整数（同步楼层从 0 开始）" };
   }
-  const from = fromRaw ?? 0;
-  const to = toRaw ?? last;
-  if (from < 0 || to < 0) {
-    return { kind: "error", message: "楼层不能为负数（同步楼层从 0 开始）" };
-  }
-  if (from > to) {
-    return { kind: "error", message: "起始楼层不能大于结束楼层" };
-  }
-  if (to > last) {
-    return {
-      kind: "error",
-      message: `结束楼层超出范围：当前对话共 ${chatLength} 条消息（楼层 0–${last}）`,
-    };
-  }
-  return { kind: "ok", from, to };
+  return validateFloorRangeIntegers(fromRaw ?? 0, toRaw ?? last, chatLength);
 }
 
 /** 任务状态 → 文案：running 带进度；failed 带可读失败原因；succeeded/interrupted 终态短语。

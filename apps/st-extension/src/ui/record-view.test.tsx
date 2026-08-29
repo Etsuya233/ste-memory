@@ -89,6 +89,7 @@ function fakeRuntime(): PanelRuntime {
       activeTask: vi.fn(async () => undefined),
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
+      markFloorStatuses: vi.fn(async () => undefined),
     },
     spaceMaintenance: {
       clearRecords: vi.fn(async () => false),

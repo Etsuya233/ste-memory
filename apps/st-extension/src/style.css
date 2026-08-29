@@ -1669,6 +1669,15 @@
   color: var(--stm-ink);
 }
 
+.stm-task-card-title--foldable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.stm-task-card-title--foldable:hover {
+  color: var(--stm-accent);
+}
+
 .stm-task-card-detail {
   margin-top: 4px;
   font-size: 12px;

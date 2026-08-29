@@ -1537,3 +1537,68 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(await harness.tasks.findActive(harness.spaceId)).toBeUndefined();
   });
 });
+
+describe("FillTaskService 标记楼层进度（ticket 25）", () => {
+  it("标记 processed：范围内楼层写入 processed 状态", async () => {
+    const harness = await createHarness();
+    await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "processed");
+    expect(await floorStatuses(harness)).toEqual([
+      "processed", "processed", "processed", "untracked", "untracked", "untracked",
+    ]);
+  });
+
+  it("标记 error：范围内楼层写入 error 状态", async () => {
+    const harness = await createHarness();
+    await harness.service.markFloorStatuses(harness.spaceId, 1, 3, "error");
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked", "error", "error", "error", "untracked", "untracked",
+    ]);
+  });
+
+  it("标记 untracked：删除范围内台账行（目标 untracked 语义）", async () => {
+    const harness = await createHarness();
+    await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "processed");
+    await harness.service.markFloorStatuses(harness.spaceId, 1, 2, "untracked");
+    expect(await floorStatuses(harness)).toEqual([
+      "processed", "untracked", "untracked", "untracked", "untracked", "untracked",
+    ]);
+  });
+
+  it("运行中任务守卫：有活动任务时拒绝操作（FillTaskConflictError）", async () => {
+    const harness = await createHarness({ streamFn: hangingStreamFn() });
+    await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
+    await expect(
+      harness.service.markFloorStatuses(harness.spaceId, 0, 2, "processed"),
+    ).rejects.toThrow(FillTaskConflictError);
+  });
+
+  it("范围校验：非法楼层区间拒绝操作（FillTaskRangeError）", async () => {
+    const harness = await createHarness();
+    await expect(
+      harness.service.markFloorStatuses(harness.spaceId, 5, 2, "processed"),
+    ).rejects.toThrow(FillTaskRangeError);
+    await expect(
+      harness.service.markFloorStatuses(harness.spaceId, -1, 2, "processed"),
+    ).rejects.toThrow(FillTaskRangeError);
+    await expect(
+      harness.service.markFloorStatuses(harness.spaceId, 0, 10, "processed"),
+    ).rejects.toThrow(FillTaskRangeError);
+  });
+
+  it("覆盖语义：error 楼层可被 processed 覆盖，反之亦然", async () => {
+    const harness = await createHarness();
+    await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "error");
+    await harness.service.markFloorStatuses(harness.spaceId, 1, 2, "processed");
+    expect(await floorStatuses(harness)).toEqual([
+      "error", "processed", "processed", "untracked", "untracked", "untracked",
+    ]);
+  });
+
+  it("单楼层操作（from === to）", async () => {
+    const harness = await createHarness();
+    await harness.service.markFloorStatuses(harness.spaceId, 3, 3, "processed");
+    expect(await floorStatuses(harness)).toEqual([
+      "untracked", "untracked", "untracked", "processed", "untracked", "untracked",
+    ]);
+  });
+});

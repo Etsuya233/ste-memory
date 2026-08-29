@@ -14,10 +14,7 @@ import type { FloorLedgerEntry } from "../fill-tasks/fill-task.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import type { PluginSettings, SettingsStore } from "../settings/plugin-settings.ts";
-import {
-  BUILTIN_AGENT_PRESET_ID,
-  setActiveAgentPreset,
-} from "../agent-presets/preset-model.ts";
+import { BUILTIN_AGENT_PRESET_ID, setActiveAgentPreset } from "../agent-presets/preset-model.ts";
 import {
   buildTasksTabViewModel,
   COVERAGE_STATUS_LABELS,
@@ -56,6 +53,7 @@ export interface TasksTabRuntime {
     | "activeTask"
     | "recentTasks"
     | "ledgerStatuses"
+    | "markFloorStatuses"
   >;
   readonly st: { readonly chatMessageCount: () => number };
   /** 设置写入（ticket 17：任务 Tab 快捷切换活动预设） */
@@ -80,6 +78,12 @@ export function TasksTab(props: {
   const [blockSizeText, setBlockSizeText] = useState("");
   const [initText, setInitText] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
+  // 标记楼层进度表单状态
+  const [markFromText, setMarkFromText] = useState("");
+  const [markToText, setMarkToText] = useState("");
+  const [markStatus, setMarkStatus] = useState<"processed" | "untracked" | "error">("processed");
+  const [markError, setMarkError] = useState<string | null>(null);
+  const [showMarkSection, setShowMarkSection] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // 表单预填标记（按空间记录：切换空间后重新预填未处理范围）
   const prefilledSpaceRef = useRef<string | undefined>(undefined);
@@ -118,12 +122,24 @@ export function TasksTab(props: {
           setFromText(next.defaultFrom);
           setToText(next.defaultTo);
         }
+        // 标记表单也预填首个未处理范围
+        if (next.defaultFrom !== "") {
+          setMarkFromText(next.defaultFrom);
+          setMarkToText(next.defaultTo);
+        }
       }
       setView(next);
     } catch (error) {
       reportError(error);
     }
   }, [props.runtime, spaceId]);
+
+  // 标记楼层进度事件订阅（ticket 25）：操作完成后刷新视图
+  useEffect(() => {
+    const handler = () => setReloadKey((k) => k + 1);
+    document.addEventListener("ste-memory:ledger-changed", handler);
+    return () => document.removeEventListener("ste-memory:ledger-changed", handler);
+  }, []);
 
   // 载入与空间切换重取；活动任务期间轮询
   useEffect(() => {
@@ -176,7 +192,13 @@ export function TasksTab(props: {
       <div className="stm-task-tab">
         {presetSwitcher}
         <Placeholder
-          title={props.status && props.status.kind !== "active" && props.status.kind !== "branch-detected" ? props.status.humanMsg : "正在加载…"}
+          title={
+            props.status &&
+            props.status.kind !== "active" &&
+            props.status.kind !== "branch-detected"
+              ? props.status.humanMsg
+              : "正在加载…"
+          }
           hint="切换到已保存的对话后自动恢复"
         />
       </div>
@@ -235,6 +257,36 @@ export function TasksTab(props: {
       await props.runtime.tasks.cancel(currentSpaceId, runId);
       reportSuccess("已取消填表任务");
       setReloadKey((key) => key + 1);
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  /** 标记楼层进度（ticket 25）：校验 → 确认 → 提交 → 事件刷新 */
+  async function markFloorStatus(): Promise<void> {
+    if (!view) return;
+    const validation = validateFloorRange(markFromText, markToText, view.chatLength);
+    if (validation.kind === "error") {
+      setMarkError(validation.message);
+      return;
+    }
+    setMarkError(null);
+    const from = validation.from;
+    const to = validation.to;
+    const count = to - from + 1;
+    const statusLabels: Record<string, string> = {
+      processed: "已处理",
+      untracked: "未处理",
+      error: "出错",
+    };
+    const confirmed = window.confirm(
+      `将把楼层 ${from}–${to} 标记为${statusLabels[markStatus]}，共 ${count} 层`,
+    );
+    if (!confirmed) return;
+    try {
+      await props.runtime.tasks.markFloorStatuses(currentSpaceId, from, to, markStatus);
+      reportSuccess(`已标记楼层 ${from}–${to} 为${statusLabels[markStatus]}`);
+      document.dispatchEvent(new CustomEvent("ste-memory:ledger-changed"));
     } catch (error) {
       reportError(error);
     }
@@ -399,6 +451,85 @@ export function TasksTab(props: {
           ) : null}
         </div>
       )}
+      <div className="stm-task-card" data-stm-section="mark-ledger">
+        <div
+          className="stm-task-card-title stm-task-card-title--foldable"
+          onClick={() => setShowMarkSection((v) => !v)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setShowMarkSection((v) => !v);
+          }}
+        >
+          {showMarkSection ? "▾" : "▸"} 标记楼层进度
+        </div>
+        {showMarkSection ? (
+          <>
+            <div className="stm-task-hint">
+              手动设置指定楼层区间的台账状态（已处理 / 未处理 / 出错）
+            </div>
+            <div className="stm-task-form">
+              <label className="stm-task-field">
+                <span>状态</span>
+                <select
+                  className="stm-select"
+                  data-stm-field="mark-status"
+                  value={markStatus}
+                  onChange={(event) =>
+                    setMarkStatus(event.target.value as "processed" | "untracked" | "error")
+                  }
+                >
+                  <option value="processed">已处理</option>
+                  <option value="untracked">未处理</option>
+                  <option value="error">出错</option>
+                </select>
+              </label>
+              <label className="stm-task-field">
+                <span>楼层</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  data-stm-field="mark-from"
+                  value={markFromText}
+                  placeholder="起始（从 0 开始）"
+                  onChange={(event) => {
+                    setMarkFromText(event.target.value);
+                    setMarkError(null);
+                  }}
+                />
+              </label>
+              <span className="stm-task-range-sep">–</span>
+              <label className="stm-task-field">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  data-stm-field="mark-to"
+                  value={markToText}
+                  placeholder="结束"
+                  onChange={(event) => {
+                    setMarkToText(event.target.value);
+                    setMarkError(null);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="mark-floor-statuses"
+                disabled={!view.canTrigger}
+                onClick={() => void markFloorStatus()}
+              >
+                标记
+              </button>
+            </div>
+            {markError ? (
+              <div className="stm-task-error" data-stm-field="mark-error">
+                {markError}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
       <div className="stm-task-card" data-stm-section="init-fill">
         <div className="stm-task-card-title">初始化填表</div>
         <div className="stm-task-hint">新对话开始时，用设定文本初始化记忆表格（无需消息）</div>
