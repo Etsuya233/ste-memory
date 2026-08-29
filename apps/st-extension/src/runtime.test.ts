@@ -70,8 +70,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(status.created).toBe(true);
     expect(status.space.name).toBe("爱丽丝 - story");
     expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
-      version: 1,
+      version: 2,
       spaceId: status.space.id,
+      chatIdentity: "char:3:story",
     });
 
     const spaceRepository = new DexieMemorySpaceRepository(db);
@@ -299,7 +300,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 数据真实落地（restoreSpace 写入），绑定原样保留
     const spaceRepository = new DexieMemorySpaceRepository(db);
     expect(await spaceRepository.list()).toHaveLength(1);
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+    // v1 绑定已迁移为 v2
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
   });
 
   it("绑定在、空间缺失、文件里无有效镜像：保持 space-missing（等待云同步/用户处理）", async () => {

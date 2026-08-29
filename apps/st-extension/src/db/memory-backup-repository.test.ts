@@ -236,4 +236,86 @@ describe("Dexie memory backup repository", () => {
     // 整体回滚：数据库与导入前完全一致（无半导入残留）
     expect(await repo.loadSnapshot()).toEqual(before);
   });
+
+  it("cloneSpace 全量复制 + ID 重生成 + 外键重映射", async () => {
+    const db = createTestDatabase();
+    const { space } = await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const before = await repo.loadSnapshot();
+    const sourceUnit = before.spaces[0]!;
+
+    let spaceSeq = 0;
+    let tableSeq = 0;
+    let fieldSeq = 0;
+    let recordSeq = 0;
+    let historySeq = 0;
+    let evidenceSeq = 0;
+    const newSpaceId = await repo.cloneSpace(space.id, {
+      space: () => `cloned-space-${++spaceSeq}` as import("@ste-memory/core/memory").MemorySpaceId,
+      table: () => `cloned-table-${++tableSeq}` as import("@ste-memory/core/memory").MemoryTableId,
+      field: () => `cloned-field-${++fieldSeq}` as import("@ste-memory/core/memory").MemoryFieldId,
+      record: () => `cloned-record-${++recordSeq}` as import("@ste-memory/core/memory").MemoryRecordId,
+      history: () => `cloned-history-${++historySeq}` as import("@ste-memory/core/memory").MemoryRecordHistoryId,
+      evidence: () => `cloned-evidence-${++evidenceSeq}` as import("@ste-memory/core/memory").MemoryEvidenceId,
+    });
+
+    const after = await repo.loadSnapshot();
+    expect(after.spaces).toHaveLength(2);
+    const clonedUnit = after.spaces.find((u) => u.space.id === newSpaceId)!;
+    expect(clonedUnit).toBeDefined();
+
+    // 新空间 ID 与原空间不同
+    expect(newSpaceId).not.toBe(space.id);
+
+    // 表格数量相同，且所有表格的 memorySpaceId 指向新空间
+    expect(clonedUnit.tables).toHaveLength(sourceUnit.tables.length);
+    expect(clonedUnit.tables.every((t) => t.memorySpaceId === newSpaceId)).toBe(true);
+    expect(clonedUnit.tables.every((t) => !sourceUnit.tables.some((st) => st.id === t.id))).toBe(true);
+
+    // 字段外键重映射
+    expect(clonedUnit.fields).toHaveLength(sourceUnit.fields.length);
+    expect(clonedUnit.fields.every((f) => f.memorySpaceId === newSpaceId)).toBe(true);
+    const clonedTableIds = new Set(clonedUnit.tables.map((t) => t.id));
+    expect(clonedUnit.fields.every((f) => clonedTableIds.has(f.tableId))).toBe(true);
+
+    // 记录外键重映射
+    expect(clonedUnit.records).toHaveLength(sourceUnit.records.length);
+    expect(clonedUnit.records.every((r) => r.memorySpaceId === newSpaceId)).toBe(true);
+
+    // 历史记录外键重映射
+    expect(clonedUnit.history).toHaveLength(sourceUnit.history.length);
+    expect(clonedUnit.history.every((h) => h.memorySpaceId === newSpaceId)).toBe(true);
+    const clonedRecordIds = new Set(clonedUnit.records.map((r) => r.id));
+    expect(clonedUnit.history.every((h) => clonedRecordIds.has(h.recordId))).toBe(true);
+
+    // 证据外键重映射
+    expect(clonedUnit.evidence).toHaveLength(sourceUnit.evidence.length);
+  });
+
+  it("cloneSpace 失败时原子回滚（无半复制状态）", async () => {
+    const db = createTestDatabase();
+    const { space } = await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const before = await repo.loadSnapshot();
+
+    let seq = 0;
+    // table 工厂在第三次调用时抛错，导致事务回滚
+    await expect(
+      repo.cloneSpace(space.id, {
+        space: () => `fail-space-${++seq}` as import("@ste-memory/core/memory").MemorySpaceId,
+        table: () => {
+          const s = ++seq;
+          if (s === 3) throw new Error("boom");
+          return `fail-table-${s}` as import("@ste-memory/core/memory").MemoryTableId;
+        },
+        field: () => `fail-field-${++seq}` as import("@ste-memory/core/memory").MemoryFieldId,
+        record: () => `fail-record-${++seq}` as import("@ste-memory/core/memory").MemoryRecordId,
+        history: () => `fail-history-${++seq}` as import("@ste-memory/core/memory").MemoryRecordHistoryId,
+        evidence: () => `fail-evidence-${++seq}` as import("@ste-memory/core/memory").MemoryEvidenceId,
+      }),
+    ).rejects.toThrow();
+
+    // 整体回滚：数据库与复制前完全一致
+    expect(await repo.loadSnapshot()).toEqual(before);
+  });
 });

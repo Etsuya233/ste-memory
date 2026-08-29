@@ -96,6 +96,19 @@ export interface StContext {
     readonly MESSAGE_SENT: string;
     readonly MESSAGE_RECEIVED: string;
   };
+  /** ST 通用弹窗 API（public/scripts/popup.js 已核实） */
+  callGenericPopup?: (
+    content: string | HTMLElement,
+    type?: number,
+    inputValue?: string,
+    options?: {
+      okButton?: string | boolean;
+      cancelButton?: string | boolean;
+      wide?: boolean;
+      wider?: boolean;
+      large?: boolean;
+    },
+  ) => Promise<number | string | boolean | null | undefined>;
   /**
    * ST 新宏引擎（public/scripts/macros/macro-system.js 已核实，release 1.18.0）：
    * register(name, { handler, unnamedArgs, ... }) 的 name 是裸标识符（不含花括号），
@@ -259,7 +272,15 @@ export class StChatAdapter {
         const metadata = context.chatMetadata;
         if (!metadata) return;
         // 写全新对象，不 alias 调用方传入的引用
-        metadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: binding.spaceId };
+        if (binding.version === 2) {
+          metadata[CHAT_METADATA_BINDING_KEY] = {
+            version: 2,
+            spaceId: binding.spaceId,
+            chatIdentity: binding.chatIdentity,
+          };
+        } else {
+          metadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: binding.spaceId };
+        }
         context.saveMetadataDebounced?.();
       },
     };
@@ -422,6 +443,34 @@ export class StChatAdapter {
     return Array.isArray(chat) ? chat.length : 0;
   }
 
+  /**
+   * ST 通用弹窗 API 封装（分支检测弹窗等）。
+   * 返回值语义与 ST callGenericPopup 一致：
+   * - POPUP_RESULT.AFFIRMATIVE (1) = 用户点击确定/自定义按钮1
+   * - POPUP_RESULT.NEGATIVE (0) = 用户点击取消
+   * - POPUP_RESULT.CANCELLED (null) = 用户关闭弹窗
+   */
+  async showPopup(
+    content: string,
+    options: {
+      type?: number;
+      okButton?: string;
+      cancelButton?: string;
+      wide?: boolean;
+    } = {},
+  ): Promise<number | string | boolean | null | undefined> {
+    const context = this.#getContext();
+    if (!context.callGenericPopup) {
+      // ST 版本不支持 callGenericPopup，降级为 confirm
+      return window.confirm(content) ? 1 : 0;
+    }
+    return context.callGenericPopup(content, options.type ?? 2, '', {
+      okButton: options.okButton,
+      cancelButton: options.cancelButton,
+      wide: options.wide,
+    });
+  }
+
   /** 当前对话身份（ST chatId；未保存对话为 undefined）——填表任务的对话切换检测。 */
   chatId(): string | undefined {
     return this.#getContext().chatId || undefined;
@@ -452,7 +501,16 @@ function readChatSpaceBinding(metadata: Record<string, unknown> | undefined): Ch
 function isChatSpaceBinding(value: unknown): value is ChatSpaceBinding {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return candidate.version === 1 && typeof candidate.spaceId === "string";
+  // v1: version === 1 且有 spaceId
+  if (candidate.version === 1 && typeof candidate.spaceId === "string") return true;
+  // v2: version === 2 且有 spaceId 和 chatIdentity
+  if (
+    candidate.version === 2 &&
+    typeof candidate.spaceId === "string" &&
+    typeof candidate.chatIdentity === "string"
+  )
+    return true;
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

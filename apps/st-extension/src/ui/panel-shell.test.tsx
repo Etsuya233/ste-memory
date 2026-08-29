@@ -33,6 +33,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getStatus: () => activeStatus(),
       onStatusChange: () => () => {},
       syncToCurrentChat: vi.fn(async () => activeStatus()),
+      resolveBranch: vi.fn(async () => activeStatus()),
     },
     tables: {
       list: vi.fn(async () => []),
@@ -300,6 +301,7 @@ describe("PanelShell（面板骨架投影）", () => {
         getStatus: () => missing,
         onStatusChange: () => () => {},
         syncToCurrentChat: vi.fn(async () => missing),
+        resolveBranch: vi.fn(async () => missing),
       },
     });
     const model = new PanelModel();
@@ -416,6 +418,7 @@ describe("PanelShell（面板骨架投影）", () => {
         getStatus: () => status,
         onStatusChange: () => () => {},
         syncToCurrentChat: vi.fn(async () => status),
+        resolveBranch: vi.fn(async () => status),
       },
     });
     const html = renderShell(new PanelModel(), runtime);

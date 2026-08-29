@@ -67,6 +67,8 @@ export interface SteMemoryRuntime {
   readonly records: MemoryRecordService;
   /** 全库备份（导出/导入，ticket 07）：快照读取与整体还原 */
   readonly backup: MemoryBackupRepository;
+  /** Dexie 备份仓库（扩展方法：cloneSpace 用于分支对话分离） */
+  readonly backupRepo: DexieMemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
   /** 云同步（ticket 08）：状态订阅 + 立即同步；R2 配置齐即自动防抖推送/空库拉取 */
@@ -101,6 +103,18 @@ export interface SteMemoryRuntime {
   };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
+  /** 弹窗 API（分支检测等需要用户交互的场景） */
+  readonly popup: {
+    show(
+      content: string,
+      options?: {
+        type?: number;
+        okButton?: string;
+        cancelButton?: string;
+        wide?: boolean;
+      },
+    ): Promise<number | string | boolean | null | undefined>;
+  };
 }
 
 export interface StartSteMemoryOptions {
@@ -330,6 +344,9 @@ export async function startSteMemory(
       restore: (binding) => mirror.restoreFromMirror(binding),
     },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
+    // 分支对话分离：cloneSpace 克隆空间 + ID 工厂
+    backup,
+    createId,
   });
 
   // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
@@ -483,6 +500,7 @@ export async function startSteMemory(
     fields,
     records,
     backup,
+    backupRepo: backup,
     settings,
     sync,
     mirror,
@@ -500,6 +518,10 @@ export async function startSteMemory(
       readSelection: () => adapter.cleaningListStore.read(),
       writeSelection: (listId) => adapter.cleaningListStore.write(listId),
       readStRegexEntries: () => adapter.stRegexEntries,
+    },
+    // 弹窗 API（分支检测等需要用户交互的场景）
+    popup: {
+      show: (content, options) => adapter.showPopup(content, options),
     },
   };
 }

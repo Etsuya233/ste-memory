@@ -32,11 +32,20 @@ export interface ChatSnapshot {
   readonly characterName: string | undefined;
 }
 
-/** 记忆空间绑定指针：只存 spaceId，随对话文件（chatMetadata）走（ADR 0002） */
-export interface ChatSpaceBinding {
+/** 记忆空间绑定指针（v1）：只存 spaceId，随对话文件（chatMetadata）走（ADR 0002） */
+export interface ChatSpaceBindingV1 {
   readonly version: 1;
   readonly spaceId: MemorySpaceId;
 }
+
+/** 记忆空间绑定指针（v2）：新增 chatIdentity 标识绑定归属的对话，用于分支检测 */
+export interface ChatSpaceBindingV2 {
+  readonly version: 2;
+  readonly spaceId: MemorySpaceId;
+  readonly chatIdentity: string;
+}
+
+export type ChatSpaceBinding = ChatSpaceBindingV1 | ChatSpaceBindingV2;
 
 /**
  * 绑定读取的三态结果：区分「无绑定」与「绑定值存在但无法识别」。
@@ -68,7 +77,23 @@ export interface ChatSpaceManagerPorts {
   readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
   /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
   readonly log?: { info(message: string): void };
+  /** Dexie 备份仓库（分支对话分离：cloneSpace 克隆空间） */
+  readonly backup?: { cloneSpace(
+    sourceSpaceId: MemorySpaceId,
+    createId: {
+      space: () => MemorySpaceId;
+      table: () => import("@ste-memory/core/memory").MemoryTableId;
+      field: () => import("@ste-memory/core/memory").MemoryFieldId;
+      record: () => import("@ste-memory/core/memory").MemoryRecordId;
+      history: () => import("@ste-memory/core/memory").MemoryRecordHistoryId;
+      evidence: () => import("@ste-memory/core/memory").MemoryEvidenceId;
+    },
+  ): Promise<MemorySpaceId> };
+  /** ID 工厂（分支对话分离：cloneSpace 需要为新实体生成 ID） */
+  readonly createId?: (prefix: string) => string;
 }
+
+export const BRANCH_CLONE_MISSING_PORTS = "克隆空间需要 backup 端口和 createId 工厂";
 
 export type SpaceContextStatus =
   | {
@@ -79,6 +104,13 @@ export type SpaceContextStatus =
       readonly created: boolean;
       /** 本次同步是否从对话文件镜像恢复（ticket 16；面板可区分「从文件镜像恢复」） */
       readonly restored: boolean;
+    }
+  | {
+      readonly kind: "branch-detected";
+      readonly binding: ChatSpaceBinding;
+      readonly space: MemorySpace;
+      /** 原始绑定所归属的 chatIdentity */
+      readonly originalChatIdentity: string;
     }
   | { readonly kind: "unsaved-chat"; readonly humanMsg: string }
   | {
@@ -168,17 +200,56 @@ export class ChatSpaceManager {
       });
     }
     if (read.kind === "bound") {
-      const space = await this.#ports.spaces.find(read.binding.spaceId);
+      let binding: ChatSpaceBinding = read.binding;
+
+      // 集中式 v1 → v2 迁移：v1 绑定就地升级，补写当前 chatIdentity
+      if (read.binding.version === 1) {
+        const currentIdentity = chatIdentityKey(chat);
+        if (currentIdentity !== undefined) {
+          const upgraded: ChatSpaceBindingV2 = {
+            version: 2,
+            spaceId: read.binding.spaceId,
+            chatIdentity: currentIdentity,
+          };
+          this.#ports.bindingStore.write(upgraded);
+          binding = upgraded;
+        }
+      }
+
+      // v2 绑定：检查是否为分支对话（chatIdentity 不匹配）
+      if (binding.version === 2) {
+        const currentIdentity = chatIdentityKey(chat);
+        if (currentIdentity !== undefined && binding.chatIdentity !== currentIdentity) {
+          const space = await this.#ports.spaces.find(binding.spaceId);
+          if (space) {
+            // 分支检测：v2 绑定的 chatIdentity 与当前不匹配，空间存在
+            return this.#publish({
+              kind: "branch-detected",
+              binding,
+              space,
+              originalChatIdentity: binding.chatIdentity,
+            });
+          }
+          // 空间缺失：降级到 space-missing
+          return this.#publish({
+            kind: "space-missing",
+            binding,
+            humanMsg: SPACE_MISSING_MESSAGE,
+          });
+        }
+      }
+
+      const space = await this.#ports.spaces.find(binding.spaceId);
       if (!space && this.#ports.mirrorRestore) {
         // 空间缺失（新设备/本地库被清）：先试从对话文件镜像恢复（ticket 16）——
         // 恢复成功且仍是当前对话 → active(restored)，否则维持 space-missing
-        const restored = await this.#ports.mirrorRestore.restore(read.binding);
+        const restored = await this.#ports.mirrorRestore.restore(binding);
         if (restored) {
-          const restoredSpace = await this.#ports.spaces.find(read.binding.spaceId);
+          const restoredSpace = await this.#ports.spaces.find(binding.spaceId);
           if (restoredSpace && this.#isCurrentChat(chat)) {
             return this.#publish({
               kind: "active",
-              binding: read.binding,
+              binding,
               space: restoredSpace,
               created: false,
               restored: true,
@@ -186,7 +257,7 @@ export class ChatSpaceManager {
           }
         }
       }
-      const status = deriveSpaceStatus(read.binding, space);
+      const status = deriveSpaceStatus(binding, space);
       if (!this.#isCurrentChat(chat)) {
         // 同步期间用户已切走：结果属于旧对话，不发布（新对话的同步已在队列里）
         return status;
@@ -203,7 +274,8 @@ export class ChatSpaceManager {
       await this.#ports.spaces.delete(space.id);
       throw error;
     }
-    const createdBinding: ChatSpaceBinding = { version: 1, spaceId: space.id };
+    const identity = chatIdentityKey(chat) ?? "";
+    const createdBinding: ChatSpaceBindingV2 = { version: 2, spaceId: space.id, chatIdentity: identity };
     if (!this.#isCurrentChat(chat)) {
       // 同步期间切走：不能把旧对话的绑定写进新对话的 chatMetadata，也不留孤儿空间
       await this.#ports.spaces.delete(space.id);
@@ -222,6 +294,62 @@ export class ChatSpaceManager {
 
   #isCurrentChat(chat: ChatSnapshot): boolean {
     return chatIdentityKey(this.#ports.getChat()) === chatIdentityKey(chat);
+  }
+
+  /**
+   * 处理分支对话的用户选择：创建空空间或克隆原空间。
+   * 操作完成后更新绑定并收敛到 active 状态。
+   */
+  async resolveBranch(
+    option:
+      | { readonly action: "create" }
+      | { readonly action: "clone"; readonly sourceSpaceId: MemorySpaceId },
+  ): Promise<SpaceContextStatus> {
+    const chat = this.#ports.getChat();
+    const currentIdentity = chatIdentityKey(chat) ?? "";
+    const newSpaceName = buildChatSpaceName(chat);
+
+    let newSpaceId: MemorySpaceId;
+    if (option.action === "clone") {
+      if (!this.#ports.backup || !this.#ports.createId) {
+        throw new Error(BRANCH_CLONE_MISSING_PORTS);
+      }
+      // cloneSpace 内部创建空间行 + 克隆六张表数据，返回新空间 ID
+      const id = this.#ports.createId!;
+      newSpaceId = await this.#ports.backup.cloneSpace(option.sourceSpaceId, {
+        space: () => id("space") as MemorySpaceId,
+        table: () => id("table") as import("@ste-memory/core/memory").MemoryTableId,
+        field: () => id("field") as import("@ste-memory/core/memory").MemoryFieldId,
+        record: () => id("record") as import("@ste-memory/core/memory").MemoryRecordId,
+        history: () => id("record-history") as import("@ste-memory/core/memory").MemoryRecordHistoryId,
+        evidence: () => id("evidence") as import("@ste-memory/core/memory").MemoryEvidenceId,
+      });
+      // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
+      await this.#ports.spaces.rename(newSpaceId, newSpaceName);
+    } else {
+      const space = await this.#ports.spaces.create(newSpaceName);
+      try {
+        await this.#ports.installer.install(space.id);
+      } catch (error) {
+        await this.#ports.spaces.delete(space.id);
+        throw error;
+      }
+      newSpaceId = space.id;
+    }
+
+    // 写入新绑定
+    const newBinding: ChatSpaceBindingV2 = {
+      version: 2,
+      spaceId: newSpaceId,
+      chatIdentity: currentIdentity,
+    };
+    this.#ports.bindingStore.write(newBinding);
+    this.#ports.log?.info(
+      `分支对话「${chat.chatId}」已${option.action === "clone" ? "克隆" : "创建"}记忆空间「${newSpaceName}」（${newSpaceId}）`,
+    );
+
+    // 重新同步收敛到 active
+    return this.syncToCurrentChat();
   }
 
   #publish(status: SpaceContextStatus): SpaceContextStatus {

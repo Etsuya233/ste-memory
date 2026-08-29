@@ -89,8 +89,8 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     expect(status.space.name).toBe("爱丽丝 - story");
     expect(manager.getStatus()).toBe(status);
 
-    const binding = chatMetadata[CHAT_METADATA_BINDING_KEY] as { version: number; spaceId: string };
-    expect(binding).toEqual({ version: 1, spaceId: status.space.id });
+    const binding = chatMetadata[CHAT_METADATA_BINDING_KEY] as { version: number; spaceId: string; chatIdentity: string };
+    expect(binding).toEqual({ version: 2, spaceId: status.space.id, chatIdentity: "char:3:story" });
     // 系统表全部就位（模板来自共享包，ticket 01）
     const tables = await h.services.tables.list(status.space.id);
     expect(tables).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
@@ -121,7 +121,7 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     );
   });
 
-  it("对话重命名后绑定不丢：同 spaceId，空间显示名保持创建时值", async () => {
+  it("对话重命名后触发分支检测：chatIdentity 变化导致绑定不匹配", async () => {
     const h = createHarness();
     const { context } = chatContext("story", "爱丽丝", 3);
     const { manager } = h.createManager(context);
@@ -129,15 +129,14 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     const before = manager.getStatus() as ActiveStatus;
 
     // ST 重命名 = 对话文件改名 → chatId 变，chatMetadata（含绑定）随文件走
+    // chatIdentityKey 变化触发分支检测（spec 决策：分支检测依赖 chatIdentity 匹配）
     context.chatId = "story-改";
     const status = await manager.syncToCurrentChat();
 
-    expect(status.kind).toBe("active");
-    if (status.kind !== "active") return;
-    expect(status.created).toBe(false);
+    expect(status.kind).toBe("branch-detected");
+    if (status.kind !== "branch-detected") return;
     expect(status.space.id).toBe(before.space.id);
-    expect(status.space.name).toBe(before.space.name);
-    expect(status.space.name).toBe("爱丽丝 - story");
+    expect(status.originalChatIdentity).toBe("char:3:story");
     expect(await h.services.spaces.list()).toHaveLength(1);
   });
 
@@ -206,8 +205,8 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     }
     expect(status.binding.spaceId).toBe("space-ghost");
     expect(status.humanMsg).toBe(SPACE_MISSING_MESSAGE);
-    // 绑定原样保留（云同步拉取后自动恢复），空间不重建
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+    // v1 绑定已迁移为 v2（云同步拉取后自动恢复），空间不重建
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
     expect(await h.services.spaces.list()).toHaveLength(0);
   });
 
@@ -229,14 +228,14 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
 
     const status = await manager.syncToCurrentChat();
 
-    expect(restore).toHaveBeenCalledWith({ version: 1, spaceId: "space-ghost" });
+    expect(restore).toHaveBeenCalledWith({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
     expect(status.kind).toBe("active");
     if (status.kind !== "active") return;
     expect(status.restored).toBe(true);
     expect(status.created).toBe(false);
     expect(status.space.id).toBe("space-ghost");
-    // 绑定原样保留，不重复建空间
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+    // 绑定已迁移为 v2，不重复建空间
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
   });
 
   it("绑定在、空间缺失、镜像恢复失败：维持 space-missing（不报错）", async () => {
@@ -254,7 +253,8 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
       return;
     }
     expect(status.humanMsg).toBe(SPACE_MISSING_MESSAGE);
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "space-ghost" });
+    // v1 已迁移为 v2
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
     expect(await h.services.spaces.list()).toHaveLength(0);
   });
 
@@ -348,6 +348,108 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     if (status.kind !== "active") return;
     expect(status.created).toBe(true);
     expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeDefined();
+  });
+
+  it("v2 绑定 + chatIdentity 匹配：正常 active", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    // 预设 v2 绑定（模拟已创建空间）
+    const space = await h.services.spaces.create("爱丽丝 - story");
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = {
+      version: 2,
+      spaceId: space.id,
+      chatIdentity: "char:3:story",
+    };
+    const { manager } = h.createManager(context);
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(status.kind).toBe("active");
+    if (status.kind !== "active") return;
+    expect(status.created).toBe(false);
+    expect(status.space.id).toBe(space.id);
+  });
+
+  it("v2 绑定 + chatIdentity 不匹配 + 空间存在：branch-detected", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    // 预设 v2 绑定（模拟原对话的空间）
+    const space = await h.services.spaces.create("爱丽丝 - story");
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = {
+      version: 2,
+      spaceId: space.id,
+      chatIdentity: "char:3:original-story", // 原对话的 chatIdentity
+    };
+    const { manager } = h.createManager(context);
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(status.kind).toBe("branch-detected");
+    if (status.kind !== "branch-detected") return;
+    expect(status.space.id).toBe(space.id);
+    expect(status.originalChatIdentity).toBe("char:3:original-story");
+  });
+
+  it("v2 绑定 + chatIdentity 不匹配 + 空间缺失：space-missing（降级兜底）", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = {
+      version: 2,
+      spaceId: "space-ghost",
+      chatIdentity: "char:3:original-story",
+    };
+    const { manager } = h.createManager(context);
+
+    const status = await manager.syncToCurrentChat();
+
+    if (status.kind !== "space-missing") {
+      expect.fail(`预期 space-missing，实际 ${status.kind}`);
+      return;
+    }
+    expect(status.binding.spaceId).toBe("space-ghost");
+    expect(status.humanMsg).toBe(SPACE_MISSING_MESSAGE);
+  });
+
+  it("v1 绑定 + chatIdentity 不匹配（迁移盲区）：迁移为 v2 后正常 active（不弹窗）", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    // 预设 v1 绑定（模拟原对话的空间）
+    const space = await h.services.spaces.create("爱丽丝 - story");
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = {
+      version: 1,
+      spaceId: space.id,
+    };
+    // 切到不同对话（chatIdentity 不匹配）
+    context.chatId = "other-story";
+    const { manager } = h.createManager(context);
+
+    const status = await manager.syncToCurrentChat();
+
+    // v1 绑定被迁移为 v2，chatIdentity 写入当前对话的身份，不会触发分支检测
+    expect(status.kind).toBe("active");
+    if (status.kind !== "active") return;
+    expect(status.space.id).toBe(space.id);
+    // 绑定已迁移为 v2
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
+      version: 2,
+      spaceId: space.id,
+      chatIdentity: "char:3:other-story",
+    });
+  });
+
+  it("首次创建空间写入 v2 绑定（含 chatIdentity）", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    const { manager } = h.createManager(context);
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(status.kind).toBe("active");
+    if (status.kind !== "active") return;
+    expect(status.created).toBe(true);
+    const binding = chatMetadata[CHAT_METADATA_BINDING_KEY] as { version: number; chatIdentity: string };
+    expect(binding.version).toBe(2);
+    expect(binding.chatIdentity).toBe("char:3:story");
   });
 
   it("同步期间切走：不发布旧对话结果、不写绑定、孤儿空间回滚", async () => {

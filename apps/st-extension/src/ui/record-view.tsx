@@ -343,7 +343,7 @@ export function RecordsTab(props: {
   if (!active) {
     return (
       <Placeholder
-        title={props.status && props.status.kind !== "active" ? props.status.humanMsg : "正在加载…"}
+        title={props.status && props.status.kind !== "active" && props.status.kind !== "branch-detected" ? props.status.humanMsg : "正在加载…"}
         hint="切换到已保存的对话后自动恢复"
       />
     );

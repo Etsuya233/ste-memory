@@ -33,6 +33,7 @@ function fakeRuntime(): PanelRuntime {
       getStatus: () => activeStatus(),
       onStatusChange: () => () => {},
       syncToCurrentChat: vi.fn(async () => activeStatus()),
+      resolveBranch: vi.fn(async () => activeStatus()),
     },
     tables: {
       list: vi.fn(async () => []),

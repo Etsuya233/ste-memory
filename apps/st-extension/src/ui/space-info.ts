@@ -45,6 +45,12 @@ export function buildSpaceInfo(
         tone: syncStatus.kind === "error" ? "warning" : "normal",
       };
     }
+    case "branch-detected":
+      return {
+        title: status.space.name,
+        detail: `检测到分支对话（原归属: ${status.originalChatIdentity}）`,
+        tone: "warning",
+      };
     case "unsaved-chat":
     case "space-missing":
     case "binding-unrecognized":
@@ -91,6 +97,8 @@ export function runtimeStatusLabel(status: SpaceContextStatus | undefined): stri
   switch (status.kind) {
     case "active":
       return "已加载 · 空间同步正常";
+    case "branch-detected":
+      return "已加载 · 检测到分支对话";
     case "unsaved-chat":
       return "已加载 · 当前对话未保存";
     case "space-missing":

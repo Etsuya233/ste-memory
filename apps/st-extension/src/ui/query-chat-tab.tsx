@@ -107,7 +107,7 @@ export function QueryChatTab(props: {
     // 未绑定空间显示空状态邀请（决策 11）：说明为什么不能问 + 怎么做
     return (
       <Placeholder
-        title={props.status && props.status.kind !== "active" ? props.status.humanMsg : "正在加载…"}
+        title={props.status && props.status.kind !== "active" && props.status.kind !== "branch-detected" ? props.status.humanMsg : "正在加载…"}
         hint="切换到已保存的对话后，即可就当前记忆空间提问或提交变更"
       />
     );

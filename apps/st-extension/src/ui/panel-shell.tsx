@@ -46,6 +46,7 @@ import {
   type SettingsStore,
 } from "../settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
+
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
 import type { QueryChatService } from "../query-chat/query-chat-service.ts";
@@ -102,7 +103,7 @@ import {
 export interface PanelRuntime {
   readonly manager: Pick<
     SteMemoryRuntime["manager"],
-    "getStatus" | "onStatusChange" | "syncToCurrentChat"
+    "getStatus" | "onStatusChange" | "syncToCurrentChat" | "resolveBranch"
   >;
   readonly tables: Pick<SteMemoryRuntime["tables"], "list" | "update" | "create" | "delete">;
   readonly fields: Pick<
@@ -121,6 +122,10 @@ export interface PanelRuntime {
   >;
   /** 全库备份（导出读快照 / 导入整体还原，ticket 07） */
   readonly backup: Pick<SteMemoryRuntime["backup"], "loadSnapshot" | "restoreSnapshot">;
+  /** Dexie 备份仓库（扩展方法：cloneSpace 用于分支对话分离） */
+  readonly backupRepo?: Pick<SteMemoryRuntime["backupRepo"], "cloneSpace">;
+  /** ST 适配器（分支检测需要访问 getChatSnapshot 和 bindingStore） */
+  readonly adapter?: Pick<SteMemoryRuntime["adapter"], "getChatSnapshot" | "bindingStore">;
   /** 云同步（ticket 08）：状态订阅 + 立即同步 + 设置变化重新评估 */
   readonly sync: Pick<
     SteMemoryRuntime["sync"],
@@ -151,6 +156,18 @@ export interface PanelRuntime {
   };
   readonly settings: SettingsStore;
   readonly version: string;
+  /** 弹窗 API（分支检测等需要用户交互的场景） */
+  readonly popup?: {
+    show(
+      content: string,
+      options?: {
+        type?: number;
+        okButton?: string;
+        cancelButton?: string;
+        wide?: boolean;
+      },
+    ): Promise<number | string | boolean | null | undefined>;
+  };
 }
 
 /** 活动空间状态（表格列表只在该状态下渲染） */
@@ -250,6 +267,47 @@ export function PanelShell(props: {
   const info = buildSpaceInfo(status, settings, syncStatus);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
   const [dataVersion, setDataVersion] = useState(0);
+
+  // ---- 分支检测弹窗 ----
+  const branchHandledRef = useRef(false);
+  useEffect(() => {
+    if (status?.kind !== "branch-detected" || branchHandledRef.current) return;
+    branchHandledRef.current = true;
+    const binding = status.binding;
+    const space = status.space;
+
+    const handleBranch = async () => {
+      try {
+        const result = await props.runtime.popup?.show(
+          `检测到分支对话！\n\n当前对话继承了记忆空间「${space.name}」（${space.id}），但该空间属于另一个对话。\n\n请选择如何处理：`,
+          {
+            type: 2, // CONFIRM
+            okButton: "创建新空间",
+            cancelButton: `复制「${space.name}」`,
+            wide: true,
+          },
+        );
+
+        // result = 1 (AFFIRMATIVE) = 创建新空间
+        // result = 0 (NEGATIVE) = 复制空间
+        if (result === 1) {
+          await props.runtime.manager.resolveBranch({ action: "create" });
+        } else if (result === 0) {
+          await props.runtime.manager.resolveBranch({
+            action: "clone",
+            sourceSpaceId: binding.spaceId,
+          });
+        }
+        // result = null/undefined = 用户关闭弹窗，不做处理
+      } catch (error) {
+        console.error("[STE Memory] 分支处理失败", error);
+      } finally {
+        branchHandledRef.current = false;
+      }
+    };
+
+    void handleBranch();
+  }, [status, props.runtime]);
 
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
@@ -656,7 +714,7 @@ function TablesTab(props: {
   if (!active) {
     return (
       <Placeholder
-        title={props.status && props.status.kind !== "active" ? props.status.humanMsg : "正在加载…"}
+        title={props.status && props.status.kind !== "active" && props.status.kind !== "branch-detected" ? props.status.humanMsg : "正在加载…"}
         hint="切换到已保存的对话后自动恢复"
       />
     );
