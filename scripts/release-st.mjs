@@ -45,10 +45,14 @@ function die(message) {
 
 /**
  * 把 release 分支检出/创建到 worktree 目录。
- * 规则（remote 是唯一真相，本地分支只是它的镜像）：
- *  - remote 分支存在 → 硬对齐到 origin/<分支>
- *  - 仅本地分支存在（首次从未 push）→ 检出它
+ *
+ * 分支来源规则：
+ *  - --push + remote 分支存在 → 硬对齐 origin/<分支>（远端是唯一真相，避免非快进推送）
+ *  - 仅本地分支存在（本地模式累积的未推送 commit）→ 检出它，在其上继续 commit
+ *  - 仅 remote 分支存在 → 从 origin/<分支> 检出
  *  - 都不存在 → 以 orphan 分支起步（release 历史只含发版 commit，不含 monorepo 历史）
+ *
+ * 本地模式（无 --push）绝不重置本地分支：用户可能已有未推送的 release commit。
  */
 function ensureReleaseWorktree() {
   const remoteBranch = git(["ls-remote", "--heads", REMOTE, RELEASE_BRANCH]);
@@ -57,21 +61,27 @@ function ensureReleaseWorktree() {
 
   git(["fetch", REMOTE]);
 
+  const alignToRemote = shouldPush && remoteBranch;
+
   if (worktreeExists) {
-    if (remoteBranch) {
+    if (alignToRemote) {
       git(["checkout", "-B", RELEASE_BRANCH, `${REMOTE}/${RELEASE_BRANCH}`], WORKTREE_DIR);
-    } else if (localBranch) {
-      git(["checkout", RELEASE_BRANCH], WORKTREE_DIR);
+    } else if (localBranch || remoteBranch) {
+      // 优先本地分支（保留未推送 commit）；没有本地分支则从远端检出
+      const start = localBranch ? RELEASE_BRANCH : `${REMOTE}/${RELEASE_BRANCH}`;
+      git(["checkout", "-B", RELEASE_BRANCH, start], WORKTREE_DIR);
     } else {
       git(["switch", "--orphan", RELEASE_BRANCH], WORKTREE_DIR);
     }
     return;
   }
 
-  if (remoteBranch) {
+  if (alignToRemote) {
     git(["worktree", "add", "-B", RELEASE_BRANCH, WORKTREE_DIR, `${REMOTE}/${RELEASE_BRANCH}`]);
   } else if (localBranch) {
     git(["worktree", "add", WORKTREE_DIR, RELEASE_BRANCH]);
+  } else if (remoteBranch) {
+    git(["worktree", "add", "-B", RELEASE_BRANCH, WORKTREE_DIR, `${REMOTE}/${RELEASE_BRANCH}`]);
   } else {
     git(["worktree", "add", "--detach", WORKTREE_DIR]);
     git(["switch", "--orphan", RELEASE_BRANCH], WORKTREE_DIR);
