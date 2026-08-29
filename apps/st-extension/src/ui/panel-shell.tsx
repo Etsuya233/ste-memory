@@ -29,7 +29,7 @@ import type {
   MemoryBackupSnapshot,
   MemorySpaceBackup,
 } from "@ste-memory/core/memory/export";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
 import {
   DESKTOP_MEDIA_QUERY,
@@ -62,6 +62,18 @@ import {
   toggleGroup as toggleSettingsGroup,
   type SettingsGroupKey,
 } from "./settings-collapsed-model.ts";
+import {
+  DEFAULT_SAFE_AREA,
+  SAFE_AREA_EDGE_LABELS,
+  SAFE_AREA_EDGES,
+  SAFE_AREA_PRESETS,
+  clampSafeAreaValue,
+  loadSafeArea,
+  safeAreaSummary,
+  saveSafeArea,
+  type PanelSafeArea,
+  type SafeAreaEdge,
+} from "./safe-area-model.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import { BINDING_UNRECOGNIZED_MESSAGE } from "../space-binding/chat-space-manager.ts";
 import { resolveImportAction } from "../space-binding/import-action.ts";
@@ -624,6 +636,7 @@ export function PanelShell(props: {
               syncStatus={syncStatus}
               mirrorStatus={mirrorStatus}
               queryChatStore={queryChatStore}
+              panelElementRef={panelRef}
               onSettingsChange={setSettings}
               onDataChanged={() => setDataVersion((version) => version + 1)}
             />
@@ -1375,6 +1388,8 @@ function SettingsTab(props: {
   readonly mirrorStatus: ChatMirrorStatus;
   /** 问答面板页面内存历史（spec reset-space：清除/重置后清空当前空间历史） */
   readonly queryChatStore: QueryChatStore;
+  /** 面板元素引用（面板安全区 CSS 变量落在面板元素上；仅移动断点消费） */
+  readonly panelElementRef: RefObject<HTMLElement | null>;
   readonly onSettingsChange: (settings: PluginSettings) => void;
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
@@ -1675,6 +1690,33 @@ function SettingsTab(props: {
   }, [expandedGroups]);
   function toggleGroup(key: SettingsGroupKey): void {
     setExpandedGroups((prev) => toggleSettingsGroup(prev, key));
+  }
+
+  // ---- 面板安全区（本机显示偏好，localStorage；仅移动断点消费，桌面惰性） ----
+  const [safeArea, setSafeArea] = useState<PanelSafeArea>(() => {
+    try {
+      return loadSafeArea(safeLocalStorage());
+    } catch {
+      return DEFAULT_SAFE_AREA;
+    }
+  });
+  useEffect(() => {
+    saveSafeArea(safeLocalStorage(), safeArea);
+  }, [safeArea]);
+  // 落到面板元素 CSS 变量（移动媒体查询消费为四边内缩；桌面查询显式覆盖 left/top/right/height，惰性）
+  useEffect(() => {
+    const style = props.panelElementRef.current?.style;
+    if (!style) return;
+    for (const edge of SAFE_AREA_EDGES) {
+      style.setProperty(`--stm-safe-${edge}`, `${safeArea[edge]}px`);
+    }
+  }, [safeArea, props.panelElementRef]);
+  /** 单边输入：非法不落库，合法值钳制到 [0, 120] 整数（与宏上限输入同模式） */
+  function updateSafeAreaEdge(edge: SafeAreaEdge, raw: string): void {
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return;
+    const value = clampSafeAreaValue(parsed);
+    setSafeArea((prev) => (prev[edge] === value ? prev : { ...prev, [edge]: value }));
   }
 
   return (
@@ -2172,6 +2214,76 @@ function SettingsTab(props: {
             <div className="stm-setting-row">
               <div className="stm-setting-name">运行状态</div>
               <div className="stm-setting-value">{runtimeStatusLabel(props.status)}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 面板安全区：本机显示偏好（localStorage），仅移动断点消费 */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="safe-area">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="safe-area"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "safe-area")}
+          onClick={() => toggleGroup("safe-area")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
+              面板安全区
+            </div>
+            <div className="stm-setting-group-summary">{safeAreaSummary(safeArea)}</div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "safe-area") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "safe-area") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-safe-area-grid">
+              {SAFE_AREA_EDGES.map((edge) => (
+                <label key={edge} className="stm-safe-area-cell">
+                  <span className="stm-setting-name">{SAFE_AREA_EDGE_LABELS[edge]}</span>
+                  <input
+                    className="stm-input"
+                    type="number"
+                    min="0"
+                    max="120"
+                    step="1"
+                    data-stm-field={`safe-area-${edge}`}
+                    value={safeArea[edge]}
+                    onChange={(event) => updateSafeAreaEdge(edge, event.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="stm-setting-row">
+              {SAFE_AREA_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="stm-button"
+                  data-action="apply-safe-area-preset"
+                  data-preset={preset.id}
+                  onClick={() => setSafeArea({ ...preset.values })}
+                >
+                  {preset.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="stm-button"
+                data-action="clear-safe-area"
+                onClick={() => setSafeArea({ ...DEFAULT_SAFE_AREA })}
+              >
+                清空
+              </button>
+            </div>
+            <div className="stm-setting-hint">
+              TauriTavern 等宿主不向页面报告系统安全区时，全屏抽屉会顶进灵动岛/手势条区域；
+              按设备实际遮挡调整四边留空（仅移动端生效，桌面浮动窗口不受影响）。
             </div>
           </div>
         )}

@@ -587,23 +587,46 @@ describe("PanelShell（面板骨架投影）", () => {
     // 插件总开关不折叠，无 aria-expanded
     expect(html).toContain('data-group="plugin-toggle"');
     // 其余分组默认折叠：aria-expanded=false + chevron-down
-    for (const group of ["macro", "agent-connections", "agent-presets", "cleaning", "backup", "mirror", "r2", "version", "danger"]) {
+    for (const group of ["macro", "agent-connections", "agent-presets", "cleaning", "backup", "mirror", "r2", "version", "safe-area", "danger"]) {
       expect(html).toContain(`data-group="${group}"`);
       expect(html).toContain(`data-action="toggle-settings-group"`);
     }
-    expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(9);
+    expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(10);
     expect(html).toContain("fa-chevron-down");
     // 摘要在折叠态可见
     expect(html).toContain("{{memoryContext}}");
     expect(html).toContain("未配置");
-    // 顺序：插件总开关 < 记忆宏 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 云同步 < 版本 < 危险操作
-    const order = ["插件总开关", "记忆宏", "Agent 连接", "Agent 提示词预设", "清洗规则", "数据备份", "对话文件镜像", "云同步（Cloudflare R2）", "版本与运行状态", "危险操作"];
+    // 顺序：插件总开关 < 记忆宏 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 云同步 < 版本 < 面板安全区 < 危险操作
+    const order = ["插件总开关", "记忆宏", "Agent 连接", "Agent 提示词预设", "清洗规则", "数据备份", "对话文件镜像", "云同步（Cloudflare R2）", "版本与运行状态", "面板安全区", "危险操作"];
     let lastIdx = -1;
     for (const title of order) {
       const idx = html.indexOf(title);
       expect(idx).toBeGreaterThan(lastIdx);
       lastIdx = idx;
     }
+  });
+
+  it("设置 Tab：面板安全区组（四边输入 + 预设 + 折叠摘要）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    // 折叠态：分组存在 + 摘要显示“未调整”（默认全 0）
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain('data-group="safe-area"');
+    expect(collapsed).toContain("未调整");
+    // 展开态：四边数字输入（默认 0，带中文标签）+ 两个预设按钮 + 清空按钮
+    const expanded = renderWithExpanded(model, ["safe-area"]);
+    for (const edge of ["top", "bottom", "left", "right"]) {
+      expect(expanded).toContain(`data-stm-field="safe-area-${edge}"`);
+    }
+    expect(expanded.match(/value="0"/g)?.length).toBeGreaterThanOrEqual(4);
+    // 无障碍：每个输入被中文边名 label 包裹
+    for (const label of ["上", "下", "左", "右"]) {
+      expect(expanded).toContain(`<span class="stm-setting-name">${label}</span>`);
+    }
+    expect(expanded).toContain('data-action="apply-safe-area-preset"');
+    expect(expanded).toContain('data-preset="iphone-dynamic-island"');
+    expect(expanded).toContain('data-preset="iphone-notch"');
+    expect(expanded).toContain('data-action="clear-safe-area"');
   });
 
   it("设置 Tab：展开后云同步合并组包含配置与状态", () => {

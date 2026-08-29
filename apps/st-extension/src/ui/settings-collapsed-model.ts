@@ -21,6 +21,7 @@ export const SETTINGS_GROUP_KEYS = [
   "mirror",
   "r2",
   "version",
+  "safe-area",
   "danger",
 ] as const;
 
