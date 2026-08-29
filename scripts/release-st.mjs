@@ -179,6 +179,14 @@ git(["add", "-A"], WORKTREE_DIR);
 const staged = git(["status", "--porcelain"], WORKTREE_DIR);
 if (!staged) {
   log("无变更", "release 分支内容与上次发版一致，跳过 commit");
+  // 首次发布边界：本地已有分支历史但 remote 从未建立 → 仍需推送到位
+  const remoteBranch = git(["ls-remote", "--heads", REMOTE, RELEASE_BRANCH]);
+  if (!remoteBranch) {
+    console.log("  remote 尚无该分支（首次发布），将推送建立分支");
+    if (!dryRun) {
+      git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
+    }
+  }
 } else {
   log("变更", staged);
   if (dryRun) {
