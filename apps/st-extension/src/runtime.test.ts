@@ -332,10 +332,13 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     if (status?.kind !== "active") throw new Error("expect active");
 
     // 默认名 {{memoryContext}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
-    // systemDefaultPrompt（Agent 预设宏）；空库无记录：空表省略 → 快照为空串
-    expect([...registered.keys()].sort()).toEqual(
-      ["memoryContext", "tablesDigest", "systemDefaultPrompt"].sort(),
-    );
+    // systemDefaultPrompt（Agent 预设宏）；内置宏 memoryFull + memory_<表Key>
+    const registeredKeys = [...registered.keys()].sort();
+    expect(registeredKeys).toContain("memoryContext");
+    expect(registeredKeys).toContain("tablesDigest");
+    expect(registeredKeys).toContain("systemDefaultPrompt");
+    expect(registeredKeys).toContain("memoryFull");
+    expect(registeredKeys).toContain("memory_characters");
     expect(runtime.macro.getSnapshot()).toBe("");
     // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
     expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");

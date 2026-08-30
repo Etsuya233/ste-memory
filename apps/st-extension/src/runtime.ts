@@ -437,6 +437,7 @@ export async function startSteMemory(
     },
     registerMacro: adapter.macroRegistration,
     changes: new DexieSyncChangeSource(db),
+    readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
     log: {
       info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
       warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),

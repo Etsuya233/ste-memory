@@ -107,9 +107,9 @@ function createPorts(overrides: Partial<MacroRegistryPorts> = {}): MacroRegistry
       listTables: async () => tables,
       listRecords: async (_spaceId, tableId) => records.get(tableId) ?? [],
     },
-    globalMacros: [],
-    chatScopeMacros: [],
-    macroLimit: 2000,
+    globalMacros: () => [],
+    chatScopeMacros: () => [],
+    macroLimit: () => 2000,
     ...overrides,
   };
 }
@@ -208,7 +208,7 @@ describe("MacroRegistry（宏注册表）", () => {
       limit: 10,
       projection: ["name"],
     };
-    const ports = createPorts({ globalMacros: [globalView] });
+    const ports = createPorts({ globalMacros: () => [globalView] });
     const registry = new MacroRegistry(ports);
     await registry.rebuild("space-1" as MemorySpaceId, {
       tables: 2,
@@ -233,7 +233,7 @@ describe("MacroRegistry（宏注册表）", () => {
       limit: 5,
       projection: ["name"],
     };
-    const ports = createPorts({ chatScopeMacros: [chatView] });
+    const ports = createPorts({ chatScopeMacros: () => [chatView] });
     const registry = new MacroRegistry(ports);
     await registry.rebuild("space-1" as MemorySpaceId, {
       tables: 2,
@@ -265,7 +265,7 @@ describe("MacroRegistry（宏注册表）", () => {
       limit: 5,
       projection: ["name"],
     };
-    const ports = createPorts({ globalMacros: [globalView], chatScopeMacros: [chatView] });
+    const ports = createPorts({ globalMacros: () => [globalView], chatScopeMacros: () => [chatView] });
     const registry = new MacroRegistry(ports);
     await registry.rebuild("space-1" as MemorySpaceId, {
       tables: 2,

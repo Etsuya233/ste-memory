@@ -45,12 +45,12 @@ export interface MacroRegistryPorts {
       tableId: MemoryTableId,
     ): Promise<readonly import("@ste-memory/core/memory").MemoryRecord[]>;
   };
-  /** 全局宏定义 */
-  readonly globalMacros: readonly MemoryView[];
-  /** 聊天 Scope 宏定义 */
-  readonly chatScopeMacros: readonly MemoryView[];
-  /** 全局字符上限 */
-  readonly macroLimit: number;
+  /** 全局宏定义（延迟求值，每次重建时重新读取） */
+  readonly globalMacros: () => readonly MemoryView[];
+  /** 聊天 Scope 宏定义（延迟求值，每次重建时重新读取） */
+  readonly chatScopeMacros: () => readonly MemoryView[];
+  /** 全局字符上限（延迟求值，每次重建时重新读取） */
+  readonly macroLimit: () => number;
   /** 可选日志 */
   readonly log?: {
     info(message: string): void;
@@ -95,8 +95,11 @@ export class MacroRegistry {
     spaceId: MemorySpaceId,
     fingerprint: import("../cloud/space-fingerprint.ts").SpaceFingerprint,
   ): Promise<void> {
-    const globalSignature = JSON.stringify(this.#ports.globalMacros);
-    const chatScopeSignature = JSON.stringify(this.#ports.chatScopeMacros);
+    const globalMacros = this.#ports.globalMacros();
+    const chatScopeMacros = this.#ports.chatScopeMacros();
+    const macroLimit = this.#ports.macroLimit();
+    const globalSignature = JSON.stringify(globalMacros);
+    const chatScopeSignature = JSON.stringify(chatScopeMacros);
 
     // 跳过未变化的重建
     if (
@@ -117,13 +120,13 @@ export class MacroRegistry {
     const newMacros = new Map<string, MacroDefinition>();
 
     // 1. 内置宏（最低优先级）
-    await this.#rebuildBuiltinMacros(spaceId, newMacros);
+    await this.#rebuildBuiltinMacros(spaceId, newMacros, macroLimit);
 
     // 2. 全局宏（可覆盖内置同名宏，但用户不太会用 memory_ 前缀）
-    this.#rebuildGlobalMacros(newMacros);
+    this.#rebuildGlobalMacros(newMacros, globalMacros);
 
     // 3. 聊天 Scope 宏（最高优先级，可覆盖全局同名宏）
-    this.#rebuildChatScopeMacros(newMacros);
+    this.#rebuildChatScopeMacros(newMacros, chatScopeMacros);
 
     this.#macros = newMacros;
     this.#lastSpaceId = spaceId;
@@ -145,13 +148,14 @@ export class MacroRegistry {
   async #rebuildBuiltinMacros(
     spaceId: MemorySpaceId,
     macros: Map<string, MacroDefinition>,
+    macroLimit: number,
   ): Promise<void> {
     try {
       const tables = await this.#ports.data.listTables(spaceId);
       const enabledTables = tables.filter((t) => t.enabled);
 
       // 重建 memoryFull 快照
-      const fullSnapshot = await this.#buildMemoryFullSnapshot(spaceId, enabledTables);
+      const fullSnapshot = await this.#buildMemoryFullSnapshot(spaceId, enabledTables, macroLimit);
       macros.set(BUILTIN_FULL_MACRO, {
         name: BUILTIN_FULL_MACRO,
         kind: "builtin",
@@ -168,7 +172,7 @@ export class MacroRegistry {
           );
           continue;
         }
-        const tableSnapshot = await this.#buildTableSnapshot(spaceId, table);
+        const tableSnapshot = await this.#buildTableSnapshot(spaceId, table, macroLimit);
         macros.set(macroName, {
           name: macroName,
           kind: "builtin",
@@ -186,6 +190,7 @@ export class MacroRegistry {
   async #buildMemoryFullSnapshot(
     spaceId: MemorySpaceId,
     tables: readonly MemoryTable[],
+    macroLimit: number,
   ): Promise<string> {
     const resolveDisplay = createReadTimeDisplayTextResolver({
       getTable: async (tableId) => tables.find((candidate) => candidate.id === tableId),
@@ -216,7 +221,7 @@ export class MacroRegistry {
 
     return renderMemoryFullSnapshot({
       tables: tableInputs,
-      limit: this.#ports.macroLimit,
+      limit: macroLimit,
     });
   }
 
@@ -224,6 +229,7 @@ export class MacroRegistry {
   async #buildTableSnapshot(
     spaceId: MemorySpaceId,
     table: MemoryTable,
+    macroLimit: number,
   ): Promise<string> {
     const fields = await this.#ports.reader.listFields(spaceId, table.id);
     const enabledFields = fields.filter((f) => f.enabled);
@@ -255,15 +261,15 @@ export class MacroRegistry {
           })),
         },
       ],
-      limit: this.#ports.macroLimit,
+      limit: macroLimit,
     });
   }
 
   /** 重建全局宏（复用现有快照逻辑） */
-  #rebuildGlobalMacros(macros: Map<string, MacroDefinition>): void {
+  #rebuildGlobalMacros(macros: Map<string, MacroDefinition>, globalMacros: readonly MemoryView[]): void {
     // 全局宏的快照由 MemoryMacroService 管理，这里只记录它们的存在
     // 实际快照计算在 MemoryMacroService 中完成
-    for (const view of this.#ports.globalMacros) {
+    for (const view of globalMacros) {
       if (!macros.has(view.name)) {
         macros.set(view.name, {
           name: view.name,
@@ -275,10 +281,10 @@ export class MacroRegistry {
   }
 
   /** 重建聊天 Scope 宏（复用现有快照逻辑） */
-  #rebuildChatScopeMacros(macros: Map<string, MacroDefinition>): void {
+  #rebuildChatScopeMacros(macros: Map<string, MacroDefinition>, chatScopeMacros: readonly MemoryView[]): void {
     // 聊天 Scope 宏的快照由 MemoryMacroService 管理，这里只记录它们的存在
     // 实际快照计算在 MemoryMacroService 中完成
-    for (const view of this.#ports.chatScopeMacros) {
+    for (const view of chatScopeMacros) {
       // 聊天 Scope 宏可覆盖全局同名宏
       macros.set(view.name, {
         name: view.name,

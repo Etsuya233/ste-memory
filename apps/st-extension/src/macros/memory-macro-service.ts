@@ -15,6 +15,8 @@ import {
 import type { SyncTimerPort } from "../cloud/sync-coordinator.ts";
 import { PollingEvaluator } from "../polling-evaluator.ts";
 import type { MemoryView } from "../settings/memory-views.ts";
+import { BUILTIN_FULL_MACRO, BUILTIN_TABLE_MACRO_PREFIX, isBuiltinMacroName } from "./chat-scope-macros.ts";
+import { MacroRegistry } from "./macro-registry.ts";
 import { resolveMacroRegistrationName } from "./macro-name.ts";
 import { assembleMemoryContextSnapshot } from "./memory-context-snapshot.ts";
 import { planMemoryViewQuery, resolveViewReferenceLabels } from "./memory-view-query.ts";
@@ -99,6 +101,8 @@ export interface MemoryMacroServicePorts {
   readonly registerMacro: MemoryMacroRegistrationPort;
   /** 空间变更指纹（宿主 = DexieSyncChangeSource，与云同步/镜像同机制） */
   readonly changes: SyncChangeSource;
+  /** 聊天 Scope 宏（双 Scope 宏系统）：读取当前对话的聊天 Scope 宏定义 */
+  readonly readChatScopeMacros: () => readonly MemoryView[];
   /** 可选日志（宿主 = ST console，消息带插件前缀由宿主包装） */
   readonly log?: {
     info(message: string): void;
@@ -132,13 +136,18 @@ export class MemoryMacroService {
   #snapshot = "";
   /** 每视图快照（宏 handler 按视图名参数返回；视图名 → 文本） */
   #viewSnapshots = new Map<string, string>();
-  /** 最近一次重建时的空间与指纹（相同即内容等价，跳过重建）；上限/视图也参与判定 */
+  /** 最近一次重建时的空间与指纹（相同即内容等价，跳过重建）；上限/视图/聊天 Scope 也参与判定 */
   #lastSpaceId: MemorySpaceId | undefined;
   #lastFingerprint: SpaceFingerprint | undefined;
   #lastLimit: number | undefined;
   #lastViewsSignature: string | undefined;
+  #lastChatScopeSignature: string | undefined;
   /** 排队评估 + 指纹轮询骨架（与 Agent 预设宏服务共用，ticket 17） */
   readonly #evaluator: PollingEvaluator;
+  /** 宏注册表（管理内置宏 + 全局宏 + 聊天 Scope 宏） */
+  readonly #registry: MacroRegistry;
+  /** 已注册到 ST 的宏名集合（用于注销） */
+  #registeredMacroNames = new Set<string>();
 
   constructor(ports: MemoryMacroServicePorts) {
     const resolved: ResolvedMemoryMacroServicePorts = {
@@ -151,6 +160,15 @@ export class MemoryMacroService {
       evaluate: () => this.#evaluate(),
       pollIntervalMs: resolved.pollIntervalMs,
       timers: resolved.timers,
+    });
+    this.#registry = new MacroRegistry({
+      getSpaceId: () => this.#ports.getSpaceId(),
+      reader: this.#ports.reader,
+      data: this.#ports.data,
+      globalMacros: () => this.#ports.readSettings().memoryViews,
+      chatScopeMacros: () => this.#ports.readChatScopeMacros(),
+      macroLimit: () => this.#ports.readSettings().macroLimit,
+      log: this.#ports.log,
     });
   }
 
@@ -199,6 +217,7 @@ export class MemoryMacroService {
       this.#evaluator.clearPollTimer();
       return;
     }
+    // 注册全局宏（带视图名参数）
     if (name !== this.#registeredName) {
       this.#unregisterCurrent();
       this.#ports.registerMacro.register(name, (context) => this.#snapshotFor(context), [
@@ -217,23 +236,27 @@ export class MemoryMacroService {
         this.#lastViewsSignature = undefined;
         this.#snapshot = "";
         this.#viewSnapshots = new Map();
+        this.#unregisterAllMacros();
       }
       return;
     }
     try {
       const fingerprint = await this.#ports.changes.fingerprint(spaceId);
       const viewsSignature = JSON.stringify(settings.memoryViews);
+      const chatScopeSignature = JSON.stringify(this.#ports.readChatScopeMacros());
       if (
         spaceId === this.#lastSpaceId &&
         this.#lastFingerprint !== undefined &&
         fingerprintsEqual(this.#lastFingerprint, fingerprint) &&
-        // 上限/视图是设置项：只改了它们也必须重建（指纹不反映设置）
+        // 上限/视图/聊天 Scope 是设置项：只改了它们也必须重建（指纹不反映设置）
         this.#lastLimit === settings.macroLimit &&
-        this.#lastViewsSignature === viewsSignature
+        this.#lastViewsSignature === viewsSignature &&
+        this.#lastChatScopeSignature === chatScopeSignature
       ) {
         return;
       }
       await this.#rebuild(spaceId, fingerprint, settings);
+      this.#lastChatScopeSignature = chatScopeSignature;
     } catch (error) {
       // 单轮失败只记日志：下轮轮询自然重试（快照保持旧值，宏仍可展开）
       this.#ports.log?.error(
@@ -272,6 +295,11 @@ export class MemoryMacroService {
       readonly memoryViews: readonly MemoryView[];
     },
   ): Promise<void> {
+    // 重建宏注册表（内置 + 全局 + 聊天 Scope）
+    await this.#registry.rebuild(spaceId, fingerprint);
+    // 注册所有宏到 ST
+    this.#registerAllMacros();
+
     const tables = await this.#ports.data.listTables(spaceId);
     const recordsByTable = new Map<MemoryTableId, readonly MemoryRecord[]>();
     await Promise.all(
@@ -359,9 +387,40 @@ export class MemoryMacroService {
     this.#lastViewsSignature = JSON.stringify(settings.memoryViews);
   }
 
+  /** 获取内置宏快照（memoryFull / memory_<表Key>） */
+  getBuiltinMacroSnapshot(name: string): string | undefined {
+    return this.#registry.getSnapshot(name);
+  }
+
+  /** 获取所有宏（调试/验收用） */
+  getAllMacros(): readonly import("./macro-registry.ts").MacroDefinition[] {
+    return this.#registry.getAllMacros();
+  }
+
   #unregisterCurrent(): void {
     if (this.#registeredName === undefined) return;
     this.#ports.registerMacro.unregister(this.#registeredName);
     this.#registeredName = undefined;
+    this.#unregisterAllMacros();
+  }
+
+  /** 注销所有已注册的宏（内置 + 全局 + 聊天 Scope） */
+  #unregisterAllMacros(): void {
+    for (const macroName of this.#registeredMacroNames) {
+      this.#ports.registerMacro.unregister(macroName);
+    }
+    this.#registeredMacroNames.clear();
+  }
+
+  /** 注册所有宏（内置 + 全局 + 聊天 Scope）到 ST */
+  #registerAllMacros(): void {
+    const registry = this.#registry;
+    for (const macro of registry.getAllMacros()) {
+      // 跳过已注册的宏
+      if (this.#registeredMacroNames.has(macro.name)) continue;
+      // 注册宏（无参数，直接返回快照）
+      this.#ports.registerMacro.register(macro.name, () => macro.snapshot);
+      this.#registeredMacroNames.add(macro.name);
+    }
   }
 }
