@@ -33,6 +33,28 @@ export function memoryTableDisplayFieldIds(
     : derivedDisplayTemplate(strategy.template).fieldIds;
 }
 
+/**
+ * 按字段 ID 映射表重映射显示策略（克隆/导入时字段重生成全新 ID，策略必须跟着映射，
+ * 否则策略会指向不存在的旧字段——field 策略显示为空、template 策略渲染崩溃）。
+ * 映射表中不存在的字段 ID 保持原样（不丢信息，渲染层按漂移兜底为空）。
+ */
+export function remapMemoryTableDisplayStrategy(
+  strategy: MemoryTableDisplayStrategy | null,
+  fieldIdMap: ReadonlyMap<string, MemoryFieldId>,
+): MemoryTableDisplayStrategy | null {
+  if (!strategy) return null;
+  if (strategy.type === "field") {
+    return { type: "field", fieldId: fieldIdMap.get(strategy.fieldId) ?? strategy.fieldId };
+  }
+  return {
+    type: "template",
+    template: strategy.template.replace(/\{([^{}]+)\}/g, (placeholder, oldFieldId: string) => {
+      const newFieldId = fieldIdMap.get(oldFieldId);
+      return newFieldId ? `{${newFieldId}}` : placeholder;
+    }),
+  };
+}
+
 export interface MemoryTable {
   readonly id: MemoryTableId;
   readonly memorySpaceId: MemorySpaceId;

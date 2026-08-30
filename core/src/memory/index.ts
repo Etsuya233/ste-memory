@@ -66,6 +66,7 @@ export {
   memoryTableDisplayFieldIds,
   memoryTableName,
   memoryTableKey,
+  remapMemoryTableDisplayStrategy,
 } from "./domain/index.ts";
 export type {
   DomainErrorData,

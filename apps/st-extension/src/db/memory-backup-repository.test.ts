@@ -6,12 +6,14 @@ import {
 import type { MemoryBackupSnapshot } from "@ste-memory/core/memory/export";
 import type {
   MemoryEvidenceId,
+  MemoryField,
   MemoryFieldId,
   MemoryRecordHistoryId,
   MemoryRecordId,
   MemorySpaceId,
   MemoryTableId,
 } from "@ste-memory/core/memory";
+import { memoryTableDisplayFieldIds } from "@ste-memory/core/memory";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { describe, expect, it } from "vitest";
 // 必须先于 ./database.ts 导入：dexie 在模块加载时捕获全局 indexedDB，
@@ -19,6 +21,35 @@ import { describe, expect, it } from "vitest";
 import { createServices, createTestDatabase } from "./test-support.ts";
 import type { SteMemoryDatabase } from "./database.ts";
 import { DexieMemoryBackupRepository } from "./memory-backup-repository.ts";
+
+/** 克隆单元里每张表的显示策略字段 ID 必须全部落在克隆后的字段集合中（field 策略的 fieldId、template 策略的占位符）。 */
+function expectStrategiesPointIntoClonedFields(
+  sourceUnit: MemoryBackupSnapshot["spaces"][number],
+  clonedUnit: MemoryBackupSnapshot["spaces"][number],
+): void {
+  const clonedFieldIds = new Set(clonedUnit.fields.map((field) => field.id));
+  const sourceFieldIds = new Set(sourceUnit.fields.map((field) => field.id));
+  for (const table of clonedUnit.tables) {
+    if (!table.displayStrategy) continue;
+    const ids = memoryTableDisplayFieldIds(table.displayStrategy);
+    // 策略字段必须重映射（克隆后旧字段 ID 已不存在）；残留旧 ID = 克隆 bug
+    expect(ids.every((id) => clonedFieldIds.has(id))).toBe(true);
+    expect(ids.some((id) => sourceFieldIds.has(id))).toBe(false);
+  }
+  // field 策略显式断言一次：characters 的 name 字段被重映射
+  const clonedCharacters = clonedUnit.tables.find((table) => table.key === "characters")!;
+  const clonedCharactersFields = clonedUnit.fields.filter(
+    (field: MemoryField) => field.tableId === clonedCharacters.id,
+  );
+  const sourceCharacters = sourceUnit.tables.find((table) => table.key === "characters")!;
+  const sourceCharactersFields = sourceUnit.fields.filter(
+    (field: MemoryField) => field.tableId === sourceCharacters.id,
+  );
+  const sourceNameId = sourceCharactersFields.find((field) => field.key === "name")!.id;
+  const clonedNameId = clonedCharactersFields.find((field) => field.key === "name")!.id;
+  expect(clonedCharacters.displayStrategy).toEqual({ type: "field", fieldId: clonedNameId });
+  expect(clonedNameId).not.toBe(sourceNameId);
+}
 
 /** 造一个带记录（含证据与修订历史）的空间。 */
 async function seedDatabase(db: SteMemoryDatabase) {
@@ -278,7 +309,9 @@ describe("Dexie memory backup repository", () => {
     // 表格数量相同，且所有表格的 memorySpaceId 指向新空间
     expect(clonedUnit.tables).toHaveLength(sourceUnit.tables.length);
     expect(clonedUnit.tables.every((t) => t.memorySpaceId === newSpaceId)).toBe(true);
-    expect(clonedUnit.tables.every((t) => !sourceUnit.tables.some((st) => st.id === t.id))).toBe(true);
+    expect(clonedUnit.tables.every((t) => !sourceUnit.tables.some((st) => st.id === t.id))).toBe(
+      true,
+    );
 
     // 字段外键重映射
     expect(clonedUnit.fields).toHaveLength(sourceUnit.fields.length);
@@ -298,6 +331,9 @@ describe("Dexie memory backup repository", () => {
 
     // 证据外键重映射
     expect(clonedUnit.evidence).toHaveLength(sourceUnit.evidence.length);
+
+    // 显示策略重映射（field 策略 + template 占位符指向克隆后的字段 ID）
+    expectStrategiesPointIntoClonedFields(sourceUnit, clonedUnit);
   });
 
   it("cloneSpace 失败时原子回滚（无半复制状态）", async () => {
@@ -384,6 +420,9 @@ describe("Dexie memory backup repository", () => {
     expect(clonedUnit.fields.every((f) => clonedTableIds.has(f.tableId))).toBe(true);
     const clonedRecordIds = new Set(clonedUnit.records.map((r) => r.id));
     expect(clonedUnit.history.every((h) => clonedRecordIds.has(h.recordId))).toBe(true);
+
+    // 显示策略重映射（导入同克隆：字段全新 ID，策略必须跟着重映射）
+    expectStrategiesPointIntoClonedFields(sourceUnit, clonedUnit);
   });
 
   it("cloneSpaceFromUnit 失败时原子回滚（无半复制状态）", async () => {

@@ -17,6 +17,7 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "@ste-memory/core/memory";
+import { remapMemoryTableDisplayStrategy } from "@ste-memory/core/memory";
 import type { SteMemoryDatabase, MemoryEvidenceRow } from "./database.ts";
 import { toDomainEvidence, toEvidenceRow } from "./evidence-conversion.ts";
 
@@ -159,7 +160,10 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
    * 源就是文件反序列化的单元；为所有实体生成全新 ID，重映射外键引用，原子写入
    * 新单元。返回新 spaceId。createId 工厂由调用方注入。
    */
-  async cloneSpaceFromUnit(unit: MemorySpaceBackup, createId: BackupIdFactory): Promise<MemorySpaceId> {
+  async cloneSpaceFromUnit(
+    unit: MemorySpaceBackup,
+    createId: BackupIdFactory,
+  ): Promise<MemorySpaceId> {
     const evidenceRows: MemoryEvidenceRow[] = unit.evidence.map((evidence) =>
       toEvidenceRow(unit.space.id, evidence),
     );
@@ -238,13 +242,15 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           updatedAt: new Date().toISOString(),
         });
 
-        // 写入新表行（重映射 memorySpaceId）
+        // 写入新表行（重映射 memorySpaceId + 显示策略字段 ID——字段已重生成全新 ID，
+        // 策略必须跟着重映射，否则 field 策略显示为空、template 策略预览/提交崩溃）
         if (tables.length > 0) {
           await this.#db.memoryTables.bulkAdd(
             tables.map((table) => ({
               ...table,
               id: tableIdMap.get(table.id)!,
               memorySpaceId: newSpaceId,
+              displayStrategy: remapMemoryTableDisplayStrategy(table.displayStrategy, fieldIdMap),
             })),
           );
         }
@@ -275,10 +281,13 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
                 const newFieldId = fieldIdMap.get(oldFieldId as MemoryFieldId) ?? oldFieldId;
                 // 查找对应的字段定义，判断是否为引用类型
                 const fieldDef = fields.find((f) => f.id === oldFieldId);
-                const isReference = fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
+                const isReference =
+                  fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
                 if (isReference && Array.isArray(value)) {
                   // multi_reference: value 是 recordId 数组
-                  newPayload[newFieldId] = value.map((v) => recordIdMap.get(v as MemoryRecordId) ?? v);
+                  newPayload[newFieldId] = value.map(
+                    (v) => recordIdMap.get(v as MemoryRecordId) ?? v,
+                  );
                 } else if (isReference && typeof value === "string") {
                   // single_reference: value 是单个 recordId
                   newPayload[newFieldId] = recordIdMap.get(value as MemoryRecordId) ?? value;
@@ -307,9 +316,12 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
               for (const [oldFieldId, value] of Object.entries(item.payload)) {
                 const newFieldId = fieldIdMap.get(oldFieldId as MemoryFieldId) ?? oldFieldId;
                 const fieldDef = fields.find((f) => f.id === oldFieldId);
-                const isReference = fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
+                const isReference =
+                  fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
                 if (isReference && Array.isArray(value)) {
-                  newPayload[newFieldId] = value.map((v) => recordIdMap.get(v as MemoryRecordId) ?? v);
+                  newPayload[newFieldId] = value.map(
+                    (v) => recordIdMap.get(v as MemoryRecordId) ?? v,
+                  );
                 } else if (isReference && typeof value === "string") {
                   newPayload[newFieldId] = recordIdMap.get(value as MemoryRecordId) ?? value;
                 } else {

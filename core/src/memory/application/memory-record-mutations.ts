@@ -152,8 +152,13 @@ export async function commitMemoryRecordMutationBatch(
     fallback: async (tableId, recordId) =>
       (await context.records.find(memorySpaceId, tableId, recordId as MemoryRecord["id"]))
         ?.displayText ?? "",
-    compute: async (record, resolve) =>
-      context.displayText(record.table, record.fields, record.payload, resolve),
+    compute: async (record, resolve) => {
+      try {
+        return await context.displayText(record.table, record.fields, record.payload, resolve);
+      } catch {
+        return ""; // 定义漂移（策略引用已删字段）：批内按未找到渲染空串，不阻断提交
+      }
+    },
   });
 
   const mutations: MemoryRecordMutation[] = [];
@@ -197,7 +202,13 @@ export async function commitMemoryRecordMutationBatch(
         ...patchPayload,
       };
       const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
-      const displayText = await context.displayText(table, fields, payload, resolveReference);
+      let displayText: string;
+      try {
+        displayText = await context.displayText(table, fields, payload, resolveReference);
+      } catch {
+        // 定义漂移（显示策略引用的字段不在当前字段集）：保留既有显示文本，不阻断更新
+        displayText = previous.displayText;
+      }
       if (
         JSON.stringify(payload) === JSON.stringify(previous.payload) &&
         JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence) ===
@@ -255,7 +266,14 @@ async function buildCreateMutation(
       tableId: operation.tableId,
       payload,
       fieldEvidence,
-      displayText: await context.displayText(table, fields, payload, resolveReference),
+      displayText: await buildCreateDisplayText(
+        context,
+        memorySpaceId,
+        table,
+        fields,
+        payload,
+        resolveReference,
+      ),
       source:
         operation.source ??
         (Object.keys(fieldEvidence).length > 0
@@ -267,6 +285,22 @@ async function buildCreateMutation(
       updatedAt: archivedAt,
     },
   };
+}
+
+/** 新记录的存储显示文本：定义漂移（策略引用已删字段）时回退空串，不阻断创建。 */
+async function buildCreateDisplayText(
+  context: MemoryRecordMutationContext,
+  memorySpaceId: MemorySpaceId,
+  table: MemoryTable,
+  fields: readonly MemoryField[],
+  payload: MemoryRecordPayload,
+  resolveReference: MemoryRecordDisplayTextResolver,
+): Promise<string> {
+  try {
+    return await context.displayText(table, fields, payload, resolveReference);
+  } catch {
+    return "";
+  }
 }
 
 /** 批内 create 的已编译形态：表/字段/解析后 payload 预计算一次，mutation 构建与引用解析共用。 */

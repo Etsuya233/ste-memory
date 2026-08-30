@@ -98,15 +98,20 @@ export async function previewProposal(
     fallback: async (tableId, recordId) =>
       (await ports.records.find(memorySpaceId, tableId, recordId as MemoryRecord["id"]))
         ?.displayText ?? "",
-    compute: async (record, resolve) =>
-      computeMemoryRecordDisplayText(
-        ports.records,
-        memorySpaceId,
-        record.table,
-        record.fields,
-        record.payload,
-        resolve,
-      ),
+    compute: async (record, resolve) => {
+      try {
+        return await computeMemoryRecordDisplayText(
+          ports.records,
+          memorySpaceId,
+          record.table,
+          record.fields,
+          record.payload,
+          resolve,
+        );
+      } catch {
+        return ""; // 定义漂移（策略引用已删字段）：按未找到渲染空串，不阻断整批预览
+      }
+    },
   });
   for (const operation of operations) {
     const table = tableById.get(operation.tableId);
@@ -152,6 +157,7 @@ async function previewOperation(
         fields,
         operation.patch,
         resolveReference,
+        "",
       ),
       values,
       changes,
@@ -188,6 +194,7 @@ async function previewOperation(
       fields,
       merged,
       resolveReference,
+      previous?.displayText ?? "",
     ),
     changes,
   };
@@ -210,6 +217,8 @@ function keyedPayload(
  * 预览用显示文本：与提交共用同一领域规则（computeMemoryRecordDisplayText）；
  * 表未配置显示策略时校验器已报错，预览侧直接返回空串（display 无意义）。
  * resolveReference 由 previewProposal 注入批次感知解析器（同批 create 按临时 ID 解析）。
+ * 定义漂移（显示策略引用的字段不在当前字段集）时回退 fallback：update 用存储
+ * 显示文本、create 用空串——显示是辅助信息，不阻断整批预览（曾 TypeError 崩溃）。
  */
 async function previewDisplayText(
   ports: MemoryProposalPorts,
@@ -218,16 +227,21 @@ async function previewDisplayText(
   fields: readonly MemoryField[],
   payload: Readonly<Record<string, unknown>>,
   resolveReference: MemoryRecordDisplayTextResolver,
+  fallback: string,
 ): Promise<string> {
   if (!table.displayStrategy) return "";
-  return computeMemoryRecordDisplayText(
-    ports.records,
-    memorySpaceId,
-    table,
-    fields,
-    payload as MemoryRecordPayload,
-    resolveReference,
-  );
+  try {
+    return await computeMemoryRecordDisplayText(
+      ports.records,
+      memorySpaceId,
+      table,
+      fields,
+      payload as MemoryRecordPayload,
+      resolveReference,
+    );
+  } catch {
+    return fallback;
+  }
 }
 
 /** 冻结提案（submit 产物）：展开预览 + 统一 MutationBatch + 外部注入的消息范围与证据。 */

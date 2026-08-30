@@ -64,7 +64,9 @@ export interface MemoryDisplayTemplateField {
 /**
  * 模板策略渲染（领域规则与 computeMemoryRecordDisplayText 共用）：按模板占位符
  * 逐字段替换，引用字段经 resolveReference 解析为目标记录显示文本。
- * 调用方自行保证模板字段在当前表字段集合中存在（表策略设置时已校验）。
+ * 模板引用的字段不在当前字段集合（定义漂移：如克隆/导入后策略未重映射）时抛错，
+ * 由调用方按路径语义兜底：读时回退存储显示文本、预览/提交回退旧值或空串——
+ * 显示是辅助信息，不得中断查询/预览/提交（曾以非空断言 TypeError 崩溃）。
  */
 export async function renderMemoryRecordDisplayTemplate(
   template: string,
@@ -75,7 +77,13 @@ export async function renderMemoryRecordDisplayTemplate(
   const derived = derivedDisplayTemplate(template);
   let text = derived.template;
   for (const fieldId of derived.fieldIds) {
-    const field = fields.find((item) => item.id === fieldId)!;
+    const field = fields.find((item) => item.id === fieldId);
+    if (!field) {
+      throw new DomainError({
+        type: "memory_table_display_strategy_invalid",
+        humanMsg: `显示模板引用的字段 ${fieldId} 不在当前表字段集合中（显示策略漂移）`,
+      });
+    }
     const value = payload[fieldId];
     const values = Array.isArray(value)
       ? value

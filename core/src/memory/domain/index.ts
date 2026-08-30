@@ -19,6 +19,7 @@ export {
   memoryTableDisplayFieldIds,
   memoryTableKey,
   memoryTableName,
+  remapMemoryTableDisplayStrategy,
 } from "./memory-table.ts";
 export type {
   DerivedDisplayTemplate,

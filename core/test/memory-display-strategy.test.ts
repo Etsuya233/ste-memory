@@ -1,11 +1,61 @@
 import { describe, expect, it } from "vitest";
 import {
+  remapMemoryTableDisplayStrategy,
+  type MemoryFieldId,
+  type MemoryTableDisplayStrategy,
+} from "../src/memory/index.ts";
+import {
   fieldId,
   FieldRepository,
   fieldService,
   memorySpaceId,
   tableId,
 } from "./memory-field-test-support.ts";
+
+/** 克隆/导入会把字段重生成全新 ID（旧 ID → 新 ID 映射表），策略必须跟着重映射。 */
+const fieldIdMap = new Map<string, MemoryFieldId>([
+  ["field-old-a", "field-new-a" as MemoryFieldId],
+  ["field-old-b", "field-new-b" as MemoryFieldId],
+]);
+
+describe("remapMemoryTableDisplayStrategy", () => {
+  it("field 策略：fieldId 重映射为新字段 ID", () => {
+    const strategy: MemoryTableDisplayStrategy = {
+      type: "field",
+      fieldId: "field-old-a" as MemoryFieldId,
+    };
+    expect(remapMemoryTableDisplayStrategy(strategy, fieldIdMap)).toEqual({
+      type: "field",
+      fieldId: "field-new-a",
+    });
+  });
+
+  it("template 策略：全部占位符按旧 ID → 新 ID 重映射，模板其余文本不变", () => {
+    const strategy: MemoryTableDisplayStrategy = {
+      type: "template",
+      template: "{field-old-a} <-> {field-old-b}（第{field-old-b}条）",
+    };
+    expect(remapMemoryTableDisplayStrategy(strategy, fieldIdMap)).toEqual({
+      type: "template",
+      template: "{field-new-a} <-> {field-new-b}（第{field-new-b}条）",
+    });
+  });
+
+  it("映射表里没有的字段 ID 保持原样（渲染层兜底为空，不丢信息）", () => {
+    const strategy: MemoryTableDisplayStrategy = {
+      type: "template",
+      template: "{field-old-a}（{field-unknown}）",
+    };
+    expect(remapMemoryTableDisplayStrategy(strategy, fieldIdMap)).toEqual({
+      type: "template",
+      template: "{field-new-a}（{field-unknown}）",
+    });
+  });
+
+  it("无显示策略原样返回 null", () => {
+    expect(remapMemoryTableDisplayStrategy(null, fieldIdMap)).toBeNull();
+  });
+});
 
 describe("memory table display strategy", () => {
   it("uses a short text field for display and protects that field from deletion", async () => {

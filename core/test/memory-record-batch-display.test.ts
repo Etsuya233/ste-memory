@@ -149,12 +149,15 @@ interface TestRepos {
   readonly context: MemoryRecordMutationContext;
 }
 
-function setup(tables: readonly MemoryTable[] = [table(peopleId), table(placesId)]): TestRepos {
-  const fields = [
+function setup(
+  tables: readonly MemoryTable[] = [table(peopleId), table(placesId)],
+  fieldList: readonly MemoryField[] = [
     field(nameId, peopleId),
     field(homeId, peopleId, placesId),
     field(nameId, placesId),
-  ];
+  ],
+): TestRepos {
+  const fields = [...fieldList];
   const records = new Records();
   let recordNumber = 0;
   let historyNumber = 0;
@@ -232,6 +235,67 @@ const batchCreates: readonly MemoryProposalCreateOperation[] = [
 ];
 
 describe("批内引用显示文本（提交路径，commitMemoryProposalBatch）", () => {
+  it("模板策略占位符不在字段集中：预览/提交回退显示文本，不崩溃（定义漂移兜底）", async () => {
+    // 字段集缺 home（克隆后策略 drift 的等价场景）：曾以非空断言 TypeError 崩溃，
+    // 导致 proposal_preview 连环失败与显示文本被洗白；现按路径语义回退。
+    const driftedFields = [field(nameId, peopleId), field(nameId, placesId)];
+    const { records, ports, context } = setup(undefined, driftedFields);
+    const existing: MemoryRecord = {
+      id: "record-9" as MemoryRecordId,
+      memorySpaceId: spaceId,
+      tableId: peopleId,
+      payload: { [nameId]: "顾川" },
+      fieldEvidence: {},
+      displayText: "顾川（住在旧都）",
+      source: { type: "manual" },
+      revisionId: "revision-9" as MemoryRevisionId,
+      revisionSource: "user",
+      createdAt: "2026-07-28T01:00:00.000Z",
+      updatedAt: "2026-07-28T01:00:00.000Z",
+    };
+    records.values.push(existing);
+
+    // 预览：整批不抛错；update 回退存储显示文本，create 回退空串
+    const preview = await previewProposal(ports, spaceId, [
+      { type: "create", tableId: placesId, tempId: "tmp:r1", patch: { [nameId]: "港口" } },
+      {
+        type: "update",
+        tableId: peopleId,
+        recordId: existing.id,
+        expectedRevisionId: existing.revisionId,
+        patch: { [nameId]: "顾川" },
+      },
+    ]);
+    const createOp = preview.operations.find((operation) => operation.op === "create")!;
+    const updateOp = preview.operations.find((operation) => operation.op === "update")!;
+    expect(createOp.display).toBe("港口"); // places 表 field 策略不受漂移影响
+    expect(updateOp.display).toBe("顾川（住在旧都）");
+
+    // 提交：同样不抛错，update 保留既有显示文本（不再把显示文本洗白为空）
+    await commitMemoryProposalBatch(
+      context,
+      spaceId,
+      memoryProposalSubmission({ from: 1, to: 1 }, evidence({ from: 1, to: 1 }), [], {
+        create: [
+          { type: "create", tableId: placesId, tempId: "tmp:r1", patch: { [nameId]: "港口" } },
+        ],
+        update: [
+          {
+            type: "update",
+            tableId: peopleId,
+            recordId: existing.id,
+            expectedRevisionId: existing.revisionId,
+            patch: { [nameId]: "顾川" },
+          },
+        ],
+        delete: [],
+      }),
+      "agent",
+    );
+    const updated = records.values.find((record) => record.id === existing.id)!;
+    expect(updated.displayText).toBe("顾川（住在旧都）");
+  });
+
   it("create 的模板显示文本解析同批 create 引用（临时 ID 改写为真实 ID）", async () => {
     const { records, context } = setup();
 
