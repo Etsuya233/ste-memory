@@ -15,8 +15,7 @@ export interface ChatScopeMacroStore {
   readonly macros: readonly MemoryView[];
 }
 
-/** 内置宏名前缀（memoryFull + memory_<表Key>） */
-export const BUILTIN_MACRO_PREFIX = "memory";
+/** 内置宏名（memoryFull + memory_<表Key>） */
 export const BUILTIN_FULL_MACRO = "memoryFull";
 export const BUILTIN_TABLE_MACRO_PREFIX = "memory_";
 

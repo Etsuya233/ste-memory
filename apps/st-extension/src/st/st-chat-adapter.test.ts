@@ -6,6 +6,7 @@ import type { ChatSpaceBinding } from "../space-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
   CHAT_METADATA_CLEANING_LIST_KEY,
+  CHAT_METADATA_CHAT_SCOPE_MACROS_KEY,
   CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
   type StContext,
@@ -203,6 +204,59 @@ describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22
       noMetadata.cleaningListStore.write("l1");
       noMetadata.cleaningListStore.read();
     }).not.toThrow();
+  });
+});
+
+describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => {
+  it("写入后读回同值；写入即触发 saveMetadataDebounced 且键独立于绑定键", () => {
+    const saveMetadataDebounced = vi.fn();
+    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
+    const macros = [
+      { name: "聊天视图", tableKey: "characters", condition: null, limit: 5, projection: ["name"] },
+    ];
+
+    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    adapter.chatScopeMacroStore.write(macros);
+
+    expect(context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY]).toEqual({
+      version: 1,
+      macros,
+    });
+    expect(adapter.chatScopeMacroStore.read()).toEqual(macros);
+    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
+  });
+
+  it("无 chatMetadata / 无 saveMetadataDebounced 时不报错", () => {
+    const { adapter } = stableAdapter({ chatMetadata: undefined });
+    expect(() => {
+      adapter.chatScopeMacroStore.write([
+        { name: "测试", tableKey: "t", condition: null, limit: 10, projection: [] },
+      ]);
+      adapter.chatScopeMacroStore.read();
+    }).not.toThrow();
+  });
+
+  it("损坏值（版本不符/非对象）= 空列表", () => {
+    const { context, adapter } = stableAdapter();
+    context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = { version: 2, macros: [] };
+    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = "junk";
+    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+  });
+
+  it("损坏视图逐项丢弃，保留其余", () => {
+    const { context, adapter } = stableAdapter();
+    context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = {
+      version: 1,
+      macros: [
+        { name: "非法 名", tableKey: "t", condition: null, limit: 10, projection: [] },
+        { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
+      ],
+    };
+    expect(adapter.chatScopeMacroStore.read()).toEqual([
+      { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
+    ]);
   });
 });
 

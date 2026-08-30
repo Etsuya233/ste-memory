@@ -18,7 +18,7 @@ Feature spec。基于 grilling session 2026-08-30 设计决策。
 - **全局宏**：存 `extension_settings`，所有对话共享（当前行为）。
 - **聊天 Scope 宏**：存 `chatMetadata`，随 `.jsonl` 导入导出，只在当前对话生效。
 
-名称全局唯一，优先级：内置 > 聊天 Scope > 全局（聊天 Scope 可覆盖全局同名宏）。
+名称全局唯一，优先级：聊天 Scope > 全局 > 内置（聊天 Scope 可覆盖全局同名宏，全局可覆盖内置同名宏）。
 
 ## User Stories
 
