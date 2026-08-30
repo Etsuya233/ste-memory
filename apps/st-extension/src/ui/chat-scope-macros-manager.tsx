@@ -1,19 +1,18 @@
 /**
- * 聊天 Scope 宏管理器（双 Scope 宏系统）：设置 Tab「对话级宏」组下的宏列表 CRUD。
+ * 聊天 Scope 宏管理器（双 Scope 宏系统）：设置 Tab「记忆宏」组「对话级宏」分区的列表 CRUD。
  *
- * 复用 MemoryViewsManager 组件，但数据源是 chatMetadata 而非 extension_settings。
- * - 宏列表/草稿变更走 onChange(nextMacros)（宿主写 chatMetadata + macro.kick()）
- * - 名称校验：不允许与内置宏或全局宏同名
- * - 无活动空间时列表可看，编辑禁用（宏按活动空间求值）
+ * 与 MemoryViewsManager 同构：同一套草稿模型/校验/编辑器（MemoryViewEditor），
+ * 差异只在数据源（chatMetadata 而非 extension_settings）。名字不与任何作用域
+ * 冲突——同名即覆盖（对话级 > 全局 > 内置）。
+ * - 宏列表变更走 onChange(nextMacros)（宿主写 chatMetadata + 面板版本号自增 +
+ *   macro.kick() 立即重建快照）；
+ * - 无活动空间时列表可看，编辑禁用（宏按活动空间求值）。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MemoryField, MemoryTable } from "@ste-memory/core/memory";
-import type { MemoryView } from "../settings/memory-views.ts";
-import { validateChatScopeMacroName } from "../macros/chat-scope-macros.ts";
 import { reportError, reportSuccess } from "./ui-helpers.tsx";
 import {
   emptyMemoryViewDraft,
-  isConditionField,
   memoryViewDraftFromView,
   memoryViewFromDraft,
   validateMemoryViewDraft,
@@ -21,17 +20,19 @@ import {
   viewSummaryText,
   type MemoryViewDraft,
 } from "./memory-views-manager-model.ts";
+import { MemoryViewEditor } from "./memory-views-manager.tsx";
+import type { MemoryView } from "../settings/memory-views.ts";
 
 export function ChatScopeMacrosManager(props: {
+  /** 全局前缀（裸标识符，如 ste；提示文案用） */
+  readonly prefix: string;
   /** 活动空间 id；undefined = 无活动空间（列表可看，编辑禁用） */
   readonly spaceId: string | undefined;
   readonly readTables: (spaceId: string) => Promise<readonly MemoryTable[]>;
   readonly readFields: (spaceId: string, tableId: string) => Promise<readonly MemoryField[]>;
-  /** 全局宏名列表（用于名称冲突校验） */
-  readonly globalMacroNames: readonly string[];
   /** 当前对话的聊天 Scope 宏列表 */
   readonly macros: readonly MemoryView[];
-  /** 宏列表变更（宿主写 chatMetadata + macro.kick()） */
+  /** 宏列表变更（宿主写 chatMetadata + 面板版本号自增 + macro.kick()） */
   readonly onChange: (macros: readonly MemoryView[]) => void;
 }) {
   const [tables, setTables] = useState<readonly MemoryTable[] | undefined>(undefined);
@@ -101,30 +102,31 @@ export function ChatScopeMacrosManager(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.spaceId, tables, neededTableKeys, props.readFields]);
+  }, [props.spaceId, props.readTables, props.readFields, tables, neededTableKeys]);
 
-  // 编辑器打开时初始化草稿
-  useEffect(() => {
-    if (!editing) {
-      setDraft(null);
-      setError(undefined);
-      return;
-    }
-    if (editing.kind === "new") {
-      setDraft(emptyMemoryViewDraft());
-    } else {
-      const existing = props.macros.find((v) => v.name === editing.name);
-      if (existing) setDraft(memoryViewDraftFromView(existing));
-    }
-  }, [editing, props.macros]);
+  function beginEdit(macro: MemoryView): void {
+    setEditing({ kind: "edit", name: macro.name });
+    setDraft(memoryViewDraftFromView(macro));
+    setError(undefined);
+  }
 
-  /** 校验草稿（名称合法性 + 名称冲突 + 视图结构） */
+  function beginCreate(): void {
+    setEditing({ kind: "new" });
+    setDraft(emptyMemoryViewDraft());
+    setError(undefined);
+  }
+
+  function cancelEdit(): void {
+    setEditing(null);
+    setDraft(null);
+    setError(undefined);
+  }
+
+  /** 校验草稿（视图结构校验，排除自身旧名）；名字不与任何作用域冲突——同名即覆盖 */
   function validateDraft(d: MemoryViewDraft): string | undefined {
-    // 名称冲突校验
-    const nameError = validateChatScopeMacroName(d.name, props.globalMacroNames);
-    if (nameError !== undefined) return nameError;
-    // 视图结构校验（已有宏名也视为冲突）
-    const existingNames = props.macros.map((v) => v.name);
+    const existingNames = props.macros
+      .filter((candidate) => editing?.kind !== "edit" || candidate.name !== editing.name)
+      .map((candidate) => candidate.name);
     return validateMemoryViewDraft(d, existingNames);
   }
 
@@ -139,163 +141,108 @@ export function ChatScopeMacrosManager(props: {
     const macro = memoryViewFromDraft(draft);
     const next =
       editing?.kind === "edit"
-        ? props.macros.map((v) => (v.name === editing.name ? macro : v))
+        ? props.macros.map((candidate) => (candidate.name === editing.name ? macro : candidate))
         : [...props.macros, macro];
     props.onChange(next);
-    setEditing(null);
+    cancelEdit();
     reportSuccess(editing?.kind === "edit" ? "宏已更新" : "宏已创建");
   }
 
   /** 删除宏 */
   function deleteMacro(name: string): void {
-    if (!window.confirm(`确定删除宏「${name}」？`)) return;
-    props.onChange(props.macros.filter((v) => v.name !== name));
+    if (!window.confirm(`删除宏「${name}」？`)) return;
+    props.onChange(props.macros.filter((candidate) => candidate.name !== name));
+    if (editing?.kind === "edit" && editing.name === name) cancelEdit();
     reportSuccess("宏已删除");
   }
 
-  /** 宏列表为空时的提示 */
+  /** 折叠行配置错误：表缺失 = 确定错误（立即显示）；表在但字段未加载完 = 暂不显示（避免误报） */
+  function rowConfigErrors(macro: MemoryView): readonly string[] {
+    if (!props.spaceId || tables === undefined) return [];
+    const tableExists = tables.some((candidate) => candidate.key === macro.tableKey);
+    if (tableExists && !fieldsByTable.has(macro.tableKey)) return [];
+    return viewConfigErrors(macro, tables, fieldsByTable);
+  }
+
+  const editingDraftFields =
+    draft && draft.tableKey !== "" ? (fieldsByTable.get(draft.tableKey) ?? []) : [];
+
   const isEmpty = props.macros.length === 0 && !editing;
 
   return (
-    <div className="stm-chat-scope-macros-manager">
-      {/* 宏列表 */}
-      {props.macros.length > 0 && (
-        <div className="stm-macro-list">
-          {props.macros.map((macro) => {
-            const configErrors = tables ? viewConfigErrors(macro, tables, fieldsByTable) : [];
-            const hasErrors = configErrors.length > 0;
-            return (
-              <div key={macro.name} className="stm-macro-row">
-                <div className="stm-macro-row-main">
-                  <div className="stm-macro-name">{macro.name}</div>
-                  <div className="stm-macro-summary">{viewSummaryText(macro)}</div>
-                  {hasErrors && (
-                    <span className="stm-macro-error-badge" title={configErrors.join("\n")}>
-                      ⚠
-                    </span>
-                  )}
-                </div>
-                <div className="stm-macro-row-actions">
-                  <button
-                    type="button"
-                    className="stm-button stm-button--small"
-                    onClick={() => setEditing({ kind: "edit", name: macro.name })}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-button stm-button--small stm-button--danger"
-                    onClick={() => deleteMacro(macro.name)}
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+    <div className="stm-setting-subgroup" data-stm-section="chat-scope-macros">
+      <div className="stm-setting-hint">
+        <span className="stm-mono">{"{{前缀::宏名}}"}</span> 直接展开对应表/筛选/投影；
+        仅当前对话可用，随对话文件导入导出；同名宏优先于全局视图与内置宏 （对话级 &gt; 全局 &gt;
+        内置）
+      </div>
+      {!props.spaceId && (
+        <div className="stm-preset-warning" data-stm-field="chat-scope-macros-no-space">
+          当前没有活动记忆空间：打开/切换对话后可配置聊天 Scope 宏
         </div>
       )}
-
-      {/* 空状态 */}
-      {isEmpty && (
-        <div className="stm-macro-empty">
-          当前对话未配置聊天 Scope 宏。创建宏可在该对话中使用不同的记忆注入策略。
+      {props.macros.map((macro) => (
+        <div
+          key={macro.name}
+          className="stm-preset-fragment"
+          data-stm-field={`chat-macro-${macro.name}`}
+        >
+          <div className="stm-preset-fragment-head">
+            <button
+              type="button"
+              className="stm-preset-fragment-title"
+              data-action="edit-chat-scope-macro"
+              onClick={() => beginEdit(macro)}
+              title="编辑宏"
+            >
+              <span className="stm-preset-fragment-preview">
+                {macro.name}
+                <span className="stm-mono"> · {macro.tableKey}</span> · {viewSummaryText(macro)}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="stm-preset-fragment-remove"
+              data-action="delete-chat-scope-macro"
+              onClick={() => deleteMacro(macro.name)}
+              title="删除宏"
+            >
+              ✕
+            </button>
+          </div>
+          {rowConfigErrors(macro).length > 0 && (
+            <div className="stm-preset-warning" data-stm-field="chat-macro-config-error">
+              配置错误：{rowConfigErrors(macro).join("；")}
+            </div>
+          )}
         </div>
-      )}
-
-      {/* 新建按钮 */}
-      {!editing && (
+      ))}
+      <div className="stm-setting-actions">
         <button
           type="button"
-          className="stm-button stm-button--primary"
-          onClick={() => setEditing({ kind: "new" })}
-          disabled={props.spaceId === undefined}
+          className="stm-button"
+          data-action="add-chat-scope-macro"
+          disabled={!props.spaceId}
+          onClick={beginCreate}
         >
-          新建宏
+          + 新建宏
         </button>
-      )}
-
-      {/* 编辑器 */}
-      {editing && draft && (
-        <div className="stm-macro-editor">
-          <div className="stm-macro-editor-header">
-            <h4>{editing.kind === "new" ? "新建宏" : "编辑宏"}</h4>
-            <button
-              type="button"
-              className="stm-button stm-button--small"
-              onClick={() => setEditing(null)}
-            >
-              取消
-            </button>
-          </div>
-
-          {/* 名称 */}
-          <label className="stm-macro-field">
-            <span className="stm-macro-field-label">宏名</span>
-            <input
-              className="stm-input"
-              type="text"
-              value={draft.name}
-              placeholder="我的宏"
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
-          </label>
-
-          {/* 表选择 */}
-          <label className="stm-macro-field">
-            <span className="stm-macro-field-label">表</span>
-            <select
-              className="stm-select"
-              value={draft.tableKey}
-              onChange={(event) => setDraft({ ...draft, tableKey: event.target.value })}
-            >
-              <option value="">选择表</option>
-              {tables?.map((table) => (
-                <option key={table.key} value={table.key}>
-                  {table.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {/* 条数上限 */}
-          <label className="stm-macro-field">
-            <span className="stm-macro-field-label">条数上限</span>
-            <input
-              className="stm-input"
-              type="number"
-              min="1"
-              max="100"
-              value={draft.limitText}
-              placeholder="无限制"
-              onChange={(event) => {
-                setDraft({ ...draft, limitText: event.target.value });
-              }}
-            />
-          </label>
-
-          {/* 错误提示 */}
-          {error && <div className="stm-macro-error">{error}</div>}
-
-          {/* 保存按钮 */}
-          <div className="stm-macro-editor-actions">
-            <button
-              type="button"
-              className="stm-button stm-button--primary"
-              onClick={saveDraft}
-            >
-              保存
-            </button>
-            <button
-              type="button"
-              className="stm-button"
-              onClick={() => setEditing(null)}
-            >
-              取消
-            </button>
-          </div>
+      </div>
+      {isEmpty && (
+        <div className="stm-preset-warning" data-stm-field="chat-scope-macros-empty">
+          当前对话未配置聊天 Scope 宏；创建宏可在该对话中使用不同的记忆注入策略
         </div>
+      )}
+      {editing && draft && (
+        <MemoryViewEditor
+          draft={draft}
+          tables={tables ?? []}
+          fields={editingDraftFields}
+          error={error}
+          onDraftChange={setDraft}
+          onSave={saveDraft}
+          onCancel={cancelEdit}
+        />
       )}
     </div>
   );

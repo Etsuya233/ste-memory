@@ -163,6 +163,40 @@
 }
 
 /* 底部 Tab：触控目标 ≥44px；当前 Tab 铜绿下划线 */
+
+/* 记忆宏组内作用域分区（内置/全局/对话级）分段切换 */
+.stm-macro-scope-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  background: var(--stm-ink-bg);
+  margin-bottom: 8px;
+}
+
+.stm-macro-scope-tab {
+  flex: 1;
+  min-height: 32px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-macro-scope-tab:hover {
+  color: var(--stm-ink);
+}
+
+.stm-macro-scope-tab[aria-selected="true"] {
+  color: var(--stm-ink);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--stm-accent) 12%, transparent);
+}
 .stm-tabbar {
   display: flex;
   border-bottom: 1px solid var(--stm-border);
@@ -2000,6 +2034,22 @@
 .stm-preset-fragment--dragging {
   opacity: 0.6;
   border-color: var(--stm-accent);
+}
+
+/* 内置宏只读行：无操作按钮的展示行（标题不响应指针） */
+.stm-preset-fragment--builtin .stm-preset-fragment-title {
+  cursor: default;
+}
+
+.stm-builtin-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--stm-ink-secondary);
+  background: color-mix(in srgb, var(--stm-ink) 8%, transparent);
 }
 
 .stm-preset-fragment-head {

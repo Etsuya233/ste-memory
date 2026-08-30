@@ -141,8 +141,7 @@ function renderWithExpanded(
   runtime: PanelRuntime = fakeRuntime(),
 ): string {
   const originalWindow = (globalThis as unknown as { window?: unknown }).window as
-    | { localStorage?: { getItem?: (k: string) => string | null } }
-    | undefined;
+    { localStorage?: { getItem?: (k: string) => string | null } } | undefined;
   const prevWindow = (globalThis as unknown as Record<string, unknown>).window;
   (globalThis as unknown as Record<string, unknown>).window = {
     ...((prevWindow as object) ?? {}),
@@ -150,9 +149,9 @@ function renderWithExpanded(
       getItem: (k: string) =>
         k === SETTINGS_COLLAPSED_STORAGE_KEY
           ? JSON.stringify(keys)
-          : (originalWindow as { localStorage?: { getItem: (k: string) => string | null } })?.localStorage?.getItem?.(
-              k,
-            ) ?? null,
+          : ((
+              originalWindow as { localStorage?: { getItem: (k: string) => string | null } }
+            )?.localStorage?.getItem?.(k) ?? null),
       setItem: () => {},
     },
   } as unknown;
@@ -263,9 +262,26 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(expanded).toContain('data-stm-field="r2-account-id"');
     expect(expanded).toContain('data-stm-field="r2-bucket"');
     expect(expanded).toContain('data-stm-field="macro-name"');
-    expect(expanded).toContain('value="{{memoryContext}}"');
+    expect(expanded).toContain('value="{{ste}}"');
     expect(expanded).toContain('data-stm-field="macro-limit"');
     expect(expanded).toContain('value="2000"');
+  });
+
+  it("设置 Tab：记忆宏组合并——内置/全局/对话级分区切换就位（默认全局宏）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const expanded = renderWithExpanded(model, ["macro"]);
+    // 分区切换条：三个 tab，默认选中全局宏
+    expect(expanded).toContain('data-action="macro-scope"');
+    expect(expanded).toContain('data-macro-scope="builtin"');
+    expect(expanded).toContain('data-macro-scope="chat"');
+    expect(expanded).toContain('data-macro-scope="global" aria-selected="true"');
+    // 默认展示全局宏内容（宏名/上限输入）；内置/对话级分区未渲染
+    expect(expanded).toContain('data-stm-field="macro-name"');
+    expect(expanded).not.toContain('data-stm-section="builtin-macros"');
+    expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
+    // 折叠摘要含宏名 + 视图数 + 对话宏数
+    expect(expanded).toContain("0对话宏");
   });
 
   it("设置 Tab：Agent 预设管理器就位（ticket 17）", () => {
@@ -589,17 +605,40 @@ describe("PanelShell（面板骨架投影）", () => {
     // 插件总开关不折叠，无 aria-expanded
     expect(html).toContain('data-group="plugin-toggle"');
     // 其余分组默认折叠：aria-expanded=false + chevron-down
-    for (const group of ["macro", "agent-connections", "agent-presets", "cleaning", "backup", "mirror", "r2", "version", "safe-area", "danger"]) {
+    for (const group of [
+      "macro",
+      "agent-connections",
+      "agent-presets",
+      "cleaning",
+      "backup",
+      "mirror",
+      "r2",
+      "version",
+      "safe-area",
+      "danger",
+    ]) {
       expect(html).toContain(`data-group="${group}"`);
       expect(html).toContain(`data-action="toggle-settings-group"`);
     }
     expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(10);
     expect(html).toContain("fa-chevron-down");
     // 摘要在折叠态可见
-    expect(html).toContain("{{memoryContext}}");
+    expect(html).toContain("{{ste}}");
     expect(html).toContain("未配置");
     // 顺序：插件总开关 < 记忆宏 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 云同步 < 版本 < 面板安全区 < 危险操作
-    const order = ["插件总开关", "记忆宏", "Agent 连接", "Agent 提示词预设", "清洗规则", "数据备份", "对话文件镜像", "云同步（Cloudflare R2）", "版本与运行状态", "面板安全区", "危险操作"];
+    const order = [
+      "插件总开关",
+      "记忆宏",
+      "Agent 连接",
+      "Agent 提示词预设",
+      "清洗规则",
+      "数据备份",
+      "对话文件镜像",
+      "云同步（Cloudflare R2）",
+      "版本与运行状态",
+      "面板安全区",
+      "危险操作",
+    ];
     let lastIdx = -1;
     for (const title of order) {
       const idx = html.indexOf(title);

@@ -280,8 +280,8 @@ describe("MemoryMacroService 注册生命周期", () => {
 
     await h.service.start();
 
-    expect([...h.registrar.registered.keys()]).toContain("memoryContext");
-    expect([...h.registrar.registered.keys()]).toContain("memoryFull");
+    // 只注册一个前缀宏（内置/视图/对话宏全部走 {{前缀::名字}} 分发）
+    expect([...h.registrar.registered.keys()]).toEqual(["memoryContext"]);
     expect(h.invokeHandler("memoryContext")).toBe("【人物】\n张三");
   });
 
@@ -335,8 +335,8 @@ describe("MemoryMacroService 注册生命周期", () => {
     // 重新启用 + 数据未变（指纹相同）：重建判定必须重新武装，快照恢复而非永久为空
     h.setSettings({ enabled: true });
     await h.service.kick();
-    expect([...h.registrar.registered.keys()]).toContain("memoryContext");
-    expect([...h.registrar.registered.keys()]).toContain("memoryFull");
+    // 只注册一个前缀宏（内置/视图/对话宏全部走 {{前缀::名字}} 分发）
+    expect([...h.registrar.registered.keys()]).toEqual(["memoryContext"]);
     expect(h.invokeHandler("memoryContext")).toBe("【人物】\n张三");
   });
 });
@@ -562,11 +562,11 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
     h.setSettings({ memoryViews: [view] });
   }
 
-  it("注册携带可选视图名参数声明（unnamedArgs viewName）", async () => {
+  it("注册携带可选名字参数声明（unnamedArgs name）", async () => {
     const h = createHarness();
     await h.service.start();
     expect(h.registrar.registeredArgs.get("memoryContext")).toEqual([
-      { name: "viewName", optional: true, defaultValue: "" },
+      { name: "name", optional: true, defaultValue: "" },
     ]);
   });
 
@@ -641,7 +641,7 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
     expect(h.invokeHandler("memoryContext", ["不存在的视图"])).toBe("");
     expect(h.invokeHandler("memoryContext", [""])).toBe(""); // {{宏名::}}
     expect(h.warns.some((w) => w.includes("不存在的视图"))).toBe(true);
-    expect(h.warns.some((w) => w.includes("空视图名"))).toBe(true);
+    expect(h.warns.some((w) => w.includes("空名字"))).toBe(true);
   });
 
   it("视图 CRUD（设置变化）kick 立即生效：新增/删除视图无需等轮询", async () => {
@@ -682,7 +682,7 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
     h.setSettings({ memoryViews: [] });
     await h.service.kick();
     expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("");
-    expect(h.warns.some((w) => w.includes("未知视图"))).toBe(true);
+    expect(h.warns.some((w) => w.includes("未知宏名"))).toBe(true);
     // 默认快照不受影响
     expect(h.invokeHandler("memoryContext")).toBe("【伏笔】\n深夜的钟声");
   });
@@ -750,5 +750,246 @@ describe("MemoryMacroService 记忆视图（ticket 02 / ADR 0025）", () => {
     h.setSettings({ enabled: true });
     await h.service.kick();
     expect(h.invokeHandler("memoryContext", ["未完成伏笔"])).toBe("深夜的钟声");
+  });
+});
+
+describe("MemoryMacroService 内置宏分发（{{前缀::名字}}）", () => {
+  it("{{前缀::full}} = 全部启用表完整 Markdown；{{前缀::表Key}} = 单表（中文表 Key 可用）", async () => {
+    const h = createHarness();
+    h.data.tables = [
+      table("t1", "人物"),
+      { ...table("c1", "角色"), key: "角色" as MemoryTableKey },
+    ];
+    h.data.recordsByTable.set("t1" as MemoryTableId, [viewRecord("r1", "张三", { f1: "张三" })]);
+    h.data.recordsByTable.set("c1" as MemoryTableId, [viewRecord("r2", "王五", { f2: "王五" })]);
+    h.reader.fieldsByTable.set("t1" as MemoryTableId, [field("f1", "姓名")]);
+    h.reader.fieldsByTable.set("c1" as MemoryTableId, [field("f2", "身份")]);
+    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 2, records: 2 }));
+
+    await h.service.start();
+
+    const full = h.invokeHandler("memoryContext", ["full"]);
+    expect(full).toContain("## 人物");
+    expect(full).toContain("## 角色");
+    expect(full).toContain("张三");
+    expect(full).toContain("王五");
+    // 表 Key 是字符串参数：ASCII 与中文表 Key 都直接可用
+    expect(h.invokeHandler("memoryContext", ["table-t1"])).toContain("## 人物");
+    expect(h.invokeHandler("memoryContext", ["table-t1"])).not.toContain("## 角色");
+    expect(h.invokeHandler("memoryContext", ["角色"])).toContain("## 角色");
+    expect(h.invokeHandler("memoryContext", ["角色"])).not.toContain("## 人物");
+    // 未知名字：空串 + 警告
+    expect(h.invokeHandler("memoryContext", ["没有的表"])).toBe("");
+    expect(h.warns.some((w) => w.includes("没有的表"))).toBe(true);
+  });
+});
+
+describe("MemoryMacroService 聊天 Scope 宏（{{前缀::宏名}}）", () => {
+  /** 聊天宏环境：chatMetadata 宏列表可变 + 伏笔表 1 条记录（与视图测试同数据源） */
+  function seedChatHarness(h: ReturnType<typeof createHarness>, _view: MemoryView) {
+    h.data.tables = [plotsTable()];
+    h.data.recordsByTable.set("table-plots" as MemoryTableId, [record("r1", "深夜的钟声")]);
+    h.reader.resultsByTable.set("table-plots" as MemoryTableId, {
+      records: [
+        viewRecord("r1", "深夜的钟声", {
+          "field-name": "深夜的钟声",
+          "field-status": "埋设中",
+        }),
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+      totalPages: 1,
+    });
+    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1, records: 1 }));
+  }
+
+  it("优先级：对话宏 > 全局视图 > 内置（同名覆盖）", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const chatView: MemoryView = {
+      name: "full", // 对话宏覆盖内置 full
+      tableKey: "plots",
+      condition: null,
+      limit: 50,
+      projection: [],
+    };
+    seedChatHarness(h, chatView);
+    chatMacros = [chatView];
+
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["full"])).toBe("深夜的钟声");
+
+    // 删除对话宏：无同名视图时回落内置 full（此环境有伏笔表 → Markdown）
+    chatMacros = [];
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["full"])).toContain("## 伏笔");
+    expect(h.service.getChatScopeSnapshot("full")).toBeUndefined();
+
+    // 同名全局视图接管（视图 > 内置）
+    h.setSettings({
+      memoryViews: [
+        {
+          name: "full",
+          tableKey: "plots",
+          condition: null,
+          limit: 50,
+          projection: [],
+        },
+      ],
+    });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["full"])).toBe("深夜的钟声");
+
+    // 对话宏再回来：对话 > 视图
+    chatMacros = [chatView];
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["full"])).toBe("深夜的钟声");
+  });
+
+  it("{{前缀::宏名}} 展开：单一前缀注册，快照与全局视图同一翻译/查询/渲染管线", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const chatView: MemoryView = {
+      name: "伏笔速览",
+      tableKey: "plots",
+      condition: { fieldKey: "status", values: ["埋设中"] },
+      limit: 50,
+      projection: ["name"],
+    };
+    seedChatHarness(h, chatView);
+    chatMacros = [chatView];
+
+    await h.service.start();
+
+    // 只有前缀一个注册名（不注册独立宏名）
+    expect([...h.registrar.registered.keys()]).toEqual(["memoryContext"]);
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("名称：深夜的钟声");
+    // 快照走查询端口（与视图同源）
+    expect(h.reader.queryCalls.some((c) => c.tableId === "table-plots")).toBe(true);
+  });
+
+  it("CRUD kick 即时生效：改名立即切换；删除后同名全局视图接管", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const chatView: MemoryView = {
+      name: "伏笔速览",
+      tableKey: "plots",
+      condition: null,
+      limit: 50,
+      projection: [],
+    };
+    seedChatHarness(h, chatView);
+    chatMacros = [chatView];
+
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
+
+    // 改名：kick 后新名下分发到新内容
+    const renamed: MemoryView = { ...chatView, name: "伏笔速览v2" };
+    chatMacros = [renamed];
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览v2"])).toBe("深夜的钟声");
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe(""); // 旧名已无定义
+
+    // 同名全局视图存在时：对话宏删除后由全局视图接管（优先级链回落）
+    h.setSettings({
+      memoryViews: [
+        {
+          name: "伏笔速览",
+          tableKey: "plots",
+          condition: null,
+          limit: 50,
+          projection: [],
+        },
+      ],
+    });
+    chatMacros = [];
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
+  });
+
+  it("对话宏配置错误：空串 + 警告，且不回落同名全局视图（覆盖优先）", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const broken: MemoryView = {
+      name: "坏宏",
+      tableKey: "nope", // 表不存在
+      condition: null,
+      limit: 50,
+      projection: [],
+    };
+    seedChatHarness(h, broken);
+    chatMacros = [broken];
+    // 同名全局视图配置正常：对话宏仍以空串覆盖（不回落）
+    h.setSettings({
+      memoryViews: [
+        {
+          name: "坏宏",
+          tableKey: "plots",
+          condition: null,
+          limit: 50,
+          projection: [],
+        },
+      ],
+    });
+
+    await h.service.start();
+
+    expect(h.invokeHandler("memoryContext", ["坏宏"])).toBe("");
+    expect(h.warns.some((w) => w.includes("坏宏") && w.includes("配置错误"))).toBe(true);
+    expect(h.invokeHandler("memoryContext", ["full"])).toContain("## 伏笔"); // 内置 full 不受影响
+  });
+
+  it("查询失败：单轮保旧值 + 日志（下轮轮询重试）", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const chatView: MemoryView = {
+      name: "伏笔速览",
+      tableKey: "plots",
+      condition: null,
+      limit: 50,
+      projection: [],
+    };
+    seedChatHarness(h, chatView);
+    chatMacros = [chatView];
+
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
+
+    h.reader.queryError = new Error("查询故障");
+    h.changes.fingerprints.set(
+      "space-1",
+      fingerprint("2026-07-28T02:00:00.000Z", { tables: 1, records: 1 }),
+    );
+    await tick();
+
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声"); // 保旧值
+    expect(h.errors.some((e) => e.includes("伏笔速览") && e.includes("查询故障"))).toBe(true);
+  });
+
+  it("插件停用：唯一注册注销；重新启用恢复分发", async () => {
+    let chatMacros: readonly MemoryView[] = [];
+    const h = createHarness({ readChatScopeMacros: () => chatMacros });
+    const chatView: MemoryView = {
+      name: "伏笔速览",
+      tableKey: "plots",
+      condition: null,
+      limit: 50,
+      projection: [],
+    };
+    seedChatHarness(h, chatView);
+    chatMacros = [chatView];
+
+    await h.service.start();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
+
+    h.setSettings({ enabled: false });
+    await h.service.kick();
+    expect(h.registrar.registered.size).toBe(0);
+
+    h.setSettings({ enabled: true });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
   });
 });

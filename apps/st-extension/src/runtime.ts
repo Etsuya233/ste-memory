@@ -44,6 +44,7 @@ import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { FillTaskPromptContext } from "./fill-tasks/fill-task-service.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
+import type { MemoryView } from "./settings/memory-views.ts";
 import { ChatSpaceManager } from "./space-binding/chat-space-manager.ts";
 import { StChatAdapter, type StContext, type StRegexEntry } from "./st/st-chat-adapter.ts";
 import { StSettingsStore } from "./st/st-settings-store.ts";
@@ -100,8 +101,8 @@ export interface SteMemoryRuntime {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
-    readonly readChatScopeMacros: () => readonly import("./settings/memory-views.ts").MemoryView[];
-    readonly writeChatScopeMacros: (macros: readonly import("./settings/memory-views.ts").MemoryView[]) => void;
+    readonly readChatScopeMacros: () => readonly MemoryView[];
+    readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;

@@ -1,7 +1,7 @@
 // ticket 15 手动验收：真实 ST 中「记忆宏注册 → 快照预计算 → 数据变更后展开最新记忆 →
 // 宏名自定义生效 → 上限截断 → 停用无注入」
 //
-// 展开验证走 ST 宏引擎真实路径：macros.engine.evaluate("{{memoryContext}}", {})（引擎
+// 展开验证走 ST 宏引擎真实路径：macros.engine.evaluate("{{ste}}", {})（引擎
 // 公开 API，handler 不消费 env）；数据写入走插件运行时（bootstrap 暴露的
 // __STE_MEMORY_RUNTIME__，core 服务层 → displayText/updatedAt/指纹全链路）。
 //
@@ -173,17 +173,17 @@ async function main() {
       const registry = SillyTavern.getContext().macros.registry;
       return {
         spaceId: status?.kind === "active" ? status.space.id : null,
-        hasMemoryContext: registry.hasMacro("memoryContext"),
-        macroName: registry.getMacro("memoryContext")?.name ?? null,
+        hasMemoryContext: registry.hasMacro("ste"),
+        macroName: registry.getMacro("ste")?.name ?? null,
       };
     });
-    check("默认宏名注册：{{memoryContext}} → 裸标识符 memoryContext 已注册",
+    check("默认前缀注册：{{ste}} → 裸标识符 ste 已注册",
       ctxInfo.hasMemoryContext && ctxInfo.macroName === "memoryContext", JSON.stringify(ctxInfo));
     const spaceId = ctxInfo.spaceId;
     if (!spaceId) throw new Error("空间未就绪");
 
     // 2. 空库（无记录）：展开为空串（空表省略，宏仍注册 = 无注入语义）
-    const emptyExpansion = await expandMacro(page, "{{memoryContext}}");
+    const emptyExpansion = await expandMacro(page, "{{ste}}");
     check("空库展开为空串（空表省略）", emptyExpansion === "", JSON.stringify(emptyExpansion));
 
     // 3. 创建第一条记录（人物表必填 name）→ kick → 展开含分组标题与显示文本
@@ -204,24 +204,34 @@ async function main() {
     await page.evaluate(() => window.__STE_MEMORY_RUNTIME__.macro.kick());
     await waitUntil(
       page,
-      () => window.__steExpand("{{memoryContext}}").includes("张三"),
+      () => window.__steExpand("{{ste}}").includes("张三"),
       "展开包含新记录",
     );
-    const afterFirst = await expandMacro(page, "{{memoryContext}}");
+    const afterFirst = await expandMacro(page, "{{ste}}");
     check("数据变更后展开最新记忆（表名标题行 + 记录显示文本）",
       afterFirst.includes(`【${tableInfo.tableName}】`) && afterFirst.includes("张三")
         && !afterFirst.includes("……（已截断）"),
       JSON.stringify(afterFirst));
+
+    // 3b. {{前缀::名字}} 分发：{{ste::full}} 完整 Markdown + {{ste::表Key}} 单表
+    const fullExpansion = await expandMacro(page, "{{ste::full}}");
+    check("{{ste::full}} 展开完整 Markdown（表标题 + 记录）",
+      fullExpansion.includes("## ") && fullExpansion.includes("张三"),
+      JSON.stringify(fullExpansion));
+    const tableKeyExpansion = await expandMacro(page, "{{ste::characters}}");
+    check("{{ste::表Key}} 展开单表数据（表标题 + 记录）",
+      tableKeyExpansion.includes("## 人物") && tableKeyExpansion.includes("张三"),
+      JSON.stringify(tableKeyExpansion));
 
     // 4. 第二条记录：组内最新在前（李四先于张三）
     const secondRecord = await createRecord(page, spaceId, tableInfo.tableId, { [tableInfo.nameFieldId]: "李四" });
     await page.evaluate(() => window.__STE_MEMORY_RUNTIME__.macro.kick());
     await waitUntil(
       page,
-      () => window.__steExpand("{{memoryContext}}").includes("李四"),
+      () => window.__steExpand("{{ste}}").includes("李四"),
       "展开包含第二条记录",
     );
-    const afterSecond = await expandMacro(page, "{{memoryContext}}");
+    const afterSecond = await expandMacro(page, "{{ste}}");
     check("组内最新在前（李四在张三前）",
       afterSecond.indexOf("李四") < afterSecond.indexOf("张三"), JSON.stringify(afterSecond));
 
@@ -233,10 +243,10 @@ async function main() {
     });
     await waitUntil(
       page,
-      () => window.__steExpand("{{memoryContext}}").endsWith("……（已截断）"),
+      () => window.__steExpand("{{ste}}").endsWith("……（已截断）"),
       "展开带截断标记",
     );
-    const truncated = await expandMacro(page, "{{memoryContext}}");
+    const truncated = await expandMacro(page, "{{ste}}");
     check("超上限尾部截断 + 标记（总长 = 上限 9）",
       truncated.endsWith("……（已截断）") && [...truncated].length === 9,
       JSON.stringify(truncated));
@@ -249,7 +259,7 @@ async function main() {
     });
     await waitUntil(
       page,
-      () => window.__steExpand("{{memoryContext}}").includes("李四"),
+      () => window.__steExpand("{{ste}}").includes("李四"),
       "恢复上限后展开完整内容",
     );
 
@@ -278,7 +288,7 @@ async function main() {
       page,
       () => {
         const registry = SillyTavern.getContext().macros.registry;
-        return registry.hasMacro("myMemory") && !registry.hasMacro("memoryContext");
+        return registry.hasMacro("myMemory") && !registry.hasMacro("ste");
       },
       "改名后重注册（旧名注销）",
     );
@@ -291,7 +301,7 @@ async function main() {
       const runtime = window.__STE_MEMORY_RUNTIME__;
       runtime.settings.write({
         ...runtime.settings.read(),
-        macroName: "{{memoryContext}}",
+        macroName: "{{ste}}",
         macroLimit: 2000,
       });
     });
@@ -316,7 +326,7 @@ async function main() {
     );
     await waitUntil(
       page,
-      () => window.__steExpand("{{memoryContext}}").includes("李四") === false,
+      () => window.__steExpand("{{ste}}").includes("李四") === false,
       "验收记录清理后展开不含残留",
     );
 

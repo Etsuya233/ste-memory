@@ -14,7 +14,6 @@ import { mirrorStatusSummary, syncStatusSummary } from "./space-info.ts";
 /** 设置分组稳定标识（持久化键）；插件总开关不参与折叠 */
 export const SETTINGS_GROUP_KEYS = [
   "macro",
-  "chat-scope-macros",
   "agent-connections",
   "agent-presets",
   "cleaning",
@@ -90,19 +89,16 @@ export function toggleGroup(
   return next;
 }
 
-export function isExpanded(
-  groups: ReadonlySet<SettingsGroupKey>,
-  key: SettingsGroupKey,
-): boolean {
+export function isExpanded(groups: ReadonlySet<SettingsGroupKey>, key: SettingsGroupKey): boolean {
   return groups.has(key);
 }
 
 // ---- 折叠头摘要（折叠态一行 12px 副标题） ----
 
-export function macroSummary(settings: PluginSettings): string {
+export function macroSummary(settings: PluginSettings, chatScopeMacroCount: number): string {
   const name = settings.macroName.trim() === "" ? "未配置" : settings.macroName;
-  const count = settings.memoryViews.length;
-  return `${name} · ${count}视图`;
+  const views = settings.memoryViews.length;
+  return `${name} · ${views}视图 · ${chatScopeMacroCount}对话宏`;
 }
 
 export function agentConnectionsSummary(settings: PluginSettings): string {
@@ -113,10 +109,7 @@ export function agentConnectionsSummary(settings: PluginSettings): string {
   return `${total}个 · 填表:${fillName} · 查询:${queryName}`;
 }
 
-function resolveConnectionName(
-  settings: PluginSettings,
-  id: string | undefined,
-): string {
+function resolveConnectionName(settings: PluginSettings, id: string | undefined): string {
   if (id === undefined) return FOLLOW_ST_CONNECTION_LABEL;
   const found = settings.agentConnections.find((c) => c.id === id);
   return found ? found.name : FOLLOW_ST_CONNECTION_LABEL;
@@ -146,18 +139,12 @@ export function cleaningSummary(
   return `${total}列表 · 当前:${name}`;
 }
 
-export function mirrorSummary(
-  settings: PluginSettings,
-  mirrorStatus: ChatMirrorStatus,
-): string {
+export function mirrorSummary(settings: PluginSettings, mirrorStatus: ChatMirrorStatus): string {
   if (!settings.mirror.enabled) return "已停用";
   return mirrorStatusSummary(mirrorStatus);
 }
 
-export function r2Summary(
-  settings: PluginSettings,
-  syncStatus: CloudSyncStatus,
-): string {
+export function r2Summary(settings: PluginSettings, syncStatus: CloudSyncStatus): string {
   if (!isR2Configured(settings)) return "未配置";
   return syncStatusSummary(syncStatus);
 }

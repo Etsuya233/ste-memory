@@ -164,7 +164,7 @@ export interface MemoryFullRenderInput {
 }
 
 /**
- * 渲染 memoryFull 快照：每表一个 section（表名标题 + Markdown 表格）。
+ * 渲染内置全量宏（{{前缀::full}}）快照：每表一个 section（表名标题 + Markdown 表格）。
  * 空表输出表头但无数据行。最终文本过宏语法消毒 + 尾部截断。
  */
 export function renderMemoryFullSnapshot(input: MemoryFullRenderInput): string {

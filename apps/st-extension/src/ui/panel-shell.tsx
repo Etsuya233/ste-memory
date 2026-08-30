@@ -29,7 +29,14 @@ import type {
   MemoryBackupSnapshot,
   MemorySpaceBackup,
 } from "@ste-memory/core/memory/export";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { PLUGIN_DISPLAY_NAME } from "../constants.ts";
 import {
   DESKTOP_MEDIA_QUERY,
@@ -117,6 +124,8 @@ import { AgentConnectionManager } from "./agent-connection-manager.tsx";
 import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
+import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
+import type { MemoryView } from "../settings/memory-views.ts";
 import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
@@ -197,8 +206,8 @@ export interface PanelRuntime {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
-    readonly readChatScopeMacros: () => readonly import("../settings/memory-views.ts").MemoryView[];
-    readonly writeChatScopeMacros: (macros: readonly import("../settings/memory-views.ts").MemoryView[]) => void;
+    readonly readChatScopeMacros: () => readonly MemoryView[];
+    readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
   readonly settings: SettingsStore;
   readonly version: string;
@@ -1381,6 +1390,15 @@ function TablesTab(props: {
 
 // ---- 设置 Tab ----
 
+/** 记忆宏组内作用域分区：内置宏（只读）/ 全局宏（宏名 + 视图）/ 对话级宏（聊天 Scope CRUD） */
+type MacroScopeTab = "builtin" | "global" | "chat";
+
+const MACRO_SCOPE_TABS: readonly { readonly key: MacroScopeTab; readonly label: string }[] = [
+  { key: "builtin", label: "内置宏" },
+  { key: "global", label: "全局宏" },
+  { key: "chat", label: "对话级宏" },
+];
+
 function SettingsTab(props: {
   readonly runtime: PanelRuntime;
   readonly status: SpaceContextStatus | undefined;
@@ -1405,6 +1423,16 @@ function SettingsTab(props: {
   useEffect(() => {
     setChatCleaningListId(props.runtime.cleaning.readSelection());
   }, [props.status, props.runtime]);
+  // 当前对话的聊天 Scope 宏（双 Scope 宏系统）：本地态 = chatMetadata 的镜像，
+  // 变更即写 chatMetadata（防抖持久化）+ macro.kick()；对话切换（status 变化）后重新读取。
+  const [chatScopeMacros, setChatScopeMacros] = useState<readonly MemoryView[]>(() =>
+    props.runtime.cleaning.readChatScopeMacros(),
+  );
+  useEffect(() => {
+    setChatScopeMacros(props.runtime.cleaning.readChatScopeMacros());
+  }, [props.status, props.runtime]);
+  // 「记忆宏」组内作用域分区（内置/全局/对话级）；默认全局（原有行为）
+  const [macroScopeTab, setMacroScopeTab] = useState<MacroScopeTab>("global");
   const r2 = props.settings.r2;
   const configured = isR2Configured(props.settings);
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
@@ -1757,7 +1785,9 @@ function SettingsTab(props: {
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">
               记忆宏
             </div>
-            <div className="stm-setting-group-summary">{macroSummary(props.settings)}</div>
+            <div className="stm-setting-group-summary">
+              {macroSummary(props.settings, chatScopeMacros.length)}
+            </div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "macro") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -1766,84 +1796,93 @@ function SettingsTab(props: {
         </button>
         {isSettingsGroupExpanded(expandedGroups, "macro") && (
           <div className="stm-setting-group-body">
-            <input
-              className="stm-input"
-              type="text"
-              data-stm-field="macro-name"
-              value={props.settings.macroName}
-              placeholder="{{memoryContext}}"
-              onChange={(event) => updateMacroName(event.target.value)}
-            />
-            <input
-              className="stm-input"
-              type="number"
-              min="0"
-              step="100"
-              data-stm-field="macro-limit"
-              value={props.settings.macroLimit}
-              onChange={(event) => updateMacroLimit(event.target.value)}
-            />
-            <div className="stm-setting-hint">
-              宏名放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
-              当前记忆：无参 = 全部启用表分组快照；{"{{宏名::视图名}}"} = 对应视图快照；
-              超过上方字符上限从尾部截断并附「……（已截断）」标记；不填宏名则不注入
+            {/* 作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 */}
+            <div className="stm-macro-scope-tabs" role="tablist" aria-label="记忆宏作用域">
+              {MACRO_SCOPE_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className="stm-macro-scope-tab"
+                  role="tab"
+                  data-action="macro-scope"
+                  data-macro-scope={tab.key}
+                  aria-selected={macroScopeTab === tab.key}
+                  onClick={() => setMacroScopeTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-            <MemoryViewsManager
-              spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-              readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
-              readFields={(spaceId, tableId) =>
-                props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-              }
-              views={props.settings.memoryViews}
-              onChange={(views) => {
-                const next = { ...props.settings, memoryViews: views };
-                props.runtime.settings.write(next);
-                props.onSettingsChange(next);
-                void props.runtime.macro.kick().catch(reportError);
-              }}
-            />
-          </div>
-        )}
-      </div>
 
-      {/* 对话级宏（双 Scope 宏系统） */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="chat-scope-macros">
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="chat-scope-macros"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "chat-scope-macros")}
-          onClick={() => toggleGroup("chat-scope-macros")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              对话级宏
-            </div>
-            <div className="stm-setting-group-summary">
-              {props.status?.kind === "active" ? "当前对话" : "未绑定对话"}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "chat-scope-macros") ? "fa-chevron-up" : "fa-chevron-down"}`}
-            aria-hidden="true"
-          />
-        </button>
-        {isSettingsGroupExpanded(expandedGroups, "chat-scope-macros") && (
-          <div className="stm-setting-group-body stm-setting-group-body--manager">
-            <ChatScopeMacrosManager
-              spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-              readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
-              readFields={(spaceId, tableId) =>
-                props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-              }
-              globalMacroNames={[props.settings.macroName.replace(/[{}]/g, "")]}
-              macros={props.runtime.cleaning.readChatScopeMacros?.() ?? []}
-              onChange={(macros) => {
-                props.runtime.cleaning.writeChatScopeMacros?.(macros);
-                void props.runtime.macro.kick().catch(reportError);
-              }}
-            />
+            {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}） */}
+            {macroScopeTab === "builtin" && (
+              <BuiltinMacrosList
+                prefix={props.settings.macroName.replace(/[{}]/g, "")}
+                spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+                readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+              />
+            )}
+
+            {/* 全局宏：宏名 + 字符上限 + 视图 CRUD（当前行为不变） */}
+            {macroScopeTab === "global" && (
+              <>
+                <input
+                  className="stm-input"
+                  type="text"
+                  data-stm-field="macro-name"
+                  value={props.settings.macroName}
+                  placeholder="{{ste}}"
+                  onChange={(event) => updateMacroName(event.target.value)}
+                />
+                <input
+                  className="stm-input"
+                  type="number"
+                  min="0"
+                  step="100"
+                  data-stm-field="macro-limit"
+                  value={props.settings.macroLimit}
+                  onChange={(event) => updateMacroLimit(event.target.value)}
+                />
+                <div className="stm-setting-hint">
+                  前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
+                  当前记忆：{"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full /
+                  表 Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
+                  超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
+                </div>
+                <MemoryViewsManager
+                  spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+                  readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                  readFields={(spaceId, tableId) =>
+                    props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                  }
+                  views={props.settings.memoryViews}
+                  onChange={(views) => {
+                    const next = { ...props.settings, memoryViews: views };
+                    props.runtime.settings.write(next);
+                    props.onSettingsChange(next);
+                    void props.runtime.macro.kick().catch(reportError);
+                  }}
+                />
+              </>
+            )}
+
+            {/* 对话级宏：聊天 Scope 宏 CRUD（随对话文件走） */}
+            {macroScopeTab === "chat" && (
+              <ChatScopeMacrosManager
+                prefix={props.settings.macroName.replace(/[{}]/g, "")}
+                spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+                readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                readFields={(spaceId, tableId) =>
+                  props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                }
+                macros={chatScopeMacros}
+                onChange={(macros) => {
+                  props.runtime.cleaning.writeChatScopeMacros?.(macros);
+                  setChatScopeMacros(macros);
+                  void props.runtime.macro.kick().catch(reportError);
+                }}
+              />
+            )}
           </div>
         )}
       </div>
@@ -2054,7 +2093,8 @@ function SettingsTab(props: {
               }}
             />
             <div className="stm-setting-hint">
-              仅备份/恢复当前对话的记忆空间；spaceId 不匹配或当前对话无绑定时克隆新空间（原空间保留）
+              仅备份/恢复当前对话的记忆空间；spaceId
+              不匹配或当前对话无绑定时克隆新空间（原空间保留）
             </div>
           </div>
         )}

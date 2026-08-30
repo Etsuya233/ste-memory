@@ -81,20 +81,27 @@ describe("settings-collapsed-model（折叠持久化）", () => {
 });
 
 describe("折叠头摘要", () => {
-  it("macroSummary：宏名 + 视图数", () => {
+  it("macroSummary：宏名 + 视图数 + 对话宏数", () => {
     const settings: PluginSettings = {
       ...DEFAULT_SETTINGS,
       macroName: "{{memoryContext}}",
       memoryViews: [
-        { name: "v1", tableKey: "t", conditionFieldKey: "", conditionValues: [], projection: [], limit: undefined } as never,
+        {
+          name: "v1",
+          tableKey: "t",
+          conditionFieldKey: "",
+          conditionValues: [],
+          projection: [],
+          limit: undefined,
+        } as never,
       ],
     };
-    expect(macroSummary(settings)).toBe("{{memoryContext}} · 1视图");
+    expect(macroSummary(settings, 2)).toBe("{{memoryContext}} · 1视图 · 2对话宏");
   });
 
   it("macroSummary：空宏名 → 未配置", () => {
     const settings = { ...DEFAULT_SETTINGS, macroName: "  ", memoryViews: [] } as PluginSettings;
-    expect(macroSummary(settings)).toBe("未配置 · 0视图");
+    expect(macroSummary(settings, 0)).toBe("未配置 · 0视图 · 0对话宏");
   });
 
   it("agentConnectionsSummary：未配置", () => {
@@ -147,10 +154,13 @@ describe("折叠头摘要", () => {
   });
 
   it("mirrorSummary：停用", () => {
-    const settings = { ...DEFAULT_SETTINGS, mirror: { enabled: false, includeHistory: true } } as PluginSettings;
-    expect(mirrorSummary(settings, { kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined })).toBe(
-      "已停用",
-    );
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      mirror: { enabled: false, includeHistory: true },
+    } as PluginSettings;
+    expect(
+      mirrorSummary(settings, { kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
+    ).toBe("已停用");
   });
 
   it("r2Summary：未配置", () => {

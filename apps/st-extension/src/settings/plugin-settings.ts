@@ -40,7 +40,8 @@ export interface PluginSettings {
   readonly enabled: boolean;
   /** R2 云同步配置（ticket 08 生效；ticket 06 仅占位展示） */
   readonly r2: R2Settings;
-  /** 记忆宏名（ticket 15 生效；默认建议 {{memoryContext}}，用户可直接粘贴进提示词预设） */
+  /** 记忆宏全局前缀（ticket 15 生效；默认建议 {{ste}}，用户可直接粘贴进提示词预设）：
+   * {{前缀}} = 默认快照；{{前缀::名字}} = 内置宏/视图/对话宏（对话 > 全局 > 内置） */
   readonly macroName: string;
   /** 记忆宏输出上限（字符，ticket 15；超出从尾部截断并附标记；默认 2000） */
   readonly macroLimit: number;
@@ -66,7 +67,7 @@ export const SETTINGS_KEY = "steMemory";
 export const DEFAULT_SETTINGS: PluginSettings = {
   enabled: true,
   r2: { accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "" },
-  macroName: "{{memoryContext}}",
+  macroName: "{{ste}}",
   macroLimit: 2000,
   mirror: { enabled: true, includeHistory: true },
   agentPresets: DEFAULT_AGENT_PRESET_SETTINGS,

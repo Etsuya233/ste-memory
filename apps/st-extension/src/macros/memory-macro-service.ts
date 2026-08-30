@@ -15,34 +15,39 @@ import {
 import type { SyncTimerPort } from "../cloud/sync-coordinator.ts";
 import { PollingEvaluator } from "../polling-evaluator.ts";
 import type { MemoryView } from "../settings/memory-views.ts";
-import { BUILTIN_FULL_MACRO, BUILTIN_TABLE_MACRO_PREFIX, isBuiltinMacroName } from "./chat-scope-macros.ts";
-import { MacroRegistry } from "./macro-registry.ts";
 import { resolveMacroRegistrationName } from "./macro-name.ts";
 import { assembleMemoryContextSnapshot } from "./memory-context-snapshot.ts";
 import { planMemoryViewQuery, resolveViewReferenceLabels } from "./memory-view-query.ts";
-import { renderMemoryViewSnapshot } from "./memory-view-render.ts";
+import { renderMemoryFullSnapshot, renderMemoryViewSnapshot } from "./memory-view-render.ts";
 
 /**
- * 记忆宏服务（插件纯逻辑 seam，ticket 15 / ADR 0004 + ticket 02 / ADR 0025）：
+ * 记忆宏服务（插件纯逻辑 seam，ticket 15 / ADR 0004 + ticket 02 / ADR 0025 +
+ * 双 Scope 宏系统复审）：`前缀::名字` 统一分发模型。
  *
- * - 注册：宏名由用户配置（设置面板，默认 {{memoryContext}}），解析为 ST 注册名
+ * - 注册：全局前缀由用户配置（设置面板，默认 {{ste}}），解析为 ST 注册名
  *   （裸标识符）后经 macros.register(name, { handler, unnamedArgs }) 注册；名字不
  *   合法/为空/插件停用 → 不注册（「不放置宏则无注入」）；名字变化 → 注销旧名再
- *   注册新名。注册带一个可选视图名参数（{{宏名::视图名}}，ST 位置参数语法）；
+ *   注册新名。注册带一个可选名字参数（{{前缀::名字}}，ST 位置参数语法，0/1 个）；
  *   两个以上参数由 ST 参数校验拒绝（文档说明）。
+ * - 分发（handler 同步查表，无任何独立宏名注册）：
+ *   - 无参 {{前缀}} → 默认快照（全部启用表分组摘要）；
+ *   - {{前缀::名字}} → 优先级 对话级宏 > 全局视图 > 内置宏（full / 表 Key）；
+ *     名字是字符串参数，表 Key 无需满足 ST 标识符规则（{{ste::角色}} 可用）。
  * - 快照：宏 handler 必须同步返回（ST 宏引擎同步约束，返回 Promise 会被字符串化），
- *   因此维护「组装好的记忆上下文文本」预计算快照——默认快照（无参展开，ticket 15
- *   行为不变）+ 每视图快照（{{宏名::视图名}} 展开）；数据变更时重建。
- * - 视图快照重建 = 视图翻译成记忆查询（core 查询契约）经 reader.queryRecords
- *   异步执行 → 渲染 → 缓存；翻译失败（缺表/缺字段/筛选字段类型不支持）→ 该视图
- *   快照 = 空串 + 日志（面板可显示配置错误）；查询/渲染异常 → 单轮保旧值。
+ *   因此维护「组装好的记忆上下文文本」预计算快照——默认快照 + 每视图快照 +
+ *   内置宏快照（full + 每启用表）；数据变更时重建。翻译失败（缺表/缺字段/筛选
+ *   字段类型不支持）→ 对应名字快照 = 空串 + 日志（覆盖优先：空串不回落）；
+ *   查询/渲染异常 → 单轮保旧值。
  * - 重建时机：轮询当前绑定空间的变更指纹（与云同步/镜像同机制，DexieSyncChangeSource），
  *   指纹变化（同步/填表/手动编辑/导入都会改变行数或最大 updatedAt）→ 重新组装；
- *   切对话（活动空间变化）同样在轮询里收敛；设置变化（宏名/上限/开关/视图 CRUD）
- *   由宿主 kick 立即评估。
+ *   切对话（活动空间/chatMetadata 变化）同样在轮询里收敛；设置变化（前缀/上限/
+ *   开关/视图 CRUD）由宿主 kick 立即评估。
  *
- * 组装规则见 memory-context-snapshot.ts（默认快照）与 memory-view-render.ts（视图）。
+ * 组装规则见 memory-context-snapshot.ts（默认快照）与 memory-view-render.ts（视图/内置）。
  */
+
+/** 内置全量宏名（{{前缀::full}}）：所有启用表完整 Markdown */
+export const BUILTIN_FULL_ARG = "full";
 
 /** 宏数据端口：宿主 = Dexie repository（结构满足 core 端口契约的窄子集） */
 export interface MemoryMacroDataPorts {
@@ -55,20 +60,20 @@ export interface MemoryMacroDataPorts {
 
 /** ST 宏执行上下文子集（宿主 = ST MacroExecutionContext；宏 handler 的入参） */
 export interface MemoryMacroExecutionContext {
-  /** 位置参数（{{宏名::视图名}} → ["视图名"]；无参 → []） */
+  /** 位置参数（{{前缀::名字}} → ["名字"]；无参 → []） */
   readonly unnamedArgs?: readonly string[];
 }
 
-/** 宏参数声明（ST MacroUnnamedArgDef 子集；记忆宏 = 一个可选视图名参数） */
+/** 宏参数声明（ST MacroUnnamedArgDef 子集；记忆宏 = 一个可选名字参数） */
 export interface MemoryMacroArgSpec {
   readonly name: string;
   readonly optional?: boolean;
   readonly defaultValue?: string;
 }
 
-/** 记忆宏的可选视图名参数声明（注册时传给 ST） */
-export const MEMORY_MACRO_VIEW_NAME_ARG: MemoryMacroArgSpec = {
-  name: "viewName",
+/** 记忆宏的可选名字参数声明（注册时传给 ST；{{前缀::名字}}） */
+export const MEMORY_MACRO_NAME_ARG: MemoryMacroArgSpec = {
+  name: "name",
   optional: true,
   defaultValue: "",
 };
@@ -94,6 +99,7 @@ export interface MemoryMacroServicePorts {
   /** 设置读取（宿主 = settings.read() 子集）：每次评估重取，保证拿到最新值 */
   readonly readSettings: () => {
     readonly enabled: boolean;
+    /** 全局前缀（{{ste}} 形态；解析为裸标识符后注册） */
     readonly macroName: string;
     readonly macroLimit: number;
     readonly memoryViews: readonly MemoryView[];
@@ -128,14 +134,24 @@ const defaultTimers: SyncTimerPort = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+/** 内置宏快照集合（{{前缀::full}} + 每个启用表 {{前缀::表Key}}） */
+interface BuiltinSnapshots {
+  readonly full: string;
+  readonly perTable: ReadonlyMap<string, string>;
+}
+
 export class MemoryMacroService {
   readonly #ports: ResolvedMemoryMacroServicePorts;
-  /** 当前已注册的宏名（裸标识符）；未注册 = undefined */
+  /** 当前已注册的前缀名（裸标识符）；未注册 = undefined */
   #registeredName: string | undefined;
-  /** 默认快照（宏 handler 无参返回；无活动空间/无数据 = 空串） */
+  /** 默认快照（{{前缀}} 无参展开；无活动空间/无数据 = 空串） */
   #snapshot = "";
-  /** 每视图快照（宏 handler 按视图名参数返回；视图名 → 文本） */
+  /** 每视图快照（{{前缀::视图名}}；名字 → 文本） */
   #viewSnapshots = new Map<string, string>();
+  /** 聊天 Scope 宏快照（{{前缀::宏名}}；名字 → 文本；配置错误 = 空串不回落） */
+  #chatScopeSnapshots = new Map<string, string>();
+  /** 内置宏快照（{{前缀::full}} + {{前缀::表Key}}） */
+  #builtinSnapshots: BuiltinSnapshots = { full: "", perTable: new Map() };
   /** 最近一次重建时的空间与指纹（相同即内容等价，跳过重建）；上限/视图/聊天 Scope 也参与判定 */
   #lastSpaceId: MemorySpaceId | undefined;
   #lastFingerprint: SpaceFingerprint | undefined;
@@ -144,10 +160,6 @@ export class MemoryMacroService {
   #lastChatScopeSignature: string | undefined;
   /** 排队评估 + 指纹轮询骨架（与 Agent 预设宏服务共用，ticket 17） */
   readonly #evaluator: PollingEvaluator;
-  /** 宏注册表（管理内置宏 + 全局宏 + 聊天 Scope 宏） */
-  readonly #registry: MacroRegistry;
-  /** 已注册到 ST 的宏名集合（用于注销） */
-  #registeredMacroNames = new Set<string>();
 
   constructor(ports: MemoryMacroServicePorts) {
     const resolved: ResolvedMemoryMacroServicePorts = {
@@ -161,25 +173,21 @@ export class MemoryMacroService {
       pollIntervalMs: resolved.pollIntervalMs,
       timers: resolved.timers,
     });
-    this.#registry = new MacroRegistry({
-      getSpaceId: () => this.#ports.getSpaceId(),
-      reader: this.#ports.reader,
-      data: this.#ports.data,
-      globalMacros: () => this.#ports.readSettings().memoryViews,
-      chatScopeMacros: () => this.#ports.readChatScopeMacros(),
-      macroLimit: () => this.#ports.readSettings().macroLimit,
-      log: this.#ports.log,
-    });
   }
 
-  /** 当前默认快照文本（宏 handler 无参展开的返回源；调试/验收可读） */
+  /** 当前默认快照文本（{{前缀}} 无参展开的返回源；调试/验收可读） */
   getSnapshot(): string {
     return this.#snapshot;
   }
 
-  /** 当前视图快照（视图名 → 文本；调试/验收可读） */
+  /** 当前全局视图快照（视图名 → 文本；调试/验收可读） */
   getViewSnapshot(viewName: string): string | undefined {
     return this.#viewSnapshots.get(viewName);
+  }
+
+  /** 当前聊天 Scope 宏快照（宏名 → 文本；调试/验收可读） */
+  getChatScopeSnapshot(name: string): string | undefined {
+    return this.#chatScopeSnapshots.get(name);
   }
 
   /** 启动（runtime 组合根调用）：立即注册宏 + 重建快照，并保持轮询刷新。
@@ -195,7 +203,7 @@ export class MemoryMacroService {
     this.#evaluator.stop();
   }
 
-  /** 设置变化后立即评估（幂等）：宏名/上限/开关/视图改动时宿主调用（与 sync.kick 同语义）。 */
+  /** 设置变化后立即评估（幂等）：前缀/上限/开关/视图改动时宿主调用（与 sync.kick 同语义）。 */
   kick(): Promise<void> {
     return this.#evaluator.kick();
   }
@@ -204,12 +212,14 @@ export class MemoryMacroService {
     const settings = this.#ports.readSettings();
     const name = resolveMacroRegistrationName(settings.macroName);
     if (!settings.enabled || name === undefined) {
-      // 插件停用 / 宏名缺失或不合法：注销旧注册、清空快照、不轮询（无宏可展开）；
+      // 插件停用 / 前缀缺失或不合法：注销旧注册、清空快照、不轮询（无宏可展开）；
       // 指纹/上限/视图状态一并重置——重新启用且数据未变时不能命中「指纹相同早退”而
       // 让快照永久为空（重建判定必须重新武装）
       this.#unregisterCurrent();
       this.#snapshot = "";
       this.#viewSnapshots = new Map();
+      this.#chatScopeSnapshots = new Map();
+      this.#builtinSnapshots = { full: "", perTable: new Map() };
       this.#lastSpaceId = undefined;
       this.#lastFingerprint = undefined;
       this.#lastLimit = undefined;
@@ -217,11 +227,11 @@ export class MemoryMacroService {
       this.#evaluator.clearPollTimer();
       return;
     }
-    // 注册全局宏（带视图名参数）
+    // 注册全局前缀宏（带一个可选名字参数）
     if (name !== this.#registeredName) {
       this.#unregisterCurrent();
       this.#ports.registerMacro.register(name, (context) => this.#snapshotFor(context), [
-        MEMORY_MACRO_VIEW_NAME_ARG,
+        MEMORY_MACRO_NAME_ARG,
       ]);
       this.#registeredName = name;
     }
@@ -236,7 +246,8 @@ export class MemoryMacroService {
         this.#lastViewsSignature = undefined;
         this.#snapshot = "";
         this.#viewSnapshots = new Map();
-        this.#unregisterAllMacros();
+        this.#chatScopeSnapshots = new Map();
+        this.#builtinSnapshots = { full: "", perTable: new Map() };
       }
       return;
     }
@@ -265,28 +276,36 @@ export class MemoryMacroService {
     }
   }
 
-  /** 宏 handler（同步）：无参 = 默认快照；一个参数 = 视图名 → 视图快照；
-   *  空参数/未知视图名 → 空串 + 日志（不阻断生成）。两个以上参数由 ST 参数
-   *  校验拒绝（handler 只处理 0/1 个参数，文档说明）。 */
+  /**
+   * 宏 handler（同步）：无参 = 默认快照；一个参数 = 名字 → 按优先级分发
+   * 对话级宏 > 全局视图 > 内置（full / 表 Key）；空参数/未知名字 → 空串 + 日志
+   * （不阻断生成）。两个以上参数由 ST 参数校验拒绝（handler 只处理 0/1 个参数）。
+   */
   #snapshotFor(context: MemoryMacroExecutionContext): string {
     const args = context?.unnamedArgs ?? [];
-    if (args.length === 0) return this.#snapshot; // 无参 = 默认快照（ticket 15 行为不变）
-    const viewName = args[0] ?? "";
-    if (viewName === "") {
-      this.#ports.log?.warn("记忆宏：空视图名参数，展开为空串");
+    if (args.length === 0) return this.#snapshot; // {{前缀}} = 默认快照
+    const name = args[0] ?? "";
+    if (name === "") {
+      this.#ports.log?.warn("记忆宏：空名字参数，展开为空串");
       return "";
     }
-    const viewSnapshot = this.#viewSnapshots.get(viewName);
-    if (viewSnapshot === undefined) {
-      this.#ports.log?.warn(`记忆宏：未知视图「${viewName}」，展开为空串`);
-      return "";
-    }
-    return viewSnapshot;
+    // 1. 对话级宏（当前对话，最高优先级）
+    const chatSnapshot = this.#chatScopeSnapshots.get(name);
+    if (chatSnapshot !== undefined) return chatSnapshot;
+    // 2. 全局视图
+    const viewSnapshot = this.#viewSnapshots.get(name);
+    if (viewSnapshot !== undefined) return viewSnapshot;
+    // 3. 内置宏：full（全量）→ 表 Key（单表）
+    if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
+    const tableSnapshot = this.#builtinSnapshots.perTable.get(name);
+    if (tableSnapshot !== undefined) return tableSnapshot;
+    this.#ports.log?.warn(`记忆宏：未知宏名「${name}」，展开为空串`);
+    return "";
   }
 
   /** 重建快照：默认快照 = listTables + listRecords + 读时重渲显示文本 +
-   *  assembleMemoryContextSnapshot；视图快照 = 翻译 → queryRecords（异步）→
-   *  渲染 → 缓存（digest 每轮构建一次，全部视图共用）。 */
+   *  assembleMemoryContextSnapshot；视图/聊天宏快照 = 翻译 → queryRecords（异步）→
+   *  渲染 → 缓存（digest 每轮构建一次共用）；内置宏 = 同一批数据渲染 Markdown。 */
   async #rebuild(
     spaceId: MemorySpaceId,
     fingerprint: SpaceFingerprint,
@@ -295,11 +314,6 @@ export class MemoryMacroService {
       readonly memoryViews: readonly MemoryView[];
     },
   ): Promise<void> {
-    // 重建宏注册表（内置 + 全局 + 聊天 Scope）
-    await this.#registry.rebuild(spaceId, fingerprint);
-    // 注册所有宏到 ST
-    this.#registerAllMacros();
-
     const tables = await this.#ports.data.listTables(spaceId);
     const recordsByTable = new Map<MemoryTableId, readonly MemoryRecord[]>();
     await Promise.all(
@@ -312,8 +326,8 @@ export class MemoryMacroService {
     if (this.#ports.getSpaceId() !== spaceId) return;
 
     // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
-    // 默认快照与视图快照同语义。引用查找走本轮预载的全空间记录映射（引用必在同
-    // 空间内），零额外查询；预载未命中（如目标表停用未加载）按未找到渲染空串。
+    // 默认快照/视图快照/内置宏快照同语义。引用查找走本轮预载的全空间记录映射
+    // （引用必在同空间内），零额外查询；预载未命中（如目标表停用未加载）按未找到渲染空串。
     const resolveDisplay = createReadTimeDisplayTextResolver({
       getTable: async (tableId) => tables.find((candidate) => candidate.id === tableId),
       getFields: (tableId) => this.#ports.reader.listFields(spaceId, tableId),
@@ -335,6 +349,8 @@ export class MemoryMacroService {
     const snapshot = assembleMemoryContextSnapshot(tableInputs, settings.macroLimit);
 
     const digest = await buildMemorySpaceTableDigest(this.#ports.reader, spaceId);
+
+    // 全局视图快照（{{前缀::视图名}}）
     const viewSnapshots = new Map<string, string>();
     for (const view of settings.memoryViews) {
       try {
@@ -379,48 +395,125 @@ export class MemoryMacroService {
         );
       }
     }
+
+    // 聊天 Scope 宏快照（{{前缀::宏名}}，优先于全局视图/内置宏）：
+    // 与全局视图同一翻译 → 查询 → 渲染管线；配置错误 = 空串（覆盖优先，不回落）
+    const chatScopeSnapshots = new Map<string, string>();
+    for (const macro of this.#ports.readChatScopeMacros()) {
+      const previous = this.#chatScopeSnapshots.get(macro.name);
+      try {
+        const plan = planMemoryViewQuery(macro, digest);
+        if (plan === undefined) {
+          this.#ports.log?.warn(
+            `记忆宏：聊天 Scope 宏「${macro.name}」配置错误（表/字段不存在或已停用），展开为空串`,
+          );
+          chatScopeSnapshots.set(macro.name, "");
+          continue;
+        }
+        const page = await this.#ports.reader.queryRecords(spaceId, plan.query);
+        const referenceLabels =
+          macro.projection.length > 0
+            ? await resolveViewReferenceLabels(
+                this.#ports.reader,
+                spaceId,
+                digest,
+                plan.table,
+                page.records,
+                macro.projection,
+              )
+            : new Map();
+        const text = renderMemoryViewSnapshot({
+          view: macro,
+          fields: plan.table.fields,
+          records: page.records,
+          referenceLabels,
+          limit: settings.macroLimit,
+        });
+        chatScopeSnapshots.set(macro.name, text);
+      } catch (error) {
+        // 单轮失败保旧值（与全局视图同语义）；下轮轮询重试
+        if (previous !== undefined) chatScopeSnapshots.set(macro.name, previous);
+        this.#ports.log?.error(
+          `记忆宏聊天 Scope「${macro.name}」快照重建失败：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    // 内置宏快照（{{前缀::full}} + 每启用表 {{前缀::表Key}}）：表 Key 是字符串
+    // 参数，无需满足 ST 标识符规则（{{ste::角色}} 可用）；失败保旧值
+    const builtinSnapshots = await this.#buildBuiltinSnapshots(
+      spaceId,
+      tables,
+      settings.macroLimit,
+      resolveDisplay,
+      recordsByTable,
+    );
+
     this.#snapshot = snapshot;
     this.#viewSnapshots = viewSnapshots;
+    this.#chatScopeSnapshots = chatScopeSnapshots;
+    this.#builtinSnapshots = builtinSnapshots;
     this.#lastSpaceId = spaceId;
     this.#lastFingerprint = fingerprint;
     this.#lastLimit = settings.macroLimit;
     this.#lastViewsSignature = JSON.stringify(settings.memoryViews);
   }
 
-  /** 获取内置宏快照（memoryFull / memory_<表Key>） */
-  getBuiltinMacroSnapshot(name: string): string | undefined {
-    return this.#registry.getSnapshot(name);
-  }
-
-  /** 获取所有宏（调试/验收用） */
-  getAllMacros(): readonly import("./macro-registry.ts").MacroDefinition[] {
-    return this.#registry.getAllMacros();
+  /** 内置宏快照：full = 所有启用表逐表 section；perTable = 每启用表单表渲染。 */
+  async #buildBuiltinSnapshots(
+    spaceId: MemorySpaceId,
+    tables: readonly MemoryTable[],
+    macroLimit: number,
+    resolveDisplay: ReturnType<typeof createReadTimeDisplayTextResolver>,
+    recordsByTable: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
+  ): Promise<BuiltinSnapshots> {
+    try {
+      const enabledTables = tables.filter((table) => table.enabled);
+      const tableInputs: {
+        readonly name: string;
+        readonly fields: readonly { readonly name: string; readonly id: string }[];
+        readonly records: readonly {
+          readonly payload: Map<string, MemoryRecord["payload"][string]>;
+          readonly displayText: string;
+        }[];
+      }[] = [];
+      const perTable = new Map<string, string>();
+      for (const table of enabledTables) {
+        const fields = await this.#ports.reader.listFields(spaceId, table.id);
+        const enabledFields = fields.filter((field) => field.enabled);
+        const records = recordsByTable.get(table.id) ?? [];
+        const recordsWithDisplay = await Promise.all(
+          records.map(async (record) => ({
+            payload: new Map(Object.entries(record.payload)),
+            displayText: await resolveDisplay(record),
+          })),
+        );
+        const input = {
+          name: table.name,
+          fields: enabledFields.map((field) => ({ name: field.name, id: field.id })),
+          records: recordsWithDisplay,
+        };
+        tableInputs.push(input);
+        perTable.set(table.key, renderMemoryFullSnapshot({ tables: [input], limit: macroLimit }));
+      }
+      return {
+        full: renderMemoryFullSnapshot({ tables: tableInputs, limit: macroLimit }),
+        perTable,
+      };
+    } catch (error) {
+      // 单轮失败保旧值（下轮轮询重试）
+      this.#ports.log?.error(
+        `记忆宏内置宏快照重建失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+      return this.#builtinSnapshots;
+    }
   }
 
   #unregisterCurrent(): void {
     if (this.#registeredName === undefined) return;
     this.#ports.registerMacro.unregister(this.#registeredName);
     this.#registeredName = undefined;
-    this.#unregisterAllMacros();
-  }
-
-  /** 注销所有已注册的宏（内置 + 全局 + 聊天 Scope） */
-  #unregisterAllMacros(): void {
-    for (const macroName of this.#registeredMacroNames) {
-      this.#ports.registerMacro.unregister(macroName);
-    }
-    this.#registeredMacroNames.clear();
-  }
-
-  /** 注册所有宏（内置 + 全局 + 聊天 Scope）到 ST */
-  #registerAllMacros(): void {
-    const registry = this.#registry;
-    for (const macro of registry.getAllMacros()) {
-      // 跳过已注册的宏
-      if (this.#registeredMacroNames.has(macro.name)) continue;
-      // 注册宏（无参数，直接返回快照）
-      this.#ports.registerMacro.register(macro.name, () => macro.snapshot);
-      this.#registeredMacroNames.add(macro.name);
-    }
   }
 }

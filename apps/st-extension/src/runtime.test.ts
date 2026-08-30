@@ -301,7 +301,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const spaceRepository = new DexieMemorySpaceRepository(db);
     expect(await spaceRepository.list()).toHaveLength(1);
     // v1 绑定已迁移为 v2
-    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 2, spaceId: "space-ghost", chatIdentity: "char:3:story" });
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
+      version: 2,
+      spaceId: "space-ghost",
+      chatIdentity: "char:3:story",
+    });
   });
 
   it("绑定在、空间缺失、文件里无有效镜像：保持 space-missing（等待云同步/用户处理）", async () => {
@@ -331,14 +335,10 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
 
-    // 默认名 {{memoryContext}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
-    // systemDefaultPrompt（Agent 预设宏）；内置宏 memoryFull + memory_<表Key>
+    // 默认前缀 {{ste}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
+    // systemDefaultPrompt（Agent 预设宏）；内置/视图/对话宏全部走 {{前缀::名字}} 分发
     const registeredKeys = [...registered.keys()].sort();
-    expect(registeredKeys).toContain("memoryContext");
-    expect(registeredKeys).toContain("tablesDigest");
-    expect(registeredKeys).toContain("systemDefaultPrompt");
-    expect(registeredKeys).toContain("memoryFull");
-    expect(registeredKeys).toContain("memory_characters");
+    expect(registeredKeys).toEqual(["ste", "systemDefaultPrompt", "tablesDigest"]);
     expect(runtime.macro.getSnapshot()).toBe("");
     // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
     expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");
@@ -358,10 +358,18 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       payload: { [nameField.id]: "张三" },
     });
     await runtime.macro.kick();
-    const snapshot = registered.get("memoryContext")!({});
+    const snapshot = registered.get("ste")!({});
     expect(snapshot).toContain("【人物】");
     expect(snapshot).toContain("张三");
     expect(runtime.macro.getSnapshot()).toBe(snapshot);
+
+    // {{前缀::full}} / {{前缀::表Key}} 分发：完整 Markdown 含人物表与新记录
+    const full = registered.get("ste")!({ unnamedArgs: ["full"] });
+    expect(full).toContain("## 人物");
+    expect(full).toContain("张三");
+    const tableMacro = registered.get("ste")!({ unnamedArgs: ["characters"] });
+    expect(tableMacro).toContain("## 人物");
+    expect(tableMacro).not.toContain("角色");
 
     // 设置面板改名：写设置 + kick → 注销旧名、注册新名（Agent 预设宏不变）
     const next = { ...runtime.settings.read(), macroName: "{{myMemory}}" };
