@@ -11,7 +11,14 @@ import type {
 import type { MemoryFieldDigest } from "@ste-memory/core/memory/agent";
 import { describe, expect, it } from "vitest";
 import type { MemoryView } from "../settings/memory-views.ts";
-import { renderMemoryViewSnapshot, sanitizeMacroSyntax } from "./memory-view-render.ts";
+import {
+  renderMemoryViewSnapshot,
+  renderMarkdownTable,
+  renderMemoryFullSnapshot,
+  sanitizeMacroSyntax,
+  type MarkdownTableInput,
+  type MemoryFullRenderInput,
+} from "./memory-view-render.ts";
 
 function view(overrides: Partial<MemoryView> = {}): MemoryView {
   return {
@@ -178,5 +185,149 @@ describe("sanitizeMacroSyntax", () => {
   it("替换 {{ 与 }} 序列，其余字符原样", () => {
     expect(sanitizeMacroSyntax("a {{x}} b")).toBe("a 〔{x}〕 b");
     expect(sanitizeMacroSyntax("普通文本 {单括号}")).toBe("普通文本 {单括号}");
+  });
+});
+
+describe("renderMarkdownTable（Markdown 表格渲染）", () => {
+  const fields = [{ name: "姓名" }, { name: "状态" }];
+  const records = [
+    { payload: new Map([["f1", "张三"], ["f2", "活跃"]]), displayText: "张三" },
+    { payload: new Map([["f1", "李四"], ["f2", ""]]), displayText: "李四" },
+  ];
+  const getFieldValues = (r: { payload: ReadonlyMap<string, unknown> }) => [
+    r.payload.get("f1"),
+    r.payload.get("f2"),
+  ];
+
+  it("正常渲染：表名标题 + 表头 + 分隔线 + 数据行", () => {
+    const result = renderMarkdownTable({ tableName: "角色", fields, records, getFieldValues });
+    expect(result).toContain("## 角色");
+    expect(result).toContain("| 姓名 | 状态 |");
+    expect(result).toContain("| ------ | ------ |");
+    expect(result).toContain("| 张三 | 活跃 |");
+    expect(result).toContain("| 李四 |  |");
+  });
+
+  it("空表：输出表头但无数据行", () => {
+    const result = renderMarkdownTable({ tableName: "空表", fields, records: [], getFieldValues });
+    expect(result).toContain("## 空表");
+    expect(result).toContain("| 姓名 | 状态 |");
+    expect(result).toContain("| ------ | ------ |");
+    // 空表无数据行
+    const lines = result.split("\n");
+    const separatorIndex = lines.findIndex((l) => l.includes("| ------ |"));
+    expect(separatorIndex).toBeGreaterThan(-1);
+    // 分隔线后无数据行
+    expect(lines.length).toBe(separatorIndex + 1);
+  });
+
+  it("空字段列表：返回空串", () => {
+    const result = renderMarkdownTable({ tableName: "无字段", fields: [], records, getFieldValues });
+    expect(result).toBe("");
+  });
+
+  it("布尔值渲染为是/否", () => {
+    const result = renderMarkdownTable({
+      tableName: "测试",
+      fields: [{ name: "完成" }],
+      records: [{ payload: new Map([["f1", true]]), displayText: "" }],
+      getFieldValues: (r) => [r.payload.get("f1")],
+    });
+    expect(result).toContain("| 是 |");
+  });
+
+  it("数组值顿号拼接", () => {
+    const result = renderMarkdownTable({
+      tableName: "测试",
+      fields: [{ name: "标签" }],
+      records: [{ payload: new Map([["f1", ["a", "b", "c"]]]), displayText: "" }],
+      getFieldValues: (r) => [r.payload.get("f1")],
+    });
+    expect(result).toContain("| a、b、c |");
+  });
+
+  it("空值渲染为空串", () => {
+    const result = renderMarkdownTable({
+      tableName: "测试",
+      fields: [{ name: "值" }],
+      records: [{ payload: new Map([["f1", null]]), displayText: "" }],
+      getFieldValues: (r) => [r.payload.get("f1")],
+    });
+    expect(result).toContain("|  |");
+  });
+
+  it("输出不含 {{...}}（宏语法消毒）", () => {
+    const result = renderMarkdownTable({
+      tableName: "测试",
+      fields: [{ name: "值" }],
+      records: [{ payload: new Map([["f1", "含 {{char}} 的值"]]), displayText: "" }],
+      getFieldValues: (r) => [r.payload.get("f1")],
+    });
+    expect(result).not.toContain("{{");
+    expect(result).not.toContain("}}");
+  });
+});
+
+describe("renderMemoryFullSnapshot（全量快照渲染）", () => {
+  it("多表渲染：每表一个 section", () => {
+    const result = renderMemoryFullSnapshot({
+      tables: [
+        {
+          name: "角色",
+          fields: [{ name: "姓名", id: "f1" }],
+          records: [{ payload: new Map([["f1", "张三"]]), displayText: "张三" }],
+        },
+        {
+          name: "事件",
+          fields: [{ name: "名称", id: "f2" }],
+          records: [{ payload: new Map([["f2", "初遇"]]), displayText: "初遇" }],
+        },
+      ],
+      limit: 2000,
+    });
+    expect(result).toContain("## 角色");
+    expect(result).toContain("## 事件");
+    expect(result).toContain("| 张三 |");
+    expect(result).toContain("| 初遇 |");
+  });
+
+  it("空表跳过", () => {
+    const result = renderMemoryFullSnapshot({
+      tables: [
+        { name: "空表", fields: [{ name: "列", id: "f1" }], records: [] },
+        { name: "有数据", fields: [{ name: "列", id: "f2" }], records: [{ payload: new Map([["f2", "值"]]), displayText: "值" }] },
+      ],
+      limit: 2000,
+    });
+    expect(result).toContain("## 空表");
+    expect(result).toContain("## 有数据");
+  });
+
+  it("无字段的表跳过", () => {
+    const result = renderMemoryFullSnapshot({
+      tables: [
+        { name: "无字段", fields: [], records: [] },
+        { name: "有字段", fields: [{ name: "列", id: "f1" }], records: [{ payload: new Map([["f1", "值"]]), displayText: "值" }] },
+      ],
+      limit: 2000,
+    });
+    expect(result).not.toContain("## 无字段");
+    expect(result).toContain("## 有字段");
+  });
+
+  it("字符上限截断", () => {
+    const result = renderMemoryFullSnapshot({
+      tables: [{
+        name: "表",
+        fields: [{ name: "列", id: "f1" }],
+        records: Array.from({ length: 100 }, (_, i) => ({
+          payload: new Map([["f1", `记录${i}`]]),
+          displayText: `记录${i}`,
+        })),
+      }],
+      limit: 50,
+    });
+    expect(result.endsWith("……（已截断）")).toBe(true);
+    expect([...result].length).toBe(50);
   });
 });

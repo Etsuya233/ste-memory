@@ -91,3 +91,96 @@ function renderProjectedValue(
 export function sanitizeMacroSyntax(text: string): string {
   return text.replaceAll("{{", "〔{").replaceAll("}}", "}〕");
 }
+
+/** 内置宏 Markdown 表格渲染输入 */
+export interface MarkdownTableInput {
+  /** 表名（section 标题） */
+  readonly tableName: string;
+  /** 字段列表（表头） */
+  readonly fields: readonly { readonly name: string }[];
+  /** 记录列表（行） */
+  readonly records: readonly {
+    readonly payload: ReadonlyMap<string, unknown>;
+    readonly displayText: string;
+  }[];
+  /** 字段 id → 值的映射（每条记录） */
+  readonly getFieldValues: (record: {
+    readonly payload: ReadonlyMap<string, unknown>;
+    readonly displayText: string;
+  }) => readonly unknown[];
+}
+
+/**
+ * 渲染单表 Markdown 表格：表名标题 + 表头 + 分隔线 + 数据行。
+ * 空表时输出表头但无数据行。输出过宏语法消毒。
+ */
+export function renderMarkdownTable(input: MarkdownTableInput): string {
+  const { tableName, fields, records, getFieldValues } = input;
+  if (fields.length === 0) return "";
+
+  const lines: string[] = [];
+  lines.push(`## ${tableName}`);
+  lines.push("");
+
+  // 表头
+  const header = fields.map((f) => f.name).join(" | ");
+  lines.push(`| ${header} |`);
+
+  // 分隔线
+  const separator = fields.map(() => "------").join(" | ");
+  lines.push(`| ${separator} |`);
+
+  // 数据行
+  for (const record of records) {
+    const values = getFieldValues(record);
+    const row = values.map((v) => renderMarkdownCell(v)).join(" | ");
+    lines.push(`| ${row} |`);
+  }
+
+  return sanitizeMacroSyntax(lines.join("\n"));
+}
+
+/** 渲染单个单元格：空值 → 空串，布尔 → 是/否，数组 → 顿号拼接，其他 → toSingleLine */
+function renderMarkdownCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (Array.isArray(value)) return value.map(String).join("、");
+  return toSingleLine(String(value));
+}
+
+/** 内置全量宏渲染输入 */
+export interface MemoryFullRenderInput {
+  /** 表格列表（按创建时间排序） */
+  readonly tables: readonly {
+    readonly name: string;
+    readonly fields: readonly { readonly name: string; readonly id: string }[];
+    readonly records: readonly {
+      readonly payload: ReadonlyMap<string, unknown>;
+      readonly displayText: string;
+    }[];
+  }[];
+  /** 全局字符上限 */
+  readonly limit: number;
+}
+
+/**
+ * 渲染 memoryFull 快照：每表一个 section（表名标题 + Markdown 表格）。
+ * 空表输出表头但无数据行。最终文本过宏语法消毒 + 尾部截断。
+ */
+export function renderMemoryFullSnapshot(input: MemoryFullRenderInput): string {
+  const { tables, limit } = input;
+  const sections: string[] = [];
+
+  for (const table of tables) {
+    if (table.fields.length === 0) continue;
+    const section = renderMarkdownTable({
+      tableName: table.name,
+      fields: table.fields,
+      records: table.records,
+      getFieldValues: (record) => table.fields.map((f) => record.payload.get(f.id)),
+    });
+    if (section !== "") sections.push(section);
+  }
+
+  return truncateWithMarker(sections.join("\n\n"), limit);
+}

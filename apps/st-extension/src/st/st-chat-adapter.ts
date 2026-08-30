@@ -14,6 +14,8 @@ import {
   type CleaningListStore,
 } from "../settings/cleaning-rule-lists.ts";
 import { resolveFloorJump } from "./floor-jump.ts";
+import { mergeChatScopeMacros, type ChatScopeMacroStore } from "../macros/chat-scope-macros.ts";
+import type { MemoryView } from "../settings/memory-views.ts";
 /**
  * ST 1.18 getContext() 返回对象的插件所需子集（public/scripts/st-context.js 已核实）。
  * 事件 payload 事实（public/script.js 已核实）：CHAT_CHANGED 带当前 chatId、
@@ -156,6 +158,8 @@ export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
 /** 清洗规则列表选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
  * 随对话文件走（重命名不丢），旧版本插件忽略新键（镜像键同款降级安全）。 */
 export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
+/** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
+export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
 /** ST 事件桥（ticket 05）：CHAT_CHANGED 切换空间上下文；消息事件仅注册为未来触发点 */
 export interface StEventBridge {
@@ -319,6 +323,27 @@ export class StChatAdapter {
         } else {
           metadata[CHAT_METADATA_CLEANING_LIST_KEY] = formatCleaningListSelection(listId);
         }
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  /**
+   * 聊天 Scope 宏读写端口（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。
+   * 读取 = mergeChatScopeMacros（损坏数据逐项丢弃）；写入 = 覆盖整个对象 + 防抖持久化。
+   */
+  get chatScopeMacroStore(): { read(): readonly MemoryView[]; write(macros: readonly MemoryView[]): void } {
+    return {
+      read: () => {
+        const raw = this.#getContext().chatMetadata?.[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY];
+        return mergeChatScopeMacros(raw);
+      },
+      write: (macros) => {
+        const context = this.#getContext();
+        const metadata = context.chatMetadata;
+        if (!metadata) return;
+        const store: ChatScopeMacroStore = { version: 1, macros };
+        metadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = store;
         context.saveMetadataDebounced?.();
       },
     };
