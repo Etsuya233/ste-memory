@@ -116,6 +116,7 @@ import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import { AgentConnectionManager } from "./agent-connection-manager.tsx";
 import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { MemoryViewsManager } from "./memory-views-manager.tsx";
+import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
 import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
@@ -196,6 +197,8 @@ export interface PanelRuntime {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly readChatScopeMacros: () => readonly import("../settings/memory-views.ts").MemoryView[];
+    readonly writeChatScopeMacros: (macros: readonly import("../settings/memory-views.ts").MemoryView[]) => void;
   };
   readonly settings: SettingsStore;
   readonly version: string;
@@ -1796,6 +1799,48 @@ function SettingsTab(props: {
                 const next = { ...props.settings, memoryViews: views };
                 props.runtime.settings.write(next);
                 props.onSettingsChange(next);
+                void props.runtime.macro.kick().catch(reportError);
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 对话级宏（双 Scope 宏系统） */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="chat-scope-macros">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="chat-scope-macros"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "chat-scope-macros")}
+          onClick={() => toggleGroup("chat-scope-macros")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
+              对话级宏
+            </div>
+            <div className="stm-setting-group-summary">
+              {props.status?.kind === "active" ? "当前对话" : "未绑定对话"}
+            </div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "chat-scope-macros") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "chat-scope-macros") && (
+          <div className="stm-setting-group-body stm-setting-group-body--manager">
+            <ChatScopeMacrosManager
+              spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+              readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+              readFields={(spaceId, tableId) =>
+                props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+              }
+              globalMacroNames={[props.settings.macroName.replace(/[{}]/g, "")]}
+              macros={props.runtime.cleaning.readChatScopeMacros?.() ?? []}
+              onChange={(macros) => {
+                props.runtime.cleaning.writeChatScopeMacros?.(macros);
                 void props.runtime.macro.kick().catch(reportError);
               }}
             />

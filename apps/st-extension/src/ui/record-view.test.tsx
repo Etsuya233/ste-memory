@@ -122,6 +122,8 @@ function fakeRuntime(): PanelRuntime {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
       readStRegexEntries: () => [],
+      readChatScopeMacros: () => [],
+      writeChatScopeMacros: vi.fn(),
     },
     version: "0.1.0",
   };

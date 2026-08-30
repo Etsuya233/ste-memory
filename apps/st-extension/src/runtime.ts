@@ -95,11 +95,13 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
-  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目读取 */
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目读取 + 聊天 Scope 宏 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly readChatScopeMacros: () => readonly import("./settings/memory-views.ts").MemoryView[];
+    readonly writeChatScopeMacros: (macros: readonly import("./settings/memory-views.ts").MemoryView[]) => void;
   };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
@@ -519,6 +521,8 @@ export async function startSteMemory(
       readSelection: () => adapter.cleaningListStore.read(),
       writeSelection: (listId) => adapter.cleaningListStore.write(listId),
       readStRegexEntries: () => adapter.stRegexEntries,
+      readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
+      writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
     },
     // 弹窗 API（分支检测等需要用户交互的场景）
     popup: {

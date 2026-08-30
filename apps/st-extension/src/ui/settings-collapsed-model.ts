@@ -14,6 +14,7 @@ import { mirrorStatusSummary, syncStatusSummary } from "./space-info.ts";
 /** 设置分组稳定标识（持久化键）；插件总开关不参与折叠 */
 export const SETTINGS_GROUP_KEYS = [
   "macro",
+  "chat-scope-macros",
   "agent-connections",
   "agent-presets",
   "cleaning",
