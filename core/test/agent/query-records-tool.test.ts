@@ -534,6 +534,42 @@ describe("query_records 执行器：结果形状", () => {
     expect(result).toMatchObject({ total: 0, totalPages: 0, records: [] });
   });
 
+  it("空结果附带通用 tips（非空结果不出现 tips 字段）", async () => {
+    const tool = await toolWith();
+    const empty = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "current_status", op: "equals", value: "死亡" }],
+      }),
+    );
+    expect(empty.total).toBe(0);
+    expect(typeof empty.tips).toBe("string");
+    expect(empty.tips).toContain("未找到满足条件的记录");
+    expect(empty.tips).not.toContain("引用字段");
+
+    const hit = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "current_status", op: "equals", value: "受伤" }],
+      }),
+    );
+    expect(hit.records).toHaveLength(2);
+    expect(hit).not.toHaveProperty("tips");
+  });
+
+  it("条件含引用字段时空结果 tips 提示以目标记录 id 作条件值（而非显示文本）", async () => {
+    const tool = await toolWith();
+    const result = textOf(
+      await tool.execute("call-1", {
+        table: "characters",
+        conditions: [{ field: "location", op: "equals", value: "不存在的地点" }],
+      }),
+    );
+    expect(result.total).toBe(0);
+    expect(result.tips).toContain("location");
+    expect(result.tips).toContain("目标表记录的 id");
+  });
+
   it("in/not_in 执行：single_select 成员匹配与 $record_id 多值", async () => {
     const tool = await toolWith();
     const ids = (result: Record<string, unknown>) =>

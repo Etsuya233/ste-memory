@@ -46,6 +46,7 @@ export function composeQueryAgentSystemPrompt(digest: MemorySpaceTableDigest): s
     "2. 基于查询返回的真实记录回答；查不到时如实说明，并给出可进一步查询的建议。",
     "3. 一次查询内多个条件是 AND 语义；需要 OR 或更复杂的检索时，分多次查询后自行归纳。",
     "4. 用户问题不明确时，先用查询确认范围，再回答。",
+    "5. 查询先窄后宽：先用 conditions 与 fields 投影缩小范围，结果不足再放宽，不要一次性全表查询。",
     "",
     ...digestSummaryLines(digest),
   ].join("\n");
@@ -76,6 +77,7 @@ export const PROPOSAL_AGENT_BASE_INSTRUCTIONS = [
   "",
   "规则：",
   "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
+  "- 只查询与本块消息内容相关的表；块消息未提及的主题不要预查。查询时先用条件缩小范围，只投影需要的字段。",
   "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
   "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
   "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
@@ -115,6 +117,7 @@ export function composeInteractiveProposalAgentSystemPrompt(
     "",
     "规则：",
     "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
+    "- 只查询与当前指令相关的表；查询先用条件缩小范围，只投影需要的字段，不要全表拉取。",
     "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
     "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
     "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",

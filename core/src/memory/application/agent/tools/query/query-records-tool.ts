@@ -92,6 +92,8 @@ export interface QueryRecordsToolResult {
   readonly total: number;
   readonly totalPages: number;
   readonly records: readonly QueryRecordsToolResultRecord[];
+  /** 无匹配记录（records 为空）时的诊断提示；非空结果不出现。 */
+  readonly tips?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +125,9 @@ export function createQueryRecordsTool(
 }
 
 const QUERY_RECORDS_TOOL_DESCRIPTION = [
-  "查询记忆空间中的记录（只读，可并发多次调用）。参数全部使用表/字段 key：",
+  "查询记忆空间中的记录（只读）。参数全部使用表/字段 key：",
+  "- 查询纪律：先用 conditions 缩小范围，不要无条件全表查询；fields 只投影用得到的列；",
+  "  只需少量记录时 pageSize 取小；先查最相关的 1–2 张表、逐轮增量精化，不要一次并发查询全部表。",
   "- table：表 key，必填。可用表 key 见系统提示中的摘要；填错会报错并附带可用 key 列表。",
   "- fields：返回的字段 key 列表；省略时返回该表全部启用字段。",
   "- conditions：过滤条件列表，多个条件为 AND 语义（OR 请分多次查询）。",
@@ -140,7 +144,8 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "- orderBy：可选，{ field, direction: asc|desc }，field 为字段 key 或系统字段；多值字段不可排序。",
   "结果 records 中的 values 以字段 key 键控，引用字段的值为目标记录 id，revisionId 是记录版本号；",
   "display 为读时计算的显示文本：引用字段按当前目标记录的显示文本即时解析（不依赖可能过期的存储值）。",
-  "查不到记录时 records 为空数组，请如实回答。",
+  "无匹配记录（records 为空）时，响应附带 tips 诊断文本，请先阅读并据此修正查询；",
+  "确无匹配时如实回答。",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -205,7 +210,38 @@ async function executeQueryRecords(
       display: record.displayText,
       values: Object.fromEntries(payloadEntriesKeyedByFieldKey(record, fieldKeyById)),
     })),
+    // 空结果诊断（非空结果不出现）：引用字段条件值校验宽松（任意非空字符串通过），
+    // 拿目标记录显示文本当值会静默查空——tips 让该失败可自愈。
+    ...(page.records.length === 0 ? { tips: buildEmptyResultTips(conditions, table) } : {}),
   };
+}
+
+/**
+ * 空结果诊断文本：通用提示 + 引用字段两步法提示。
+ * 只有本次查询条件命中引用字段（digest referenceTableKey 非空）才追加第二步，
+ * 措辞为条件式（「若你传入的是显示文本」），不武断归因。
+ */
+function buildEmptyResultTips(
+  conditions: readonly QueryRecordsCondition[],
+  table: MemorySpaceTableDigest["tables"][number],
+): string {
+  const lines = ["未找到满足条件的记录。可放宽条件或分页后重试；若确无匹配请如实回答。"];
+  const referenceKeys = [
+    ...new Set(
+      conditions.flatMap((condition) => {
+        if (condition.fieldId.startsWith("$")) return [];
+        const field = table.fields.find((candidate) => candidate.id === condition.fieldId);
+        return field?.referenceTableKey ? [field.key] : [];
+      }),
+    ),
+  ];
+  if (referenceKeys.length > 0) {
+    lines.push(
+      `条件包含引用字段（${referenceKeys.join("、")}）：引用字段的值是目标表记录的 id；` +
+        `若你传入的是目标记录的显示文本，请先在目标表查询该文本对应记录的 id，再用 id 作为条件值。`,
+    );
+  }
+  return lines.join("\n");
 }
 
 const DEFAULT_PAGING = { page: 1, pageSize: 20 } as const;
