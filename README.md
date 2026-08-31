@@ -16,8 +16,8 @@
 
 ## 当前版本
 
-- 版本：0.1.1
-- 源提交：103baa5（feature/sillytavern-plugin）
+- 版本：0.1.2
+- 源提交：071794f（feature/sillytavern-plugin）
 
 ## 卸载
 
