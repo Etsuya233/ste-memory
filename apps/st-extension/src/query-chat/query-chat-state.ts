@@ -16,14 +16,25 @@ import type { MemorySpaceId } from "@ste-memory/core/memory";
 /** 问答模式：查询 = QueryAgent 只读问答；填写 = 交互式填写（软闸门 + 直通 repository）。 */
 export type QueryChatMode = "query" | "fill";
 
-/** 一次工具调用卡（参数 + 结果/错误；结果 undefined = 执行中）。 */
-export interface QueryChatToolCall {
-  readonly callId: string;
-  readonly name: string;
-  readonly args: unknown;
-  readonly result: unknown | undefined;
-  readonly isError: boolean;
-}
+/**
+ * 片段时间线片段（ADR 0013）：一条 Agent 回复按真实发生顺序排列的条目。
+ * - thinking：思考片段（累积文本，纯文本渲染）；
+ * - text：文本片段（累积文本，Markdown 渲染）；
+ * - tool：工具调用卡（callId、工具名、参数、结果/错误、执行中标记 running）。
+ */
+export type QueryChatSegment =
+  | { readonly kind: "thinking"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string }
+  | {
+      readonly kind: "tool";
+      readonly callId: string;
+      readonly name: string;
+      readonly args: unknown;
+      /** 执行中标记：tool_start 置 true，tool_result 到达置 false（结果可能合法为 undefined）。 */
+      readonly running: boolean;
+      readonly result: unknown | undefined;
+      readonly isError: boolean;
+    };
 
 /** 填写模式自动提交的结果（对齐 apps/api ChatCommitResult + 空间切换放弃分支）。 */
 export type QueryChatCommitResult =
@@ -42,11 +53,8 @@ export type QueryChatMessage =
       readonly kind: "assistant";
       readonly id: string;
       readonly status: "streaming" | "done" | "error";
-      /** 回答纯文本（message_delta 累积）。 */
-      readonly text: string;
-      /** 思考文本（thinking_delta 累积；模型不支持思考时为空，静默降级）。 */
-      readonly thinking: string;
-      readonly toolCalls: readonly QueryChatToolCall[];
+      /** 有序片段序列（时间线唯一事实来源；聚合纯文本由文本片段推导）。 */
+      readonly segments: readonly QueryChatSegment[];
       readonly error?: string;
       /** 填写模式自动提交的结果（done 事件携带；查询模式恒缺省）。 */
       readonly commit?: QueryChatCommitResult;
@@ -101,7 +109,18 @@ export function errorMessage(error: unknown): string {
 }
 
 export function createPendingAssistantMessage(id: string): QueryChatMessage {
-  return { kind: "assistant", id, status: "streaming", text: "", thinking: "", toolCalls: [] };
+  return { kind: "assistant", id, status: "streaming", segments: [] };
+}
+
+/** 聚合回答纯文本：全部文本片段拼接（回传历史与「复制回答」共用，行为与扁平模型等价）。 */
+export function assistantPlainText(
+  message: Extract<QueryChatMessage, { kind: "assistant" }>,
+): string {
+  let text = "";
+  for (const segment of message.segments) {
+    if (segment.kind === "text") text += segment.text;
+  }
+  return text;
 }
 
 /** 终态事件：done/error 会同时终止 run（run 状态由 QueryChatStore 消费此判定）。 */
@@ -130,6 +149,22 @@ export function applyQueryChatEvent(
   return next;
 }
 
+/**
+ * 片段构建规则（ADR 0013）：增量追加进末端片段（同类型合并）；类型切换开新片段；
+ * 工具卡独立条目、结果按 callId 回填。事件流无轮次边界，分段全部由类型切换驱动。
+ */
+function appendDelta(
+  segments: readonly QueryChatSegment[],
+  kind: "thinking" | "text",
+  text: string,
+): readonly QueryChatSegment[] {
+  const last = segments[segments.length - 1];
+  if (last !== undefined && last.kind === kind) {
+    return [...segments.slice(0, -1), { ...last, text: last.text + text }];
+  }
+  return [...segments, { kind, text }];
+}
+
 /** 单条 assistant 消息的事件应用（纯函数；pendingId 匹配后调用）。 */
 function applyToAssistant(
   message: Extract<QueryChatMessage, { kind: "assistant" }>,
@@ -137,30 +172,36 @@ function applyToAssistant(
 ): Extract<QueryChatMessage, { kind: "assistant" }> {
   switch (event.type) {
     case "thinking_delta":
-      return { ...message, thinking: message.thinking + event.text };
+      return { ...message, segments: appendDelta(message.segments, "thinking", event.text) };
     case "message_delta":
-      return { ...message, text: message.text + event.text };
+      return { ...message, segments: appendDelta(message.segments, "text", event.text) };
     case "tool_start":
       return {
         ...message,
-        toolCalls: [
-          ...message.toolCalls,
+        segments: [
+          ...message.segments,
           {
+            kind: "tool",
             callId: event.callId,
             name: event.name,
             args: event.args,
+            running: true,
             result: undefined,
             isError: false,
           },
         ],
       };
     case "tool_result":
+      if (!message.segments.some((segment) => segment.kind === "tool" && segment.callId === event.callId)) {
+        // 未知/迟到 callId：不产生新条目，原样返回
+        return message;
+      }
       return {
         ...message,
-        toolCalls: message.toolCalls.map((card) =>
-          card.callId === event.callId
-            ? { ...card, result: event.result, isError: event.isError }
-            : card,
+        segments: message.segments.map((segment) =>
+          segment.kind === "tool" && segment.callId === event.callId
+            ? { ...segment, running: false, result: event.result, isError: event.isError }
+            : segment,
         ),
       };
     case "done":
@@ -177,7 +218,8 @@ export function chatHistoryMessages(
   return messages.flatMap<QueryChatHistoryMessage>((message) => {
     if (message.kind === "user") return [{ role: "user", text: message.text }];
     if (message.status !== "done") return [];
-    return message.text.length > 0 ? [{ role: "assistant", text: message.text }] : [];
+    const text = assistantPlainText(message);
+    return text.length > 0 ? [{ role: "assistant", text }] : [];
   });
 }
 

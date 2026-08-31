@@ -1,17 +1,19 @@
 /**
- * 问答 Tab（ticket 20 / ADR 0009）：与 Agent 聊天的面板区块。
+ * 问答 Tab（ticket 20 / ADR 0009 + ADR 0013）：与 Agent 聊天的面板区块。
  *
  * 纯逻辑在 query-chat/（QueryChatStore + QueryChatService，有测试兜底），本组件
  * 只做「状态 → DOM」投影与事件接线：
  * - 顶部工具栏：查询/填写模式切换（对齐 api/web 决策 11 标签）+「刷新记录」入口
  *   （web 决策 7：提交后不自动刷新，由用户手动刷新）；
- * - 消息列表：用户气泡 + Agent 卡片（思考折叠展示、工具调用参数/结果可展开、
- *   提交摘要/错误提示）+ 复制回答；
+ * - 消息列表：用户气泡 + Agent 卡片（片段时间线渲染：思考片段折叠展示、文本片段
+ *   Markdown 渲染、工具调用卡参数/结果可展开、提交摘要/错误提示）+ 复制回答；
  * - 输入行：发送 / 运行中停止（AbortController）；
  * - 空状态邀请：未绑定空间 / 无消息。
  *
  * 历史按（空间 × 模式）存页面内存（QueryChatStore），切换空间/模式/Tab 不丢失；
  * run 按 key 隔离——切换不影响在途 run（决策 7：查询继续跑完、填写提交前校验）。
+ * 时间线折叠语义（ADR 0013）：流式中仅当前进料片段受控展开，已完成片段不受控
+ * （默认折叠、手动展开不被收回）；工具卡执行中展开、出结果后折叠。
  */
 import {
   useCallback,
@@ -21,8 +23,12 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import type { Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { QueryChatService } from "../query-chat/query-chat-service.ts";
 import {
+  assistantPlainText,
   chatHistoryMessages,
   createPendingAssistantMessage,
   createUserMessage,
@@ -31,8 +37,8 @@ import {
   type QueryChatCommitResult,
   type QueryChatMessage,
   type QueryChatMode,
+  type QueryChatSegment,
   type QueryChatStore,
-  type QueryChatToolCall,
 } from "../query-chat/query-chat-state.ts";
 import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
@@ -242,13 +248,19 @@ function UserMessageView(props: { readonly message: Extract<QueryChatMessage, { 
   return <div className="stm-chat-bubble stm-chat-bubble--user">{props.message.text}</div>;
 }
 
-function AssistantMessageView(props: {
+/** 文本片段工具调用卡视图（卡片形状 = QueryChatSegment 的 tool 变体）。 */
+type ToolSegment = Extract<QueryChatSegment, { kind: "tool" }>;
+
+/** 导出供渲染投影冒烟测试（renderToString，对齐 agent-connection-manager 先例）。 */
+export function AssistantMessageView(props: {
   readonly message: Extract<QueryChatMessage, { kind: "assistant" }>;
   readonly mode: QueryChatMode;
 }) {
   const { message, mode } = props;
+  const streaming = message.status === "streaming";
   const statusLabel =
     message.status === "streaming" ? "回答中…" : message.status === "error" ? "出错" : "完成";
+  const answerText = assistantPlainText(message);
   return (
     <div className={"stm-chat-assistant stm-chat-assistant--" + message.status}>
       <header className="stm-chat-assistant-head">
@@ -259,28 +271,84 @@ function AssistantMessageView(props: {
           type="button"
           className="stm-chat-copy"
           data-action="copy-answer"
-          disabled={message.text.length === 0}
-          onClick={() => void copyAnswer(message.text)}
+          disabled={answerText.length === 0}
+          onClick={() => void copyAnswer(answerText)}
         >
           复制回答
         </button>
       </header>
-      {message.thinking.length > 0 ? (
-        // 思考块折叠展示（决策 6）：流式期间展开实时观察（受控 open，与 apps/web 同语义）
-        <details className="stm-chat-thinking" open={message.status === "streaming"}>
-          <summary>思考过程</summary>
-          <div className="stm-chat-thinking-text">{message.thinking}</div>
-        </details>
-      ) : null}
-      {message.toolCalls.map((card) => (
-        <ToolCallCardView key={card.callId} card={card} />
+      {/* 片段时间线（ADR 0013）：按真实发生顺序渲染；仅流式中的当前进料片段受控展开 */}
+      {message.segments.map((segment, index) => (
+        <TimelineSegmentView
+          key={index}
+          segment={segment}
+          isFeed={streaming && index === message.segments.length - 1}
+        />
       ))}
-      {message.text.length > 0 ? <div className="stm-chat-text">{message.text}</div> : null}
       {message.commit ? <CommitBanner commit={message.commit} /> : null}
       {message.error ? <div className="stm-chat-error">{message.error}</div> : null}
     </div>
   );
 }
+
+/** 时间线单片段投影：思考片段可折叠、文本片段 Markdown 渲染、工具卡参数/结果可展开。 */
+function TimelineSegmentView(props: {
+  readonly segment: QueryChatSegment;
+  /** 流式中且该片段正在进料（受控展开；已完成的片段不受控，手动展开不被收回）。 */
+  readonly isFeed: boolean;
+}) {
+  const { segment, isFeed } = props;
+  switch (segment.kind) {
+    case "thinking":
+      return <ThinkingSegmentView segment={segment} isFeed={isFeed} />;
+    case "text":
+      return <TextSegmentView segment={segment} />;
+    case "tool":
+      return <ToolCallCardView card={segment} />;
+  }
+}
+
+/** 思考片段：受控 open 只在进料时为 true；完成后不受控（默认折叠，手动展开不被收回）。 */
+function ThinkingSegmentView(props: {
+  readonly segment: Extract<QueryChatSegment, { kind: "thinking" }>;
+  readonly isFeed: boolean;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // 流式中进料片段强制展开：React 不会重写未变化的受控 open，用户手动折叠后需在
+  // 下次增量时重新断言（ADR 0013「用户在流式期间手动折叠不生效」）；完成后不干预。
+  useEffect(() => {
+    if (props.isFeed && ref.current !== null && !ref.current.open) {
+      ref.current.open = true;
+    }
+  }, [props.isFeed, props.segment.text]);
+  return (
+    <details ref={ref} className="stm-chat-thinking" open={props.isFeed}>
+      <summary>思考过程</summary>
+      <div className="stm-chat-thinking-text">{props.segment.text}</div>
+    </details>
+  );
+}
+
+/** 文本片段：GFM Markdown 渲染（表格横向滚动包装、外链新标签页；原始 HTML 默认转义）。 */
+function TextSegmentView(props: { readonly segment: Extract<QueryChatSegment, { kind: "text" }> }) {
+  return (
+    <div className="stm-chat-markdown" data-stm-field="answer-text">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {props.segment.text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+/** Markdown DOM 映射（与 apps/web MarkdownContent 同约定）：外链新标签页 + 表格横向滚动包装。 */
+const markdownComponents: Components = {
+  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+  table: ({ node: _node, ...props }) => (
+    <div className="stm-chat-markdown-table-wrap">
+      <table {...props} />
+    </div>
+  ),
+};
 
 /** 复制回答（决策 1 入口：不做「发送到对话」；非安全上下文降级 execCommand）。 */
 async function copyAnswer(text: string): Promise<void> {
@@ -304,10 +372,10 @@ async function copyAnswer(text: string): Promise<void> {
   }
 }
 
-/** 工具调用卡（决策 1：参数/结果实时可见可展开；执行中默认展开、结束后折叠）。 */
-function ToolCallCardView(props: { readonly card: QueryChatToolCall }) {
+/** 工具调用卡（决策 1 + ADR 0013：参数/结果实时可见可展开；执行中展开、出结果后折叠；失败卡错误高亮）。 */
+function ToolCallCardView(props: { readonly card: ToolSegment }) {
   const { card } = props;
-  const running = card.result === undefined;
+  const running = card.running;
   return (
     <details
       className={card.isError ? "stm-chat-tool stm-chat-tool--error" : "stm-chat-tool"}
@@ -327,7 +395,13 @@ function ToolCallCardView(props: { readonly card: QueryChatToolCall }) {
         <pre>{JSON.stringify(card.args ?? null, null, 2)}</pre>
       </div>
       {card.result !== undefined ? (
-        <div className="stm-chat-tool-section">
+        <div
+          className={
+            card.isError
+              ? "stm-chat-tool-section stm-chat-tool-section--error"
+              : "stm-chat-tool-section"
+          }
+        >
           <div className="stm-chat-tool-label">{toolResultLabel(card)}</div>
           <pre>{JSON.stringify(card.result, null, 2)}</pre>
         </div>
@@ -336,7 +410,7 @@ function ToolCallCardView(props: { readonly card: QueryChatToolCall }) {
   );
 }
 
-function toolResultLabel(card: QueryChatToolCall): string {
+function toolResultLabel(card: ToolSegment): string {
   if (card.isError) return "结果（错误）";
   const total = recordTotal(card.result);
   return total === undefined ? "结果" : "结果（" + total + " 条记录）";

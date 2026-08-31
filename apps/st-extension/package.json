@@ -31,6 +31,8 @@
     "@ste-memory/memory-host-shared": "workspace:*",
     "dexie": "^4.4.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

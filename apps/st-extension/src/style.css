@@ -2422,9 +2422,10 @@
 }
 
 /* ============================================================
- * 问答 Tab（ticket 20 / ADR 0009）：与 Agent 聊天——模式切换、用户气泡、
- * Agent 卡片（思考折叠 + 工具调用展开 + 提交摘要）、复制回答、sticky 输入行。
- * 色板走令牌；触控目标 ≥44px；无动效（spec UI 契约）。
+ * 问答 Tab（ticket 20 / ADR 0009 + ADR 0013）：与 Agent 聊天——模式切换、用户气泡、
+ * Agent 卡片（片段时间线：思考折叠 + 文本 Markdown + 工具调用展开，提交摘要）、复制回答、
+ * sticky 输入行。色板走令牌；交互控件触控目标 ≥44px（折叠 summary 例外：
+ * ADR 0013 压缩到 28px）；无动效（spec UI 契约）。
  * ============================================================ */
 
 .stm-query-chat {
@@ -2496,7 +2497,7 @@
 .stm-chat-assistant {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 10px;
   background: var(--stm-surface);
   border: 1px solid var(--stm-border);
@@ -2551,9 +2552,9 @@
   cursor: default;
 }
 
-/* 思考块（折叠展示）：流式期间默认展开实时观察 */
+/* 思考块（折叠展示）：流式期间默认展开实时观察；折叠态压缩（ADR 0013：summary 28px、内距 4px 8px） */
 .stm-chat-thinking {
-  padding: 6px 10px;
+  padding: 4px 8px;
   background: var(--stm-ink-bg);
   border-left: 2px solid var(--stm-warning);
   border-radius: 6px;
@@ -2562,7 +2563,7 @@
 .stm-chat-thinking summary {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 28px;
   cursor: pointer;
   font-size: 12px;
   color: var(--stm-warning);
@@ -2578,9 +2579,9 @@
   overflow-wrap: break-word;
 }
 
-/* 工具调用卡：参数/结果可展开；执行中默认展开、结束后折叠 */
+/* 工具调用卡：参数/结果可展开；执行中默认展开、结束后折叠；折叠态压缩（ADR 0013） */
 .stm-chat-tool {
-  padding: 6px 10px;
+  padding: 4px 8px;
   background: var(--stm-ink-bg);
   border: 1px solid var(--stm-border);
   border-radius: 8px;
@@ -2594,7 +2595,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 28px;
   cursor: pointer;
   font-size: 12px;
   color: var(--stm-ink);
@@ -2637,6 +2638,12 @@
   color: var(--stm-ink-secondary);
 }
 
+/* 失败卡结果区错误高亮（ADR 0013） */
+.stm-chat-tool-section--error pre {
+  border-color: var(--stm-danger);
+  background: var(--stm-danger-dim);
+}
+
 .stm-chat-tool pre {
   margin: 0;
   max-height: 240px;
@@ -2653,12 +2660,150 @@
   overflow-wrap: break-word;
 }
 
-.stm-chat-text {
+/* 文本片段（ADR 0013）：GFM Markdown 渲染容器；思考片段保持纯文本、工具 JSON 保持 <pre> */
+.stm-chat-markdown {
   font-size: 13px;
   line-height: 1.6;
   color: var(--stm-ink);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.stm-chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.stm-chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.stm-chat-markdown p {
+  margin: 0 0 7px;
+}
+
+.stm-chat-markdown h1,
+.stm-chat-markdown h2,
+.stm-chat-markdown h3,
+.stm-chat-markdown h4,
+.stm-chat-markdown h5,
+.stm-chat-markdown h6 {
+  margin: 10px 0 4px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--stm-accent);
+}
+
+.stm-chat-markdown h1 {
+  font-size: 16px;
+}
+
+.stm-chat-markdown h2 {
+  font-size: 15px;
+}
+
+.stm-chat-markdown h3 {
+  font-size: 14px;
+}
+
+.stm-chat-markdown h4,
+.stm-chat-markdown h5,
+.stm-chat-markdown h6 {
+  font-size: 13px;
+}
+
+.stm-chat-markdown ul,
+.stm-chat-markdown ol {
+  margin: 0 0 7px;
+  padding-left: 1.5em;
+}
+
+.stm-chat-markdown li {
+  margin: 2px 0;
+}
+
+.stm-chat-markdown li > ul,
+.stm-chat-markdown li > ol {
+  margin-bottom: 0;
+}
+
+.stm-chat-markdown code {
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+
+.stm-chat-markdown :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--stm-warning-dim);
+  color: var(--stm-warning);
+}
+
+.stm-chat-markdown pre {
+  margin: 0 0 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--stm-border);
+  border-radius: 6px;
+  background: var(--stm-ink-bg);
+  overflow-x: auto;
+}
+
+.stm-chat-markdown pre code {
+  padding: 0;
+  background: none;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.stm-chat-markdown blockquote {
+  margin: 0 0 7px;
+  padding: 2px 9px;
+  border-left: 3px solid var(--stm-border);
+  color: var(--stm-ink-secondary);
+}
+
+.stm-chat-markdown a {
+  color: var(--stm-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.stm-chat-markdown a:hover {
+  color: var(--stm-ink);
+}
+
+.stm-chat-markdown hr {
+  margin: 9px 0;
+  border: none;
+  border-top: 1px solid var(--stm-border);
+}
+
+/* Markdown 表格：窄面板内横向滚动（不撑破布局，ADR 0013） */
+.stm-chat-markdown-table-wrap {
+  margin: 0 0 7px;
+  overflow-x: auto;
+}
+
+.stm-chat-markdown table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stm-chat-markdown th,
+.stm-chat-markdown td {
+  border: 1px solid var(--stm-border);
+  padding: 4px 7px;
+  text-align: left;
+}
+
+.stm-chat-markdown th {
+  background: var(--stm-warning-dim);
+  color: var(--stm-warning);
+  font-weight: 700;
+}
+
+.stm-chat-markdown td {
+  color: var(--stm-ink);
 }
 
 /* 填写模式提交摘要横幅（已提交 / 失败 / 空间切换放弃） */
