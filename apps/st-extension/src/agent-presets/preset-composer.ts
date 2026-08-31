@@ -78,12 +78,14 @@ const PLACEHOLDER_PATTERN = new RegExp(
  * {{tablesDigest}} → 表/字段摘要、{{user}} / {{char}} → 对话双方名字、
  * {{char_card}} / {{user_card}} → 角色卡 / Persona 描述、{{msg}} → 块消息文本、
  * {{worldbook}} → 提交时快照的世界书扫描文本（ADR 0007）。
+ * digest 缺省（undefined）时 {{tablesDigest}}/{{systemDefaultPrompt}} 展开空串——
+ * 预设预览在无活动空间时以此表示「没有摘要」；真实编排永远传实际 digest。
  * 未知占位符（不在白名单）原样保留。
  */
 export function expandAgentPresetPlaceholders(
   text: string,
   snapshot: AgentPromptSnapshot,
-  digest: MemorySpaceTableDigest,
+  digest: MemorySpaceTableDigest | undefined,
 ): string {
   const expanders: Record<AgentPresetPlaceholderName, () => string> = {
     user: () => snapshot.names.user,
@@ -91,8 +93,9 @@ export function expandAgentPresetPlaceholders(
     char_card: () => snapshot.charCard,
     user_card: () => snapshot.userCard,
     msg: () => snapshot.msgText,
-    tablesDigest: () => composeTableDigestSummary(digest),
-    systemDefaultPrompt: () => composeProposalAgentSystemPrompt(digest),
+    tablesDigest: () => (digest === undefined ? "" : composeTableDigestSummary(digest)),
+    systemDefaultPrompt: () =>
+      digest === undefined ? "" : composeProposalAgentSystemPrompt(digest),
     worldbook: () => snapshot.worldbookText,
   };
   return text.replace(PLACEHOLDER_PATTERN, (match, name: AgentPresetPlaceholderName) =>

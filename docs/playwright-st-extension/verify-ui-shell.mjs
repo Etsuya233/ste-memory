@@ -413,6 +413,8 @@ async function main() {
       };
       // 按 spec 常用顺序展开，便于后续校验
       ["macro", "r2", "version", "backup", "mirror"].forEach(expand);
+      // 宏名/上限输入已移入「宏设置」分区（内置/全局/对话级/宏设置，默认全局宏）：先切分区
+      document.querySelector('#stm-panel button[data-macro-scope="settings"]')?.click();
     });
     await waitMs(150);
     const settings = await page.evaluate(() => {

@@ -386,6 +386,71 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(registered.size).toBe(0);
   });
 
+  it("宏预览数据源（issue 01 UI 改版）：macroOverview 聚合记忆宏与 Agent 预设宏快照（每行预览的读口）", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      extensionSettings: {},
+      macros: {
+        register: () => {},
+        registry: { unregisterMacro: () => false },
+      },
+    });
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+
+    // 默认前缀 {{ste}} → 行名花括号形态；记忆宏家族 + Agent 预设宏两行
+    const overview = runtime.macroOverview();
+    const names = overview.map((row) => row.name);
+    expect(names[0]).toBe("{{ste}}");
+    expect(names).toContain("{{tablesDigest}}");
+    expect(names).toContain("{{systemDefaultPrompt}}");
+    // 展开文本 = 快照实际值（与宏 handler / agentMacro 快照同源）
+    const digestRow = overview.find((row) => row.name === "{{tablesDigest}}")!;
+    expect(digestRow.text).toBe(runtime.agentMacro.getSnapshot().digestText);
+    expect(digestRow.text).toContain("【characters｜人物】");
+    expect(overview.find((row) => row.name === "{{ste}}")!.text).toBe(runtime.macro.getSnapshot());
+
+    // 内置宏行：full + 每启用表 Key（快照只读口与分发同源）
+    const fullRow = overview.find((row) => row.name === "{{ste::full}}")!;
+    expect(fullRow.text).toBe(runtime.macro.getBuiltinSnapshot("full"));
+    expect(fullRow.text).toContain("## 人物");
+
+    // 编辑记忆视图后 kick：一览读取即最新（快照随设置变化重建）
+    const view = {
+      name: "人物速览",
+      tableKey: "characters",
+      condition: null,
+      limit: 50,
+      projection: [] as readonly string[],
+    };
+    runtime.settings.write({ ...runtime.settings.read(), memoryViews: [view] });
+    await runtime.macro.kick();
+    const refreshed = runtime.macroOverview();
+    expect(refreshed.some((row) => row.name === "{{ste::人物速览}}")).toBe(true);
+  });
+
+  it("预设预览端口（issue 01）：ST 上下文快照 / 活动空间 / digest 即时构建；旧版 ST 世界书扫描 = failed", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+
+    // ST 上下文快照：对话双方名字 / 角色卡（与任务提交同源同构）；msgText 由调用方填
+    const snapshot = runtime.presetPreview.getPromptSnapshot();
+    expect(snapshot.names).toEqual({ user: "", char: "爱丽丝" });
+    expect(runtime.presetPreview.readSpaceId()).toBe(status.space.id);
+
+    // digest 即时构建：含启用表摘要
+    const digest = await runtime.presetPreview.readDigest(status.space.id);
+    expect(digest.tables.some((t) => t.key === "characters")).toBe(true);
+
+    // 旧版 ST（无 getWorldInfoPrompt）：扫描 = failed + 空文本（展开空串语义）
+    const scan = await runtime.presetPreview.scanWorldbook("测试文本");
+    expect(scan).toEqual({ text: "", status: "failed" });
+  });
+
   it("填表任务接线（ticket 13）：启动把非终态任务标记 interrupted（关页不自动重放）；tasks 暴露可用", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext({ chat: [{ mes: "hi" }] });

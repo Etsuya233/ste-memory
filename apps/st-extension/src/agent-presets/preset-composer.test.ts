@@ -181,6 +181,16 @@ describe("占位符展开", () => {
     expect(text).toContain("【person｜{{user}}的收藏】");
     expect(text).not.toContain("【person｜小明的收藏】");
   });
+
+  it("digest 缺省（预设预览无活动空间）：{{tablesDigest}}/{{systemDefaultPrompt}} 展开空串", () => {
+    expect(expandAgentPresetPlaceholders("{{tablesDigest}}", snapshot(), undefined)).toBe("");
+    expect(expandAgentPresetPlaceholders("{{systemDefaultPrompt}}", snapshot(), undefined)).toBe(
+      "",
+    );
+    expect(
+      expandAgentPresetPlaceholders("{{user}} 与 {{tablesDigest}}", snapshot(), undefined),
+    ).toBe("小明 与 ");
+  });
 });
 
 describe("composePresetMessages", () => {

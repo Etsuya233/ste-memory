@@ -14,7 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { MemoryField, MemoryTable } from "@ste-memory/core/memory";
 import type { MemoryView } from "../settings/memory-views.ts";
 import { splitListText } from "./record-form-model.ts";
-import { reportError, reportSuccess } from "./ui-helpers.tsx";
+import { copyText, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
+import { PreviewModal } from "./preview-modal.tsx";
 import {
   emptyMemoryViewDraft,
   isConditionField,
@@ -27,10 +28,14 @@ import {
 } from "./memory-views-manager-model.ts";
 
 export function MemoryViewsManager(props: {
+  /** 全局前缀（裸标识符，如 ste；预览宏名用） */
+  readonly prefix: string;
   /** 活动空间 id；undefined = 无活动空间（列表可看，编辑禁用） */
   readonly spaceId: string | undefined;
   readonly readTables: (spaceId: string) => Promise<readonly MemoryTable[]>;
   readonly readFields: (spaceId: string, tableId: string) => Promise<readonly MemoryField[]>;
+  /** 宏展开文本读取口：完整宏名（{{...}} 形态）→ 预计算快照文本（未知 = 空串） */
+  readonly readPreview: (name: string) => string;
   readonly views: readonly MemoryView[];
   /** 视图列表变更（宿主写 settings + macro.kick()） */
   readonly onChange: (views: readonly MemoryView[]) => void;
@@ -45,6 +50,10 @@ export function MemoryViewsManager(props: {
   >(null);
   const [draft, setDraft] = useState<MemoryViewDraft | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
+  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
+  const [preview, setPreview] = useState<{ readonly name: string; readonly text: string } | null>(
+    null,
+  );
 
   // 表列表：活动空间变化/视图变化（新表引用）后重取
   useEffect(() => {
@@ -161,6 +170,19 @@ export function MemoryViewsManager(props: {
   const editingDraftFields =
     draft && draft.tableKey !== "" ? (fieldsByTable.get(draft.tableKey) ?? []) : [];
 
+  /** 打开视图预览：宏名 = {{前缀::视图名}}，文本点击时从快照读取一次 */
+  function openPreview(view: MemoryView): void {
+    const name = `{{${props.prefix}::${view.name}}}`;
+    setPreview({ name, text: props.readPreview(name) });
+  }
+
+  async function copyPreview(): Promise<void> {
+    if (!preview) return;
+    const ok = await copyText(preview.text);
+    if (ok) reportSuccess(`已复制「${preview.name}」展开文本`);
+    else reportWarning("复制失败：浏览器不支持剪贴板写入");
+  }
+
   return (
     <div className="stm-setting-subgroup" data-stm-section="memory-views">
       <div className="stm-setting-hint">
@@ -178,6 +200,7 @@ export function MemoryViewsManager(props: {
           view={view}
           errors={rowConfigErrors(view)}
           onBeginEdit={() => beginEdit(view)}
+          onPreview={() => openPreview(view)}
           onDelete={() => deleteView(view)}
         />
       ))}
@@ -203,15 +226,24 @@ export function MemoryViewsManager(props: {
           onCancel={cancelEdit}
         />
       )}
+      {preview && (
+        <PreviewModal
+          title={preview.name}
+          text={preview.text}
+          onCopy={() => void copyPreview()}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }
 
-/** 视图折叠行：名称 + 摘要 + 配置错误徽标 + 编辑/删除 */
+/** 视图折叠行：名称 + 摘要 + 配置错误徽标 + 预览/编辑/删除 */
 function MemoryViewRow(props: {
   readonly view: MemoryView;
   readonly errors: readonly string[];
   readonly onBeginEdit: () => void;
+  readonly onPreview: () => void;
   readonly onDelete: () => void;
 }) {
   return (
@@ -229,6 +261,15 @@ function MemoryViewRow(props: {
             <span className="stm-mono"> · {props.view.tableKey}</span> ·{" "}
             {viewSummaryText(props.view)}
           </span>
+        </button>
+        <button
+          type="button"
+          className="stm-button stm-preset-preview-btn"
+          data-action="preview-memory-view"
+          onClick={props.onPreview}
+          title={`预览「${props.view.name}」展开文本`}
+        >
+          预览
         </button>
         <button
           type="button"

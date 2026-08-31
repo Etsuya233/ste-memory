@@ -70,13 +70,15 @@ function text(html: string): string {
 }
 
 describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
-  it("初始渲染：视图折叠行（名称 + 摘要）+ 新建入口 + 提示就位", () => {
+  it("初始渲染：视图折叠行（名称 + 摘要 + 预览按钮）+ 新建入口 + 提示就位", () => {
     const html = text(
       renderToString(
         <MemoryViewsManager
+          prefix="ste"
           spaceId="space-1"
           readTables={async () => []}
           readFields={async () => []}
+          readPreview={() => ""}
           views={[view()]}
           onChange={() => undefined}
         />,
@@ -88,6 +90,7 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     expect(html).toContain('data-action="add-memory-view"');
     expect(html).toContain('data-action="delete-memory-view"');
     expect(html).toContain('data-action="edit-memory-view"');
+    expect(html).toContain('data-action="preview-memory-view"');
     expect(html).toContain("{{宏名::视图名}}");
   });
 
@@ -95,9 +98,11 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     const html = text(
       renderToString(
         <MemoryViewsManager
+          prefix="ste"
           spaceId={undefined}
           readTables={async () => []}
           readFields={async () => []}
+          readPreview={() => ""}
           views={[view()]}
           onChange={() => undefined}
         />,
@@ -112,9 +117,11 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     const html = text(
       renderToString(
         <MemoryViewsManager
+          prefix="ste"
           spaceId="space-1"
           readTables={async () => []}
           readFields={async () => []}
+          readPreview={() => ""}
           views={[]}
           onChange={() => undefined}
         />,

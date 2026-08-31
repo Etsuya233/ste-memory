@@ -126,6 +126,8 @@ import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
 import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
 import type { MemoryView } from "../settings/memory-views.ts";
+import type { AgentPresetPreviewPorts } from "../agent-presets/preset-preview-model.ts";
+import type { MacroOverviewRow } from "../macros/macro-overview-model.ts";
 import { testAgentConnection } from "../llm/st-backends-status.ts";
 import {
   emptyFieldDraft,
@@ -185,6 +187,13 @@ export interface PanelRuntime {
   readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
   /** Agent 预设宏（ticket 17）：插件开关变化即时生效（kick 立即评估） */
   readonly agentMacro: Pick<SteMemoryRuntime["agentMacro"], "kick">;
+  /**
+   * Agent 预设预览（issue 01）：展开数据点击时即时构建（ST 上下文/digest/世界书扫描）；
+   * 预览构建的纯逻辑在 preset-preview-model，组件只接线。
+   */
+  readonly presetPreview: AgentPresetPreviewPorts;
+  /** 宏内容一览（issue 01）：聚合两宏服务预计算快照为展示行（同步读；读时即最新） */
+  readonly macroOverview: () => readonly MacroOverviewRow[];
   /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
@@ -1390,14 +1399,54 @@ function TablesTab(props: {
 
 // ---- 设置 Tab ----
 
-/** 记忆宏组内作用域分区：内置宏（只读）/ 全局宏（宏名 + 视图）/ 对话级宏（聊天 Scope CRUD） */
-type MacroScopeTab = "builtin" | "global" | "chat";
+/** 记忆宏组内作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 / 宏设置（全局设置） */
+type MacroScopeTab = "builtin" | "global" | "chat" | "settings";
 
 const MACRO_SCOPE_TABS: readonly { readonly key: MacroScopeTab; readonly label: string }[] = [
   { key: "builtin", label: "内置宏" },
   { key: "global", label: "全局宏" },
   { key: "chat", label: "对话级宏" },
+  { key: "settings", label: "宏设置" },
 ];
+
+/**
+ * 宏设置分区（「记忆宏」组「宏设置」tab）：全局前缀 + 字符上限，记忆宏家族共用。
+ * 纯展示：输入绑定 settings，变更经 onNameChange/onLimitChange 写库并 kick。
+ */
+export function MacroSettingsFields(props: {
+  readonly macroName: string;
+  readonly macroLimit: number;
+  readonly onNameChange: (value: string) => void;
+  readonly onLimitChange: (value: string) => void;
+}) {
+  return (
+    <div className="stm-setting-subgroup" data-stm-section="macro-settings">
+      <input
+        className="stm-input"
+        type="text"
+        data-stm-field="macro-name"
+        value={props.macroName}
+        placeholder="{{ste}}"
+        onChange={(event) => props.onNameChange(event.target.value)}
+      />
+      <input
+        className="stm-input"
+        type="number"
+        min="0"
+        step="100"
+        data-stm-field="macro-limit"
+        value={props.macroLimit}
+        onChange={(event) => props.onLimitChange(event.target.value)}
+      />
+      <div className="stm-setting-hint">
+        前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
+        当前记忆：{"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full /
+        表 Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
+        超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
+      </div>
+    </div>
+  );
+}
 
 function SettingsTab(props: {
   readonly runtime: PanelRuntime;
@@ -1708,6 +1757,11 @@ function SettingsTab(props: {
     void props.runtime.macro.kick().catch(reportError);
   }
 
+  /** 宏预览读取口（内置/全局/对话级行共用）：完整宏名 → 预计算快照文本（未知 = 空串） */
+  function readMacroPreview(name: string): string {
+    return props.runtime.macroOverview().find((row) => row.name === name)?.text ?? "";
+  }
+
   // ---- 折叠状态（纯展示偏好，持久化到 localStorage，不进 PluginSettings） ----
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<SettingsGroupKey>>(() => {
     try {
@@ -1814,47 +1868,28 @@ function SettingsTab(props: {
               ))}
             </div>
 
-            {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}） */}
+            {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}；
+                Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
             {macroScopeTab === "builtin" && (
               <BuiltinMacrosList
                 prefix={props.settings.macroName.replace(/[{}]/g, "")}
                 spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                 readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                readPreview={readMacroPreview}
               />
             )}
 
-            {/* 全局宏：宏名 + 字符上限 + 视图 CRUD（当前行为不变） */}
+            {/* 全局宏：视图 CRUD（前缀/上限设置在「宏设置」分区） */}
             {macroScopeTab === "global" && (
               <>
-                <input
-                  className="stm-input"
-                  type="text"
-                  data-stm-field="macro-name"
-                  value={props.settings.macroName}
-                  placeholder="{{ste}}"
-                  onChange={(event) => updateMacroName(event.target.value)}
-                />
-                <input
-                  className="stm-input"
-                  type="number"
-                  min="0"
-                  step="100"
-                  data-stm-field="macro-limit"
-                  value={props.settings.macroLimit}
-                  onChange={(event) => updateMacroLimit(event.target.value)}
-                />
-                <div className="stm-setting-hint">
-                  前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开
-                  当前记忆：{"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full /
-                  表 Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
-                  超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
-                </div>
                 <MemoryViewsManager
+                  prefix={props.settings.macroName.replace(/[{}]/g, "")}
                   spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                   readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
                   readFields={(spaceId, tableId) =>
                     props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                   }
+                  readPreview={readMacroPreview}
                   views={props.settings.memoryViews}
                   onChange={(views) => {
                     const next = { ...props.settings, memoryViews: views };
@@ -1875,12 +1910,23 @@ function SettingsTab(props: {
                 readFields={(spaceId, tableId) =>
                   props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                 }
+                readPreview={readMacroPreview}
                 macros={chatScopeMacros}
                 onChange={(macros) => {
                   props.runtime.cleaning.writeChatScopeMacros?.(macros);
                   setChatScopeMacros(macros);
                   void props.runtime.macro.kick().catch(reportError);
                 }}
+              />
+            )}
+
+            {/* 宏设置：全局前缀 + 字符上限（记忆宏家族共用） */}
+            {macroScopeTab === "settings" && (
+              <MacroSettingsFields
+                macroName={props.settings.macroName}
+                macroLimit={props.settings.macroLimit}
+                onNameChange={updateMacroName}
+                onLimitChange={updateMacroLimit}
               />
             )}
           </div>
@@ -1952,6 +1998,7 @@ function SettingsTab(props: {
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentPresetManager
               settings={props.settings}
+              presetPreview={props.runtime.presetPreview}
               onChange={(next) => {
                 props.runtime.settings.write(next);
                 props.onSettingsChange(next);

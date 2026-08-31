@@ -190,6 +190,20 @@ export class MemoryMacroService {
     return this.#chatScopeSnapshots.get(name);
   }
 
+  /**
+   * 内置宏快照名列表（{{前缀::名字}} 的名字部分：full + 每启用表 Key；
+   * 宏内容一览/验收可读；顺序 = full 在前）。
+   */
+  builtinSnapshotNames(): readonly string[] {
+    return [BUILTIN_FULL_ARG, ...this.#builtinSnapshots.perTable.keys()];
+  }
+
+  /** 内置宏快照只读口（宏内容一览）：名字 = full 或表 Key；未知名字 = undefined */
+  getBuiltinSnapshot(name: string): string | undefined {
+    if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
+    return this.#builtinSnapshots.perTable.get(name);
+  }
+
   /** 启动（runtime 组合根调用）：立即注册宏 + 重建快照，并保持轮询刷新。
    *  快照重建时机：指纹轮询（2s）+ 面板数据操作后的 kick（宿主侧补，
    *  sync/mirror 同模式）——Dexie 核心无「任何写事务提交」事件（changes 属

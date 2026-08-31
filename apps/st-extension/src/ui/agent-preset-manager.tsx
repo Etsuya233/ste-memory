@@ -51,7 +51,16 @@ import {
   AGENT_PRESET_PLACEHOLDER_HINTS,
   type AgentPresetPlaceholderName,
 } from "../agent-presets/preset-composer.ts";
-import { createUiId, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
+import {
+  EMPTY_PREVIEW_SNAPSHOT,
+  buildAgentPresetPreviewItems,
+  type AgentPresetPreviewData,
+  type AgentPresetPreviewItem,
+  type AgentPresetPreviewPorts,
+  type PreviewWorldbookState,
+} from "../agent-presets/preset-preview-model.ts";
+import { copyText, createUiId, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
+import { PreviewModal } from "./preview-modal.tsx";
 
 /** 角色显示名（编辑器角色下拉 + 卡片预览标签共用） */
 export const AGENT_PRESET_ROLE_LABELS: Record<AgentPresetRole, string> = {
@@ -59,23 +68,6 @@ export const AGENT_PRESET_ROLE_LABELS: Record<AgentPresetRole, string> = {
   user: "User",
   assistant: "Assistant",
 };
-
-/** 复制文本：优先 Clipboard API；非安全上下文降级 textarea + execCommand */
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return true;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  const ok = document.execCommand("copy");
-  textarea.remove();
-  return ok;
-}
 
 /** 下载文本文件（导出预设 JSON） */
 function downloadTextFile(text: string, filename: string): void {
@@ -96,11 +88,19 @@ export function AgentPresetManager(props: {
   readonly settings: PluginSettings;
   /** 宿主写 settings 并更新面板状态（SettingsTab 包一层 runtime.settings.write） */
   readonly onChange: (settings: PluginSettings) => void;
+  /** 预设预览展开数据端口（issue 01）：点击「预览」时即时构建 ST 上下文/digest/世界书扫描 */
+  readonly presetPreview: AgentPresetPreviewPorts;
 }) {
   const agentPresets = props.settings.agentPresets;
   const activeId = agentPresets.activePresetId;
   const activePreset = agentPresets.presets.find((p) => p.id === activeId);
   const [expandedMessageId, setExpandedMessageId] = useState<string | undefined>(undefined);
+  // ---- 预设预览（issue 01）：预览展开数据在点击时即时构建，纯逻辑在 preset-preview-model ----
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewText, setPreviewText] = useState("");
+  const [previewData, setPreviewData] = useState<AgentPresetPreviewData | undefined>(undefined);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | undefined>(undefined);
   const importInputRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   /** 变更入口：mutate 预设设置 → 宿主写 settings */
@@ -181,6 +181,59 @@ export function AgentPresetManager(props: {
     if (ok) reportSuccess("已复制预设全文到剪贴板");
     else reportWarning("复制失败：浏览器不支持剪贴板写入");
   }
+
+  // ---- 预设预览（issue 01）----
+
+  function togglePreview(): void {
+    if (previewOpen) {
+      setPreviewOpen(false);
+      return;
+    }
+    setPreviewOpen(true);
+    void loadPreview();
+  }
+
+  /**
+   * 即时构建展开数据：ST 上下文快照（对话双方名字/角色卡/Persona）+ 活动空间摘要
+   * （digest）+ 世界书扫描（预览输入文本；输入为空 → 不扫描，标注）。
+   */
+  async function loadPreview(): Promise<void> {
+    if (!activePreset) return;
+    setPreviewLoading(true);
+    setPreviewError(undefined);
+    try {
+      const snapshotBase = props.presetPreview.getPromptSnapshot();
+      const spaceId = props.presetPreview.readSpaceId();
+      const digest =
+        spaceId === undefined ? undefined : await props.presetPreview.readDigest(spaceId);
+      let worldbookText = "";
+      let worldbookState: PreviewWorldbookState = "skipped";
+      if (previewText.trim() !== "") {
+        const scan = await props.presetPreview.scanWorldbook(previewText);
+        worldbookText = scan.text;
+        worldbookState = scan.status;
+      }
+      setPreviewData({
+        snapshot: { ...snapshotBase, msgText: previewText, worldbookText },
+        digest,
+        worldbookState,
+      });
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  /** 预览条目：编辑预设消息/切换预设后随渲染即时重算（展开数据为最近一次构建） */
+  const previewItems = activePreset
+    ? buildAgentPresetPreviewItems({
+        preset: activePreset,
+        snapshot: previewData?.snapshot ?? EMPTY_PREVIEW_SNAPSHOT,
+        digest: previewData?.digest,
+        worldbookState: previewData?.worldbookState ?? "skipped",
+      })
+    : [];
 
   function onPresetDragEnd(event: DragEndEvent): void {
     const { active, over } = event;
@@ -338,7 +391,28 @@ export function AgentPresetManager(props: {
             >
               复制全文
             </button>
+            <button
+              type="button"
+              className="stm-button"
+              data-action="preview-preset"
+              onClick={togglePreview}
+              title="预览活动预设按编排形态展开后的最终消息（点击时读取当前时刻上下文）"
+            >
+              {previewOpen ? "收起预览" : "预览"}
+            </button>
           </div>
+          {previewOpen && (
+            <AgentPresetPreviewDialog
+              presetName={activePreset.name}
+              items={previewItems}
+              loading={previewLoading}
+              error={previewError}
+              previewText={previewText}
+              onPreviewTextChange={setPreviewText}
+              onRefresh={() => void loadPreview()}
+              onClose={() => setPreviewOpen(false)}
+            />
+          )}
           {digestMissing && (
             <div className="stm-preset-warning" data-stm-field="digest-warning">
               当前预设未引用 {"{{tablesDigest}}"} 或 {"{{systemDefaultPrompt}}"}：Agent
@@ -571,6 +645,175 @@ function MessageCard(props: {
               </button>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 预设预览弹窗（issue 01 UI 改版）：内容 = 原内嵌只读面板（差异提示 + 预览输入
+ * 文本 + 「重新展开」+ 按编排形态分组卡片），外层套统一 PreviewModal——底部右侧
+ * 「复制（全部展开消息）/ 关闭」；复制全部由 onCopyAll 注入（join 展开文本序列）。
+ * 纯展示组件：展开条目由宿主用 buildAgentPresetPreviewItems 构建后传入。
+ */
+export function AgentPresetPreviewDialog(props: {
+  readonly presetName: string;
+  readonly items: readonly AgentPresetPreviewItem[];
+  readonly loading: boolean;
+  readonly error: string | undefined;
+  readonly previewText: string;
+  readonly onPreviewTextChange: (text: string) => void;
+  readonly onRefresh: () => void;
+  readonly onClose: () => void;
+}) {
+  return (
+    <PreviewModal
+      title={`预览「${props.presetName}」`}
+      onCopy={() => {
+        const text = props.items.map((item) => item.text).join("\n\n");
+        void copyText(text).then((ok) => {
+          if (ok) reportSuccess("已复制全部展开消息到剪贴板");
+          else reportWarning("复制失败：浏览器不支持剪贴板写入");
+        });
+      }}
+      onClose={props.onClose}
+    >
+      <AgentPresetPreviewPanel
+        items={props.items}
+        loading={props.loading}
+        error={props.error}
+        previewText={props.previewText}
+        onPreviewTextChange={props.onPreviewTextChange}
+        onRefresh={props.onRefresh}
+      />
+    </PreviewModal>
+  );
+}
+
+/**
+ * 预设预览面板（issue 01）：只读面板内容区，按编排形态分组展示活动预设展开后的
+ * 最终消息（system 合并进系统提示词 / user、assistant 进入对话前缀）。顶部差异
+ * 提示一行；输入框文本同时作为 {{msg}} 展开源与世界书扫描输入；「重新展开」用
+ * 当前输入即时重建展开数据；卡片 = 角色标签 + 来源预设消息名 + 展开后文本 + 复制。
+ * 纯展示组件：展开条目由宿主用 buildAgentPresetPreviewItems 构建后传入。
+ */
+export function AgentPresetPreviewPanel(props: {
+  readonly items: readonly AgentPresetPreviewItem[];
+  readonly loading: boolean;
+  readonly error: string | undefined;
+  readonly previewText: string;
+  readonly onPreviewTextChange: (text: string) => void;
+  readonly onRefresh: () => void;
+}) {
+  const systemItems = props.items.filter((item) => item.role === "system");
+  const prefixItems = props.items.filter((item) => item.role !== "system");
+
+  return (
+    <div className="stm-preset-preview" data-stm-section="preset-preview">
+      <div className="stm-preset-preview-hint" data-stm-field="preset-preview-hint">
+        预览为当前时刻内容，任务提交时以最新数据重新展开
+      </div>
+      <label className="stm-setting-label">
+        <div className="stm-setting-name">预览输入文本</div>
+        <div className="stm-setting-hint">
+          同时作为 {"{{msg}}"} 的展开内容与世界书扫描输入；为空时 {"{{msg}}"} 展开空串、
+          不执行世界书扫描
+        </div>
+      </label>
+      <textarea
+        className="stm-textarea"
+        data-stm-field="preset-preview-text"
+        value={props.previewText}
+        placeholder="输入要模拟的消息内容（可为空）"
+        rows={3}
+        onChange={(event) => props.onPreviewTextChange(event.target.value)}
+      />
+      <div className="stm-setting-actions">
+        <button
+          type="button"
+          className="stm-button"
+          data-action="refresh-preset-preview"
+          onClick={props.onRefresh}
+          disabled={props.loading}
+        >
+          重新展开
+        </button>
+      </div>
+      {props.loading && (
+        <div className="stm-setting-hint" data-stm-field="preset-preview-loading">
+          正在构建展开数据…
+        </div>
+      )}
+      {!props.loading && props.error !== undefined && (
+        <div className="stm-preset-warning" data-stm-field="preset-preview-error">
+          {props.error}
+        </div>
+      )}
+      {!props.loading && props.error === undefined && (
+        <>
+          <PreviewGroup title="系统提示词（合并进系统提示词，按预设顺序）" items={systemItems} />
+          <PreviewGroup
+            title="对话前缀（User / Assistant 按预设顺序进入对话）"
+            items={prefixItems}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 编排形态分组：组标题 + 组内条目卡片 */
+function PreviewGroup(props: {
+  readonly title: string;
+  readonly items: readonly AgentPresetPreviewItem[];
+}) {
+  if (props.items.length === 0) return null;
+  return (
+    <div className="stm-preset-preview-group">
+      <div className="stm-preset-preview-group-title">{props.title}</div>
+      {props.items.map((item) => (
+        <PreviewItemCard key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
+/** 预览条目卡片：角色标签 + 来源预设消息名 + 展开后文本（等宽只读）+ 复制 */
+function PreviewItemCard(props: { readonly item: AgentPresetPreviewItem }) {
+  async function copy(): Promise<void> {
+    const ok = await copyText(props.item.text);
+    if (ok) reportSuccess("已复制展开消息到剪贴板");
+    else reportWarning("复制失败：浏览器不支持剪贴板写入");
+  }
+
+  return (
+    <div className="stm-preset-preview-card" data-stm-field={`preview-message-${props.item.id}`}>
+      <div className="stm-preset-fragment-head">
+        <span
+          className={`stm-preset-role-tag stm-preset-role-tag--${props.item.role}`}
+          data-stm-field="preview-message-role"
+        >
+          {AGENT_PRESET_ROLE_LABELS[props.item.role]}
+        </span>
+        <span className="stm-preset-preview-source" title={props.item.sourceName}>
+          {props.item.sourceName}
+        </span>
+        <button
+          type="button"
+          className="stm-button stm-preset-preview-copy"
+          data-action="copy-preset-preview-message"
+          onClick={() => void copy()}
+        >
+          复制
+        </button>
+      </div>
+      <pre className="stm-preset-preview-text" data-stm-field="preset-preview-text-content">
+        {props.item.text}
+      </pre>
+      {props.item.note !== undefined && (
+        <div className="stm-preset-warning" data-stm-field="preset-preview-note">
+          {props.item.note}
         </div>
       )}
     </div>

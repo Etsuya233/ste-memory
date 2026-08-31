@@ -52,6 +52,23 @@ export function reportSuccess(message: string): void {
   }
 }
 
+/** 复制文本：优先 Clipboard API；非安全上下文降级 textarea + execCommand */
+export async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  textarea.remove();
+  return ok;
+}
+
 /** 空状态占位（「空状态是邀请」文案风格，spec §11） */
 export function Placeholder(props: { readonly title: string; readonly hint: string }): ReactNode {
   return (

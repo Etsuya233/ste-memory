@@ -2847,3 +2847,122 @@
   background: var(--SmartThemeAlertColor, #d33) 1a;
   word-break: break-all;
 }
+
+/* ---------- 预设预览（issue 01）：内嵌只读面板 ---------- */
+.stm-preset-preview {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--stm-ink-bg) 60%, transparent);
+}
+
+.stm-preset-preview-hint {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-preset-preview-group {
+  margin-top: 10px;
+}
+
+.stm-preset-preview-group-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-preset-preview-card {
+  margin-top: 8px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stm-preset-preview-source {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--stm-ink);
+}
+
+.stm-preset-preview-copy {
+  flex: none;
+}
+
+.stm-preset-preview-text {
+  margin: 0;
+  padding: 8px 12px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--stm-ink);
+  border-top: 1px solid var(--stm-border);
+}
+
+/* ---------- 预览弹窗（issue 01 UI 改版）：宏/预设展开内容统一模态框 ---------- */
+.stm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.stm-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: min(80vh, 640px);
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.stm-modal-title {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-ink);
+  border-bottom: 1px solid var(--stm-border);
+}
+
+.stm-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+}
+
+.stm-modal-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--stm-ink);
+}
+
+.stm-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--stm-border);
+}

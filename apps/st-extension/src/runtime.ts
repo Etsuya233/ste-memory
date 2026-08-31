@@ -16,6 +16,7 @@ import {
 import type { MemoryBackupRepository } from "@ste-memory/core/memory/export";
 import type { MemoryRecordMutationContext } from "@ste-memory/core/memory";
 import type { MemorySpaceReader } from "@ste-memory/core/memory/agent";
+import { buildMemorySpaceTableDigest } from "@ste-memory/core/memory/agent";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { CloudSyncCoordinator, R2CloudSyncAdapter } from "./cloud/index.ts";
@@ -38,7 +39,14 @@ import { QueryChatService } from "./query-chat/query-chat-service.ts";
 import type { Table } from "dexie";
 import type { LogRepository } from "./logging/log.ts";
 import { MemoryMacroService } from "./macros/memory-macro-service.ts";
-import { AgentMacroService } from "./agent-presets/agent-macro-service.ts";
+import {
+  AgentMacroService,
+  AGENT_TABLES_DIGEST_MACRO,
+  AGENT_SYSTEM_DEFAULT_PROMPT_MACRO,
+} from "./agent-presets/agent-macro-service.ts";
+import { resolveMacroRegistrationName } from "./macros/macro-name.ts";
+import { buildMacroOverviewRows, type MacroOverviewRow } from "./macros/macro-overview-model.ts";
+import type { AgentPresetPreviewPorts } from "./agent-presets/preset-preview-model.ts";
 import { containsWorldbookReference, resolveActivePreset } from "./agent-presets/preset-model.ts";
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { FillTaskPromptContext } from "./fill-tasks/fill-task-service.ts";
@@ -86,6 +94,13 @@ export interface SteMemoryRuntime {
   readonly macro: MemoryMacroService;
   /** Agent 预设宏（ticket 17）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 + 快照轮询 */
   readonly agentMacro: AgentMacroService;
+  /**
+   * Agent 预设预览（issue 01）：点击预览时即时构建展开数据（ST 上下文快照 /
+   * 活动空间 digest / 世界书 dry-run 扫描），预览构建的纯逻辑在 preset-preview-model。
+   */
+  readonly presetPreview: AgentPresetPreviewPorts;
+  /** 宏内容一览（issue 01）：聚合记忆宏 + Agent 预设宏预计算快照为展示行（同步读） */
+  readonly macroOverview: () => readonly MacroOverviewRow[];
   /** LLM 端口工厂（ticket 12）：任务开始时读 ST 当前配置构造一次（模型+参数快照），
    * 之后 streamFn 是纯函数（model, context, options）——填表任务（ticket 13）每 run 调一次；
    * Agent 连接（ADR 0010）：填表选择连接时改用连接（模型/URL/Key），参数仍读 ST 快照 */
@@ -513,6 +528,60 @@ export async function startSteMemory(
     logs,
     macro,
     agentMacro,
+    // Agent 预设预览（issue 01）：展开数据点击时即时构建——ST 上下文快照
+    // （adapter 同源）+ 活动空间 digest（无活动空间 = undefined）+ 世界书扫描
+    // （预览输入文本 / 旧版 ST 或扫描失败 = failed 状态，面板标注）
+    presetPreview: {
+      getPromptSnapshot: () => adapter.getPromptSnapshot(),
+      readSpaceId: () => {
+        const status = manager.getStatus();
+        return status?.kind === "active" ? status.space.id : undefined;
+      },
+      readDigest: (memorySpaceId) => buildMemorySpaceTableDigest(reader, memorySpaceId),
+      scanWorldbook: async (text) => {
+        const context = getContext() as StContext;
+        if (!context.getWorldInfoPrompt) {
+          // 旧版 ST 无扫描入口：与真实链路同语义（展开空串不阻断），状态 failed 供面板标注
+          return { text: "", status: "failed" };
+        }
+        try {
+          return { text: await scanWorldbookText(context, text), status: "scanned" };
+        } catch (error) {
+          log.warn(
+            `[${PLUGIN_DISPLAY_NAME}] 预设预览世界书扫描失败：${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return { text: "", status: "failed" };
+        }
+      },
+    },
+    // 宏内容一览（issue 01）：读两宏服务预计算快照（与宏 handler 返回同源），
+    // 纯聚合在 macro-overview-model；kick 路径保证展开即最新（视图/宏名/数据变更）
+    macroOverview: () =>
+      buildMacroOverviewRows({
+        prefix: resolveMacroRegistrationName(settings.read().macroName) ?? "",
+        defaultSnapshot: macro.getSnapshot(),
+        views: settings.read().memoryViews.map((view) => ({
+          name: view.name,
+          text: macro.getViewSnapshot(view.name) ?? "",
+        })),
+        chatScopeMacros: adapter.chatScopeMacroStore.read().map((chatMacro) => ({
+          name: chatMacro.name,
+          text: macro.getChatScopeSnapshot(chatMacro.name) ?? "",
+        })),
+        builtin: macro.builtinSnapshotNames().map((name) => ({
+          name,
+          text: macro.getBuiltinSnapshot(name) ?? "",
+        })),
+        agent: (() => {
+          const snapshot = agentMacro.getSnapshot();
+          return [
+            { name: `{{${AGENT_TABLES_DIGEST_MACRO}}}`, text: snapshot.digestText },
+            { name: `{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`, text: snapshot.defaultPromptText },
+          ];
+        })(),
+      }),
     createLlm,
     createQueryChatLlm,
     queryChat,

@@ -10,7 +10,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import type { MemoryField, MemoryTable } from "@ste-memory/core/memory";
-import { reportError, reportSuccess } from "./ui-helpers.tsx";
+import { copyText, reportError, reportSuccess, reportWarning } from "./ui-helpers.tsx";
+import { PreviewModal } from "./preview-modal.tsx";
 import {
   emptyMemoryViewDraft,
   memoryViewDraftFromView,
@@ -30,6 +31,8 @@ export function ChatScopeMacrosManager(props: {
   readonly spaceId: string | undefined;
   readonly readTables: (spaceId: string) => Promise<readonly MemoryTable[]>;
   readonly readFields: (spaceId: string, tableId: string) => Promise<readonly MemoryField[]>;
+  /** 宏展开文本读取口：完整宏名（{{...}} 形态）→ 预计算快照文本（未知 = 空串） */
+  readonly readPreview: (name: string) => string;
   /** 当前对话的聊天 Scope 宏列表 */
   readonly macros: readonly MemoryView[];
   /** 宏列表变更（宿主写 chatMetadata + 面板版本号自增 + macro.kick()） */
@@ -45,6 +48,10 @@ export function ChatScopeMacrosManager(props: {
   >(null);
   const [draft, setDraft] = useState<MemoryViewDraft | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
+  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
+  const [preview, setPreview] = useState<{ readonly name: string; readonly text: string } | null>(
+    null,
+  );
 
   // 表列表：活动空间变化/宏变化（新表引用）后重取
   useEffect(() => {
@@ -164,6 +171,19 @@ export function ChatScopeMacrosManager(props: {
     return viewConfigErrors(macro, tables, fieldsByTable);
   }
 
+  /** 打开宏预览：宏名 = {{前缀::宏名}}，文本点击时从快照读取一次 */
+  function openPreview(macro: MemoryView): void {
+    const name = `{{${props.prefix}::${macro.name}}}`;
+    setPreview({ name, text: props.readPreview(name) });
+  }
+
+  async function copyPreview(): Promise<void> {
+    if (!preview) return;
+    const ok = await copyText(preview.text);
+    if (ok) reportSuccess(`已复制「${preview.name}」展开文本`);
+    else reportWarning("复制失败：浏览器不支持剪贴板写入");
+  }
+
   const editingDraftFields =
     draft && draft.tableKey !== "" ? (fieldsByTable.get(draft.tableKey) ?? []) : [];
 
@@ -199,6 +219,15 @@ export function ChatScopeMacrosManager(props: {
                 {macro.name}
                 <span className="stm-mono"> · {macro.tableKey}</span> · {viewSummaryText(macro)}
               </span>
+            </button>
+            <button
+              type="button"
+              className="stm-button stm-preset-preview-btn"
+              data-action="preview-chat-scope-macro"
+              onClick={() => openPreview(macro)}
+              title={`预览「${macro.name}」展开文本`}
+            >
+              预览
             </button>
             <button
               type="button"
@@ -242,6 +271,14 @@ export function ChatScopeMacrosManager(props: {
           onDraftChange={setDraft}
           onSave={saveDraft}
           onCancel={cancelEdit}
+        />
+      )}
+      {preview && (
+        <PreviewModal
+          title={preview.name}
+          text={preview.text}
+          onCopy={() => void copyPreview()}
+          onClose={() => setPreview(null)}
         />
       )}
     </div>

@@ -993,3 +993,31 @@ describe("MemoryMacroService 聊天 Scope 宏（{{前缀::宏名}}）", () => {
     expect(h.invokeHandler("memoryContext", ["伏笔速览"])).toBe("深夜的钟声");
   });
 });
+
+describe("MemoryMacroService 内置宏快照只读口（宏内容一览 · issue 01）", () => {
+  it("builtinSnapshotNames = full + 每启用表 Key；getBuiltinSnapshot 返回同名展开文本", async () => {
+    const h = createHarness();
+    h.data.tables = [
+      table("t1", "人物"),
+      { ...table("c1", "角色"), key: "角色" as MemoryTableKey },
+      table("t2", "停用表", false),
+    ];
+    h.data.recordsByTable.set("t1" as MemoryTableId, [viewRecord("r1", "张三", { f1: "张三" })]);
+    h.data.recordsByTable.set("c1" as MemoryTableId, [viewRecord("r2", "王五", { f2: "王五" })]);
+    h.reader.fieldsByTable.set("t1" as MemoryTableId, [field("f1", "姓名")]);
+    h.reader.fieldsByTable.set("c1" as MemoryTableId, [field("f2", "身份")]);
+    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 2, records: 2 }));
+
+    await h.service.start();
+
+    // 只读口 = 快照实际值（与 handler 返回同源）；default 首个、表 Key 按启用表
+    expect(h.service.builtinSnapshotNames()).toEqual(["full", "table-t1", "角色"]);
+    expect(h.service.getBuiltinSnapshot("full")).toBe(h.invokeHandler("memoryContext", ["full"]));
+    expect(h.service.getBuiltinSnapshot("table-t1")).toBe(
+      h.invokeHandler("memoryContext", ["table-t1"]),
+    );
+    // 停用表不生成表 Key 行；未知名字 = undefined
+    expect(h.service.builtinSnapshotNames()).not.toContain("table-t2");
+    expect(h.service.getBuiltinSnapshot("table-t2")).toBeUndefined();
+  });
+});

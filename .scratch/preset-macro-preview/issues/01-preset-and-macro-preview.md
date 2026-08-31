@@ -8,11 +8,19 @@
 
 **Blocked by:** None — can start immediately（编排 1:1 改造另立课题：若其结论为维持 system 合并，仅调整预设预览的分组展示，其余不变）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 自定义预设点「预览」→ 面板逐条展示启用且非空消息（角色标签 + 来源名 + 展开文本），未知占位符原样保留
-- [ ] 面板输入文本 → {{msg}} 展开为输入内容、{{worldbook}} 展开为扫描结果；无输入时 {{msg}} 空串 + 标注、不执行扫描
-- [ ] 编辑预设消息后重开预览内容为最新；预览构建逻辑为纯函数（可单测），组件只接线
-- [ ] 宏内容一览列出全部宏且内容 = 宏服务快照实际值；编辑视图/宏名/数据后立即为最新
-- [ ] 无活动空间时一览显示空态，预设预览正常可用（digest 占位符空）
-- [ ] 两处复制按钮可用；预览面板差异提示一行可见
+- [x] 自定义预设点「预览」→ 面板逐条展示启用且非空消息（角色标签 + 来源名 + 展开文本），未知占位符原样保留
+- [x] 面板输入文本 → {{msg}} 展开为输入内容、{{worldbook}} 展开为扫描结果；无输入时 {{msg}} 空串 + 标注、不执行扫描
+- [x] 编辑预设消息后重开预览内容为最新；预览构建逻辑为纯函数（可单测），组件只接线
+- [x] 宏内容一览列出全部宏且内容 = 宏服务快照实际值；编辑视图/宏名/数据后立即为最新
+- [x] 无活动空间时一览显示空态，预设预览正常可用（digest 占位符空）
+- [x] 两处复制按钮可用；预览面板差异提示一行可见
+
+## 实现纪要（agent）
+
+- 编排形态保持「system 合并」现状（1:1 改造另立课题）：预设预览按两组展示——「系统提示词（合并）」与「对话前缀」，每条仍为独立卡片（角色标签 + 来源名 + 展开文本 + 复制）。
+- 纯函数 seam：`agent-presets/preset-preview-model.ts`（`buildAgentPresetPreviewItems`：过滤/来源名/展开/标注，digest 缺省 = 摘要占位符空串）；`macros/macro-overview-model.ts`（`buildMacroOverviewRows`：两服务快照 → 展示行）。
+- 读口补齐：`MemoryMacroService.builtinSnapshotNames()/getBuiltinSnapshot()`（内置宏快照只读口，不改重建逻辑）；`AgentPresetPreviewPorts`（getPromptSnapshot/readSpaceId/readDigest/scanWorldbook，runtime 组合根实现）。
+- UI：预设编辑器「预览」按钮 + `AgentPresetPreviewPanel`（差异提示行/输入框/重新展开/分组卡片）；记忆宏组新增「宏内容一览」分区 tab（`MacroSnapshotOverview`，截断可展开 + 复制 + （空）占位 + 无空间空态）。
+- 验证：st-extension 951 用例全绿（新增 preset-preview-model / macro-overview-model / macro-snapshot-overview / 预览面板 + runtime 集成 + 服务读口测试）；全仓 1321 用例 + typecheck 通过；lint 新增文件零告警（仓库既有 memory-view-render.test.ts 与 space-maintenance-service.test.ts 两个死引用告警为本任务前已存在，非本次改动引入）。build 通过。

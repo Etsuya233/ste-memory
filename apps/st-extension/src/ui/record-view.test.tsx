@@ -126,6 +126,19 @@ function fakeRuntime(): PanelRuntime {
       writeChatScopeMacros: vi.fn(),
     },
     version: "0.1.0",
+    presetPreview: {
+      getPromptSnapshot: () => ({
+        names: { user: "小明", char: "爱丽丝" },
+        charCard: "",
+        userCard: "",
+        worldbookText: "",
+        msgText: "",
+      }),
+      readSpaceId: () => undefined,
+      readDigest: vi.fn(async () => ({ memorySpaceId: "space-1" as never, tables: [] })),
+      scanWorldbook: vi.fn(async () => ({ text: "", status: "scanned" as const })),
+    },
+    macroOverview: () => [],
   };
 }
 

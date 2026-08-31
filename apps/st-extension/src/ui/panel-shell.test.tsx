@@ -11,7 +11,7 @@ import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts"
 import { DEFAULT_SETTINGS } from "../settings/plugin-settings.ts";
 import { SETTINGS_COLLAPSED_STORAGE_KEY } from "./settings-collapsed-model.ts";
 import { PanelModel } from "./panel-model.ts";
-import { PanelShell, ToolbarButton, type PanelRuntime } from "./panel-shell.tsx";
+import { PanelShell, MacroSettingsFields, ToolbarButton, type PanelRuntime } from "./panel-shell.tsx";
 
 function activeStatus(): SpaceContextStatus {
   return {
@@ -119,6 +119,19 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     agentMacro: {
       kick: vi.fn(async () => {}),
     },
+    presetPreview: {
+      getPromptSnapshot: () => ({
+        names: { user: "小明", char: "爱丽丝" },
+        charCard: "",
+        userCard: "",
+        worldbookText: "",
+        msgText: "",
+      }),
+      readSpaceId: () => undefined,
+      readDigest: vi.fn(async () => ({ memorySpaceId: "space-1" as never, tables: [] })),
+      scanWorldbook: vi.fn(async () => ({ text: "", status: "scanned" as const })),
+    },
+    macroOverview: () => [],
     cleaning: {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
@@ -240,7 +253,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain("有什么想问记忆的吗？");
   });
 
-  it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏配置（可编辑 + 默认值 + 上限）", () => {
+  it("设置 Tab：开关/版本/运行状态/R2 可编辑/宏按分区（宏设置输入不常驻默认分区）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const collapsed = renderShell(model);
@@ -257,29 +270,47 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(collapsed).toContain('data-group="macro"');
     expect(collapsed).toContain("记忆宏");
     expect(collapsed).not.toContain('data-stm-field="macro-name"');
-    // 展开后表单可见
+    // 展开后 R2 表单可见；宏名/上限输入已移入「宏设置」分区，默认的全局宏分区不再渲染
     const expanded = renderWithExpanded(model, ["version", "r2", "macro"]);
     expect(expanded).toContain('data-stm-field="r2-account-id"');
     expect(expanded).toContain('data-stm-field="r2-bucket"');
-    expect(expanded).toContain('data-stm-field="macro-name"');
-    expect(expanded).toContain('value="{{ste}}"');
-    expect(expanded).toContain('data-stm-field="macro-limit"');
-    expect(expanded).toContain('value="2000"');
+    expect(expanded).not.toContain('data-stm-field="macro-name"');
+    expect(expanded).not.toContain('data-stm-field="macro-limit"');
   });
 
-  it("设置 Tab：记忆宏组合并——内置/全局/对话级分区切换就位（默认全局宏）", () => {
+  it("宏设置分区（渲染契约）：前缀/上限输入默认值 + 说明就位（宏设置 tab 内容）", () => {
+    const html = renderToString(
+      <MacroSettingsFields
+        macroName="{{ste}}"
+        macroLimit={2000}
+        onNameChange={() => undefined}
+        onLimitChange={() => undefined}
+      />,
+    );
+    expect(html).toContain('data-stm-section="macro-settings"');
+    expect(html).toContain('data-stm-field="macro-name"');
+    expect(html).toContain('value="{{ste}}"');
+    expect(html).toContain('data-stm-field="macro-limit"');
+    expect(html).toContain('value="2000"');
+    expect(html).toContain("超过上方字符上限从尾部截断并附「……（已截断）」标记");
+  });
+
+  it("设置 Tab：记忆宏组合并——内置/全局/对话级/宏设置分区切换就位（默认全局宏）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const expanded = renderWithExpanded(model, ["macro"]);
-    // 分区切换条：三个 tab，默认选中全局宏
+    // 分区切换条：四个 tab，默认选中全局宏
     expect(expanded).toContain('data-action="macro-scope"');
     expect(expanded).toContain('data-macro-scope="builtin"');
     expect(expanded).toContain('data-macro-scope="chat"');
+    expect(expanded).toContain('data-macro-scope="settings"');
+    expect(expanded).toContain("宏设置");
     expect(expanded).toContain('data-macro-scope="global" aria-selected="true"');
-    // 默认展示全局宏内容（宏名/上限输入）；内置/对话级分区未渲染
-    expect(expanded).toContain('data-stm-field="macro-name"');
+    // 默认展示全局宏内容（视图管理器）；内置/对话级/宏设置分区未渲染
+    expect(expanded).toContain('data-stm-section="memory-views"');
     expect(expanded).not.toContain('data-stm-section="builtin-macros"');
     expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
+    expect(expanded).not.toContain('data-stm-section="macro-settings"');
     // 折叠摘要含宏名 + 视图数 + 对话宏数
     expect(expanded).toContain("0对话宏");
   });
@@ -327,11 +358,8 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(r2Inputs).toHaveLength(4);
     expect(r2Inputs.every((input) => !input.includes("disabled"))).toBe(true);
     expect(html).toContain('type="password"');
-    const macroInput = html.match(/<input[^>]*data-stm-field="macro-name"[^>]*>/)?.[0] ?? "";
-    expect(macroInput).not.toContain("disabled");
-    const limitInput = html.match(/<input[^>]*data-stm-field="macro-limit"[^>]*>/)?.[0] ?? "";
-    expect(limitInput).toContain('type="number"');
-    expect(limitInput).not.toContain("disabled");
+    // 宏名/上限输入已移入「宏设置」分区（非默认分区，不随展开了全局宏分区出现）
+    expect(html).not.toContain('data-stm-field="macro-name"');
   });
 
   it("设置 Tab：云同步状态组（状态/最近同步/立即同步按钮）", () => {
