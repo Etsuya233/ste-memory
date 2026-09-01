@@ -549,4 +549,20 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
     ]);
     expect(stableAdapter({ chat: undefined }).adapter.messagesInRange(0, 1)).toEqual([]);
   });
+
+  it("recentMessages：最近 count 条楼层升序；不足返回全部；空对话/非正 count 返回空", () => {
+    const { adapter } = stableAdapter({
+      chat: [
+        { mes: "消息 0", name: "User", is_user: true },
+        { mes: "消息 1", name: "爱丽丝", is_user: false },
+        { mes: "消息 2", name: "User", is_user: true },
+        { mes: "消息 3", name: "爱丽丝", is_user: false },
+        { mes: "消息 4", name: "爱丽丝", is_user: false },
+      ],
+    });
+    expect(adapter.recentMessages(2).map((m) => m.floor)).toEqual([3, 4]);
+    expect(adapter.recentMessages(20).map((m) => m.floor)).toEqual([0, 1, 2, 3, 4]);
+    expect(adapter.recentMessages(0)).toEqual([]);
+    expect(stableAdapter({ chat: undefined }).adapter.recentMessages(10)).toEqual([]);
+  });
 });

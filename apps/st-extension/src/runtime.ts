@@ -50,6 +50,7 @@ import type { AgentPresetPreviewPorts } from "./agent-presets/preset-preview-mod
 import { containsWorldbookReference, resolveActivePreset } from "./agent-presets/preset-model.ts";
 import { scanWorldbookText } from "./agent-presets/worldbook-text.ts";
 import type { FillTaskPromptContext } from "./fill-tasks/fill-task-service.ts";
+import type { FillSourceMessage } from "./fill-tasks/fill-task.ts";
 import { isR2Configured, type SettingsStore } from "./settings/plugin-settings.ts";
 import { resolveSelectedCleaningRules } from "./settings/cleaning-rule-lists.ts";
 import type { MemoryView } from "./settings/memory-views.ts";
@@ -116,6 +117,8 @@ export interface SteMemoryRuntime {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
+    /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源，与填表任务同源） */
+    readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
     readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
@@ -591,6 +594,7 @@ export async function startSteMemory(
       readSelection: () => adapter.cleaningListStore.read(),
       writeSelection: (listId) => adapter.cleaningListStore.write(listId),
       readStRegexEntries: () => adapter.stRegexEntries,
+      readRecentMessages: (count) => adapter.recentMessages(count),
       readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
       writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
     },

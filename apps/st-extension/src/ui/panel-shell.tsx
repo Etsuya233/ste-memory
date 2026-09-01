@@ -97,6 +97,7 @@ import { resolveImportAction } from "../space-binding/import-action.ts";
 
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
 import type { FillTaskService } from "../fill-tasks/fill-task-service.ts";
+import type { FillSourceMessage } from "../fill-tasks/fill-task.ts";
 import type { QueryChatService } from "../query-chat/query-chat-service.ts";
 import type { SpaceMaintenanceService } from "../space-maintenance/space-maintenance-service.ts";
 import { QueryChatStore } from "../query-chat/query-chat-state.ts";
@@ -225,6 +226,8 @@ export interface PanelRuntime {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
     readonly readStRegexEntries: () => readonly StRegexEntry[];
+    /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源） */
+    readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
     readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
@@ -2122,6 +2125,7 @@ function SettingsTab(props: {
                 props.onSettingsChange(next);
               }}
               readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
+              readRecentMessages={props.runtime.cleaning.readRecentMessages}
             />
           </div>
         )}

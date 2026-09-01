@@ -526,6 +526,17 @@ export class StChatAdapter {
     }
     return messages;
   }
+
+  /**
+   * 最近 count 条消息（楼层升序；空对话或非正 count 返回空）——
+   * 清洗测试「从当前对话载入」（ticket 27）的数据源，与填表任务同源。
+   */
+  recentMessages(count: number): readonly StChatMessage[] {
+    const total = this.chatMessageCount();
+    if (total === 0) return [];
+    const from = Math.max(0, total - count);
+    return this.messagesInRange(from, total - 1);
+  }
 }
 
 /** 读取 chatMetadata 里的绑定：键缺失 = none；键存在但值无法识别（损坏/未来版本）= unrecognized */

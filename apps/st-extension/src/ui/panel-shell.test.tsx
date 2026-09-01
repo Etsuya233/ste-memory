@@ -136,6 +136,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
       readStRegexEntries: () => [],
+      readRecentMessages: () => [],
       readChatScopeMacros: () => [],
       writeChatScopeMacros: vi.fn(),
     },

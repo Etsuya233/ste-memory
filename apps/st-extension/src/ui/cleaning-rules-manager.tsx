@@ -12,6 +12,7 @@
  */
 import { useRef, useState } from "react";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
+import type { FillSourceMessage } from "../fill-tasks/fill-task.ts";
 import {
   addCleaningRule,
   createCleaningRuleList,
@@ -29,14 +30,18 @@ import {
   DEFAULT_IMPORT_LIST_NAME,
   applyImportedRules,
   buildStRegexImportReport,
+  draftToRule,
   resolveImportTarget,
   ruleDraftFromRule,
+  runCleaningTest,
   validateRuleDraft,
   type CleaningRuleDraft,
+  type CleaningTestMessage,
+  type CleaningTestRun,
   type ImportTarget,
   type StRegexImportReport,
 } from "./cleaning-rules-manager-model.ts";
-import { createUiId, reportError, reportSuccess } from "./ui-helpers.tsx";
+import { copyText, createUiId, reportError, reportSuccess } from "./ui-helpers.tsx";
 
 const MODE_LABELS: Record<CleaningRule["mode"], string> = {
   keep: "保留",
@@ -54,6 +59,8 @@ export function CleaningRulesManager(props: {
   readonly onChange: (settings: PluginSettings) => void;
   /** ST 正则条目读取端口（宿主 = getContext()：全局 + 当前角色卡 + 当前预设） */
   readonly readStRegexEntries: () => readonly StRegexEntry[];
+  /** 最近 N 条对话消息读取端口（宿主 = 与填表任务同源的楼层读取，ticket 27） */
+  readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
 }) {
   const lists = props.settings.cleaningRuleLists;
   // 编辑目标列表：优先当前对话所选；未选择/悬空时取第一个列表
@@ -78,6 +85,17 @@ export function CleaningRulesManager(props: {
     name: DEFAULT_IMPORT_LIST_NAME,
   });
   const [importReport, setImportReport] = useState<StRegexImportReport | null>(null);
+  // 清洗测试弹窗状态（ticket 27）：打开时快照规则与草稿（遮罩盖住面板，生命周期内不变）
+  const [testOpen, setTestOpen] = useState(false);
+  const [testForm, setTestForm] = useState<"text" | "messages">("text");
+  const [testText, setTestText] = useState("");
+  const [testMessages, setTestMessages] = useState<readonly CleaningTestMessage[]>([]);
+  const [testResult, setTestResult] = useState<CleaningTestRun | undefined>(undefined);
+  const [testLoadHint, setTestLoadHint] = useState<string | null>(null);
+  const [testSnapshot, setTestSnapshot] = useState<
+    | { readonly rules: readonly CleaningRule[]; readonly draftOverrides: ReadonlyMap<string, CleaningRuleDraft> }
+    | null
+  >(null);
 
   function apply(mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[]): void {
     props.onChange({ ...props.settings, cleaningRuleLists: mutate(lists) });
@@ -89,6 +107,55 @@ export function CleaningRulesManager(props: {
     setPendingRuleId(undefined);
     setRuleDraft(undefined);
     setRuleError(undefined);
+  }
+
+  // ---- 清洗测试（ticket 27）----
+
+  /** 打开弹窗：快照当前编辑列表与未保存草稿（编辑中规则覆盖/新建草稿追加，模型处理）。 */
+  function openTest(): void {
+    if (!editList) return;
+    setTestSnapshot({
+      rules: editList.rules,
+      draftOverrides:
+        editingRuleId !== undefined && ruleDraft !== undefined ? new Map([[editingRuleId, ruleDraft]]) : new Map(),
+    });
+    setTestForm("text");
+    setTestText("");
+    setTestMessages([]);
+    setTestResult(undefined);
+    setTestLoadHint(null);
+    setTestOpen(true);
+  }
+
+  /** 运行：单条文本形态 = 一条无名消息，与消息列表共用逐条执行模型。 */
+  function runTest(): void {
+    const snapshot = testSnapshot;
+    if (!snapshot) return;
+    const messages =
+      testForm === "text" ? [{ name: "", content: testText }] : testMessages;
+    setTestResult(runCleaningTest(snapshot.rules, snapshot.draftOverrides, messages));
+  }
+
+  /** 载入当前对话最近 20 条（对齐填表任务默认块大小）；无消息提示且不切换形态。 */
+  function loadTestMessages(): void {
+    const loaded = props.readRecentMessages(20);
+    if (loaded.length === 0) {
+      setTestLoadHint("当前对话没有消息");
+      return;
+    }
+    setTestMessages(loaded.map((message) => ({ name: message.name, content: message.content })));
+    setTestForm("messages");
+    setTestLoadHint(null);
+    setTestResult(undefined); // 切换输入形态后旧结果失效（消息条数不再对应）
+  }
+
+  /** 复制结果（多消息 = 逐条拼接，名字非空时前缀「名字：」与展示一致）。 */
+  function copyTestResult(): void {
+    if (testResult?.kind !== "ok") return;
+    const lines = testResult.messages.map((message) =>
+      message.name === "" ? message.output : `${message.name}：${message.output}`,
+    );
+    copyText(lines.join("\n"));
   }
 
   function createList(): void {
@@ -158,36 +225,13 @@ export function CleaningRulesManager(props: {
       setRuleError(error);
       return;
     }
-    const patch: Partial<CleaningRule> =
-      ruleDraft.mode === "replace"
-        ? {
-            name: ruleDraft.name.trim() || "未命名规则",
-            mode: ruleDraft.mode,
-            pattern: ruleDraft.pattern,
-            flags: ruleDraft.flags,
-            enabled: ruleDraft.enabled,
-            replacement: ruleDraft.replacement,
-          }
-        : {
-            name: ruleDraft.name.trim() || "未命名规则",
-            mode: ruleDraft.mode,
-            pattern: ruleDraft.pattern,
-            flags: ruleDraft.flags,
-            enabled: ruleDraft.enabled,
-          };
+    // 草稿 → 规则（形状统一由模型层 draftToRule 负责；仅名字归一化在此）
+    const rule = { ...draftToRule(ruleDraft, editingRuleId), name: ruleDraft.name.trim() || "未命名规则" };
     if (pendingRuleId === editingRuleId) {
       // 新建路径：校验通过才落库（+ 添加规则 = 编辑草稿，取消不产生空规则）
-      const rule: CleaningRule = {
-        id: editingRuleId,
-        name: ruleDraft.name.trim() || "未命名规则",
-        mode: ruleDraft.mode,
-        pattern: ruleDraft.pattern,
-        flags: ruleDraft.flags,
-        enabled: ruleDraft.enabled,
-        ...(ruleDraft.mode === "replace" ? { replacement: ruleDraft.replacement } : {}),
-      };
       apply((current) => addCleaningRule(current, editList.id, rule));
     } else {
+      const { id: _id, ...patch } = rule;
       apply((current) => updateCleaningRule(current, editList.id, editingRuleId, patch));
     }
     setPendingRuleId(undefined);
@@ -358,6 +402,15 @@ export function CleaningRulesManager(props: {
         >
           删除列表
         </button>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="test-cleaning-list"
+          disabled={!editList}
+          onClick={openTest}
+        >
+          测试
+        </button>
       </div>
       {importReport !== null && (
         <div className="stm-preset-warning" data-stm-field="import-report">
@@ -398,9 +451,11 @@ export function CleaningRulesManager(props: {
               onCancelEdit={cancelEdit}
               onSaveEdit={saveEdit}
               onDraftChange={setRuleDraft}
-              onToggleEnabled={(enabled) =>
-                apply((current) => updateCleaningRule(current, editList.id, rule.id, { enabled }))
-              }
+              onToggleEnabled={(enabled) => {
+                // 开关同时写入已保存规则与编辑草稿：编辑中点测试/保存时 enabled 不漂移
+                apply((current) => updateCleaningRule(current, editList.id, rule.id, { enabled }));
+                setRuleDraft((current) => (current ? { ...current, enabled } : current));
+              }}
               onMove={(direction) => moveRule(rule.id, direction)}
               onRemove={() => removeRule(rule.id)}
             />
@@ -463,21 +518,28 @@ export function CleaningRulesManager(props: {
           onCancel={() => setImportOpen(false)}
         />
       )}
+      {testOpen && testSnapshot !== null && (
+        <CleaningTestDialog
+          form={testForm}
+          text={testText}
+          messages={testMessages}
+          result={testResult}
+          hasDraftOverrides={testSnapshot.draftOverrides.size > 0}
+          loadHint={testLoadHint}
+          onTextChange={setTestText}
+          onMessageChange={(index, patch) =>
+            setTestMessages((current) =>
+              current.map((message, i) => (i === index ? { ...message, ...patch } : message)),
+            )
+          }
+          onLoadMessages={loadTestMessages}
+          onRun={runTest}
+          onCopy={copyTestResult}
+          onClose={() => setTestOpen(false)}
+        />
+      )}
     </div>
   );
-}
-
-/** 草稿 → 临时规则（新建草稿行渲染用，未落库）。 */
-function draftToRule(draft: CleaningRuleDraft, id: string): CleaningRule {
-  return {
-    id,
-    name: draft.name,
-    mode: draft.mode,
-    pattern: draft.pattern,
-    flags: draft.flags,
-    enabled: draft.enabled,
-    ...(draft.mode === "replace" ? { replacement: draft.replacement } : {}),
-  };
 }
 
 /** 规则行：折叠态 = 摘要（开关 + 名称 + 模式 + 正则）；展开态 = 完整表单（保存校验）。 */
@@ -663,6 +725,179 @@ const SOURCE_LABELS: Record<StRegexEntrySource, string> = {
   preset: "预设",
   file: "文件",
 };
+
+/** 清洗测试弹窗（ticket 27）：对当前编辑列表整条流水线的预览工具。
+ * 纯投影：输入/执行/复制全部经回调交给父组件（含未保存草稿快照）。 */
+export function CleaningTestDialog(props: {
+  readonly form: "text" | "messages";
+  readonly text: string;
+  readonly messages: readonly CleaningTestMessage[];
+  /** 最近一次运行结果（未运行过 = undefined） */
+  readonly result: CleaningTestRun | undefined;
+  /** 是否有未保存草稿参与本次测试（「含未保存修改」标注） */
+  readonly hasDraftOverrides: boolean;
+  /** 载入对话无消息提示（null = 无提示） */
+  readonly loadHint: string | null;
+  readonly onTextChange: (text: string) => void;
+  readonly onMessageChange: (index: number, patch: Partial<CleaningTestMessage>) => void;
+  readonly onLoadMessages: () => void;
+  readonly onRun: () => void;
+  readonly onCopy: () => void;
+  readonly onClose: () => void;
+}) {
+  const hasResult = props.result !== undefined;
+  return (
+    <div className="stm-modal-overlay" data-stm-section="cleaning-test-dialog" onClick={props.onClose}>
+      <div
+        className="stm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="清洗测试"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="stm-modal-title" data-stm-field="cleaning-test-title">
+          清洗测试
+        </div>
+        <div className="stm-modal-body">
+          <div className="stm-setting-row">
+            <div className="stm-setting-label">
+              <div className="stm-setting-name">测试输入</div>
+              <div className="stm-setting-hint">
+                {props.form === "text"
+                  ? "整框视为一条消息内容（与填表任务逐条清洗一致）"
+                  : `最近对话消息逐条清洗（${props.messages.length} 条，只清洗内容）`}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="stm-button"
+              data-action="load-chat-messages"
+              onClick={props.onLoadMessages}
+            >
+              从当前对话载入
+            </button>
+          </div>
+          {props.form === "text" ? (
+            <textarea
+              className="stm-input stm-mono stm-modal-textarea"
+              data-stm-field="cleaning-test-input"
+              value={props.text}
+              placeholder="粘贴要测试的消息内容…"
+              onChange={(event) => props.onTextChange(event.target.value)}
+            />
+          ) : (
+            <div data-stm-field="cleaning-test-messages">
+              {props.messages.map((message, index) => (
+                <div key={index} data-stm-field={`cleaning-test-message-${index}`}>
+                  <div className="stm-setting-row">
+                    <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
+                    <input
+                      type="text"
+                      className="stm-input"
+                      data-stm-field={`cleaning-test-message-name-${index}`}
+                      value={message.name}
+                      placeholder="发送者名"
+                      onChange={(event) => props.onMessageChange(index, { name: event.target.value })}
+                    />
+                  </div>
+                  <textarea
+                    className="stm-input stm-mono stm-modal-textarea"
+                    data-stm-field={`cleaning-test-message-content-${index}`}
+                    value={message.content}
+                    placeholder="消息内容（仅内容参与清洗）"
+                    onChange={(event) => props.onMessageChange(index, { content: event.target.value })}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {props.hasDraftOverrides && (
+            <div className="stm-preset-warning" data-stm-field="cleaning-test-draft-hint">
+              含未保存修改：编辑中的规则草稿已参与本次测试
+            </div>
+          )}
+          {props.loadHint !== null && (
+            <div className="stm-preset-warning" data-stm-field="cleaning-test-load-hint">
+              {props.loadHint}
+            </div>
+          )}
+          {props.result !== undefined && props.result.kind === "error" && (
+            <div className="stm-preset-warning" data-stm-field="cleaning-test-error">
+              {props.result.errors.join("；")}
+            </div>
+          )}
+          {props.result !== undefined && props.result.kind === "ok" && (
+            <div data-stm-field="cleaning-test-result">
+              {!props.result.anyActiveRule && (
+                <div className="stm-preset-warning" data-stm-field="cleaning-test-no-active-rule">
+                  列表没有启用规则，结果为原文
+                </div>
+              )}
+              {props.result.messages.map((message, index) => (
+                <div
+                  key={index}
+                  className="stm-preset-fragment"
+                  data-stm-field={`cleaning-test-message-result-${index}`}
+                >
+                  <div className="stm-preset-fragment-head">
+                    <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
+                    <span className="stm-preset-fragment-preview">
+                      {message.name === "" ? "（无名消息）" : `名字：${message.name}`}
+                    </span>
+                  </div>
+                  <div className="stm-preset-fragment-body">
+                    <div className="stm-setting-hint">原文</div>
+                    <pre className="stm-mono stm-modal-text">{renderCleaningText(message.input)}</pre>
+                    <div className="stm-setting-hint">步骤</div>
+                    <ol data-stm-field={`cleaning-test-steps-${index}`}>
+                      {message.steps.map((step, stepIndex) => (
+                        <li key={step.ruleId} data-stm-field={`cleaning-test-step-${stepIndex}`}>
+                          <span className="stm-mono">
+                            {step.ruleName} · {MODE_LABELS[step.mode]}
+                          </span>
+                          {step.fromDraft && <span className="stm-chip">草稿</span>}
+                          {step.active ? (
+                            <pre className="stm-mono stm-modal-text">{renderCleaningText(step.output)}</pre>
+                          ) : (
+                            <span className="stm-setting-hint">跳过（已停用）</span>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="stm-setting-hint">最终结果</div>
+                    <pre className="stm-mono stm-modal-text">{renderCleaningText(message.output)}</pre>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="stm-modal-footer">
+          <button type="button" className="stm-button" data-action="run-cleaning-test" onClick={props.onRun}>
+            清洗
+          </button>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="copy-cleaning-test"
+            disabled={!hasResult || props.result?.kind !== "ok"}
+            onClick={props.onCopy}
+          >
+            复制结果
+          </button>
+          <button type="button" className="stm-button" data-action="close-cleaning-test" onClick={props.onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 空内容统一显示「（空）」（PreviewModal 先例）。 */
+function renderCleaningText(content: string): string {
+  return content === "" ? "（空）" : content;
+}
 
 /** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选（默认不选）+ 导入确认。
  * 目标列表 = 当前编辑列表（无列表时新建并填名），无需选择。 */

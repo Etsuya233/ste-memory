@@ -11,7 +11,10 @@ import {
   buildStRegexImportReport,
   resolveImportTarget,
   ruleDraftFromRule,
+  runCleaningTest,
   validateRuleDraft,
+  type CleaningRuleDraft,
+  type CleaningTestMessage,
 } from "./cleaning-rules-manager-model.ts";
 
 function rule(overrides: Partial<CleaningRule> = {}): CleaningRule {
@@ -112,5 +115,142 @@ describe("规则行编辑草稿", () => {
     expect(validateRuleDraft({ ...draft, name: "" })).toMatch(/名称/);
     expect(validateRuleDraft({ ...draft, pattern: "(" })).toMatch(/正则/);
     expect(validateRuleDraft(draft)).toBeUndefined();
+  });
+});
+
+describe("runCleaningTest（清洗测试运行，ticket 27）", () => {
+  function draft(overrides: Partial<CleaningRuleDraft> = {}): CleaningRuleDraft {
+    return {
+      name: "草稿规则",
+      mode: "discard",
+      pattern: "a",
+      flags: "g",
+      replacement: "",
+      enabled: true,
+      ...overrides,
+    };
+  }
+
+  function message(overrides: Partial<CleaningTestMessage> = {}): CleaningTestMessage {
+    return { name: "爱丽丝", content: "**a**", ...overrides };
+  }
+
+  it("启用规则按序执行并收集每步中间态；停用规则标注跳过且内容不变", () => {
+    const lists = [
+      list({
+        rules: [
+          rule({ id: "r1", name: "去粗体", pattern: "\\*\\*" }),
+          rule({ id: "r2", name: "a换b", mode: "replace", pattern: "a", replacement: "b" }),
+          rule({ id: "r3", name: "停用的保留", mode: "keep", pattern: "\\*(.+?)\\*", enabled: false }),
+        ],
+      }),
+    ];
+    const run = runCleaningTest(lists[0]!.rules, new Map(), [message()]);
+    expect(run).toEqual({
+      kind: "ok",
+      anyActiveRule: true,
+      messages: [
+        {
+          name: "爱丽丝",
+          input: "**a**",
+          steps: [
+            { ruleId: "r1", ruleName: "去粗体", mode: "discard", active: true, fromDraft: false, output: "a" },
+            { ruleId: "r2", ruleName: "a换b", mode: "replace", active: true, fromDraft: false, output: "b" },
+            { ruleId: "r3", ruleName: "停用的保留", mode: "keep", active: false, fromDraft: false, output: "b" },
+          ],
+          output: "b",
+        },
+      ],
+    });
+  });
+
+  it("未保存草稿覆盖同 id 规则并标注 fromDraft；草稿 id 不在列表时追加到末尾（新建未保存规则）", () => {
+    const run = runCleaningTest(
+      [rule({ id: "r1", name: "去粗体" })],
+      new Map([
+        ["r1", draft({ name: "草稿覆盖", mode: "replace", pattern: "a", replacement: "X" })],
+        ["pending-1", draft({ name: "新规则草稿", mode: "replace", pattern: "b", replacement: "Y" })],
+      ]),
+      [message({ content: "**ab**" })],
+    );
+    expect(run.kind).toBe("ok");
+    if (run.kind !== "ok") return;
+    expect(run.messages[0]!.steps).toEqual([
+      { ruleId: "r1", ruleName: "草稿覆盖", mode: "replace", active: true, fromDraft: true, output: "**Xb**" },
+      { ruleId: "pending-1", ruleName: "新规则草稿", mode: "replace", active: true, fromDraft: true, output: "**XY**" },
+    ]);
+  });
+
+  it("启用规则的草稿校验失败 → 错误集合（含规则名），不产生结果", () => {
+    const run = runCleaningTest(
+      [rule({ id: "r1", name: "去粗体" })],
+      new Map([["r1", draft({ pattern: "(" })]]),
+      [message()],
+    );
+    expect(run).toEqual({ kind: "error", errors: ["规则「草稿规则」：正则表达式语法错误"] });
+  });
+
+  it("停用规则的无效草稿不阻断（跳过，不校验）", () => {
+    const run = runCleaningTest(
+      [rule({ id: "r1", name: "去粗体", enabled: false })],
+      new Map([["r1", draft({ pattern: "(", enabled: false })]]),
+      [message()],
+    );
+    expect(run).toEqual({
+      kind: "ok",
+      anyActiveRule: false,
+      messages: [
+        {
+          name: "爱丽丝",
+          input: "**a**",
+          steps: [{ ruleId: "r1", ruleName: "草稿规则", mode: "discard", active: false, fromDraft: true, output: "**a**" }],
+          output: "**a**",
+        },
+      ],
+    });
+  });
+
+  it("消息列表逐条执行且只清洗 content，名字原样保留", () => {
+    const run = runCleaningTest(
+      [rule({ id: "r1", name: "去粗体" })],
+      new Map(),
+      [message(), message({ name: "", content: "**b**" })],
+    );
+    expect(run.kind).toBe("ok");
+    if (run.kind !== "ok") return;
+    expect(run.messages.map((m) => [m.name, m.input, m.output])).toEqual([
+      ["爱丽丝", "**a**", "a"],
+      ["", "**b**", "b"],
+    ]);
+  });
+
+  it("空消息列表 → ok + 空 messages", () => {
+    expect(runCleaningTest([rule()], new Map(), [])).toEqual({
+      kind: "ok",
+      anyActiveRule: true,
+      messages: [],
+    });
+  });
+
+  it("无规则或全部停用 → anyActiveRule=false，步骤为空/全跳过，结果为原文", () => {
+    const noRules = runCleaningTest([], new Map(), [message()]);
+    expect(noRules).toEqual({
+      kind: "ok",
+      anyActiveRule: false,
+      messages: [{ name: "爱丽丝", input: "**a**", steps: [], output: "**a**" }],
+    });
+    const allDisabled = runCleaningTest([rule({ id: "r1", enabled: false })], new Map(), [message()]);
+    expect(allDisabled).toEqual({
+      kind: "ok",
+      anyActiveRule: false,
+      messages: [
+        {
+          name: "爱丽丝",
+          input: "**a**",
+          steps: [{ ruleId: "r1", ruleName: "去粗体", mode: "discard", active: false, fromDraft: false, output: "**a**" }],
+          output: "**a**",
+        },
+      ],
+    });
   });
 });

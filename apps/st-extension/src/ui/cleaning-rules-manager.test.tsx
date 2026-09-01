@@ -9,7 +9,8 @@ import { describe, expect, it } from "vitest";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
 import type { StRegexImportItem } from "../settings/st-regex-import.ts";
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
-import { CleaningRulesManager, ImportDialog } from "./cleaning-rules-manager.tsx";
+import { CleaningRulesManager, CleaningTestDialog, ImportDialog } from "./cleaning-rules-manager.tsx";
+import { runCleaningTest, type CleaningTestRun } from "./cleaning-rules-manager-model.ts";
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
@@ -41,6 +42,7 @@ function renderManager(overrides: {
       onSelectList={() => undefined}
       onChange={() => undefined}
       readStRegexEntries={() => overrides.entries ?? []}
+      readRecentMessages={() => []}
     />,
   );
 }
@@ -83,6 +85,20 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
     expect(html).toContain("提取 · 保留");
     expect(html).toContain('data-action="add-cleaning-rule"');
     expect(html).toContain('data-action="edit-cleaning-rule"');
+  });
+
+  it("测试按钮：有列表时可用（动作行），无列表时禁用", () => {
+    const withList = text(
+      renderManager({
+        settings: settings({
+          cleaningRuleLists: [{ id: "l1", name: "我的清洗", rules: [] }],
+        }),
+      }),
+    );
+    expect(withList).toContain('data-action="test-cleaning-list"');
+    expect(withList).not.toContain('data-action="test-cleaning-list" disabled=""');
+    const withoutList = text(renderManager());
+    expect(withoutList).toContain('data-action="test-cleaning-list" disabled=""');
   });
 
   it("替换模式的规则行摘要显示替换串", () => {
@@ -186,5 +202,117 @@ describe("ImportDialog（导入对话框冒烟）", () => {
     );
     expect(skippedOnly).toContain("跳过「A」：缺匹配式");
     expect(skippedOnly).toContain('disabled=""');
+  });
+});
+
+describe("CleaningTestDialog（清洗测试弹窗冒烟，ticket 27）", () => {
+  const rules = [
+    { id: "r1", name: "去粗体", mode: "discard" as const, pattern: "\\*\\*", flags: "g", enabled: true },
+    { id: "r2", name: "旧停用", mode: "replace" as const, pattern: "x", flags: "g", enabled: false },
+  ];
+
+  function renderDialog(overrides: Partial<Parameters<typeof CleaningTestDialog>[0]> = {}): string {
+    return renderToString(
+      <CleaningTestDialog
+        form="text"
+        text=""
+        messages={[]}
+        result={undefined}
+        hasDraftOverrides={false}
+        loadHint={null}
+        onTextChange={() => undefined}
+        onMessageChange={() => undefined}
+        onLoadMessages={() => undefined}
+        onRun={() => undefined}
+        onCopy={() => undefined}
+        onClose={() => undefined}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("单条文本形态：标题 + 文本框 + 载入对话/清洗/复制/关闭，复制在无结果时禁用", () => {
+    const html = text(renderDialog());
+    expect(html).toContain("清洗测试");
+    expect(html).toContain('data-stm-field="cleaning-test-input"');
+    expect(html).toContain('data-action="load-chat-messages"');
+    expect(html).toContain("从当前对话载入");
+    expect(html).toContain('data-action="run-cleaning-test"');
+    expect(html).toContain('data-action="copy-cleaning-test" disabled=""');
+    expect(html).toContain('data-action="close-cleaning-test"');
+    expect(html).not.toContain('data-stm-field="cleaning-test-result"');
+  });
+
+  it("消息列表形态：逐条渲染名字与内容输入框", () => {
+    const html = text(
+      renderDialog({
+        form: "messages",
+        messages: [
+          { name: "爱丽丝", content: "**你好**" },
+          { name: "", content: "第二条" },
+        ],
+      }),
+    );
+    expect(html).toContain('data-stm-field="cleaning-test-message-name-0"');
+    expect(html).toContain('data-stm-field="cleaning-test-message-content-1"');
+    expect(html).toContain("爱丽丝");
+  });
+
+  it("ok 结果：逐规则步骤（含停用跳过）+ 最终结果；空结果显示（空）", () => {
+    const result = runCleaningTest(rules, new Map(), [{ name: "", content: "**a**x" }]);
+    const html = text(
+      renderDialog({
+        result,
+      }),
+    );
+    expect(html).toContain('data-stm-field="cleaning-test-result"');
+    expect(html).toContain('data-stm-field="cleaning-test-step-0"');
+    expect(html).toContain("去粗体 · 去掉");
+    expect(html).toContain("ax");
+    expect(html).toContain("跳过（已停用）");
+    expect(html).not.toContain('disabled=""');
+  });
+
+  it("草稿参与的步骤带「草稿」标记（步骤级标注）", () => {
+    const result = runCleaningTest(
+      rules,
+      new Map([["r1", { name: "草稿改", mode: "keep", pattern: "a", flags: "g", replacement: "", enabled: true }]]),
+      [{ name: "", content: "a" }],
+    );
+    const html = text(renderDialog({ result, hasDraftOverrides: true }));
+    expect(html).toContain("草稿改");
+    expect(html).toContain("草稿");
+    expect(html).toContain("含未保存修改");
+  });
+
+  it("空输入运行 → 结果显示（空）", () => {
+    const result = runCleaningTest(rules, new Map(), [{ name: "", content: "" }]);
+    const html = text(renderDialog({ result }));
+    expect(html).toContain("（空）");
+  });
+
+  it("草稿校验失败 → 错误展示（不渲染结果区）", () => {
+    const result: CleaningTestRun = {
+      kind: "error",
+      errors: ["规则「草稿规则」：正则表达式语法错误"],
+    };
+    const html = text(renderDialog({ result, hasDraftOverrides: true }));
+    expect(html).toContain('data-stm-field="cleaning-test-error"');
+    expect(html).toContain("规则「草稿规则」：正则表达式语法错误");
+    expect(html).not.toContain('data-stm-field="cleaning-test-result"');
+  });
+
+  it("标注：含未保存修改 + 无启用规则提示 + 载入无消息提示", () => {
+    const noActive: CleaningTestRun = {
+      kind: "ok",
+      anyActiveRule: false,
+      messages: [{ name: "", input: "a", steps: [], output: "a" }],
+    };
+    const html = text(
+      renderDialog({ result: noActive, hasDraftOverrides: true, loadHint: "当前对话没有消息" }),
+    );
+    expect(html).toContain("含未保存修改");
+    expect(html).toContain("列表没有启用规则");
+    expect(html).toContain("当前对话没有消息");
   });
 });
