@@ -11,7 +11,7 @@ import type { SpaceContextStatus } from "../space-binding/chat-space-manager.ts"
 import { DEFAULT_SETTINGS } from "../settings/plugin-settings.ts";
 import { SETTINGS_COLLAPSED_STORAGE_KEY } from "./settings-collapsed-model.ts";
 import { PanelModel } from "./panel-model.ts";
-import { PanelShell, MacroSettingsFields, ToolbarButton, type PanelRuntime } from "./panel-shell.tsx";
+import { PanelShell, MacroSettingsFields, ToolbarButton, WandEntry, type PanelRuntime } from "./panel-shell.tsx";
 
 function activeStatus(): SpaceContextStatus {
   return {
@@ -190,6 +190,26 @@ describe("ToolbarButton（顶部按钮投影）", () => {
 
   it("包含图标与可访问名", () => {
     const html = renderToString(<ToolbarButton model={new PanelModel()} />);
+    expect(html).toContain("fa-book-open");
+    expect(html).toContain("记忆面板");
+  });
+});
+
+describe("WandEntry（魔法棒入口投影）", () => {
+  it("aria-pressed 跟随面板开关状态", () => {
+    const model = new PanelModel();
+    expect(renderToString(<WandEntry model={model} />)).toContain('aria-pressed="false"');
+
+    model.open();
+    expect(renderToString(<WandEntry model={model} />)).toContain('aria-pressed="true"');
+  });
+
+  it("结构镜像 ST 内置工具行：list-group-item + 图标 + 文本与可访问名", () => {
+    const html = renderToString(<WandEntry model={new PanelModel()} />);
+    expect(html).toContain("list-group-item");
+    expect(html).toContain("flex-container");
+    expect(html).toContain("flexGap5");
+    expect(html).toContain("extensionsMenuExtensionButton");
     expect(html).toContain("fa-book-open");
     expect(html).toContain("记忆面板");
   });
@@ -664,6 +684,7 @@ describe("PanelShell（面板骨架投影）", () => {
       "对话文件镜像",
       "云同步（Cloudflare R2）",
       "版本与运行状态",
+      "面板入口",
       "面板安全区",
       "危险操作",
     ];
@@ -696,6 +717,54 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(expanded).toContain('data-preset="iphone-dynamic-island"');
     expect(expanded).toContain('data-preset="iphone-notch"');
     expect(expanded).toContain('data-action="clear-safe-area"');
+  });
+
+  it("设置 Tab：面板入口组（三选项 + 折叠摘要显示当前选择）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    // 折叠态：分组存在 + 摘要显示默认选择“顶部导航栏”，选项控件不渲染
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain('data-group="entry"');
+    expect(collapsed).toContain("面板入口");
+    expect(collapsed).toContain("顶部导航栏");
+    expect(collapsed).not.toContain('data-action="set-entry-placement"');
+    // 展开态：三个选项按钮（顶部导航栏 / 底部魔法棒 / 两者都显示）
+    const expanded = renderWithExpanded(model, ["entry"]);
+    expect(expanded).toContain('data-action="set-entry-placement"');
+    for (const placement of ["top", "wand", "both"]) {
+      expect(expanded).toContain(`data-placement="${placement}"`);
+    }
+    for (const label of ["顶部导航栏", "底部魔法棒", "两者都显示"]) {
+      expect(expanded).toContain(label);
+    }
+    // 未回退：不出现“魔法棒不可用”提示
+    expect(expanded).not.toContain("魔法棒不可用");
+  });
+
+  it("设置 Tab：入口回退时摘要附加标记、组内提示实际位置", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const runtime = fakeRuntime({
+      settings: {
+        read: () => ({ ...DEFAULT_SETTINGS, entryPlacement: "wand" }),
+        write: vi.fn(),
+      },
+      entryMount: {
+        getPlan: () => ({ top: true, wand: false, fallback: true }),
+        onPlanChange: () => () => {},
+        replan: vi.fn(),
+      },
+    });
+    // 折叠态摘要：选择 + 回退标记
+    const collapsedModel = new PanelModel();
+    collapsedModel.setTab("settings");
+    const collapsed = renderShell(collapsedModel, runtime);
+    expect(collapsed).toContain("底部魔法棒（已回退顶部）");
+    // 展开态：实际位置提示可见
+    const expandedModel = new PanelModel();
+    expandedModel.setTab("settings");
+    const expanded = renderWithExpanded(expandedModel, ["entry"], runtime);
+    expect(expanded).toContain("实际位置：顶部导航栏（魔法棒不可用）");
   });
 
   it("设置 Tab：展开后云同步合并组包含配置与状态", () => {

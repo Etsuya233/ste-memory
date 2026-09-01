@@ -24,6 +24,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     queryChatConnectionId: undefined,
     cleaningRuleLists: [],
     memoryViews: [],
+    entryPlacement: "top",
     ...overrides,
   };
 }

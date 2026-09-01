@@ -149,6 +149,14 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     ).toBe("systemDefault");
   });
 
+  it("面板入口（entryPlacement）：缺失补默认 top；wand/both 保留；非法值回退 top", () => {
+    expect(mergeSettings({}).entryPlacement).toBe("top");
+    expect(mergeSettings({ entryPlacement: "wand" }).entryPlacement).toBe("wand");
+    expect(mergeSettings({ entryPlacement: "both" }).entryPlacement).toBe("both");
+    expect(mergeSettings({ entryPlacement: "left" }).entryPlacement).toBe("top");
+    expect(mergeSettings({ entryPlacement: 42 }).entryPlacement).toBe("top");
+  });
+
   it("未知键被丢弃（读取只取已知形状）", () => {
     const merged = mergeSettings({ enabled: true, evil: "x", r2: { hacker: 1 } });
     expect("evil" in merged).toBe(false);
@@ -184,6 +192,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
       cleaningRuleLists: [],
+      entryPlacement: "wand",
       memoryViews: [
         {
           name: "未完成伏笔",

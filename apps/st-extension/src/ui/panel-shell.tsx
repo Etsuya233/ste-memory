@@ -52,10 +52,20 @@ import type { ChatMirrorStatus } from "../chat-mirror/chat-metadata-mirror-sync.
 import type { SteMemoryRuntime } from "../runtime.ts";
 import {
   isR2Configured,
+  type EntryPlacement,
   type PluginSettings,
   type R2Settings,
   type SettingsStore,
 } from "../settings/plugin-settings.ts";
+import {
+  DEFAULT_ENTRY_PLAN,
+  ENTRY_PLACEMENT_LABELS,
+  ENTRY_PLACEMENT_OPTIONS,
+  actualPlacementNote,
+  entryGroupSummary,
+  type EntryMountControllerPort,
+  type EntryMountPlan,
+} from "./entry-placement.ts";
 import {
   agentConnectionsSummary,
   agentPresetsSummary,
@@ -219,6 +229,11 @@ export interface PanelRuntime {
     readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
   readonly settings: SettingsStore;
+  /**
+   * 面板入口挂载控制器端口（面板入口）：设置分组读当前计划（回退标记）
+   * 并在写入入口位置后 replan 热切换。缺省（测试/旧运行时）用默认计划。
+   */
+  readonly entryMount?: EntryMountControllerPort;
   readonly version: string;
   /** 弹窗 API（分支检测等需要用户交互的场景） */
   readonly popup?: {
@@ -301,6 +316,53 @@ export function ToolbarButton(props: {
     >
       <i className="fa-solid fa-book-open" aria-hidden="true"></i>
     </button>
+  );
+}
+
+/**
+ * 魔法棒入口项（底部魔法棒菜单）：镜像 ST 内置工具行结构
+ * （div.list-group-item.flex-container.flexGap5 + icon + span，先例：gallery 的
+ * addGalleryWandButton），样式随 ST 菜单原生走；挂载/卸载由 st-panel-host 控制器负责。
+ */
+export function WandEntry(props: {
+  readonly model: PanelModel;
+  /** 与面板共享的离开守卫槽（可选；缺省不拦截） */
+  readonly leaveGuardRef?: { current: LeaveGuard | null };
+}) {
+  const state = useSyncExternalStore(
+    (listener) => props.model.onStateChange(listener),
+    () => props.model.getState(),
+    () => props.model.getState(),
+  );
+  return (
+    <div
+      className="list-group-item flex-container flexGap5 stm-wand-entry"
+      role="button"
+      tabIndex={0}
+      aria-label={`${PLUGIN_DISPLAY_NAME} 记忆面板`}
+      aria-pressed={state.open}
+      data-action="toggle-panel"
+      onClick={() => {
+        if (state.open) {
+          const guard = props.leaveGuardRef?.current;
+          if (guard && !guard()) return;
+        }
+        props.model.toggle();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (state.open) {
+            const guard = props.leaveGuardRef?.current;
+            if (guard && !guard()) return;
+          }
+          props.model.toggle();
+        }
+      }}
+    >
+      <div className="fa-solid fa-book-open extensionsMenuExtensionButton" aria-hidden="true"></div>
+      <span>记忆面板</span>
+    </div>
   );
 }
 
@@ -1804,6 +1866,21 @@ function SettingsTab(props: {
     setSafeArea((prev) => (prev[edge] === value ? prev : { ...prev, [edge]: value }));
   }
 
+  // ---- 面板入口（全局设置，存插件设置；切换即时生效——replan 热切换挂载点） ----
+  const entryPlan: EntryMountPlan = useSyncExternalStore(
+    (listener) => props.runtime.entryMount?.onPlanChange(listener) ?? (() => {}),
+    () => props.runtime.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
+    () => props.runtime.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
+  );
+  /** 改入口位置：写设置 + 通知挂载控制器重解析（顶部/魔法棒/两者即时换挂载点） */
+  function updateEntryPlacement(placement: EntryPlacement): void {
+    if (props.settings.entryPlacement === placement) return;
+    const next = { ...props.settings, entryPlacement: placement };
+    props.runtime.settings.write(next);
+    props.onSettingsChange(next);
+    props.runtime.entryMount?.replan();
+  }
+
   return (
     <>
       {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
@@ -2346,6 +2423,56 @@ function SettingsTab(props: {
             <div className="stm-setting-row">
               <div className="stm-setting-name">运行状态</div>
               <div className="stm-setting-value">{runtimeStatusLabel(props.status)}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 面板入口：呼出/收起记忆面板的按钮所在表面（全局设置，切换即时生效） */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="entry">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="entry"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "entry")}
+          onClick={() => toggleGroup("entry")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
+              面板入口
+            </div>
+            <div className="stm-setting-group-summary">
+              {entryGroupSummary(props.settings.entryPlacement, entryPlan)}
+            </div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "entry") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "entry") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-row">
+              {ENTRY_PLACEMENT_OPTIONS.map((placement) => (
+                <button
+                  key={placement}
+                  type="button"
+                  className={`stm-entry-option ${props.settings.entryPlacement === placement ? "stm-entry-option--active" : ""}`}
+                  data-action="set-entry-placement"
+                  data-placement={placement}
+                  aria-pressed={props.settings.entryPlacement === placement}
+                  onClick={() => updateEntryPlacement(placement)}
+                >
+                  {ENTRY_PLACEMENT_LABELS[placement]}
+                </button>
+              ))}
+            </div>
+            {actualPlacementNote(entryPlan) && (
+              <div className="stm-setting-hint">{actualPlacementNote(entryPlan)}</div>
+            )}
+            <div className="stm-setting-hint">
+              选魔法棒或两者时，底部魔法棒菜单会出现「记忆面板」入口；切换即时生效。
             </div>
           </div>
         )}

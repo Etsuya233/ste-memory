@@ -35,6 +35,9 @@ export interface ChatMirrorSettings {
   readonly includeHistory: boolean;
 }
 
+/** 面板入口位置（面板入口：呼出/收起记忆面板的按钮所在的 ST 表面） */
+export type EntryPlacement = "top" | "wand" | "both";
+
 export interface PluginSettings {
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关，ticket 06 起生效） */
   readonly enabled: boolean;
@@ -59,6 +62,8 @@ export interface PluginSettings {
   readonly cleaningRuleLists: readonly CleaningRuleList[];
   /** 记忆视图（ticket 02 / ADR 0025）：插件级命名视图，{{宏名::视图名}} 展开 */
   readonly memoryViews: readonly MemoryView[];
+  /** 面板入口位置（面板入口）：顶部导航栏 / 底部魔法棒 / 两者；默认顶部（老用户零感知） */
+  readonly entryPlacement: EntryPlacement;
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -76,6 +81,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   queryChatConnectionId: undefined,
   cleaningRuleLists: [],
   memoryViews: [],
+  entryPlacement: "top",
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -109,7 +115,14 @@ export function mergeSettings(raw: unknown): PluginSettings {
     queryChatConnectionId: mergeConnectionSelection(source.queryChatConnectionId, agentConnections),
     cleaningRuleLists: mergeCleaningRuleLists(source.cleaningRuleLists),
     memoryViews: mergeMemoryViews(source.memoryViews),
+    entryPlacement: isEntryPlacement(source.entryPlacement)
+      ? source.entryPlacement
+      : DEFAULT_SETTINGS.entryPlacement,
   };
+}
+
+function isEntryPlacement(value: unknown): value is EntryPlacement {
+  return value === "top" || value === "wand" || value === "both";
 }
 
 /**
