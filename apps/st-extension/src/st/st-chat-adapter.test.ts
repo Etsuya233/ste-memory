@@ -397,12 +397,12 @@ describe("StChatAdapter.getPromptNames（Agent 预设占位符名字，ticket 17
 });
 
 describe("StChatAdapter.getPromptSnapshot（消息编排占位符卡片，{{char_card}}/{{user_card}}）", () => {
-  it("单角色：charCard = 当前角色卡 description，userCard = Persona 描述", () => {
+  it("单角色：charCard = 当前角色卡 description（characterId 为数组下标，角色卡无 id），userCard = Persona 描述", () => {
     const { adapter } = stableAdapter({
       name1: "小明",
       name2: "爱丽丝",
       characterId: 0,
-      characters: [{ id: 0, name: "爱丽丝", description: "见习魔女。" }],
+      characters: [{ avatar: "ailice.png", name: "爱丽丝", description: "见习魔女。" }],
       powerUserSettings: { persona_description: "我是旅行商人。" },
     });
     expect(adapter.getPromptSnapshot()).toMatchObject({
@@ -412,14 +412,14 @@ describe("StChatAdapter.getPromptSnapshot（消息编排占位符卡片，{{char
     });
   });
 
-  it("群聊：charCard = 群成员角色卡「名字：描述」逐条拼接", () => {
+  it("群聊：charCard = 群成员角色卡「名字：描述」逐条拼接（members 为 avatar 文件名，与 ST validateGroup 同判）", () => {
     const { adapter } = stableAdapter({
       groupId: "g1",
-      groups: [{ id: "g1", name: "夜谈组", members: [0, 2] }],
+      groups: [{ id: "g1", name: "夜谈组", members: ["ailice.png", "yunjin.png"] }],
       characters: [
-        { id: 0, name: "爱丽丝", description: "见习魔女。" },
-        { id: 1, name: "路人", description: "" },
-        { id: 2, name: "云烬", description: "上古神族后裔。" },
+        { avatar: "ailice.png", name: "爱丽丝", description: "见习魔女。" },
+        { avatar: "road.png", name: "路人", description: "" },
+        { avatar: "yunjin.png", name: "云烬", description: "上古神族后裔。" },
       ],
     });
     expect(adapter.getPromptSnapshot().charCard).toBe("爱丽丝：见习魔女。\n\n云烬：上古神族后裔。");
@@ -428,7 +428,7 @@ describe("StChatAdapter.getPromptSnapshot（消息编排占位符卡片，{{char
   it("查不到角色卡 / 无 Persona / 群成员无描述：对应字段为空串（不留占位符原文）", () => {
     const { adapter } = stableAdapter({
       characterId: 9,
-      characters: [{ id: 0, name: "爱丽丝", description: "见习魔女。" }],
+      characters: [{ avatar: "ailice.png", name: "爱丽丝", description: "见习魔女。" }],
     });
     const snapshot = adapter.getPromptSnapshot();
     expect(snapshot.charCard).toBe("");
@@ -436,8 +436,8 @@ describe("StChatAdapter.getPromptSnapshot（消息编排占位符卡片，{{char
     // 群聊无成员卡描述 → 空串
     const group = stableAdapter({
       groupId: "g1",
-      groups: [{ id: "g1", name: "夜谈组", members: [1] }],
-      characters: [{ id: 1, name: "路人", description: "" }],
+      groups: [{ id: "g1", name: "夜谈组", members: ["road.png"] }],
+      characters: [{ avatar: "road.png", name: "路人", description: "" }],
     });
     expect(group.adapter.getPromptSnapshot().charCard).toBe("");
   });

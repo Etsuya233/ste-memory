@@ -3,8 +3,12 @@
  * 展开为 ProposalAgent 的编排消息（ComposedAgentMessage[]：system 合并进系统
  * 提示词，user/assistant 进入对话前缀）。
  *
- * 占位符**单遍**展开：一次正则扫描完成全部替换，替换结果不再被扫描（摘要里的
- * 同名 token 不会被二次替换）；未知占位符原样保留（用户决策，与 ST 宏行为一致）。
+ * 占位符展开：一次正则扫描完成全部替换，替换结果不再被扫描（摘要里的同名
+ * token 不会被二次替换）；未知占位符原样保留（用户决策，与 ST 宏行为一致）。
+ * 例外：{{char_card}} / {{user_card}} 的卡片文本本身也当模板**单遍展开一次**——
+ * 卡内 {{char}}/{{user}} 等先于插入替换；但卡片自身 token 不在卡内展开
+ * （{{char_card}} 里再写 {{char_card}}、或两卡互引 → 留原文：既不自递归也不叠加）。
+ * 机器内容（摘要/世界书/默认提示词/msg）仍是「插入后不再被扫描」的单遍语义。
  * {{systemDefaultPrompt}} / {{tablesDigest}} 的展开内容来自 core 组合器——
  * 摘要格式是工具可用性契约，不在插件侧复制实现（ADR 0006）。
  * {{char_card}} / {{user_card}} / {{msg}} 来自任务提交时快照的 ST 上下文
@@ -39,8 +43,8 @@ export type AgentPresetPlaceholderName = keyof typeof AGENT_PRESET_PLACEHOLDERS;
 export const AGENT_PRESET_PLACEHOLDER_HINTS: Record<AgentPresetPlaceholderName, string> = {
   user: "展开为当前对话的用户名（任务提交时快照）",
   char: "展开为当前对话的角色名（群聊 = 群名）",
-  char_card: "展开为当前角色卡描述（群聊 = 群成员角色卡逐条拼接）",
-  user_card: "展开为当前 Persona 描述（ST 用户设定）",
+  char_card: "展开为当前角色卡描述（群聊 = 群成员角色卡逐条拼接；卡内 {{char}}/{{user}} 等占位符也展开）",
+  user_card: "展开为当前 Persona 描述（ST 用户设定；卡内 {{char}}/{{user}} 等占位符也展开）",
   msg: "展开为本块需要总结的消息内容（填表任务；引用后不再自动追加块提示词）",
   tablesDigest: "展开为记忆空间表/字段摘要",
   systemDefaultPrompt: "展开为系统默认提示词全文（指令 + 摘要）",
@@ -73,11 +77,22 @@ const PLACEHOLDER_PATTERN = new RegExp(
   "g",
 );
 
+/** 卡片内容展开模式：占位符全集去掉 {{char_card}}/{{user_card}}（自/互引用留原文，
+ * 见展开函数注释）——单源跟随白名单，新增占位符自动进入卡内展开。 */
+const CARD_TEXT_PATTERN = new RegExp(
+  `\\{\\{(${Object.keys(AGENT_PRESET_PLACEHOLDERS)
+    .filter((name) => name !== "char_card" && name !== "user_card")
+    .join("|")})\\}\\}`,
+  "g",
+);
+
 /**
  * 展开占位符：{{systemDefaultPrompt}} → 默认提示词全文（指令 + 摘要）、
  * {{tablesDigest}} → 表/字段摘要、{{user}} / {{char}} → 对话双方名字、
- * {{char_card}} / {{user_card}} → 角色卡 / Persona 描述、{{msg}} → 块消息文本、
- * {{worldbook}} → 提交时快照的世界书扫描文本（ADR 0007）。
+ * {{char_card}} / {{user_card}} → 角色卡 / Persona 描述（卡片文本本身也按同规则
+ * 展开一次，卡内 {{char}}/{{user}} 等照常替换；{{char_card}}/{{user_card}} 不在
+ * 卡内展开——自/互引用留原文，不叠加）、{{msg}} → 块消息文本、{{worldbook}} →
+ * 提交时快照的世界书扫描文本（ADR 0007）。
  * digest 缺省（undefined）时 {{tablesDigest}}/{{systemDefaultPrompt}} 展开空串——
  * 预设预览在无活动空间时以此表示「没有摘要」；真实编排永远传实际 digest。
  * 未知占位符（不在白名单）原样保留。
@@ -90,14 +105,19 @@ export function expandAgentPresetPlaceholders(
   const expanders: Record<AgentPresetPlaceholderName, () => string> = {
     user: () => snapshot.names.user,
     char: () => snapshot.names.char,
-    char_card: () => snapshot.charCard,
-    user_card: () => snapshot.userCard,
+    char_card: () => expandCardText(snapshot.charCard),
+    user_card: () => expandCardText(snapshot.userCard),
     msg: () => snapshot.msgText,
     tablesDigest: () => (digest === undefined ? "" : composeTableDigestSummary(digest)),
     systemDefaultPrompt: () =>
       digest === undefined ? "" : composeProposalAgentSystemPrompt(digest),
     worldbook: () => snapshot.worldbookText,
   };
+  // 卡片内容当模板单遍展开（不含卡片自身 token，查表只命中叶子占位符，不复用递归）
+  const expandCardText = (card: string): string =>
+    card.replace(CARD_TEXT_PATTERN, (_match, name: AgentPresetPlaceholderName) =>
+      expanders[name](),
+    );
   return text.replace(PLACEHOLDER_PATTERN, (match, name: AgentPresetPlaceholderName) =>
     expanders[name](),
   );

@@ -37,7 +37,8 @@ export interface StContext {
   groups?: readonly {
     id: string | number;
     name?: string;
-    members?: readonly (string | number)[];
+    /** 群成员 = 角色卡 avatar 文件名数组（旧格式可能存名字），非下标/非 id */
+    members?: readonly string[];
   }[];
   /** 当前对话消息数组（同步楼层 = 数组下标，ADR 0003） */
   chat?: readonly unknown[];
@@ -48,10 +49,11 @@ export interface StContext {
   powerUserSettings?: { readonly persona_description?: string };
   /**
    * 当前角色卡数组（st-context.js 暴露 characters：角色卡 description 读取源，
-   * {{char_card}} 占位符展开用；characterId 即 this_chid 数组下标）。
+   * {{char_card}} 占位符展开用；characterId 即 this_chid 数组下标，角色卡对象
+   * 无 id 字段——下标即 id）。
    */
   characters?: readonly {
-    readonly id?: string | number;
+    readonly avatar?: string;
     readonly name?: string;
     readonly description?: string;
   }[];
@@ -247,17 +249,28 @@ export class StChatAdapter {
     let charCard = "";
     if (inGroup && group) {
       const lines: string[] = [];
-      for (const memberId of group.members ?? []) {
-        const card = characters.find((c) => c.id === memberId);
+      for (const memberRef of group.members ?? []) {
+        // ST 群成员 = 角色卡 avatar 文件名数组（旧格式可能存名字）——与 ST
+        // validateGroup/getGroupMembers 同判：avatar 或名字命中
+        const card = characters.find(
+          (c) => c.avatar === memberRef || c.name === memberRef,
+        );
         const description = card?.description?.trim() ?? "";
         if (description === "") continue;
         lines.push(`${card?.name ?? ""}：${description}`);
       }
       charCard = lines.join("\n\n");
     } else if (context.characterId != null && !inGroup) {
-      const card = characters.find((c) => c.id === context.characterId);
+      // ST characterId = this_chid = characters 数组下标（角色卡对象无 id 字段，
+      // 下标即 id）；stRegexEntries 同款下标访问
+      const chid =
+        typeof context.characterId === "number"
+          ? context.characterId
+          : Number(context.characterId);
+      const card = Number.isInteger(chid) ? characters[chid] : undefined;
       charCard = card?.description?.trim() ?? "";
     }
+
     return {
       names: this.getPromptNames(),
       charCard,

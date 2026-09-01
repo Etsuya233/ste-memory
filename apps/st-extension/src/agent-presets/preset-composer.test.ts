@@ -1,8 +1,9 @@
 /**
  * Agent 提示词预设组合器（ticket 17 / ADR 0006 + 消息编排扩展）：预设消息列表 →
  * 编排消息（ComposedAgentMessage[]）。
- * 占位符**单遍**展开（正则一次扫描，替换结果不再被扫描——摘要/默认提示词里的
+ * 占位符展开：一次正则扫描完成全部替换，替换结果不再被扫描（摘要/默认提示词里的
  * 同名 token 不会被二次替换）；未知占位符原样保留（用户决策）。
+ * {{char_card}}/{{user_card}} 卡内内容本身也递归展开一次（带深度上限）。
  */
 import { describe, expect, it } from "vitest";
 import type { MemoryFieldKey, MemoryFieldType, MemoryTableKey } from "@ste-memory/core/memory";
@@ -114,6 +115,27 @@ describe("占位符展开", () => {
       digest(),
     );
     expect(text).toBe("我的设定：我是旅行商人。");
+  });
+
+  it("{{user_card}}/{{char_card}} 卡内 {{char}}/{{user}} 也展开（卡片内容当模板）", () => {
+    const text = expandAgentPresetPlaceholders(
+      "设定：{{user_card}}｜卡：{{char_card}}",
+      snapshot({
+        userCard: "{{user}} 是 {{char}} 的旅伴。",
+        charCard: "{{char}} 是见习魔女，{{user}} 是冒险者。",
+      }),
+      digest(),
+    );
+    expect(text).toBe("设定：小明 是 爱丽丝 的旅伴。｜卡：爱丽丝 是见习魔女，小明 是冒险者。");
+  });
+
+  it("卡内自/互引用不无限递归：{{char_card}} 遇上限止步留原文，其余仍展开", () => {
+    const text = expandAgentPresetPlaceholders(
+      "{{char_card}}",
+      snapshot({ charCard: "参照 {{char_card}} 与 {{user}}。" }),
+      digest(),
+    );
+    expect(text).toBe("参照 {{char_card}} 与 小明。");
   });
 
   it("{{msg}} 展开为本块消息文本（{{msg}} 无值 = 空串）", () => {
