@@ -96,8 +96,25 @@ export function convertStRegexScript(raw: unknown, createId: () => string): StRe
 
   const candidate: CleaningRule =
     replacement === undefined
-      ? { id: createId(), name: scriptName, mode, pattern: parsed.pattern, flags, enabled: raw.disabled !== true }
-      : { id: createId(), name: scriptName, mode, pattern: parsed.pattern, flags, replacement, enabled: raw.disabled !== true };
+      ? {
+          id: createId(),
+          name: scriptName,
+          mode,
+          type: "regex",
+          pattern: parsed.pattern,
+          flags,
+          enabled: raw.disabled !== true,
+        }
+      : {
+          id: createId(),
+          name: scriptName,
+          mode,
+          type: "regex",
+          pattern: parsed.pattern,
+          flags,
+          replacement,
+          enabled: raw.disabled !== true,
+        };
   const validation = validateCleaningRule(candidate);
   if (validation !== undefined) {
     return { kind: "skipped", scriptName, reason: `正则无法编译：${validation}` };
@@ -109,9 +126,7 @@ export function convertStRegexScript(raw: unknown, createId: () => string): StRe
 function touchesChatMessages(placement: unknown): boolean {
   return (
     Array.isArray(placement) &&
-    placement.some(
-      (value) => value === ST_PLACEMENT_USER_INPUT || value === ST_PLACEMENT_AI_OUTPUT,
-    )
+    placement.some((value) => value === ST_PLACEMENT_USER_INPUT || value === ST_PLACEMENT_AI_OUTPUT)
   );
 }
 

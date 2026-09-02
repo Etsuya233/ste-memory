@@ -1001,7 +1001,15 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     const harness = await createHarness({
       streamFn: capturePrompts((text) => prompts.push(text)),
       resolveCleaningRules: () => [
-        { id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true },
+        {
+          id: "c1",
+          name: "去标记",
+          mode: "discard",
+          type: "regex",
+          pattern: "\\*\\*",
+          flags: "g",
+          enabled: true,
+        },
       ],
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
@@ -1047,6 +1055,7 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
                 id: "c1",
                 name: "去标记",
                 mode: "discard",
+                type: "regex",
                 pattern: "\\*\\*",
                 flags: "g",
                 enabled: true,
@@ -1354,7 +1363,15 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     const harness = await createHarness({
       streamFn,
       resolveCleaningRules: () => [
-        { id: "c1", name: "去标记", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true },
+        {
+          id: "c1",
+          name: "去标记",
+          mode: "discard",
+          type: "regex",
+          pattern: "\\*\\*",
+          flags: "g",
+          enabled: true,
+        },
       ],
     });
     const view = await harness.service.submitInit({
@@ -1543,7 +1560,12 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
     const harness = await createHarness();
     await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "processed");
     expect(await floorStatuses(harness)).toEqual([
-      "processed", "processed", "processed", "untracked", "untracked", "untracked",
+      "processed",
+      "processed",
+      "processed",
+      "untracked",
+      "untracked",
+      "untracked",
     ]);
   });
 
@@ -1551,7 +1573,12 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
     const harness = await createHarness();
     await harness.service.markFloorStatuses(harness.spaceId, 1, 3, "error");
     expect(await floorStatuses(harness)).toEqual([
-      "untracked", "error", "error", "error", "untracked", "untracked",
+      "untracked",
+      "error",
+      "error",
+      "error",
+      "untracked",
+      "untracked",
     ]);
   });
 
@@ -1560,7 +1587,12 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
     await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "processed");
     await harness.service.markFloorStatuses(harness.spaceId, 1, 2, "untracked");
     expect(await floorStatuses(harness)).toEqual([
-      "processed", "untracked", "untracked", "untracked", "untracked", "untracked",
+      "processed",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
     ]);
   });
 
@@ -1590,7 +1622,12 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
     await harness.service.markFloorStatuses(harness.spaceId, 0, 2, "error");
     await harness.service.markFloorStatuses(harness.spaceId, 1, 2, "processed");
     expect(await floorStatuses(harness)).toEqual([
-      "error", "processed", "processed", "untracked", "untracked", "untracked",
+      "error",
+      "processed",
+      "processed",
+      "untracked",
+      "untracked",
+      "untracked",
     ]);
   });
 
@@ -1598,7 +1635,12 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
     const harness = await createHarness();
     await harness.service.markFloorStatuses(harness.spaceId, 3, 3, "processed");
     expect(await floorStatuses(harness)).toEqual([
-      "untracked", "untracked", "untracked", "processed", "untracked", "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
+      "processed",
+      "untracked",
+      "untracked",
     ]);
   });
 });

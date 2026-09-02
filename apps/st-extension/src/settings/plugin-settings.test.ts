@@ -274,6 +274,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
             id: "r1",
             name: "去粗体",
             mode: "discard",
+            type: "regex",
             pattern: "\\*\\*",
             flags: "g",
             enabled: true,

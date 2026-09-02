@@ -6,11 +6,21 @@
  */
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { CleaningRule } from "../settings/cleaning-rule-lists.ts";
 import type { PluginSettings } from "../settings/plugin-settings.ts";
 import type { StRegexImportItem } from "../settings/st-regex-import.ts";
 import type { StRegexEntry } from "../st/st-chat-adapter.ts";
-import { CleaningRulesManager, CleaningTestDialog, ImportDialog } from "./cleaning-rules-manager.tsx";
-import { runCleaningTest, type CleaningTestRun } from "./cleaning-rules-manager-model.ts";
+import {
+  CleaningRulesManager,
+  CleaningRuleRow,
+  CleaningTestDialog,
+  ImportDialog,
+} from "./cleaning-rules-manager.tsx";
+import {
+  ruleDraftFromRule,
+  runCleaningTest,
+  type CleaningTestRun,
+} from "./cleaning-rules-manager-model.ts";
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
@@ -30,11 +40,13 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   };
 }
 
-function renderManager(overrides: {
-  readonly settings?: PluginSettings;
-  readonly selectedListId?: string;
-  readonly entries?: readonly StRegexEntry[];
-} = {}): string {
+function renderManager(
+  overrides: {
+    readonly settings?: PluginSettings;
+    readonly selectedListId?: string;
+    readonly entries?: readonly StRegexEntry[];
+  } = {},
+): string {
   return renderToString(
     <CleaningRulesManager
       settings={overrides.settings ?? settings()}
@@ -71,8 +83,24 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
               id: "l1",
               name: "我的清洗",
               rules: [
-                { id: "r1", name: "去粗体", mode: "discard", pattern: "\\*\\*", flags: "g", enabled: true },
-                { id: "r2", name: "提取", mode: "keep", pattern: "(.+)", flags: "g", enabled: false },
+                {
+                  id: "r1",
+                  name: "去粗体",
+                  mode: "discard",
+                  type: "regex",
+                  pattern: "\\*\\*",
+                  flags: "g",
+                  enabled: true,
+                },
+                {
+                  id: "r2",
+                  name: "提取",
+                  mode: "keep",
+                  type: "regex",
+                  pattern: "(.+)",
+                  flags: "g",
+                  enabled: false,
+                },
               ],
             },
           ],
@@ -114,6 +142,7 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
                   id: "r1",
                   name: "邮箱",
                   mode: "replace",
+                  type: "regex",
                   pattern: "(\\w+)@(\\w+)",
                   flags: "g",
                   replacement: "$2 的 $1",
@@ -137,6 +166,7 @@ describe("ImportDialog（导入对话框冒烟）", () => {
         id: "i1",
         name: "去粗体",
         mode: "discard",
+        type: "regex",
         pattern: "\\*\\*",
         flags: "g",
         enabled: true,
@@ -181,7 +211,15 @@ describe("ImportDialog（导入对话框冒烟）", () => {
   });
 
   it("空态：引导在 ST 配置或从文件导入；无列表时显示新建名称输入；无可导入条目时导入按钮禁用", () => {
-    const empty = text(renderDialog({ candidates: [], sources: [], importableCount: 0, selectedCount: 0, selected: [] }));
+    const empty = text(
+      renderDialog({
+        candidates: [],
+        sources: [],
+        importableCount: 0,
+        selectedCount: 0,
+        selected: [],
+      }),
+    );
     expect(empty).toContain("ST 中暂无正则条目");
     expect(empty).toContain("从文件导入");
 
@@ -205,12 +243,93 @@ describe("ImportDialog（导入对话框冒烟）", () => {
   });
 });
 
-describe("CleaningTestDialog（清洗测试弹窗冒烟，ticket 27）", () => {
-  const rules = [
-    { id: "r1", name: "去粗体", mode: "discard" as const, pattern: "\\*\\*", flags: "g", enabled: true },
-    { id: "r2", name: "旧停用", mode: "replace" as const, pattern: "x", flags: "g", enabled: false },
-  ];
+describe("CleaningRuleRow（规则行编辑契约，ADR 0014）", () => {
+  function renderRow(
+    rule: Parameters<typeof CleaningRuleRow>[0]["rule"],
+    draft: Parameters<typeof CleaningRuleRow>[0]["draft"],
+  ): string {
+    return text(
+      renderToString(
+        <CleaningRuleRow
+          rule={rule}
+          index={0}
+          total={1}
+          editing
+          draft={draft}
+          error={undefined}
+          onBeginEdit={() => undefined}
+          onCancelEdit={() => undefined}
+          onSaveEdit={() => undefined}
+          onDraftChange={() => undefined}
+          onToggleEnabled={() => undefined}
+          onMove={() => undefined}
+          onRemove={() => undefined}
+        />,
+      ),
+    );
+  }
 
+  it("标签规则：摘要显示 pre…post；编辑态显示类型选择器与 pre/post 输入框（无 pattern/flags）", () => {
+    const tagRule: CleaningRule = {
+      id: "rt",
+      name: "去内心",
+      mode: "keep",
+      type: "tag",
+      pre: "【内心】",
+      post: "【/内心】",
+      enabled: true,
+    };
+    const html = renderRow(tagRule, ruleDraftFromRule(tagRule));
+    expect(html).toContain("去内心 · 保留");
+    expect(html).toContain("【内心】…【/内心】");
+    expect(html).toContain('data-stm-field="cleaning-rule-type"');
+    expect(html).toContain('data-stm-field="cleaning-rule-pre"');
+    expect(html).toContain('data-stm-field="cleaning-rule-post"');
+    expect(html).not.toContain('data-stm-field="cleaning-rule-pattern"');
+    expect(html).not.toContain('data-stm-field="cleaning-rule-flags"');
+  });
+
+  it("正则规则：摘要显示 /pattern/flags；编辑态显示 pattern/flags 输入框（无 pre/post）", () => {
+    const regexRule: CleaningRule = {
+      id: "r1",
+      name: "去粗体",
+      mode: "discard",
+      type: "regex",
+      pattern: "\\*\\*",
+      flags: "g",
+      enabled: true,
+    };
+    const html = renderRow(regexRule, ruleDraftFromRule(regexRule));
+    expect(html).toContain("/\\*\\*/g");
+    expect(html).toContain('data-stm-field="cleaning-rule-type"');
+    expect(html).toContain('data-stm-field="cleaning-rule-pattern"');
+    expect(html).toContain('data-stm-field="cleaning-rule-flags"');
+    expect(html).not.toContain('data-stm-field="cleaning-rule-pre"');
+  });
+});
+
+const rules = [
+  {
+    id: "r1",
+    name: "去粗体",
+    mode: "discard" as const,
+    type: "regex" as const,
+    pattern: "\\*\\*",
+    flags: "g",
+    enabled: true,
+  },
+  {
+    id: "r2",
+    name: "旧停用",
+    mode: "replace" as const,
+    type: "regex" as const,
+    pattern: "x",
+    flags: "g",
+    enabled: false,
+  },
+];
+
+describe("CleaningTestDialog（清洗测试弹窗冒烟，ticket 27）", () => {
   function renderDialog(overrides: Partial<Parameters<typeof CleaningTestDialog>[0]> = {}): string {
     return renderToString(
       <CleaningTestDialog
@@ -276,7 +395,22 @@ describe("CleaningTestDialog（清洗测试弹窗冒烟，ticket 27）", () => {
   it("草稿参与的步骤带「草稿」标记（步骤级标注）", () => {
     const result = runCleaningTest(
       rules,
-      new Map([["r1", { name: "草稿改", mode: "keep", pattern: "a", flags: "g", replacement: "", enabled: true }]]),
+      new Map([
+        [
+          "r1",
+          {
+            name: "草稿改",
+            mode: "keep",
+            type: "regex",
+            pattern: "a",
+            flags: "g",
+            pre: "",
+            post: "",
+            replacement: "",
+            enabled: true,
+          },
+        ],
+      ]),
       [{ name: "", content: "a" }],
     );
     const html = text(renderDialog({ result, hasDraftOverrides: true }));

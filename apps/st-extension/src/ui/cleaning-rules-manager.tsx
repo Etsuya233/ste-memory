@@ -92,12 +92,14 @@ export function CleaningRulesManager(props: {
   const [testMessages, setTestMessages] = useState<readonly CleaningTestMessage[]>([]);
   const [testResult, setTestResult] = useState<CleaningTestRun | undefined>(undefined);
   const [testLoadHint, setTestLoadHint] = useState<string | null>(null);
-  const [testSnapshot, setTestSnapshot] = useState<
-    | { readonly rules: readonly CleaningRule[]; readonly draftOverrides: ReadonlyMap<string, CleaningRuleDraft> }
-    | null
-  >(null);
+  const [testSnapshot, setTestSnapshot] = useState<{
+    readonly rules: readonly CleaningRule[];
+    readonly draftOverrides: ReadonlyMap<string, CleaningRuleDraft>;
+  } | null>(null);
 
-  function apply(mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[]): void {
+  function apply(
+    mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[],
+  ): void {
     props.onChange({ ...props.settings, cleaningRuleLists: mutate(lists) });
   }
 
@@ -117,7 +119,9 @@ export function CleaningRulesManager(props: {
     setTestSnapshot({
       rules: editList.rules,
       draftOverrides:
-        editingRuleId !== undefined && ruleDraft !== undefined ? new Map([[editingRuleId, ruleDraft]]) : new Map(),
+        editingRuleId !== undefined && ruleDraft !== undefined
+          ? new Map([[editingRuleId, ruleDraft]])
+          : new Map(),
     });
     setTestForm("text");
     setTestText("");
@@ -131,8 +135,7 @@ export function CleaningRulesManager(props: {
   function runTest(): void {
     const snapshot = testSnapshot;
     if (!snapshot) return;
-    const messages =
-      testForm === "text" ? [{ name: "", content: testText }] : testMessages;
+    const messages = testForm === "text" ? [{ name: "", content: testText }] : testMessages;
     setTestResult(runCleaningTest(snapshot.rules, snapshot.draftOverrides, messages));
   }
 
@@ -197,8 +200,12 @@ export function CleaningRulesManager(props: {
     setRuleDraft({
       name: "新规则",
       mode: "discard",
+      // 新建默认标签类型（ADR 0014 R2）：不懂正则的用户第一眼就是简单路径
+      type: "tag",
       pattern: "",
       flags: "g",
+      pre: "",
+      post: "",
       replacement: "",
       enabled: true,
     });
@@ -226,13 +233,16 @@ export function CleaningRulesManager(props: {
       return;
     }
     // 草稿 → 规则（形状统一由模型层 draftToRule 负责；仅名字归一化在此）
-    const rule = { ...draftToRule(ruleDraft, editingRuleId), name: ruleDraft.name.trim() || "未命名规则" };
+    const rule = {
+      ...draftToRule(ruleDraft, editingRuleId),
+      name: ruleDraft.name.trim() || "未命名规则",
+    };
     if (pendingRuleId === editingRuleId) {
       // 新建路径：校验通过才落库（+ 添加规则 = 编辑草稿，取消不产生空规则）
       apply((current) => addCleaningRule(current, editList.id, rule));
     } else {
-      const { id: _id, ...patch } = rule;
-      apply((current) => updateCleaningRule(current, editList.id, editingRuleId, patch));
+      // 补丁带 id 无影响：updateCleaningRule 按 ruleId 定位后 spread，id 不变
+      apply((current) => updateCleaningRule(current, editList.id, editingRuleId, rule));
     }
     setPendingRuleId(undefined);
     cancelEdit();
@@ -260,7 +270,10 @@ export function CleaningRulesManager(props: {
         entries.map((entry) => entry.script),
         createUiId,
       );
-      openImportDialog(candidates, entries.map((entry) => entry.source));
+      openImportDialog(
+        candidates,
+        entries.map((entry) => entry.source),
+      );
     } catch (error) {
       reportError(error);
     }
@@ -298,7 +311,9 @@ export function CleaningRulesManager(props: {
     setImportSelected([]);
     // 无列表时新建（名称可在对话框内修改）
     setImportTarget(
-      editList ? { kind: "existing", listId: editList.id } : { kind: "new", name: DEFAULT_IMPORT_LIST_NAME },
+      editList
+        ? { kind: "existing", listId: editList.id }
+        : { kind: "new", name: DEFAULT_IMPORT_LIST_NAME },
     );
     setImportReport(null);
     setImportOpen(true);
@@ -351,7 +366,9 @@ export function CleaningRulesManager(props: {
           className="stm-input"
           data-stm-field="chat-cleaning-list"
           value={props.selectedListId ?? ""}
-          onChange={(event) => props.onSelectList(event.target.value === "" ? undefined : event.target.value)}
+          onChange={(event) =>
+            props.onSelectList(event.target.value === "" ? undefined : event.target.value)
+          }
         >
           <option value="">未启用清洗</option>
           {lists.map((list) => (
@@ -381,7 +398,12 @@ export function CleaningRulesManager(props: {
         </select>
       </div>
       <div className="stm-setting-actions">
-        <button type="button" className="stm-button" data-action="create-cleaning-list" onClick={createList}>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="create-cleaning-list"
+          onClick={createList}
+        >
           新建列表
         </button>
         <button
@@ -542,8 +564,8 @@ export function CleaningRulesManager(props: {
   );
 }
 
-/** 规则行：折叠态 = 摘要（开关 + 名称 + 模式 + 正则）；展开态 = 完整表单（保存校验）。 */
-function CleaningRuleRow(props: {
+/** 规则行：折叠态 = 摘要（开关 + 名称 + 模式 + 正则/标签）；展开态 = 完整表单（保存校验）。 */
+export function CleaningRuleRow(props: {
   readonly rule: CleaningRule;
   readonly index: number;
   readonly total: number;
@@ -587,7 +609,9 @@ function CleaningRuleRow(props: {
             {rule.mode === "replace" ? `「${rule.replacement ?? ""}」` : ""}
             <span className="stm-mono">
               {" "}
-              /{rule.pattern}/{rule.flags}
+              {rule.type === "regex"
+                ? `/${rule.pattern}/${rule.flags}`
+                : `${rule.pre}…${rule.post}`}
             </span>
           </span>
         </button>
@@ -672,25 +696,58 @@ function CleaningRuleEditor(props: {
             </option>
           ))}
         </select>
+        <select
+          className="stm-input"
+          data-stm-field="cleaning-rule-type"
+          value={draft.type}
+          title="标签 = 填一对普通文本定界符；正则 = 填正则表达式"
+          onChange={(event) =>
+            props.onDraftChange({ ...draft, type: event.target.value as CleaningRule["type"] })
+          }
+        >
+          <option value="tag">标签</option>
+          <option value="regex">正则</option>
+        </select>
       </div>
-      <div className="stm-setting-row">
-        <input
-          type="text"
-          className="stm-input stm-mono"
-          data-stm-field="cleaning-rule-pattern"
-          value={draft.pattern}
-          placeholder="正则表达式"
-          onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
-        />
-        <input
-          type="text"
-          className="stm-input stm-mono"
-          data-stm-field="cleaning-rule-flags"
-          value={draft.flags}
-          placeholder="flags（g/i/m/s/u/y）"
-          onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
-        />
-      </div>
+      {draft.type === "tag" ? (
+        <div className="stm-setting-row">
+          <input
+            type="text"
+            className="stm-input"
+            data-stm-field="cleaning-rule-pre"
+            value={draft.pre}
+            placeholder="开始标签，如 【内心】"
+            onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
+          />
+          <input
+            type="text"
+            className="stm-input"
+            data-stm-field="cleaning-rule-post"
+            value={draft.post}
+            placeholder="结束标签，如 【/内心】"
+            onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
+          />
+        </div>
+      ) : (
+        <div className="stm-setting-row">
+          <input
+            type="text"
+            className="stm-input stm-mono"
+            data-stm-field="cleaning-rule-pattern"
+            value={draft.pattern}
+            placeholder="正则表达式"
+            onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
+          />
+          <input
+            type="text"
+            className="stm-input stm-mono"
+            data-stm-field="cleaning-rule-flags"
+            value={draft.flags}
+            placeholder="flags（g/i/m/s/u/y）"
+            onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
+          />
+        </div>
+      )}
       {draft.mode === "replace" && (
         <input
           type="text"
@@ -707,10 +764,20 @@ function CleaningRuleEditor(props: {
         </div>
       )}
       <div className="stm-setting-actions">
-        <button type="button" className="stm-button" data-action="save-cleaning-rule" onClick={props.onSave}>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="save-cleaning-rule"
+          onClick={props.onSave}
+        >
           保存
         </button>
-        <button type="button" className="stm-button" data-action="cancel-cleaning-rule" onClick={props.onCancel}>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="cancel-cleaning-rule"
+          onClick={props.onCancel}
+        >
           取消
         </button>
       </div>
@@ -747,7 +814,11 @@ export function CleaningTestDialog(props: {
 }) {
   const hasResult = props.result !== undefined;
   return (
-    <div className="stm-modal-overlay" data-stm-section="cleaning-test-dialog" onClick={props.onClose}>
+    <div
+      className="stm-modal-overlay"
+      data-stm-section="cleaning-test-dialog"
+      onClick={props.onClose}
+    >
       <div
         className="stm-modal"
         role="dialog"
@@ -797,7 +868,9 @@ export function CleaningTestDialog(props: {
                       data-stm-field={`cleaning-test-message-name-${index}`}
                       value={message.name}
                       placeholder="发送者名"
-                      onChange={(event) => props.onMessageChange(index, { name: event.target.value })}
+                      onChange={(event) =>
+                        props.onMessageChange(index, { name: event.target.value })
+                      }
                     />
                   </div>
                   <textarea
@@ -805,7 +878,9 @@ export function CleaningTestDialog(props: {
                     data-stm-field={`cleaning-test-message-content-${index}`}
                     value={message.content}
                     placeholder="消息内容（仅内容参与清洗）"
-                    onChange={(event) => props.onMessageChange(index, { content: event.target.value })}
+                    onChange={(event) =>
+                      props.onMessageChange(index, { content: event.target.value })
+                    }
                   />
                 </div>
               ))}
@@ -847,7 +922,9 @@ export function CleaningTestDialog(props: {
                   </div>
                   <div className="stm-preset-fragment-body">
                     <div className="stm-setting-hint">原文</div>
-                    <pre className="stm-mono stm-modal-text">{renderCleaningText(message.input)}</pre>
+                    <pre className="stm-mono stm-modal-text">
+                      {renderCleaningText(message.input)}
+                    </pre>
                     <div className="stm-setting-hint">步骤</div>
                     <ol data-stm-field={`cleaning-test-steps-${index}`}>
                       {message.steps.map((step, stepIndex) => (
@@ -857,7 +934,9 @@ export function CleaningTestDialog(props: {
                           </span>
                           {step.fromDraft && <span className="stm-chip">草稿</span>}
                           {step.active ? (
-                            <pre className="stm-mono stm-modal-text">{renderCleaningText(step.output)}</pre>
+                            <pre className="stm-mono stm-modal-text">
+                              {renderCleaningText(step.output)}
+                            </pre>
                           ) : (
                             <span className="stm-setting-hint">跳过（已停用）</span>
                           )}
@@ -865,7 +944,9 @@ export function CleaningTestDialog(props: {
                       ))}
                     </ol>
                     <div className="stm-setting-hint">最终结果</div>
-                    <pre className="stm-mono stm-modal-text">{renderCleaningText(message.output)}</pre>
+                    <pre className="stm-mono stm-modal-text">
+                      {renderCleaningText(message.output)}
+                    </pre>
                   </div>
                 </div>
               ))}
@@ -873,7 +954,12 @@ export function CleaningTestDialog(props: {
           )}
         </div>
         <div className="stm-modal-footer">
-          <button type="button" className="stm-button" data-action="run-cleaning-test" onClick={props.onRun}>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="run-cleaning-test"
+            onClick={props.onRun}
+          >
             清洗
           </button>
           <button
@@ -885,7 +971,12 @@ export function CleaningTestDialog(props: {
           >
             复制结果
           </button>
-          <button type="button" className="stm-button" data-action="close-cleaning-test" onClick={props.onClose}>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="close-cleaning-test"
+            onClick={props.onClose}
+          >
             关闭
           </button>
         </div>
@@ -968,7 +1059,11 @@ export function ImportDialog(props: {
         <div data-stm-field="import-candidates">
           {props.candidates.map((item, index) =>
             item.kind === "rule" ? (
-              <label key={index} className="stm-preset-fragment" data-stm-field={`import-candidate-${index}`}>
+              <label
+                key={index}
+                className="stm-preset-fragment"
+                data-stm-field={`import-candidate-${index}`}
+              >
                 <input
                   type="checkbox"
                   data-action="toggle-import-candidate"
@@ -1018,7 +1113,12 @@ export function ImportDialog(props: {
         >
           导入{props.selectedCount > 0 ? `（${props.selectedCount} 条）` : ""}
         </button>
-        <button type="button" className="stm-button" data-action="cancel-regex-import" onClick={props.onCancel}>
+        <button
+          type="button"
+          className="stm-button"
+          data-action="cancel-regex-import"
+          onClick={props.onCancel}
+        >
           取消
         </button>
       </div>

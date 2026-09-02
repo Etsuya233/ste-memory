@@ -11,19 +11,37 @@
 export const CLEANING_RULE_MODES = ["keep", "discard", "replace"] as const;
 export type CleaningRuleMode = (typeof CLEANING_RULE_MODES)[number];
 
-/** 允许的正则 flags 说明（与 api/web 对齐；ST 条目的 x/X/A/J/U 导入时丢弃） */
+/** 清洗规则类型：正则（pattern+flags，原有套路）或标签（pre+post 定界符，ADR 0014）。 */
+export const CLEANING_RULE_TYPES = ["regex", "tag"] as const;
+export type CleaningRuleType = (typeof CLEANING_RULE_TYPES)[number];
 
-export interface CleaningRule {
+export interface CleaningRuleBase {
   readonly id: string;
   readonly name: string;
   readonly mode: CleaningRuleMode;
-  readonly pattern: string;
-  /** 组合后的 flags 字符串，如 "g" / "gi"。 */
-  readonly flags: string;
   /** 仅 replace 模式：JS 替换串（$1 / $<name>）。 */
   readonly replacement?: string;
   readonly enabled: boolean;
 }
+
+/** 正则规则：pattern + flags（ST 导入与手动创建的原有形态）。 */
+export interface RegexCleaningRule extends CleaningRuleBase {
+  readonly type: "regex";
+  readonly pattern: string;
+  /** 组合后的 flags 字符串，如 "g" / "gi"。 */
+  readonly flags: string;
+}
+
+/** 标签规则：pre/post 普通文本定界符（ADR 0014，无需正则知识）。 */
+export interface TagCleaningRule extends CleaningRuleBase {
+  readonly type: "tag";
+  /** 开始标签（已 trim；不允许为空）。 */
+  readonly pre: string;
+  /** 结束标签（已 trim；允许与 pre 相同，如 ** ）。 */
+  readonly post: string;
+}
+
+export type CleaningRule = RegexCleaningRule | TagCleaningRule;
 
 export interface CleaningRuleList {
   readonly id: string;
@@ -47,7 +65,12 @@ export function mergeCleaningRuleLists(raw: unknown): readonly CleaningRuleList[
   if (!Array.isArray(raw)) return [];
   const lists: CleaningRuleList[] = [];
   for (const item of raw) {
-    if (!isRecord(item) || typeof item.id !== "string" || item.id === "" || typeof item.name !== "string") {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      item.id === "" ||
+      typeof item.name !== "string"
+    ) {
       continue;
     }
     const rules: CleaningRule[] = [];
@@ -69,21 +92,47 @@ function mergeCleaningRule(raw: unknown): CleaningRule | undefined {
     raw.id === "" ||
     typeof raw.name !== "string" ||
     !isCleaningRuleMode(raw.mode) ||
-    typeof raw.pattern !== "string" ||
-    raw.pattern === "" ||
-    typeof raw.flags !== "string" ||
     typeof raw.enabled !== "boolean"
   ) {
+    return undefined;
+  }
+  const type = raw.type === undefined ? "regex" : raw.type; // 缺省 = 旧形状 regex（ADR 0014）
+  if (type !== "regex" && type !== "tag") {
     return undefined;
   }
   const replacement =
     raw.mode === "replace" && typeof raw.replacement === "string" && raw.replacement !== ""
       ? raw.replacement
       : undefined;
+  if (type === "tag") {
+    if (
+      typeof raw.pre !== "string" ||
+      raw.pre.trim() === "" ||
+      typeof raw.post !== "string" ||
+      raw.post.trim() === ""
+    ) {
+      return undefined;
+    }
+    const candidate: CleaningRule = {
+      id: raw.id,
+      name: raw.name,
+      mode: raw.mode,
+      type: "tag",
+      pre: raw.pre.trim(),
+      post: raw.post.trim(),
+      replacement,
+      enabled: raw.enabled,
+    };
+    return validateCleaningRule(candidate) === undefined ? candidate : undefined;
+  }
+  if (typeof raw.pattern !== "string" || raw.pattern === "" || typeof raw.flags !== "string") {
+    return undefined;
+  }
   const candidate: CleaningRule = {
     id: raw.id,
     name: raw.name,
     mode: raw.mode,
+    type: "regex",
     pattern: raw.pattern,
     flags: raw.flags,
     replacement,
@@ -127,15 +176,25 @@ export function addCleaningRule(
   return updateList(lists, listId, (list) => ({ ...list, rules: [...list.rules, rule] }));
 }
 
+/** 规则补丁：全部字段可选（联合规则的部分覆盖；spread 后需类型收窄）。 */
+export type CleaningRulePatch = Partial<CleaningRuleBase> & {
+  readonly type?: CleaningRuleType;
+  readonly pattern?: string;
+  readonly flags?: string;
+  readonly pre?: string;
+  readonly post?: string;
+};
+
 export function updateCleaningRule(
   lists: readonly CleaningRuleList[],
   listId: string,
   ruleId: string,
-  patch: Partial<CleaningRule>,
+  patch: CleaningRulePatch,
 ): readonly CleaningRuleList[] {
   return updateList(lists, listId, (list) => ({
     ...list,
-    rules: list.rules.map((r) => (r.id === ruleId ? { ...r, ...patch } : r)),
+    // 联合类型 spread 后判别字段被放宽，收窄回 CleaningRule（shape 由调用方保证）
+    rules: list.rules.map((r) => (r.id === ruleId ? ({ ...r, ...patch } as CleaningRule) : r)),
   }));
 }
 
@@ -182,8 +241,14 @@ function updateList(
 export interface CleaningRuleDraft {
   readonly name: string;
   readonly mode: CleaningRuleMode;
-  readonly pattern: string;
-  readonly flags: string;
+  /** 缺省 = regex（旧形状兼容，ADR 0014）。 */
+  readonly type?: CleaningRuleType;
+  /** 仅正则规则（type 缺省或 regex）使用的匹配式与 flags。 */
+  readonly pattern?: string;
+  readonly flags?: string;
+  /** 仅 tag 规则（type="tag"）使用的开始/结束标签。 */
+  readonly pre?: string;
+  readonly post?: string;
   readonly replacement?: string;
 }
 
@@ -198,29 +263,49 @@ export function validateCleaningRule(input: CleaningRuleDraft): string | undefin
   if (!isCleaningRuleMode(input.mode)) {
     return "清洗规则模式必须是 keep、discard 或 replace";
   }
-  if (typeof input.pattern !== "string" || input.pattern.length === 0) {
-    return "正则表达式不能为空";
+  const type = input.type ?? "regex";
+  if (!isCleaningRuleType(type)) {
+    return "清洗规则类型必须是 regex 或 tag";
+  }
+  if (type === "tag") {
+    if (typeof input.pre !== "string" || input.pre.trim() === "") {
+      return "开始标签不能为空";
+    }
+    if (typeof input.post !== "string" || input.post.trim() === "") {
+      return "结束标签不能为空";
+    }
+  } else {
+    if (typeof input.pattern !== "string" || input.pattern.length === 0) {
+      return "正则表达式不能为空";
+    }
+    if (
+      typeof input.flags !== "string" ||
+      !VALID_FLAGS_PATTERN.test(input.flags) ||
+      new Set(input.flags).size !== input.flags.length
+    ) {
+      return "正则 flags 只能是 g/i/m/s/u/y 且不能重复";
+    }
+    try {
+      new RegExp(input.pattern, input.flags);
+    } catch {
+      return "正则表达式语法错误";
+    }
   }
   if (
-    typeof input.flags !== "string" ||
-    !VALID_FLAGS_PATTERN.test(input.flags) ||
-    new Set(input.flags).size !== input.flags.length
+    input.mode === "replace" &&
+    (typeof input.replacement !== "string" || input.replacement === "")
   ) {
-    return "正则 flags 只能是 g/i/m/s/u/y 且不能重复";
-  }
-  if (input.mode === "replace" && (typeof input.replacement !== "string" || input.replacement === "")) {
     return "替换模式必须提供替换串";
-  }
-  try {
-    new RegExp(input.pattern, input.flags);
-  } catch {
-    return "正则表达式语法错误";
   }
   return undefined;
 }
 
 function isCleaningRuleMode(value: unknown): value is CleaningRuleMode {
   return value === "keep" || value === "discard" || value === "replace";
+}
+
+function isCleaningRuleType(value: unknown): value is CleaningRuleType {
+  return (CLEANING_RULE_TYPES as readonly unknown[]).includes(value);
 }
 
 // ---- 聊天选择（chatMetadata 小指针，ADR 0011）----
@@ -283,11 +368,13 @@ export function applyCleaningRules(content: string, rules: readonly CleaningRule
  * - 能匹配空串的正则允许（JS 引擎对零长匹配自动推进 lastIndex，不会死循环）。
  */
 export function applyCleaningRule(content: string, rule: CleaningRule): string {
-  const regex = new RegExp(rule.pattern, rule.flags);
+  const regex = compileCleaningRegex(rule);
   if (rule.mode === "discard") {
     return content.replace(regex, "");
   }
   if (rule.mode === "replace") {
+    // 标签规则承诺纯文本替换串：函数替换器避免 $1/$&/$$ 等 JS 替换模式被解释（ADR 0014 §2）
+    if (rule.type === "tag") return content.replace(regex, () => rule.replacement ?? "");
     return content.replace(regex, rule.replacement ?? "");
   }
   const matches: readonly RegExpMatchArray[] = regex.global
@@ -298,6 +385,21 @@ export function applyCleaningRule(content: string, rule: CleaningRule): string {
       })();
   if (matches.length === 0) return content;
   return matches.map(cleaningCapture).join("");
+}
+
+/**
+ * 规则 → 正则：正则规则原样编译；标签规则编译为 (?:pre)(捕获组 1 = 中间内容)(?:post)
+ * （ADR 0014）——pre/post 字面转义、非贪婪跨行、强制全局，三种模式语义与正则规则一致。
+ */
+function compileCleaningRegex(rule: CleaningRule): RegExp {
+  if (rule.type === "regex") return new RegExp(rule.pattern, rule.flags);
+  const pattern = `(?:${escapeRegexLiteral(rule.pre)})([\\s\\S]*?)(?:${escapeRegexLiteral(rule.post)})`;
+  return new RegExp(pattern, "g");
+}
+
+/** 普通文本按字面匹配：转义全部正则元字符。 */
+function escapeRegexLiteral(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** 有捕获组 1 时输出捕获组 1（即使捕获到空串），否则输出整段匹配。 */

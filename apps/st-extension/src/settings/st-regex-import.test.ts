@@ -51,7 +51,10 @@ describe("convertStRegexScripts（载荷形态）", () => {
   });
 
   it("数组中非对象条目跳过，其余照常转换", () => {
-    const items = convertStRegexScripts([script(), 42, null, script({ scriptName: "好条目" })], createId);
+    const items = convertStRegexScripts(
+      [script(), 42, null, script({ scriptName: "好条目" })],
+      createId,
+    );
     expect(rulesOf(items).map((r) => r.name)).toEqual(["去粗体", "好条目"]);
     expect(items.filter((i) => i.kind === "skipped")).toHaveLength(2);
   });
@@ -60,8 +63,16 @@ describe("convertStRegexScripts（载荷形态）", () => {
 describe("替换串 → 模式映射", () => {
   it('replaceString "" → 去掉；disabled → enabled 取反', () => {
     const [rule] = rulesOf(convertStRegexScripts([script({ replaceString: "" })], createId));
-    expect(rule).toMatchObject({ name: "去粗体", mode: "discard", pattern: "\\*\\*(.+?)\\*\\*", flags: "g", enabled: true });
-    const [disabled] = rulesOf(convertStRegexScripts([script({ replaceString: "", disabled: true })], createId));
+    expect(rule).toMatchObject({
+      name: "去粗体",
+      mode: "discard",
+      pattern: "\\*\\*(.+?)\\*\\*",
+      flags: "g",
+      enabled: true,
+    });
+    const [disabled] = rulesOf(
+      convertStRegexScripts([script({ replaceString: "", disabled: true })], createId),
+    );
     expect(disabled?.enabled).toBe(false);
   });
 
@@ -80,7 +91,10 @@ describe("替换串 → 模式映射", () => {
 
   it("其余替换串 → 替换模式，{{match}} 展开为 $0，$1/$<name> 原样保留", () => {
     const [rule] = rulesOf(
-      convertStRegexScripts([script({ replaceString: "「{{match}}」已由 $1 与 $<name> 取代" })], createId),
+      convertStRegexScripts(
+        [script({ replaceString: "「{{match}}」已由 $1 与 $<name> 取代" })],
+        createId,
+      ),
     );
     expect(rule).toMatchObject({
       mode: "replace",
@@ -95,17 +109,19 @@ describe("findRegex / flags 解析", () => {
     expect(plain).toMatchObject({ pattern: "abc", flags: "g" });
     const [wrapped] = rulesOf(convertStRegexScripts([script({ findRegex: "/abc/gi" })], createId));
     expect(wrapped).toMatchObject({ pattern: "abc", flags: "gi" });
-    const [wrappedEmpty] = rulesOf(convertStRegexScripts([script({ findRegex: "/abc/" })], createId));
+    const [wrappedEmpty] = rulesOf(
+      convertStRegexScripts([script({ findRegex: "/abc/" })], createId),
+    );
     expect(wrappedEmpty).toMatchObject({ pattern: "abc", flags: "g" });
   });
 
   it("包裹内可含转义斜杠；非 JS flags（x/X/A/J/U）丢弃并给 note", () => {
     const [escaped] = rulesOf(convertStRegexScripts([script({ findRegex: "/a\\/b/" })], createId));
-    expect(escaped?.pattern).toBe("a\\/b");
+    expect(escaped).toMatchObject({ pattern: "a\\/b" });
     const [dropped] = convertStRegexScripts([script({ findRegex: "/abc/gx" })], createId);
     expect(dropped?.kind).toBe("rule");
     if (dropped !== undefined && dropped.kind === "rule") {
-      expect(dropped.rule.flags).toBe("g");
+      expect(dropped.rule).toMatchObject({ flags: "g" });
       expect(dropped.notes).toContain("匹配式包含 JS 不支持的 flags（x），已忽略");
     }
   });
@@ -124,13 +140,22 @@ describe("placement 过滤与跳过原因", () => {
 
   it("缺脚本名 / 缺匹配式 / 名称超长 / 正则无法编译 → 跳过并说明原因", () => {
     const noName = convertStRegexScripts([script({ scriptName: "" })], createId);
-    expect(noName[0]).toMatchObject({ kind: "skipped", reason: expect.stringContaining("脚本名称") });
+    expect(noName[0]).toMatchObject({
+      kind: "skipped",
+      reason: expect.stringContaining("脚本名称"),
+    });
     const noRegex = convertStRegexScripts([script({ findRegex: "" })], createId);
-    expect(noRegex[0]).toMatchObject({ kind: "skipped", reason: expect.stringContaining("匹配式") });
+    expect(noRegex[0]).toMatchObject({
+      kind: "skipped",
+      reason: expect.stringContaining("匹配式"),
+    });
     const longName = convertStRegexScripts([script({ scriptName: "x".repeat(121) })], createId);
     expect(longName[0]).toMatchObject({ kind: "skipped", reason: expect.stringContaining("120") });
     const badRegex = convertStRegexScripts([script({ findRegex: "(" })], createId);
-    expect(badRegex[0]).toMatchObject({ kind: "skipped", reason: expect.stringContaining("无法编译") });
+    expect(badRegex[0]).toMatchObject({
+      kind: "skipped",
+      reason: expect.stringContaining("无法编译"),
+    });
   });
 });
 
