@@ -17,7 +17,8 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
 
   async delete(id: MemorySpaceId): Promise<boolean> {
     // 与 SQLite 参照实现的 ON DELETE CASCADE 同语义：删空间连带删其表格、字段、
-    // 记录、修订历史、字段证据、填表任务与楼层进度台账（ticket 13 新增两张表）
+    // 记录、修订历史、字段证据、填表任务与楼层进度台账（ticket 13 新增两张表）。
+    // 通用日志不在此列：ADR 0015 起日志存独立数据库，不随空间删除级联。
     return this.#db.transaction(
       "rw",
       [
@@ -29,7 +30,6 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
         this.#db.memoryEvidence,
         this.#db.memoryFillTasks,
         this.#db.floorFillLedger,
-        this.#db.memoryLogs,
       ],
       async () => {
         const space = await this.#db.memorySpaces.get(id);
@@ -42,7 +42,6 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
         await this.#db.memoryEvidence.where("memorySpaceId").equals(id).delete();
         await this.#db.memoryFillTasks.where("memorySpaceId").equals(id).delete();
         await this.#db.floorFillLedger.where("memorySpaceId").equals(id).delete();
-        await this.#db.memoryLogs.where("spaceId").equals(id).delete();
         await this.#db.memoryTables.where("memorySpaceId").equals(id).delete();
         await this.#db.memorySpaces.delete(id);
         return true;

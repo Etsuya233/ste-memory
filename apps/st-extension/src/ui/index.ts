@@ -30,8 +30,9 @@ export {
   buildLogListViewModel,
   defaultLogFilters,
   LOG_LEVEL_LABELS,
-  logEntrySummary,
+  LOG_TYPE_OPTIONS,
   logQueryKind,
+  logTypeLabel,
 } from "./log-panel-model.ts";
 export type { LogListItemViewModel, LogPanelFilters } from "./log-panel-model.ts";
 export {

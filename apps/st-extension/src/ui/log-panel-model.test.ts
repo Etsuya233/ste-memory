@@ -1,132 +1,110 @@
 import { describe, expect, it } from "vitest";
-import type { MemorySpaceId } from "@ste-memory/core/memory";
 import type { LogEntry, LogLevel } from "../logging/log.ts";
-import { FILL_RUN_LOG_TYPE } from "../fill-tasks/fill-run-log.ts";
+import {
+  FILL_AGENT_LOG_TYPE,
+  FILL_RUN_LOG_TYPE,
+  FILL_TASK_LOG_TYPE,
+} from "../fill-tasks/fill-log.ts";
 import {
   applyLogFilters,
   buildLogListViewModel,
   defaultLogFilters,
-  logEntrySummary,
+  LOG_TYPE_OPTIONS,
   logQueryKind,
+  logTypeLabel,
   type LogPanelFilters,
 } from "./log-panel-model.ts";
-
-const SPACE = "space-1" as MemorySpaceId;
 
 function entry(overrides: Partial<LogEntry> = {}): LogEntry {
   return {
     id: 1,
-    type: FILL_RUN_LOG_TYPE,
+    type: FILL_TASK_LOG_TYPE,
     key: "run-1",
-    spaceId: SPACE,
     level: "info",
-    data: {
-      taskRunId: "run-1",
-      block: { from: 0, to: 1 },
-      status: "succeeded",
-      errorMessage: null,
-      systemPrompt: "system",
-      rounds: [{ request: { messages: [] }, output: {}, toolResults: [] }],
-      startedAt: "2026-07-30T01:00:00.000Z",
-      endedAt: "2026-07-30T01:00:05.000Z",
-      durationMs: 5000,
-    },
+    text: '{\n  "phase": "start"\n}',
     createdAt: "2026-07-30T01:00:00.000Z",
     ...overrides,
   };
 }
 
 function filters(overrides: Partial<LogPanelFilters> = {}): LogPanelFilters {
-  return { type: null, spaceId: SPACE, level: null, key: "", ...overrides };
+  return { type: null, level: null, key: "", ...overrides };
 }
 
-describe("log panel model", () => {
-  it("defaultLogFilters：绑定当前空间，无类型/级别/搜索限制", () => {
-    expect(defaultLogFilters(SPACE)).toEqual({
-      type: null,
-      spaceId: SPACE,
-      level: null,
-      key: "",
-    });
-    expect(defaultLogFilters(null)).toEqual({
-      type: null,
-      spaceId: null,
-      level: null,
-      key: "",
-    });
+describe("日志查询页模型（ADR 0015）", () => {
+  it("defaultLogFilters：无类型/级别/Key 限制", () => {
+    expect(defaultLogFilters()).toEqual({ type: null, level: null, key: "" });
   });
 
-  it("logQueryKind：key 搜索优先，其次空间，最后全局最近", () => {
+  it("logQueryKind：Key 非空按 Key 查询，否则取最近", () => {
     expect(logQueryKind(filters({ key: "run-9" }))).toBe("key");
-    expect(logQueryKind(filters({ key: "  " }))).toBe("space");
-    expect(logQueryKind(filters({ spaceId: null }))).toBe("recent");
-    expect(logQueryKind(filters({ spaceId: null, key: "run-9" }))).toBe("key");
+    expect(logQueryKind(filters({ key: "  " }))).toBe("recent");
+    expect(logQueryKind(filters())).toBe("recent");
   });
 
-  it("applyLogFilters：按类型/空间/级别/key 子串叠加过滤，顺序保持（时间倒序由仓库保证）", () => {
+  it("applyLogFilters：类型/级别/Key 子串（大小写不敏感）叠加过滤，顺序保持", () => {
     const rows: LogEntry[] = [
-      entry({ id: 3, type: FILL_RUN_LOG_TYPE, key: "run-2", level: "error", spaceId: SPACE }),
-      entry({ id: 2, type: FILL_RUN_LOG_TYPE, key: "run-1", level: "info", spaceId: SPACE }),
-      entry({ id: 1, type: "sync", key: "sync-1", level: "warn", spaceId: null }),
+      entry({ id: 3, type: FILL_AGENT_LOG_TYPE, key: "Run-2", level: "error" }),
+      entry({ id: 2, type: FILL_RUN_LOG_TYPE, key: "run-1", level: "warn" }),
+      entry({ id: 1, type: FILL_TASK_LOG_TYPE, key: "run-1", level: "info" }),
     ];
 
-    expect(applyLogFilters(rows, filters())).toEqual([rows[0], rows[1]]);
-    // sync 行 spaceId 为 null，默认空间过滤下不可见
-    expect(applyLogFilters(rows, filters({ type: "sync" }))).toEqual([]);
+    expect(applyLogFilters(rows, filters())).toEqual(rows);
+    expect(applyLogFilters(rows, filters({ type: FILL_RUN_LOG_TYPE }))).toEqual([rows[1]]);
     expect(applyLogFilters(rows, filters({ level: "error" }))).toEqual([rows[0]]);
-    // key 子串匹配（大小写不敏感）
-    expect(applyLogFilters(rows, filters({ key: "RUN-1" }))).toEqual([rows[1]]);
-    // 空间过滤排除 null-space 行
-    expect(applyLogFilters(rows, filters({ spaceId: null }))).toEqual(rows);
-    expect(applyLogFilters(rows, filters({ type: "sync", spaceId: SPACE }))).toEqual([]);
+    expect(applyLogFilters(rows, filters({ key: "RUN-1" }))).toEqual([rows[1], rows[2]]);
+    expect(
+      applyLogFilters(rows, filters({ type: FILL_TASK_LOG_TYPE, level: "warn", key: "run" })),
+    ).toEqual([]);
   });
 
-  it("logEntrySummary：fill 类型摘要（楼层范围 · 轮数 · 状态），未知类型为空串", () => {
-    expect(logEntrySummary(entry())).toBe("楼层 0–1 · 1 轮 · 成功");
-    expect(
-      logEntrySummary(
-        entry({
-          data: {
-            block: { from: 4, to: 7 },
-            status: "failed",
-            rounds: [{}, {}],
-          },
-        }),
-      ),
-    ).toBe("楼层 4–7 · 2 轮 · 失败");
-    expect(
-      logEntrySummary(
-        entry({
-          data: { block: { from: 2, to: 3 }, status: "interrupted", rounds: [] },
-        }),
-      ),
-    ).toBe("楼层 2–3 · 0 轮 · 中断");
-    expect(logEntrySummary(entry({ type: "sync" }))).toBe("");
-    // 数据损坏时防御性降级为空串（查看器不因旧/坏数据崩溃）
-    expect(logEntrySummary(entry({ data: "garbage" }))).toBe("");
-    expect(logEntrySummary(entry({ data: null }))).toBe("");
+  it("类型下拉硬编码三个填表类型 + 全部；未知类型显示原始 type", () => {
+    expect(LOG_TYPE_OPTIONS).toEqual([
+      { value: FILL_TASK_LOG_TYPE, label: "填表任务" },
+      { value: FILL_RUN_LOG_TYPE, label: "填表批" },
+      { value: FILL_AGENT_LOG_TYPE, label: "Agent 请求" },
+    ]);
+    expect(logTypeLabel(FILL_AGENT_LOG_TYPE)).toBe("Agent 请求");
+    expect(logTypeLabel("unknown-type")).toBe("unknown-type");
   });
 
-  it("buildLogListViewModel：过滤 + 视图字段（时间格式化，级别透传）", () => {
+  it("buildLogListViewModel：过滤 + 列表字段（无业务摘要，级别透传，时间格式化）", () => {
     const rows: LogEntry[] = [
       entry({
         id: 2,
         key: "run-2",
         level: "error" as LogLevel,
         createdAt: "2026-07-30T12:34:56.000Z",
-        data: { block: { from: 0, to: 1 }, status: "failed", rounds: [{}] },
       }),
-      entry({ id: 1, key: "run-1", level: "info", createdAt: "2026-07-30T01:02:03.000Z" }),
+      entry({ id: 1, type: "unknown", key: "run-1", level: "info" }),
     ];
 
     expect(buildLogListViewModel(rows, filters({ level: "error" }))).toEqual([
       {
         id: 2,
-        type: FILL_RUN_LOG_TYPE,
+        type: FILL_TASK_LOG_TYPE,
+        typeLabel: "填表任务",
         key: "run-2",
         level: "error",
         timeText: "2026-07-30 12:34",
-        summary: "楼层 0–1 · 1 轮 · 失败",
+      },
+    ]);
+    expect(buildLogListViewModel(rows, filters())).toEqual([
+      {
+        id: 2,
+        type: FILL_TASK_LOG_TYPE,
+        typeLabel: "填表任务",
+        key: "run-2",
+        level: "error",
+        timeText: "2026-07-30 12:34",
+      },
+      {
+        id: 1,
+        type: "unknown",
+        typeLabel: "unknown",
+        key: "run-1",
+        level: "info",
+        timeText: "2026-07-30 01:00",
       },
     ]);
   });

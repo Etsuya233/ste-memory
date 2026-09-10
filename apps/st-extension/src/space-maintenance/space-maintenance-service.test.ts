@@ -13,7 +13,12 @@ import { describe, expect, it, vi } from "vitest";
 import { SystemMemoryTableInstaller } from "@ste-memory/memory-host-shared";
 import type { MemorySpaceId } from "@ste-memory/core/memory";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"）
-import { createServices, createTestDatabase, NOW } from "../db/test-support.ts";
+import {
+  createServices,
+  createTestDatabase,
+  createTestLogDatabase,
+  NOW,
+} from "../db/test-support.ts";
 import { DexieFillTaskRepository, DexieFloorLedgerRepository } from "../db/fill-task-repository.ts";
 import { DexieLogRepository } from "../db/log-repository.ts";
 import { SpaceMaintenanceService } from "./space-maintenance-service.ts";
@@ -29,7 +34,7 @@ async function setup(overrides: { readonly installThrows?: boolean } = {}) {
   await installer.install(space.id);
   const taskRepository = new DexieFillTaskRepository(db, () => NOW);
   const ledgerRepository = new DexieFloorLedgerRepository(db, () => NOW);
-  const logs = new DexieLogRepository(db, { now: () => NOW });
+  const logs = new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
 
   // 给系统表加一条记录（含字段证据 → 证据行）+ 更新一次（→ 历史行）
   const characters = (await services.tableRepository.list(space.id)).find(
@@ -123,7 +128,7 @@ async function setup(overrides: { readonly installThrows?: boolean } = {}) {
 
 describe("SpaceMaintenanceService（spec reset-space）", () => {
   it("清除空间记录：记录/历史/证据消失，表格结构保留，任务与台账清空，空间保留", async () => {
-    const { db, spaces, maintenance, space, characters, logs, taskRepository, ledgerRepository } =
+    const { db, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
       await setup();
     const spaceId = space.id;
 
@@ -142,7 +147,7 @@ describe("SpaceMaintenanceService（spec reset-space）", () => {
       updatedAt: NOW,
     });
     await ledgerRepository.markProcessed(spaceId, [0, 1, 2]);
-    await logs.append({ type: "fill-run", key: "run-1", spaceId, level: "info", data: {} });
+    await logs.append({ type: "fill-task", key: "run-1", level: "info", text: "{}" });
 
     const existed = await maintenance.clearRecords(spaceId);
     expect(existed).toBe(true);
@@ -159,10 +164,10 @@ describe("SpaceMaintenanceService（spec reset-space）", () => {
     expect(
       await db.memoryFields.where("[memorySpaceId+tableId]").equals([spaceId, chars.id]).count(),
     ).toBe(CHARACTERS_DEFAULT_FIELD_COUNT + 1);
-    // 填表任务与楼层台账清空，通用日志保留（审计数据）
+    // 填表任务与楼层台账清空；通用日志在独立库，不随空间维护清空（审计数据）
     expect(await db.memoryFillTasks.count()).toBe(0);
     expect(await db.floorFillLedger.count()).toBe(0);
-    expect(await db.memoryLogs.where("spaceId").equals(spaceId).count()).toBe(1);
+    expect((await logs.recent(10)).map((row) => row.key)).toEqual(["run-1"]);
     // 空间身份保留
     expect(await spaces.find(spaceId)).toMatchObject({ id: spaceId, name: "会话" });
   });

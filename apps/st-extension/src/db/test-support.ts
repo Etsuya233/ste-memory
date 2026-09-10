@@ -14,6 +14,7 @@ import {
 } from "@ste-memory/core/memory";
 import { afterEach } from "vitest";
 import { SteMemoryDatabase } from "./database.ts";
+import { SteMemoryLogDatabase } from "./log-database.ts";
 import { DexieMemoryFieldRepository } from "./memory-field-repository.ts";
 import { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
 import { DexieMemorySpaceRepository } from "./memory-space-repository.ts";
@@ -24,6 +25,7 @@ export const NOW = "2026-07-28T00:00:00.000Z";
 
 let sequence = 0;
 const databases: SteMemoryDatabase[] = [];
+const logDatabases: SteMemoryLogDatabase[] = [];
 
 /** 建一个互不冲突的测试库；afterEach 统一删除 */
 export function createTestDatabase(name?: string): SteMemoryDatabase {
@@ -32,9 +34,20 @@ export function createTestDatabase(name?: string): SteMemoryDatabase {
   return db;
 }
 
+/** 建一个互不冲突的通用日志测试库（独立数据库，ADR 0015）；afterEach 统一删除 */
+export function createTestLogDatabase(name?: string): SteMemoryLogDatabase {
+  const db = new SteMemoryLogDatabase(name ?? `ste-memory-log-test-${++sequence}`);
+  logDatabases.push(db);
+  return db;
+}
+
 afterEach(async () => {
   const pending = databases.splice(0);
-  await Promise.all(pending.map((db) => db.delete()));
+  const pendingLogs = logDatabases.splice(0);
+  await Promise.all([
+    ...pending.map((db) => db.delete()),
+    ...pendingLogs.map((db) => db.delete()),
+  ]);
 });
 
 export interface TestServices {

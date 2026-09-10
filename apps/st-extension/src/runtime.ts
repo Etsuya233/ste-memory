@@ -32,6 +32,7 @@ import {
   DexieMemoryTableRepository,
   DexieSyncChangeSource,
   SteMemoryDatabase,
+  SteMemoryLogDatabase,
 } from "./db/index.ts";
 import { FillTaskService } from "./fill-tasks/fill-task-service.ts";
 import { SpaceMaintenanceService } from "./space-maintenance/space-maintenance-service.ts";
@@ -89,7 +90,7 @@ export interface SteMemoryRuntime {
   readonly tasks: FillTaskService;
   /** 空间维护（spec reset-space）：清除空间记录 / 重置空间（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
-  /** 通用日志（ADR 0008）：本地审计日志（填表运行记录）；纯本地，不同步不备份 */
+  /** 通用日志（独立数据库，ADR 0015）：本地审计日志（填表行流）；不同步不备份不随空间删除 */
   readonly logs: LogRepository;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
   readonly macro: MemoryMacroService;
@@ -146,6 +147,8 @@ export interface StartSteMemoryOptions {
   readonly createId?: (prefix: string) => string;
   /** Dexie 库工厂；缺省 = 默认库（测试注入临时库） */
   readonly createDb?: () => SteMemoryDatabase;
+  /** 通用日志库工厂（ADR 0015）；缺省 = 默认库（测试注入临时库，afterEach 删除） */
+  readonly createLogDb?: () => SteMemoryLogDatabase;
   /** 设置存储；缺省 = ST extension_settings 宿主（测试注入固定值） */
   readonly settingsStore?: SettingsStore;
   /** 插件版本（构建时注入；缺省空串，设置面板显示 v） */
@@ -177,6 +180,7 @@ export async function startSteMemory(
   const now = options.now ?? (() => new Date().toISOString());
   const createId = options.createId ?? defaultIdFactory;
   const db = options.createDb ? options.createDb() : new SteMemoryDatabase();
+  const logDb = options.createLogDb ? options.createLogDb() : new SteMemoryLogDatabase();
   const settings = options.settingsStore ?? new StSettingsStore(() => getContext() as StContext);
 
   const spaceRepository = new DexieMemorySpaceRepository(db);
@@ -275,7 +279,7 @@ export async function startSteMemory(
       snapshot: { ...adapter.getPromptSnapshot(), worldbookText },
     };
   };
-  const logs = new DexieLogRepository(db, { now });
+  const logs = new DexieLogRepository(logDb, { now });
   /**
    * Dexie 原子事务运行器工厂：提交批次在单事务内（scope 必须声明为 async——
    * Dexie expected-awaits 追踪，否则 PrematureCommit）。表集合 = 批次提交读写全集：

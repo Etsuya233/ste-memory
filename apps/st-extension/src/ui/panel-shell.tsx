@@ -192,8 +192,8 @@ export interface PanelRuntime {
   >;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
   readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
-  /** 通用日志（ADR 0008）：日志 Tab 浏览/搜索/清空 */
-  readonly logs: Pick<SteMemoryRuntime["logs"], "byKey" | "bySpace" | "recent" | "clearAll">;
+  /** 通用日志（独立数据库，ADR 0015）：日志 Tab 查询（按 Key/最近）+ 清空 */
+  readonly logs: Pick<SteMemoryRuntime["logs"], "byKey" | "recent" | "clearAll">;
   /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
   readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
   /** Agent 预设宏（ticket 17）：插件开关变化即时生效（kick 立即评估） */
@@ -406,7 +406,7 @@ export function PanelShell(props: {
   );
   // 设置只经本面板的开关写入（唯一写入口），组件本地 state 即最新值
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
-  // 日志定位（ADR 0008）：任务面板「查看日志」跳转到日志 Tab 时携带的目标 runId
+  // 日志定位（ADR 0015）：任务面板「日志」跳转到日志 Tab 时携带的目标 runId
   const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
   // 问答聊天历史/run 状态的页面内存存储（ticket 20）：挂在面板壳上，跨 Tab 切换存活；
   // 刷新页面即失（决策 4/9：不落 Dexie、不进通用日志）
@@ -706,7 +706,6 @@ export function PanelShell(props: {
           <section className="stm-tab-section" data-stm-section="logs" role="tabpanel">
             <LogTab
               runtime={props.runtime}
-              status={status}
               settings={settings}
               focusRunId={logFocusRunId}
               onFocusConsumed={() => setLogFocusRunId(null)}

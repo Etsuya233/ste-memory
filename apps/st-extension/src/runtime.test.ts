@@ -2,13 +2,13 @@ import { SYSTEM_TABLE_TEMPLATES } from "@ste-memory/memory-host-shared";
 import { describe, expect, it, vi } from "vitest";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"），
 // 因此 test-support 必须排在任何导入 dexie 的模块之前
-import { createTestDatabase } from "./db/test-support.ts";
+import { createTestDatabase, createTestLogDatabase } from "./db/test-support.ts";
 import {
   DexieFillTaskRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
 } from "./db/index.ts";
-import { startSteMemory } from "./runtime.ts";
+import { startSteMemory, type StartSteMemoryOptions, type SteMemoryRuntime } from "./runtime.ts";
 import type { StBackendsModel } from "./llm/st-completion-settings.ts";
 import {
   DEFAULT_SETTINGS,
@@ -57,12 +57,20 @@ function fakeStContext(overrides: Partial<StContext> = {}): {
   return { context, chatMetadata, handlers };
 }
 
+/** 组合根测试启动：独立日志库也注入一次性测试库（afterEach 统一删除）。 */
+function startTestRuntime(
+  getContext: () => unknown,
+  options: StartSteMemoryOptions,
+): Promise<SteMemoryRuntime> {
+  return startSteMemory(getContext, { createLogDb: () => createTestLogDatabase(), ...options });
+}
+
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
   it("首次打开对话：建空间 + 写绑定 + 系统表就位；再次打开不重复建", async () => {
     const db = createTestDatabase();
     const { context, chatMetadata } = fakeStContext();
 
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     const status = runtime.manager.getStatus();
     expect(status?.kind).toBe("active");
@@ -81,7 +89,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await tableRepository.list(status.space.id)).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
 
     // 再次打开（同库同 metadata）：直接激活，不重复建
-    const reopened = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const reopened = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const reopenedStatus = reopened.manager.getStatus();
     expect(reopenedStatus?.kind).toBe("active");
     if (reopenedStatus?.kind !== "active") return;
@@ -93,7 +101,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("CHAT_CHANGED 切换空间上下文；消息事件已注册但无消费方", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     // ST 切对话：CHAT_CHANGED（payload = 新 chatId，事件桥重读快照）；
     // chatMetadata 被整体替换（载入新对话文件，无绑定）
@@ -124,7 +132,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         registry: { unregisterMacro: () => false },
       },
     });
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
     const firstSpaceId = status.space.id;
@@ -162,7 +170,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const db = createTestDatabase();
     const { context, chatMetadata } = fakeStContext({ chatId: undefined });
 
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     expect(runtime.manager.getStatus()).toEqual({
       kind: "unsaved-chat",
@@ -175,7 +183,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("运行时暴露 core 服务、设置存储与版本（面板 UI 的访问点）", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext();
-    const runtime = await startSteMemory(() => context, {
+    const runtime = await startTestRuntime(() => context, {
       createDb: () => db,
       log: fakeLog(),
       version: "9.9.9",
@@ -206,7 +214,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       },
     };
 
-    const runtime = await startSteMemory(() => context, {
+    const runtime = await startTestRuntime(() => context, {
       createDb: () => db,
       log: fakeLog(),
       settingsStore,
@@ -248,7 +256,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         settings = next;
       },
     };
-    const runtime = await startSteMemory(() => context, {
+    const runtime = await startTestRuntime(() => context, {
       createDb: () => db,
       log: fakeLog(),
       settingsStore,
@@ -290,7 +298,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       "0.1.0",
     );
 
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     const status = runtime.manager.getStatus();
     expect(status?.kind).toBe("active");
@@ -313,7 +321,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const { context, chatMetadata } = fakeStContext();
     chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
 
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     expect(runtime.manager.getStatus()?.kind).toBe("space-missing");
     const spaceRepository = new DexieMemorySpaceRepository(db);
@@ -331,7 +339,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         registry: { unregisterMacro: (name) => registered.delete(name) },
       },
     });
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
 
@@ -395,7 +403,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         registry: { unregisterMacro: () => false },
       },
     });
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
 
@@ -433,7 +441,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("预设预览端口（issue 01）：ST 上下文快照 / 活动空间 / digest 即时构建；旧版 ST 世界书扫描 = failed", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext();
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
     if (status?.kind !== "active") throw new Error("expect active");
 
@@ -471,7 +479,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       updatedAt: "2026-07-30T00:00:00.000Z",
     });
 
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
 
     // 启动即中断：不自动重放、不占用活动名额
     const leftover = await tasks.find("run-leftover");
@@ -511,7 +519,7 @@ describe("startSteMemory → Agent 连接分流（ADR 0010）", () => {
       getChatCompletionModel: () => "st-model",
     });
     const settingsStore: SettingsStore = { read: () => settings, write: () => undefined };
-    return startSteMemory(() => context, { createDb: () => db, log: fakeLog(), settingsStore });
+    return startTestRuntime(() => context, { createDb: () => db, log: fakeLog(), settingsStore });
   }
 
   it("缺省（未选择连接）：填表与问答都跟随 ST 当前连接（旧行为零变化）", async () => {
@@ -571,14 +579,14 @@ describe("startSteMemory → createLlm（ticket 12 接线）", () => {
       getChatCompletionModel: (settings) =>
         settings.chat_completion_source === "custom" ? "my-model" : "",
     });
-    const runtime = await startSteMemory(() => context, { createDb: () => db, log: fakeLog() });
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const port = runtime.createLlm();
     expect(port.model.id).toBe("my-model");
     expect(port.model.contextWindow).toBe(16_384);
     expect(port.model.maxTokens).toBe(1500);
     // ST 配置缺失（非 ST 环境）→ 端口构造抛中文错误而非静默
     const bare = fakeStContext({ chatCompletionSettings: undefined });
-    const runtimeBare = await startSteMemory(() => bare.context, {
+    const runtimeBare = await startTestRuntime(() => bare.context, {
       createDb: () => db,
       log: fakeLog(),
     });

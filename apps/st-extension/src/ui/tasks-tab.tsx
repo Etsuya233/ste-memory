@@ -67,7 +67,7 @@ export function TasksTab(props: {
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
   readonly onSettingsChange: (settings: PluginSettings) => void;
-  /** 跳转到日志 Tab 并定位到该任务的运行记录（ADR 0008） */
+  /** 跳转到日志 Tab 并按该任务 runId 过滤（ADR 0015） */
   readonly onViewLogs?: (runId: string) => void;
 }) {
   const active = activeStatus(props.status);
@@ -367,6 +367,15 @@ export function TasksTab(props: {
           </div>
           <div className="stm-task-card-detail">{view.activeTaskDetail}</div>
           <div className="stm-task-actions">
+            <button
+              type="button"
+              className="stm-button"
+              data-action="view-task-logs"
+              data-run-id={view.activeTaskRunId}
+              onClick={() => props.onViewLogs?.(view.activeTaskRunId!)}
+            >
+              日志
+            </button>
             <button
               type="button"
               className="stm-button"

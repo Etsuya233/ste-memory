@@ -108,7 +108,6 @@ function fakeRuntime(): PanelRuntime {
     },
     logs: {
       byKey: vi.fn(async () => []),
-      bySpace: vi.fn(async () => []),
       recent: vi.fn(async () => []),
       clearAll: vi.fn(async () => {}),
     },

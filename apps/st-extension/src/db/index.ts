@@ -8,4 +8,5 @@ export { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
 export { DexieMemoryBackupRepository } from "./memory-backup-repository.ts";
 export { DexieSyncChangeSource } from "./dexie-sync-change-source.ts";
 export { DexieFillTaskRepository, DexieFloorLedgerRepository } from "./fill-task-repository.ts";
+export { SteMemoryLogDatabase, ST_MEMORY_LOG_DB_NAME } from "./log-database.ts";
 export { DexieLogRepository, LOG_LIMIT } from "./log-repository.ts";

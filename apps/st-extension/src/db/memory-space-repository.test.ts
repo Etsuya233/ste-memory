@@ -2,7 +2,7 @@ import type { MemorySpaceId } from "@ste-memory/core/memory";
 import { describe, expect, it } from "vitest";
 // 必须先于 ./database.ts 导入：dexie 在模块加载时捕获全局 indexedDB，
 // fake-indexeddb 必须在它之前求值（否则 MissingAPIError）
-import { NOW, createServices, createTestDatabase } from "./test-support.ts";
+import { NOW, createServices, createTestDatabase, createTestLogDatabase } from "./test-support.ts";
 import { SteMemoryDatabase } from "./database.ts";
 import { DexieLogRepository } from "./log-repository.ts";
 import { DexieMemorySpaceRepository } from "./memory-space-repository.ts";
@@ -103,22 +103,17 @@ describe("Dexie memory space repository", () => {
     expect(await fieldRepository.list(space.id, table!.id)).toEqual([]);
   });
 
-  it("cascades deletion to the space's logs (ADR 0008)", async () => {
+  it("does not cascade deletion to the independent log store (ADR 0015)", async () => {
     const db = createTestDatabase();
     const { spaces } = createServices(db);
     const space = await spaces.create("会话");
-    const logs = new DexieLogRepository(db, { now: () => NOW });
-    await logs.append({
-      type: "fill",
-      key: "task-1",
-      spaceId: space.id,
-      level: "info",
-      data: {},
-    });
+    const logs = new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
+    await logs.append({ type: "fill-task", key: "run-1", level: "info", text: "{}" });
 
     expect(await spaces.delete(space.id)).toBe(true);
 
-    expect(await logs.bySpace(space.id, 10)).toEqual([]);
+    // 日志独立于记忆空间：删空间不清日志（审计数据保留）
+    expect((await logs.recent(10)).map((row) => row.key)).toEqual(["run-1"]);
   });
 
   it("persists across a database reopen (页面刷新语义)", async () => {
