@@ -256,9 +256,10 @@ export async function startSteMemory(
     }
     return createStLlmPort(() => getContext() as StContext, { includeReasoning });
   };
-  // 填表任务：缺省 includeReasoning=false（零变化）；问答面板（ticket 20）：开启
-  // 思考流（ticket 19 选项），模型不支持思考时静默降级（适配器行为）
-  const createLlm = (): LlmPort => createLlmFor("fillTask", false);
+  // 填表任务：开启思考流（issue 03 / ADR 0016 请求行记录思考）；模型不支持思考时
+  // 静默降级（适配器行为：上游无思考段则无思考块，不影响任务）。
+  // 问答面板（ticket 20）：同样开启。
+  const createLlm = (): LlmPort => createLlmFor("fillTask", true);
   const createQueryChatLlm = (): LlmPort => createLlmFor("queryChat", true);
   // 填表任务的编排上下文工厂（ADR 0024 组装迁移）：纯数据装配在所属功能
   const createPromptContext = createFillTaskPromptContext({

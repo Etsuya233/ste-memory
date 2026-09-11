@@ -3,6 +3,7 @@ import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import {
   MUTATE_TOOL_NAME,
   PROPOSAL_PREVIEW_TOOL_NAME,
+  QUERY_RECORDS_TOOL_NAME,
   SUBMIT_PROPOSAL_TOOL_NAME,
 } from "../agent/index.ts";
 import {
@@ -46,10 +47,11 @@ import {
   lastToolResult,
   scriptedStreamFn,
   textMessage,
+  thinkingMessage,
   toolCallMessage,
 } from "./stream-fn-support.ts";
 import type { FillSourceMessage } from "./fill-task.ts";
-import type { LogRepository } from "../logging/log.ts";
+import type { LogEntry, LogRepository } from "../logging/log.ts";
 import { DexieLogRepository } from "../../infrastructure/indexeddb/logs/log-repository.ts";
 import type { CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
 
@@ -323,6 +325,25 @@ async function floorStatuses(harness: Harness): Promise<readonly string[]> {
 async function logRowsByKey(harness: Harness, runId: string) {
   const entries = await harness.logs.byKey(runId, 100);
   return [...entries].reverse();
+}
+
+/** 生命周期行（过滤掉 fill-agent 请求行）：issue 02 断言任务/批起止顺序与级别。 */
+function lifecycleRows(rows: readonly LogEntry[]): readonly LogEntry[] {
+  return rows.filter((row) => row.type !== "fill-agent");
+}
+
+/**
+ * 等任务结束行落库：任务行置终态与结束行写入之间有时序间隙
+ * （markFailed/markSucceeded 先落库，结束日志随后 append）。
+ */
+async function waitForTaskEndRow(harness: Harness, runId: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const rows = await harness.logs.byKey(runId, 100);
+    if (rows.some((row) => row.type === "fill-task" && payloadOf(row).phase === "end")) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`任务 ${runId} 的结束日志行未在 5s 内落库`);
 }
 
 /** 日志行文本 → 解析后的载荷（Pretty JSON，查询侧零解析）。 */
@@ -1262,10 +1283,12 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       blockSize: 2,
     });
     await waitForTerminal(harness, view.runId);
+    await waitForTaskEndRow(harness, view.runId);
 
     const rows = await logRowsByKey(harness, view.runId);
-    // 行流 = 任务开始 → 每批开始/结束 → 任务结束（全部 info：开始行 + 成功结束行）
-    expect(rows.map((row) => [row.type, row.level])).toEqual([
+    const lifecycle = lifecycleRows(rows);
+    // 生命周期行 = 任务开始 → 每批开始/结束 → 任务结束（全部 info：开始行 + 成功结束行）
+    expect(lifecycle.map((row) => [row.type, row.level])).toEqual([
       ["fill-task", "info"],
       ["fill-run", "info"],
       ["fill-run", "info"],
@@ -1275,7 +1298,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       ["fill-run", "info"],
       ["fill-task", "info"],
     ]);
-    expect(payloadOf(rows[0]!)).toEqual({
+    expect(payloadOf(lifecycle[0]!)).toEqual({
       phase: "start",
       kind: "floor",
       range: { from: 0, to: 5 },
@@ -1288,13 +1311,13 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       [2, 3],
     ] as const) {
       const block = { from: batch * 2 - 2, to: batch * 2 - 1 };
-      expect(payloadOf(rows[index * 2 + 1]!)).toEqual({
+      expect(payloadOf(lifecycle[index * 2 + 1]!)).toEqual({
         phase: "start",
         batch,
         block,
         startedAt: NOW,
       });
-      expect(payloadOf(rows[index * 2 + 2]!)).toEqual({
+      expect(payloadOf(lifecycle[index * 2 + 2]!)).toEqual({
         phase: "end",
         batch,
         block,
@@ -1304,7 +1327,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
         durationMs: 0,
       });
     }
-    expect(payloadOf(rows[7]!)).toEqual({
+    expect(payloadOf(lifecycle[7]!)).toEqual({
       phase: "end",
       status: "succeeded",
       errorMessage: null,
@@ -1348,9 +1371,11 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     });
     const terminal = await waitForTerminal(harness, view.runId);
     expect(terminal.status).toBe("failed");
+    await waitForTaskEndRow(harness, view.runId);
 
     const rows = await logRowsByKey(harness, view.runId);
-    expect(rows.map((row) => [row.type, row.level])).toEqual([
+    const lifecycle = lifecycleRows(rows);
+    expect(lifecycle.map((row) => [row.type, row.level])).toEqual([
       ["fill-task", "info"],
       ["fill-run", "info"],
       ["fill-run", "info"],
@@ -1359,8 +1384,8 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       ["fill-task", "error"],
     ]);
     // 块 1 成功、块 2 失败（失败原因进入批结束行与任务结束行）
-    expect(payloadOf(rows[2]!)).toMatchObject({ phase: "end", batch: 1, status: "succeeded" });
-    expect(payloadOf(rows[4]!)).toEqual({
+    expect(payloadOf(lifecycle[2]!)).toMatchObject({ phase: "end", batch: 1, status: "succeeded" });
+    expect(payloadOf(lifecycle[4]!)).toEqual({
       phase: "end",
       batch: 2,
       block: { from: 2, to: 3 },
@@ -1369,7 +1394,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       endedAt: NOW,
       durationMs: 0,
     });
-    expect(payloadOf(rows[5]!)).toEqual({
+    expect(payloadOf(lifecycle[5]!)).toEqual({
       phase: "end",
       status: "failed",
       errorMessage: "Agent 运行失败：模型炸了",
@@ -1395,7 +1420,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     expect(streamFn.calls.count).toBe(3);
 
     // 边跑边写：任务开始 + 块 1 起止 + 块 2 开始已可见，无需等任务结束
-    const running = await logRowsByKey(harness, view.runId);
+    const running = lifecycleRows(await logRowsByKey(harness, view.runId));
     expect(running.map((row) => [row.type, row.level])).toEqual([
       ["fill-task", "info"],
       ["fill-run", "info"],
@@ -1417,7 +1442,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       status: "interrupted",
       errorMessage: null,
     });
-    const afterCancel = await logRowsByKey(harness, view.runId);
+    const afterCancel = lifecycleRows(await logRowsByKey(harness, view.runId));
     expect(afterCancel[4]).toMatchObject({ type: "fill-task", level: "warn" });
     expect(payloadOf(afterCancel[4]!)).toEqual({
       phase: "end",
@@ -1439,7 +1464,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       "untracked",
       "untracked",
     ]);
-    const final = await logRowsByKey(harness, view.runId);
+    const final = lifecycleRows(await logRowsByKey(harness, view.runId));
     expect(final.map((row) => [row.type, row.level])).toEqual([
       ["fill-task", "info"],
       ["fill-run", "info"],
@@ -1466,8 +1491,9 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       text: "爱丽丝是雨城咖啡店店员",
     });
     await waitForTerminal(harness, view.runId);
+    await waitForTaskEndRow(harness, view.runId);
 
-    const rows = await logRowsByKey(harness, view.runId);
+    const rows = lifecycleRows(await logRowsByKey(harness, view.runId));
     expect(rows.map((row) => [row.type, row.level])).toEqual([
       ["fill-task", "info"],
       ["fill-run", "info"],
@@ -1498,7 +1524,6 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     });
     expect(rows.every((row) => !("block" in payloadOf(row)))).toBe(true);
   });
-
   it("启动标记：被中断的任务写入 interrupted 结束行（warn），进行中批只留开始行", async () => {
     const harness = await createHarness({ streamFn: hangingStreamFn() });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
@@ -1573,6 +1598,210 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     expect(
       warned.some((message) => message.includes(`填表任务 ${view.runId} 开始日志写入失败`)),
     ).toBe(false);
+  });
+});
+
+describe("FillTaskService 填表 Agent 请求行流（issue 03 / ADR 0016）", () => {
+  /** 预设：system 进系统提示词，user/assistant 进请求前缀（首条请求行可见）。 */
+  const PRESET = testPreset([
+    { role: "system", content: "你是{{char}}的填表助手" },
+    { role: "user", content: "请按提示填写" },
+    { role: "assistant", content: "明白" },
+  ]);
+
+  /** 请求行（按时间序过滤 fill-agent）。 */
+  async function requestRows(harness: Harness, runId: string) {
+    return (await logRowsByKey(harness, runId)).filter((row) => row.type === "fill-agent");
+  }
+
+  /** 请求行 messages（pi 原始消息对象；content 可能是字符串或文本块数组）。 */
+  function messagesOf(payload: Record<string, unknown>) {
+    return payload.messages as readonly {
+      readonly role: string;
+      readonly content: unknown;
+      readonly toolCallId?: string;
+      readonly toolName?: string;
+      readonly isError?: boolean;
+    }[];
+  }
+
+  it("成功任务：每批首条请求行含系统提示词与预设消息，后续请求行只含上一轮工具结果，output 含思考/文本/停止原因/用量/工具调用参数", async () => {
+    const streamFn = scriptedStreamFn((context) => {
+      if (!lastToolResult(context)) {
+        const message = assistantMessage(
+          [
+            thinkingMessage("先查一遍角色表"),
+            textMessage("先确认现有角色"),
+            toolCallMessage("call-1", QUERY_RECORDS_TOOL_NAME, { table: "characters" }),
+          ],
+          "toolUse",
+        );
+        return {
+          ...message,
+          usage: { ...message.usage, input: 1234, output: 567, totalTokens: 1801 },
+        };
+      }
+      return assistantMessage([textMessage("无需变更")], "stop");
+    });
+    const harness = await createHarness({
+      streamFn,
+      createPromptContext: async () => ({ preset: PRESET, snapshot: snapshot() }),
+    });
+    const view = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 3,
+      blockSize: 2,
+    });
+    await waitForTerminal(harness, view.runId);
+    await waitForTaskEndRow(harness, view.runId);
+
+    // 两块各两轮：请求行落在批开始行之后、批结束行之前（边跑边写的时间序）
+    const allRows = await logRowsByKey(harness, view.runId);
+    expect(allRows.map((row) => row.type)).toEqual([
+      "fill-task",
+      "fill-run",
+      "fill-agent",
+      "fill-agent",
+      "fill-run",
+      "fill-run",
+      "fill-agent",
+      "fill-agent",
+      "fill-run",
+      "fill-task",
+    ]);
+
+    const requests = await requestRows(harness, view.runId);
+    expect(requests).toHaveLength(4);
+    expect(requests.every((row) => row.level === "info")).toBe(true);
+    const [firstBlockFirst, firstBlockSecond, secondBlockFirst, secondBlockSecond] =
+      requests.map(payloadOf);
+
+    // 每批首条：systemPrompt 快照 + 预设消息（user/assistant）+ 本批消息
+    for (const [payload, batch, block] of [
+      [firstBlockFirst!, 1, { from: 0, to: 1 }],
+      [secondBlockFirst!, 2, { from: 2, to: 3 }],
+    ] as const) {
+      expect(payload).toMatchObject({ batch, block, round: 1 });
+      expect(payload.systemPrompt).toBe("你是爱丽丝的填表助手");
+      const messages = messagesOf(payload);
+      expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+      expect(textOf(messages[0]!)).toBe("请按提示填写");
+      expect(textOf(messages[1]!)).toBe("明白");
+    }
+    // 块 1 首条的本批消息 = 块 1 正文；块 2 首条 = 块 2 正文（预设消息之外）
+    expect(textOf(messagesOf(firstBlockFirst!)[2]!)).toContain("消息 1");
+    expect(textOf(messagesOf(secondBlockFirst!)[2]!)).toContain("消息 3");
+
+    // 每批后续：无 systemPrompt，只有上一轮工具结果（不含历史上下文与已记录的模型输出）
+    for (const payload of [firstBlockSecond!, secondBlockSecond!]) {
+      expect(payload).toMatchObject({ round: 2 });
+      expect(payload).not.toHaveProperty("systemPrompt");
+      const messages = messagesOf(payload);
+      expect(messages.map((message) => message.role)).toEqual(["toolResult"]);
+      expect(messages[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: QUERY_RECORDS_TOOL_NAME,
+        isError: false,
+      });
+    }
+
+    // 首条 output：思考/文本/停止原因/用量/工具调用参数
+    expect(firstBlockFirst!.output).toEqual({
+      thinking: "先查一遍角色表",
+      text: "先确认现有角色",
+      stopReason: "toolUse",
+      usage: { input: 1234, output: 567, totalTokens: 1801 },
+      toolCalls: [{ id: "call-1", name: QUERY_RECORDS_TOOL_NAME, args: { table: "characters" } }],
+    });
+    expect(firstBlockSecond!.output).toMatchObject({
+      thinking: "",
+      text: "无需变更",
+      stopReason: "stop",
+      toolCalls: [],
+    });
+  });
+
+  it("失败任务：失败轮请求行为 error 级，已发生的请求行均落库", async () => {
+    // 块 1 两轮成功（info）；块 2 首轮即失败（error 级请求行）
+    const calls = { n: 0 };
+    const streamFn = scriptedStreamFn((context) => {
+      calls.n += 1;
+      if (calls.n >= 3) return assistantMessage([textMessage("模型炸了")], "error", "模型炸了");
+      if (!lastToolResult(context)) {
+        return assistantMessage(
+          [toolCallMessage("call-1", QUERY_RECORDS_TOOL_NAME, { table: "characters" })],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("无需变更")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    const view = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 3,
+      blockSize: 2,
+    });
+    expect((await waitForTerminal(harness, view.runId)).status).toBe("failed");
+    await waitForTaskEndRow(harness, view.runId);
+
+    const requests = await requestRows(harness, view.runId);
+    expect(requests.map((row) => row.level)).toEqual(["info", "info", "error"]);
+    expect(payloadOf(requests[2]!)).toMatchObject({ batch: 2, round: 1 });
+    expect(payloadOf(requests[2]!).output).toMatchObject({ stopReason: "error", toolCalls: [] });
+    // 已发生（成功块）的请求行不受后续失败影响，仍在库里
+    expect(payloadOf(requests[1]!).output).toMatchObject({ stopReason: "stop" });
+  });
+
+  it("中断任务：已发生的请求行落库，进行中批以 interrupted 收尾", async () => {
+    const streamFn = gatedStreamFn(scriptedFillAgent().respond, 3);
+    const harness = await createHarness({ streamFn });
+    const view = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 3,
+      blockSize: 2,
+    });
+    // 等块 2 首轮被门控挂起：块 1 两轮请求行已落库，块 2 请求行尚未产生
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(await requestRows(harness, view.runId)).toHaveLength(2);
+
+    await harness.service.cancel(harness.spaceId, view.runId);
+    // 取消后放行块 2：本轮请求行照常落库（任务已中断，行仍完整）
+    streamFn.gate.open();
+    const released = Date.now() + 5_000;
+    while (Date.now() < released && (await requestRows(harness, view.runId)).length < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const requests = await requestRows(harness, view.runId);
+    expect(requests.map((row) => row.level)).toEqual(["info", "info", "info", "info"]);
+    expect(requests.map((row) => payloadOf(row).round)).toEqual([1, 2, 1, 2]);
+    expect(requests.map((row) => payloadOf(row).batch)).toEqual([1, 1, 2, 2]);
+  });
+
+  it("初始化填表：请求行省略楼层区间（block），round 从 1 递增", async () => {
+    const harness = await createHarness({ streamFn: scriptedFillAgent() });
+    const view = await harness.service.submitInit({
+      memorySpaceId: harness.spaceId,
+      text: "爱丽丝是雨城咖啡店店员",
+    });
+    await waitForTerminal(harness, view.runId);
+    await waitForTaskEndRow(harness, view.runId);
+
+    const requests = await requestRows(harness, view.runId);
+    expect(requests).toHaveLength(2);
+    const payloads = requests.map(payloadOf);
+    expect(payloads.map((payload) => payload.round)).toEqual([1, 2]);
+    expect(payloads.every((payload) => payload.batch === 1)).toBe(true);
+    expect(payloads.every((payload) => !("block" in payload))).toBe(true);
+    // 首条带该批系统提示词快照（核心默认提示词），后续不带
+    expect(typeof payloads[0]!.systemPrompt).toBe("string");
+    expect(payloads[0]!.systemPrompt).not.toBe("");
+    expect(payloads[1]).not.toHaveProperty("systemPrompt");
   });
 });
 

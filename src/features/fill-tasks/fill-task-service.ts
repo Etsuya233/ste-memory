@@ -39,6 +39,7 @@ import {
 } from "./fill-task-block.ts";
 import { applyCleaningRules, type CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
 import { EVIDENCE_INIT_SOURCE_TYPE } from "../../constants.ts";
+import { createFillAgentRecorder } from "./fill-agent-log.ts";
 import { fillRunEndLog, fillRunStartLog, fillTaskEndLog, fillTaskStartLog } from "./fill-log.ts";
 import type { LogAppendInput, LogRepository } from "../logging/log.ts";
 import {
@@ -506,6 +507,17 @@ export class FillTaskService {
       fillRunStartLog({ task, batch, from, to, startedAt }),
       `填表任务 ${task.runId} 批次 ${batch} 开始日志写入失败`,
     );
+    // 请求行记录器（issue 03 / ADR 0016）：每个块一个实例（批内轮次与去重按批重置）。
+    const recorder = createFillAgentRecorder({
+      task,
+      batch,
+      from,
+      to,
+      appendLog: (input) =>
+        this.#appendLog(input, `填表任务 ${task.runId} 批次 ${batch} 请求日志写入失败`),
+    });
+    // 运行结束时仍未落入请求行的消息（工具执行后直接结束）：进本批结束行。
+    let trailingMessages: readonly AgentMessage[] = [];
     try {
       // 输入源：楼层任务 = 对话消息（实时读）；初始化任务 = 合成单条消息
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
@@ -574,8 +586,9 @@ export class FillTaskService {
               },
             ];
       // 组装模块 run（每个块一次完整 Agent 循环；result 形状对齐 ProposalAgentRunResult）。
+      // LLM 端口包上请求行记录器：每次 LLM 调用落一条 fill-agent 行。
       const result = await runFillAgent({
-        llm,
+        llm: { ...llm, streamFn: recorder.wrapStreamFn(llm.streamFn) },
         reader: this.#reader,
         ports: this.#ports,
         memorySpaceId: task.memorySpaceId,
@@ -586,6 +599,7 @@ export class FillTaskService {
         evidence,
         timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
       });
+      trailingMessages = recorder.trailingMessages(result.messages);
       if (result.errorMessage !== undefined) {
         throw new Error(`Agent 运行失败：${result.errorMessage}`);
       }
@@ -602,6 +616,7 @@ export class FillTaskService {
             errorMessage: null,
             startedAt,
             endedAt: this.#now(),
+            trailingMessages,
           }),
           `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
         );
@@ -649,6 +664,7 @@ export class FillTaskService {
           errorMessage: null,
           startedAt,
           endedAt: this.#now(),
+          trailingMessages,
         }),
         `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
       );
@@ -667,6 +683,7 @@ export class FillTaskService {
           errorMessage: interrupted ? null : error instanceof Error ? error.message : String(error),
           startedAt,
           endedAt: this.#now(),
+          trailingMessages,
         }),
         `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
       );
