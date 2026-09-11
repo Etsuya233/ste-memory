@@ -222,7 +222,7 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     expect(await tasks.find("run-3")).toMatchObject({ status: "running" });
   });
 
-  it("markInterruptedOnStartup：非终态全部置 interrupted，终态保持原样，不自动重放", async () => {
+  it("markInterruptedOnStartup：非终态全部置 interrupted（返回被中断行），终态保持原样，不自动重放", async () => {
     const db = createTestDatabase();
     const tasks = new DexieFillTaskRepository(db, () => NOW);
 
@@ -231,8 +231,11 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     await tasks.create(task({ runId: "run-failed", status: "failed", errorMessage: "旧失败" }));
     await tasks.create(task({ runId: "run-interrupted", status: "interrupted" }));
 
-    await tasks.markInterruptedOnStartup();
+    const interrupted = await tasks.markInterruptedOnStartup();
 
+    // 返回值 = 被本次中断的任务行（供调用方写中断结束日志），终态行不返回
+    expect(interrupted.map((row) => row.runId)).toEqual(["run-running"]);
+    expect(interrupted[0]).toMatchObject({ status: "interrupted", errorMessage: null });
     expect(await tasks.find("run-running")).toMatchObject({ status: "interrupted" });
     expect(await tasks.find("run-succeeded")).toMatchObject({ status: "succeeded" });
     expect(await tasks.find("run-failed")).toMatchObject({

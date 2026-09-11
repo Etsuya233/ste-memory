@@ -39,8 +39,8 @@ import {
 } from "./fill-task-block.ts";
 import { applyCleaningRules, type CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
 import { EVIDENCE_INIT_SOURCE_TYPE } from "../../constants.ts";
-import { fillTaskStartLog } from "./fill-log.ts";
-import type { LogRepository } from "../logging/log.ts";
+import { fillRunEndLog, fillRunStartLog, fillTaskEndLog, fillTaskStartLog } from "./fill-log.ts";
+import type { LogAppendInput, LogRepository } from "../logging/log.ts";
 import {
   FillTaskConflictError,
   FillTaskNotFoundError,
@@ -225,18 +225,25 @@ export class FillTaskService {
     if (conflict) throw new FillTaskConflictError(conflict);
 
     // 任务开始行先落库（best-effort），再启动后台循环：日志按时间序呈现任务起点。
-    await this.#appendTaskStartLog(task);
+    await this.#appendLog(fillTaskStartLog(task), `填表任务 ${task.runId} 开始日志写入失败`);
 
     // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
     void this.#runTask(task, llm, promptContext);
     return this.#toView(task);
   }
 
-  /** 用户取消：立即置 interrupted（与关 tab 同态）；循环在安全点停止，不自动重放。 */
+  /** 用户取消：立即置 interrupted（与关 tab 同态），写入任务中断结束行；
+   *  循环在安全点停止，不自动重放。 */
   async cancel(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
     const applied = await this.#tasks.markInterrupted(runId);
     if (!applied) throw new FillTaskStateError(task);
+    // 中断结束行在取消落地后立即写入（循环不再负责，避免重复）；
+    // 正在运行的批由循环在安全点补写批中断结束行。
+    await this.#appendLog(
+      fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
+      `填表任务 ${task.runId} 结束日志写入失败`,
+    );
     return this.#toView({ ...task, status: "interrupted" });
   }
 
@@ -277,7 +284,7 @@ export class FillTaskService {
     const conflict = await this.#tasks.createIfIdle(input.memorySpaceId, task);
     if (conflict) throw new FillTaskConflictError(conflict);
 
-    await this.#appendTaskStartLog(task);
+    await this.#appendLog(fillTaskStartLog(task), `填表任务 ${task.runId} 开始日志写入失败`);
 
     void this.#runTask(task, llm, promptContext);
     return this.#toView(task);
@@ -316,9 +323,16 @@ export class FillTaskService {
     return Promise.all(tasks.map((task) => this.#toView(task)));
   }
 
-  /** 启动时调用（页面/浏览器重开）：所有非终态任务标记 interrupted，不自动重放。 */
+  /** 启动时调用（页面/浏览器重开）：所有非终态任务标记 interrupted，不自动重放。
+   *  每个被中断的任务写入中断结束行（结束时刻 = 标记时刻，best-effort）。 */
   async markInterruptedOnStartup(): Promise<void> {
-    await this.#tasks.markInterruptedOnStartup();
+    const interrupted = await this.#tasks.markInterruptedOnStartup();
+    for (const task of interrupted) {
+      await this.#appendLog(
+        fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
+        `填表任务 ${task.runId} 结束日志写入失败`,
+      );
+    }
   }
 
   /** 楼层台账状态（闭区间 [from, to]，untracked = 无行）：触发 UI「未处理范围」提示的数据源。 */
@@ -400,6 +414,9 @@ export class FillTaskService {
    * 安全点（不打断正在运行的 LLM 请求）：
    * - 块开始前：任务已非 running（用户取消/页面重开）→ 直接停止；
    * - 块内提交前：任务已非 running → 丢弃未提交提案，块楼层保持原状态。
+   *
+   * 行流日志（ADR 0016）：任务结束行由各终态路径写入（成功/失败在循环内、
+   * 中断在取消/启动标记处）；批开始/结束行由 #processBlock 写入。
    */
   async #runTask(
     task: FillTask,
@@ -422,14 +439,23 @@ export class FillTaskService {
         }
         const blockTo = Math.min(blockFrom + task.blockSize - 1, task.to);
         failingBlock = { from: blockFrom, to: blockTo };
-        await this.#processBlock(llm, promptContext, task, blockFrom, blockTo);
+        const batch = (blockFrom - task.from) / task.blockSize + 1;
+        await this.#processBlock(llm, promptContext, task, batch, blockFrom, blockTo);
         // 本块已成功提交：后续失败（如终态标记）不得再把它标记为 error。
         failingBlock = undefined;
       }
-      await this.#tasks.markSucceeded(task.runId);
+      // 全部块提交成功 → 任务结束行（succeeded）。markSucceeded 返回 false =
+      // 取消竞态先落地（interrupted）：结束行已由取消路径写入，不重复。
+      const succeeded = await this.#tasks.markSucceeded(task.runId);
+      if (succeeded) {
+        await this.#appendLog(
+          fillTaskEndLog({ task, status: "succeeded", errorMessage: null, endedAt: this.#now() }),
+          `填表任务 ${task.runId} 结束日志写入失败`,
+        );
+      }
     } catch (error) {
       // 取消已落地（任务行终态）：不再标记 error/failed——用户取消的楼层保持
-      // untracked（天然可重试），任务保持 interrupted。
+      // untracked（天然可重试），任务保持 interrupted，结束行由取消路径写入。
       // 收口本身也可能失败（页面/测试拆除期数据库已关闭）：只能记录日志，
       // 绝不能让后台循环产生未处理拒绝（void 链的拒绝无人观察）。
       try {
@@ -470,137 +496,198 @@ export class FillTaskService {
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
     task: FillTask,
+    batch: number,
     from: number,
     to: number,
   ): Promise<void> {
-    // 输入源：楼层任务 = 对话消息（实时读）；初始化任务 = 合成单条消息
-    // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
-    const rawMessages =
-      task.kind === "init"
-        ? [{ floor: 0, name: "", content: task.initText }]
-        : this.#source.messagesInRange(from, to);
-    if (rawMessages.length === 0) {
-      throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
-    }
-    // 清洗规则在块处理时实时读取（ADR 0011）：原文证据不变，喂给 Agent 的是
-    // 清洗后内容（初始化文本同路径）；世界书扫描输入（submit 时合并的剧情文本）保持原文。
-    const cleaningRules = this.#resolveCleaningRules();
-    const messages =
-      cleaningRules.length === 0
-        ? rawMessages
-        : rawMessages.map((message) => ({
-            ...message,
-            content: applyCleaningRules(message.content, cleaningRules),
-          }));
-    // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
-    // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于
-    // Agent 输入，证据永远存原文；重复初始化每次生成新证据，同源唯一不冲突）。
-    const evidence =
-      task.kind === "init"
-        ? [
-            {
-              evidence_id: this.#createEvidenceId(),
-              source_type: EVIDENCE_INIT_SOURCE_TYPE,
-              source_id: task.runId,
-              storage_mode: "snapshot" as const,
-              content: task.initText,
-              extraProps: {},
-            },
-          ]
-        : await buildBlockEvidence(
-            (memorySpaceId, sourceType, sourceId) =>
-              this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
-            this.#createEvidenceId,
-            task.memorySpaceId,
-            messages,
-          );
-    // 编排（ADR 0024 组装迁移）：digest 块内构建一次，同时喂消息展开与工具装配；
-    // 活动预设 → composePresetMessages 纯函数展开（{{msg}} 输入 = 本块消息文本）；
-    // 缺省 → 核心默认提示词文本函数（composeProposalAgentMessages，与预设展开
-    // 同形状——单条 system 消息）。
-    const msgText = composeBlockMessagesText(from, to, messages);
-    const digest = await buildMemorySpaceTableDigest(this.#reader, task.memorySpaceId);
-    const composed: readonly ComposedAgentMessage[] =
-      promptContext === undefined
-        ? composeProposalAgentMessages(digest)
-        : composePresetMessages(promptContext.preset, {
-            ...promptContext.snapshot,
-            msgText,
-          })(digest);
-    // 预设引用 {{msg}} = 用户接管消息编排：块内容只出现在占位符展开处，本轮
-    // 消息为空；未引用保持旧行为：块提示词作为本轮用户消息。
-    const runMessages: AgentMessage[] =
-      promptContext !== undefined && containsMsgReference(promptContext.preset)
-        ? []
-        : [
-            {
-              role: "user",
-              content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
-              timestamp: Date.now(),
-            },
-          ];
-    // 组装模块 run（每个块一次完整 Agent 循环；result 形状对齐 ProposalAgentRunResult）。
-    const result = await runFillAgent({
-      llm,
-      reader: this.#reader,
-      ports: this.#ports,
-      memorySpaceId: task.memorySpaceId,
-      digest,
-      composedMessages: composed,
-      messages: runMessages,
-      messageRange: { from, to },
-      evidence,
-      timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
-    });
-    if (result.errorMessage !== undefined) {
-      throw new Error(`Agent 运行失败：${result.errorMessage}`);
-    }
-    // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试）。
-    if (await this.#isStopped(task.runId)) return;
-    // 安全点 3（事务内）：任务行在写入事务里复检（running 才写入）。重建空间结构
-    // 删除任务行与本次提交在任务表上互斥——重建已提交后旧任务不可能再写入
-    // （空间结构也已换新，旧表/字段 ID 不再存在）。空提案同路径：只标记台账，
-    // 不产生记忆数据，但同样不得落在重建之后。
-    if (result.proposal) {
-      // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
-      // 初始化任务无楼层：只提交批次，不标记台账。
-      await this.#runInTransaction(async () => {
-        if (!(await this.#isRunning(task.runId))) return;
-        await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
-        if (task.kind !== "init") {
-          await this.#ledger.markProcessed(
-            task.memorySpaceId,
-            messages.map((message) => message.floor),
-          );
-        }
+    // 批开始行在块处理前先落库（边跑边写）：运行中查询即可见已完成/进行中批。
+    const startedAt = this.#now();
+    await this.#appendLog(
+      fillRunStartLog({ task, batch, from, to, startedAt }),
+      `填表任务 ${task.runId} 批次 ${batch} 开始日志写入失败`,
+    );
+    try {
+      // 输入源：楼层任务 = 对话消息（实时读）；初始化任务 = 合成单条消息
+      // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
+      const rawMessages =
+        task.kind === "init"
+          ? [{ floor: 0, name: "", content: task.initText }]
+          : this.#source.messagesInRange(from, to);
+      if (rawMessages.length === 0) {
+        throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      }
+      // 清洗规则在块处理时实时读取（ADR 0011）：原文证据不变，喂给 Agent 的是
+      // 清洗后内容（初始化文本同路径）；世界书扫描输入（submit 时合并的剧情文本）保持原文。
+      const cleaningRules = this.#resolveCleaningRules();
+      const messages =
+        cleaningRules.length === 0
+          ? rawMessages
+          : rawMessages.map((message) => ({
+              ...message,
+              content: applyCleaningRules(message.content, cleaningRules),
+            }));
+      // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
+      // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于
+      // Agent 输入，证据永远存原文；重复初始化每次生成新证据，同源唯一不冲突）。
+      const evidence =
+        task.kind === "init"
+          ? [
+              {
+                evidence_id: this.#createEvidenceId(),
+                source_type: EVIDENCE_INIT_SOURCE_TYPE,
+                source_id: task.runId,
+                storage_mode: "snapshot" as const,
+                content: task.initText,
+                extraProps: {},
+              },
+            ]
+          : await buildBlockEvidence(
+              (memorySpaceId, sourceType, sourceId) =>
+                this.#evidence.findEvidence(memorySpaceId, sourceType, sourceId),
+              this.#createEvidenceId,
+              task.memorySpaceId,
+              messages,
+            );
+      // 编排（ADR 0024 组装迁移）：digest 块内构建一次，同时喂消息展开与工具装配；
+      // 活动预设 → composePresetMessages 纯函数展开（{{msg}} 输入 = 本块消息文本）；
+      // 缺省 → 核心默认提示词文本函数（composeProposalAgentMessages，与预设展开
+      // 同形状——单条 system 消息）。
+      const msgText = composeBlockMessagesText(from, to, messages);
+      const digest = await buildMemorySpaceTableDigest(this.#reader, task.memorySpaceId);
+      const composed: readonly ComposedAgentMessage[] =
+        promptContext === undefined
+          ? composeProposalAgentMessages(digest)
+          : composePresetMessages(promptContext.preset, {
+              ...promptContext.snapshot,
+              msgText,
+            })(digest);
+      // 预设引用 {{msg}} = 用户接管消息编排：块内容只出现在占位符展开处，本轮
+      // 消息为空；未引用保持旧行为：块提示词作为本轮用户消息。
+      const runMessages: AgentMessage[] =
+        promptContext !== undefined && containsMsgReference(promptContext.preset)
+          ? []
+          : [
+              {
+                role: "user",
+                content: [{ type: "text", text: composeBlockPrompt(from, to, messages) }],
+                timestamp: Date.now(),
+              },
+            ];
+      // 组装模块 run（每个块一次完整 Agent 循环；result 形状对齐 ProposalAgentRunResult）。
+      const result = await runFillAgent({
+        llm,
+        reader: this.#reader,
+        ports: this.#ports,
+        memorySpaceId: task.memorySpaceId,
+        digest,
+        composedMessages: composed,
+        messages: runMessages,
+        messageRange: { from, to },
+        evidence,
+        timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
       });
-    } else {
-      // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
-      await this.#runInTransaction(async () => {
-        if (!(await this.#isRunning(task.runId))) return;
-        if (task.kind !== "init") {
-          await this.#ledger.markProcessed(
-            task.memorySpaceId,
-            messages.map((message) => message.floor),
-          );
-        }
-      });
+      if (result.errorMessage !== undefined) {
+        throw new Error(`Agent 运行失败：${result.errorMessage}`);
+      }
+      // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试），
+      // 批以 interrupted 收尾（进行中的批也有完整的开始/结束行）。
+      if (await this.#isStopped(task.runId)) {
+        await this.#appendLog(
+          fillRunEndLog({
+            task,
+            batch,
+            from,
+            to,
+            status: "interrupted",
+            errorMessage: null,
+            startedAt,
+            endedAt: this.#now(),
+          }),
+          `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
+        );
+        return;
+      }
+      // 安全点 3（事务内）：任务行在写入事务里复检（running 才写入）。重建空间结构
+      // 删除任务行与本次提交在任务表上互斥——重建已提交后旧任务不可能再写入
+      // （空间结构也已换新，旧表/字段 ID 不再存在）。空提案同路径：只标记台账，
+      // 不产生记忆数据，但同样不得落在重建之后。
+      if (result.proposal) {
+        // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
+        // 初始化任务无楼层：只提交批次，不标记台账。
+        await this.#runInTransaction(async () => {
+          if (!(await this.#isRunning(task.runId))) return;
+          await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
+          if (task.kind !== "init") {
+            await this.#ledger.markProcessed(
+              task.memorySpaceId,
+              messages.map((message) => message.floor),
+            );
+          }
+        });
+      } else {
+        // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
+        await this.#runInTransaction(async () => {
+          if (!(await this.#isRunning(task.runId))) return;
+          if (task.kind !== "init") {
+            await this.#ledger.markProcessed(
+              task.memorySpaceId,
+              messages.map((message) => message.floor),
+            );
+          }
+        });
+      }
+      // 批结束行：安全点 3 在事务内拦下（取消落地/任务行消失）→ interrupted（warn），
+      // 否则批提交或空提案确认完成 → succeeded（info 级）。
+      const stopped = !(await this.#isRunning(task.runId));
+      await this.#appendLog(
+        fillRunEndLog({
+          task,
+          batch,
+          from,
+          to,
+          status: stopped ? "interrupted" : "succeeded",
+          errorMessage: null,
+          startedAt,
+          endedAt: this.#now(),
+        }),
+        `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
+      );
+    } catch (error) {
+      // 出错批结束行：任务已被取消（批中途中断）→ interrupted（warn）；
+      // 否则 failed（error 级），携带可读失败原因后向外抛，由调用方收口任务。
+      const current = await this.#tasks.find(task.runId);
+      const interrupted = current !== undefined && current.status === "interrupted";
+      await this.#appendLog(
+        fillRunEndLog({
+          task,
+          batch,
+          from,
+          to,
+          status: interrupted ? "interrupted" : "failed",
+          errorMessage: interrupted ? null : error instanceof Error ? error.message : String(error),
+          startedAt,
+          endedAt: this.#now(),
+        }),
+        `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
+      );
+      throw error;
     }
   }
 
   /**
-   * 任务开始行写入（best-effort，ADR 0015）：审计数据，写入失败只记警告，
-   * 绝不影响任务提交与运行。
+   * 日志行写入（best-effort，ADR 0015/0016）：审计数据，写入失败只记警告，
+   * 绝不影响任务提交、批处理与终态标记。
    */
-  async #appendTaskStartLog(task: FillTask): Promise<void> {
+  async #appendLog(input: LogAppendInput, failMessage: string): Promise<void> {
     try {
-      await this.#logs.append(fillTaskStartLog(task));
+      await this.#logs.append(input);
     } catch (error) {
-      this.#logError(`填表任务 ${task.runId} 开始日志写入失败`, error);
+      this.#logError(failMessage, error);
     }
   }
 
-  /** 失败收口：只把出错块的楼层标记 error，已成功批次保持 processed，任务置 failed。
+  /** 失败收口：任务置 failed + 出错块楼层标记 error，已成功批次保持 processed。
+   *  取消竞态（markFailed 未生效）时什么都不做——结束行已由取消路径写入。
    *  初始化任务无楼层：跳过台账标记，只置 failed。 */
   async #failTask(
     task: FillTask,
@@ -609,7 +696,14 @@ export class FillTaskService {
   ): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     try {
-      if (failingBlock && task.kind !== "init") {
+      const applied = await this.#tasks.markFailed(task.runId, message);
+      if (!applied) return;
+    } catch (markError) {
+      this.#logError(`填表任务 ${task.runId} 失败状态标记出错`, markError);
+      return;
+    }
+    if (failingBlock && task.kind !== "init") {
+      try {
         const failing = this.#source.messagesInRange(failingBlock.from, failingBlock.to);
         if (failing.length > 0) {
           await this.#ledger.markError(
@@ -617,10 +711,15 @@ export class FillTaskService {
             failing.map((item) => item.floor),
           );
         }
+      } catch (markError) {
+        this.#logError(`填表任务 ${task.runId} 出错楼层标记出错`, markError);
       }
-      await this.#tasks.markFailed(task.runId, message);
-    } catch (markError) {
-      this.#logError(`填表任务 ${task.runId} 失败状态标记出错`, markError);
     }
+    // 任务结束行（failed，error 级）：出错批的结束行（error 级）已由
+    // #processBlock 在抛出前写入，任务结束行随后写入，时间序正确。
+    await this.#appendLog(
+      fillTaskEndLog({ task, status: "failed", errorMessage: message, endedAt: this.#now() }),
+      `填表任务 ${task.runId} 结束日志写入失败`,
+    );
   }
 }

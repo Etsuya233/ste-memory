@@ -129,8 +129,9 @@ export interface FillTaskRepository {
   markFailed(runId: string, errorMessage: string): Promise<boolean>;
   /** 仅 running → interrupted（用户取消）；状态不允许时返回 false。 */
   markInterrupted(runId: string): Promise<boolean>;
-  /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放）。 */
-  markInterruptedOnStartup(): Promise<void>;
+  /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
+   *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
+  markInterruptedOnStartup(): Promise<readonly FillTask[]>;
   /** 最近任务（createdAt 倒序，id 兜底），供触发 UI 展示最近一次任务结果。 */
   listRecent(memorySpaceId: MemorySpaceId, limit: number): Promise<readonly FillTask[]>;
   /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部任务行（含历史条目）。 */

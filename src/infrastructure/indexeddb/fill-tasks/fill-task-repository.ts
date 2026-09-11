@@ -166,19 +166,24 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "interrupted", null);
   }
 
-  /** 状态转换守卫：仅 running → 目标终态（事务内读改写，取消竞态先落地者胜出）。 */
-  async markInterruptedOnStartup(): Promise<void> {
+  /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
+   *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
+  async markInterruptedOnStartup(): Promise<readonly FillTask[]> {
+    const interrupted: FillTask[] = [];
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
         if (isFillTaskTerminal(row.status)) continue;
-        await this.#db.memoryFillTasks.put({
+        const updated = {
           ...normalizeTaskRow(row),
-          status: "interrupted",
+          status: "interrupted" as const,
           updatedAt: this.#now(),
-        });
+        };
+        await this.#db.memoryFillTasks.put(updated);
+        interrupted.push(updated);
       }
     });
+    return interrupted;
   }
 
   async listRecent(memorySpaceId: MemorySpaceId, limit: number): Promise<readonly FillTask[]> {
