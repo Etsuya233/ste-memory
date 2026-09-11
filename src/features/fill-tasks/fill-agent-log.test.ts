@@ -1,25 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Context, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { MemorySpaceId } from "../memory/index.ts";
-import { createFillAgentRecorder, fillAgentLog } from "./fill-agent-log.ts";
+import {
+  createFillAgentTurnCollector,
+  fillAgentContextLog,
+  fillAgentTurnLog,
+} from "./fill-agent-log.ts";
 import type { FillTask } from "./fill-task.ts";
 import type { LogAppendInput } from "../logging/log.ts";
 import {
   assistantMessage,
-  fakeModel,
-  scriptedStreamFn,
   textMessage,
   thinkingMessage,
-  toStream,
   toolCallMessage,
-  ScriptedEventStream,
 } from "./stream-fn-support.ts";
 
 /**
- * 记录器单测覆盖集成测试触达不到的路径：流静默结束（无 done/error 事件）
- * 回落 result()，以及运行结束时仍未进入请求快照的 trailingMessages 兜底
- * （批结束行完整性的契约：请求行永远只记实际发出的消息）。
+ * 采集器单测：直接喂 turn_end 事件（runFillAgent onEvent 通道转发，
+ * 与真实循环同一事件契约），断言 turn 行内容、轮次顺序与级别。
  */
 
 const SPACE_ID = "space-1" as MemorySpaceId;
@@ -41,154 +39,216 @@ function floorTask(): FillTask {
   };
 }
 
-function userMessage(text: string): UserMessage {
-  return { role: "user", content: [{ type: "text", text }], timestamp: 1 };
+function turnEndEvent(
+  message: AgentMessage,
+  toolResults: readonly AgentMessage[] = [],
+): AgentEvent {
+  return { type: "turn_end", message, toolResults } as AgentEvent;
 }
 
-function toolResultMessage(text: string): ToolResultMessage {
-  return {
-    role: "toolResult",
-    toolCallId: "call-1",
-    toolName: "query_records",
-    content: [{ type: "text", text }],
-    isError: false,
-    timestamp: 2,
-  };
+function collector(rows: LogAppendInput[]): ReturnType<typeof createFillAgentTurnCollector> {
+  return createFillAgentTurnCollector({
+    task: floorTask(),
+    batch: 2,
+    from: 2,
+    to: 3,
+    appendLog: async (input) => {
+      rows.push(input);
+    },
+  });
 }
 
-async function drain(stream: AsyncIterable<unknown>): Promise<number> {
-  let events = 0;
-  for await (const event of stream) {
-    void event;
-    events += 1;
-  }
-  return events;
-}
-
-describe("createFillAgentRecorder（issue 03 / ADR 0016）", () => {
-  it("请求行：快照新增消息与该轮输出；流静默结束（无 done/error）回落 result()", async () => {
+describe("createFillAgentTurnCollector（ADR 0016「上下文 + 轮次」形态）", () => {
+  it("turn_end 每轮一条 turn 行：思考/输出/停止原因/用量同轮成对（含工具调用参数与结果）", async () => {
     const rows: LogAppendInput[] = [];
-    const recorder = createFillAgentRecorder({
-      task: floorTask(),
-      batch: 2,
-      from: 2,
-      to: 3,
-      appendLog: async (input) => {
-        rows.push(input);
-      },
-    });
-    const output = assistantMessage([thinkingMessage("想一下"), textMessage("好的")], "stop");
-    const silent = new ScriptedEventStream();
-    silent.end(output);
-    const context: Context = { systemPrompt: "系统提示词", messages: [userMessage("问题")] };
-
-    const stream = await recorder.wrapStreamFn(() => toStream(silent))(
-      fakeModel(),
-      context,
-      undefined,
+    const collected = collector(rows);
+    collected.listener(
+      turnEndEvent(
+        assistantMessage(
+          [
+            thinkingMessage("先确认现有角色"),
+            textMessage("先查询"),
+            toolCallMessage("call-1", "query_records", { table: "characters" }),
+          ],
+          "toolUse",
+        ),
+        [
+          {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "query_records",
+            content: [{ type: "text", text: "未找到匹配记录" }],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      ),
     );
-    expect(await drain(stream)).toBe(0);
+    collected.listener(
+      turnEndEvent(assistantMessage([thinkingMessage("无需变更"), textMessage("已确认")], "stop")),
+    );
+    await collected.flush();
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ type: "fill-agent", key: "run-fixed", level: "info" });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => [row.type, row.key, row.level])).toEqual([
+      ["fill-agent", "run-fixed", "info"],
+      ["fill-agent", "run-fixed", "info"],
+    ]);
     expect(JSON.parse(rows[0]!.text)).toEqual({
       batch: 2,
       block: { from: 2, to: 3 },
+      kind: "turn",
       round: 1,
-      systemPrompt: "系统提示词",
-      messages: context.messages,
-      output: {
-        thinking: "想一下",
-        text: "好的",
-        stopReason: "stop",
-        usage: { input: 0, output: 0, totalTokens: 0 },
-        toolCalls: [],
-      },
+      thinking: "先确认现有角色",
+      output: "先查询",
+      stopReason: "toolUse",
+      usage: { input: 0, output: 0, totalTokens: 0 },
+      tools: [
+        {
+          id: "call-1",
+          name: "query_records",
+          args: { table: "characters" },
+          result: "未找到匹配记录",
+          isError: false,
+        },
+      ],
+    });
+    expect(JSON.parse(rows[1]!.text)).toMatchObject({
+      round: 2,
+      stopReason: "stop",
+      tools: [],
     });
   });
 
-  it("trailingMessages：未进入任何请求快照的消息（工具执行后直接结束）", async () => {
-    const recorder = createFillAgentRecorder({
-      task: floorTask(),
-      batch: 1,
-      from: 0,
-      to: 1,
-      appendLog: async () => undefined,
-    });
-    const prompt = userMessage("问题");
-    const output = assistantMessage(
-      [toolCallMessage("call-1", "query_records", { table: "characters" })],
-      "toolUse",
-    );
-    const context: Context = { systemPrompt: "系统提示词", messages: [prompt] };
-    const stream = await recorder.wrapStreamFn(scriptedStreamFn(() => output))(
-      fakeModel(),
-      context,
-      undefined,
-    );
-    await drain(stream);
-
-    // 运行结束时工具结果从未进入任何请求快照：进批结束行兜底；已记录的消息不重复
-    const toolResult: Message = toolResultMessage("查询结果");
-    const transcript: readonly AgentMessage[] = [prompt, output, toolResult];
-    expect(recorder.trailingMessages(transcript)).toEqual([toolResult]);
-    expect(recorder.trailingMessages([prompt, output])).toEqual([]);
-  });
-
-  it("请求行：失败轮（模型报错）error 级，工具调用参数与用量照常落行", async () => {
+  it("失败轮：error 级，errorMessage 与停止原因落行", async () => {
     const rows: LogAppendInput[] = [];
-    const recorder = createFillAgentRecorder({
-      task: floorTask(),
-      batch: 1,
-      from: 0,
-      to: 1,
-      appendLog: async (input) => {
-        rows.push(input);
-      },
-    });
-    const output = assistantMessage(
-      [toolCallMessage("call-1", "mutate", { op: "create" })],
-      "error",
-      "模型炸了",
+    const collected = collector(rows);
+    collected.listener(
+      turnEndEvent(assistantMessage([textMessage("模型炸了")], "error", "模型炸了")),
     );
-    const context: Context = { systemPrompt: "S", messages: [userMessage("问题")] };
-    const stream = await recorder.wrapStreamFn(scriptedStreamFn(() => output))(
-      fakeModel(),
-      context,
-      undefined,
-    );
-    await drain(stream);
+    await collected.flush();
 
     expect(rows[0]!.level).toBe("error");
-    expect(JSON.parse(rows[0]!.text).output).toMatchObject({
+    expect(JSON.parse(rows[0]!.text)).toMatchObject({
       stopReason: "error",
-      toolCalls: [{ id: "call-1", name: "mutate", args: { op: "create" } }],
+      errorMessage: "模型炸了",
+      tools: [],
     });
   });
 
-  it("fillAgentLog：初始化任务省略楼层区间，无系统提示词时省略 systemPrompt", () => {
-    const input = {
-      task: { ...floorTask(), kind: "init" as const, initText: "设定" },
+  it("工具调用无结果（中断时工具未执行）：tools 只留调用参数，不带 result 字段", async () => {
+    const rows: LogAppendInput[] = [];
+    const collected = collector(rows);
+    collected.listener(
+      turnEndEvent(
+        assistantMessage([toolCallMessage("call-1", "mutate", { op: "create" })], "toolUse"),
+        [],
+      ),
+    );
+    await collected.flush();
+
+    expect(JSON.parse(rows[0]!.text).tools).toEqual([
+      { id: "call-1", name: "mutate", args: { op: "create" } },
+    ]);
+  });
+
+  it("轮次行按事件到达顺序递增（写入队列保序）", async () => {
+    const rows: LogAppendInput[] = [];
+    const collected = collector(rows);
+    for (let round = 1; round <= 5; round += 1) {
+      collected.listener(turnEndEvent(assistantMessage([textMessage(`回答 ${round}`)], "stop")));
+    }
+    await collected.flush();
+
+    expect(rows.map((row) => JSON.parse(row.text).round)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+describe("fillAgentContextLog / fillAgentTurnLog 行构造", () => {
+  it("上下文行：楼层区间、系统提示词、预设与本批消息分列", () => {
+    const row = fillAgentContextLog({
+      task: floorTask(),
+      batch: 1,
+      from: 0,
+      to: 1,
+      systemPrompt: "你是爱丽丝的填表助手",
+      preset: [
+        { role: "user", text: "请按提示填写" },
+        { role: "assistant", text: "明白" },
+      ],
+      input: [{ role: "user", text: "消息 0：…" }],
+    });
+    expect(JSON.parse(row.text)).toEqual({
+      batch: 1,
+      block: { from: 0, to: 1 },
+      kind: "context",
+      systemPrompt: "你是爱丽丝的填表助手",
+      preset: [
+        { role: "user", text: "请按提示填写" },
+        { role: "assistant", text: "明白" },
+      ],
+      input: [{ role: "user", text: "消息 0：…" }],
+    });
+  });
+
+  it("初始化任务：上下文行省略 block（无楼层），turn 行同样省略", () => {
+    const task = { ...floorTask(), kind: "init" as const, initText: "设定" };
+    const context = fillAgentContextLog({
+      task,
+      batch: 1,
+      from: 0,
+      to: 0,
+      systemPrompt: "核心默认提示词",
+      preset: [],
+      input: [{ role: "user", text: "初始化文本" }],
+    });
+    expect(JSON.parse(context.text)).toMatchObject({
+      batch: 1,
+      kind: "context",
+      preset: [],
+    });
+    expect(JSON.parse(context.text)).not.toHaveProperty("block");
+
+    const turn = fillAgentTurnLog({
+      task,
       batch: 1,
       from: 0,
       to: 0,
       round: 1,
-      systemPrompt: undefined,
-      messages: [],
-      output: assistantMessage([], "stop"),
-    };
-    const payload = JSON.parse(fillAgentLog(input).text);
-    expect(payload).toEqual({
+      message: assistantMessage([textMessage("已提交")], "stop"),
+      toolResults: [],
+    });
+    expect(JSON.parse(turn.text)).toMatchObject({ batch: 1, kind: "turn", round: 1 });
+    expect(JSON.parse(turn.text)).not.toHaveProperty("block");
+  });
+
+  it("思考/文本多块拼接为单一字段", async () => {
+    const event = turnEndEvent(
+      assistantMessage(
+        [
+          thinkingMessage("想 1"),
+          thinkingMessage("想 2"),
+          textMessage("答 1"),
+          textMessage("答 2"),
+        ],
+        "stop",
+      ),
+    );
+    const rows: LogAppendInput[] = [];
+    const listener = createFillAgentTurnCollector({
+      task: floorTask(),
       batch: 1,
-      round: 1,
-      messages: [],
-      output: {
-        thinking: "",
-        text: "",
-        stopReason: "stop",
-        usage: { input: 0, output: 0, totalTokens: 0 },
-        toolCalls: [],
+      from: 0,
+      to: 1,
+      appendLog: async (input) => {
+        rows.push(input);
       },
+    }).listener;
+    listener(event);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(JSON.parse(rows[0]!.text)).toMatchObject({
+      thinking: "想 1想 2",
+      output: "答 1答 2",
     });
   });
 });

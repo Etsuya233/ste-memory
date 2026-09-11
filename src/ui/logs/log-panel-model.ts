@@ -58,7 +58,7 @@ export const LOG_LEVEL_LABELS: Readonly<Record<LogLevel, string>> = {
 export const LOG_TYPE_OPTIONS: readonly { readonly value: string; readonly label: string }[] = [
   { value: FILL_TASK_LOG_TYPE, label: "填表任务" },
   { value: FILL_RUN_LOG_TYPE, label: "填表批" },
-  { value: FILL_AGENT_LOG_TYPE, label: "Agent 请求" },
+  { value: FILL_AGENT_LOG_TYPE, label: "Agent 决策" },
 ];
 
 /** 类型显示名；未知类型原样展示（查询侧不认识类型也照常显示）。 */

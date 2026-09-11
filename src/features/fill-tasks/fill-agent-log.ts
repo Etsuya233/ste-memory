@@ -1,76 +1,55 @@
 /**
- * 填表 Agent 请求行（ADR 0016）：每次 LLM 请求一行，呈现该轮 Agent 的决策轨迹。
+ * 填表 Agent 决策行（ADR 0016「上下文 + 轮次」形态）：每批一条上下文行
+ * （kind: context——系统提示词 + 预设消息 + 本批消息，批开始即写），此后每轮
+ * 一条 turn 行（kind: turn——思考、输出、停止原因、用量、工具调用及结果）。
  *
- * 捕获靠包装 streamFn——每次 LLM 调用收到该轮完整请求快照（系统提示词 +
- * LLM 可见消息），流终止（done / error，或流静默结束回落 result()）时得到该轮
- * 最终助手消息（思考、文本、停止原因、用量、工具调用参数）。批内去重：
- *
- * - 首条请求行 messages = 该轮全部消息（预设消息 + 本批消息），带 systemPrompt
- *   快照（该批完整系统提示词）；
- * - 后续请求行 messages = 上次快照之后新增的消息，排除已作为上一条请求行
- *   output 记录在案的模型输出消息——即上一轮工具结果；历史上下文与系统提示词
- *   不重复记录。
- *
- * 工具结果自然落在下一请求行的 messages；运行结束时仍未进入任何请求快照的
- * 消息（工具执行后直接结束）由 trailingMessages 交给所在批结束行兜底。
+ * 采集走 runFillAgent 的 onEvent 通道（Agent 事件订阅）：Agent 循环每轮结束
+ * 必发 turn_end，携带该轮最终助手消息与工具结果（工具轮带结果，stop/error
+ * 轮为空数组）——输出侧与工具结果在同一条事件里成对，无需请求快照，
+ * 无需批内去重。
  */
-import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  AssistantMessageEventStream,
-} from "@earendil-works/pi-ai";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LogAppendInput } from "../logging/log.ts";
 import { FILL_AGENT_LOG_TYPE } from "./fill-log.ts";
 import type { FillTask } from "./fill-task.ts";
 
-/** 请求行的输出原文（模型输出 → 日志字段的投影：文本与思考拼接、工具调用只留 id/name/args）。 */
-interface FillAgentLogOutput {
-  readonly thinking: string;
+/** 上下文行里的文本消息（预设 / 本批消息的简化投影）。 */
+export interface FillAgentContextText {
+  readonly role: "user" | "assistant";
   readonly text: string;
-  readonly stopReason: string;
-  readonly usage: { readonly input: number; readonly output: number; readonly totalTokens: number };
-  readonly toolCalls: readonly {
-    readonly id: string;
-    readonly name: string;
-    readonly args: Record<string, unknown>;
-  }[];
 }
 
-export interface FillAgentLogInput {
+export interface FillAgentContextLogInput {
   readonly task: FillTask;
   /** 批号（1 基） */
   readonly batch: number;
-  /** 楼层闭区间（初始化任务省略，无楼层） */
+  /** 楼层闭区间（初始化任务省略 block，无楼层） */
   readonly from: number;
   readonly to: number;
-  /** 批内请求序号（1 基） */
-  readonly round: number;
-  /** 该批完整系统提示词快照（仅每批首条请求行携带，undefined = 本行省略） */
-  readonly systemPrompt: string | undefined;
-  /** 本轮新增消息（pi 原始消息对象，不转换） */
-  readonly messages: readonly AgentMessage[];
-  readonly output: AssistantMessage;
+  /** 该批完整系统提示词（编排消息 system 角色合并后的文本）。 */
+  readonly systemPrompt: string;
+  /** 预设消息（编排消息 user/assistant 段，进入运行前缀）。 */
+  readonly preset: readonly FillAgentContextText[];
+  /** 本批消息（本轮输入；{{msg}} 接管场景为空）。 */
+  readonly input: readonly FillAgentContextText[];
 }
 
-/**
- * 请求行载荷 → 通用日志行：key = 任务 runId，text = Pretty JSON。
- * 失败轮（模型报错 `errorMessage` 非空）error 级，其余 info 级。
- */
-export function fillAgentLog(input: FillAgentLogInput): LogAppendInput {
-  const output = agentOutputOf(input.output);
+/** 上下文行：批的输入快照，批开始即写（中断时系统提示词与预设仍在）。 */
+export function fillAgentContextLog(input: FillAgentContextLogInput): LogAppendInput {
+  const { task, batch } = input;
   return {
     type: FILL_AGENT_LOG_TYPE,
-    key: input.task.runId,
-    level: input.output.errorMessage === undefined ? "info" : "error",
+    key: task.runId,
+    level: "info",
     text: JSON.stringify(
       {
-        batch: input.batch,
-        ...(input.task.kind === "floor" ? { block: { from: input.from, to: input.to } } : {}),
-        round: input.round,
-        ...(input.systemPrompt === undefined ? {} : { systemPrompt: input.systemPrompt }),
-        messages: input.messages,
-        output,
+        batch,
+        ...(task.kind === "floor" ? { block: { from: input.from, to: input.to } } : {}),
+        kind: "context",
+        systemPrompt: input.systemPrompt,
+        preset: input.preset,
+        input: input.input,
       },
       null,
       2,
@@ -78,129 +57,155 @@ export function fillAgentLog(input: FillAgentLogInput): LogAppendInput {
   };
 }
 
-function agentOutputOf(message: AssistantMessage): FillAgentLogOutput {
-  const blocks = message.content;
+export interface FillAgentTurnLogInput {
+  readonly task: FillTask;
+  /** 批号（1 基） */
+  readonly batch: number;
+  /** 楼层闭区间（初始化任务省略 block，无楼层） */
+  readonly from: number;
+  readonly to: number;
+  /** 批内轮号（1 基，turn_end 到达顺序） */
+  readonly round: number;
+  /** 该轮最终助手消息（thinking/text/stopReason/usage/toolCalls/errorMessage）。 */
+  readonly message: AssistantMessage;
+  /** 该轮工具执行结果（toolResults，按 toolCallId 与工具调用配对）。 */
+  readonly toolResults: readonly ToolResultMessage[];
+}
+
+/**
+ * turn 行：该轮决策轨迹。失败轮（errorMessage 非空）error 级，其余 info 级；
+ * 工具调用带结果（result/isError），中断时未执行完的工具只留调用参数。
+ */
+export function fillAgentTurnLog(input: FillAgentTurnLogInput): LogAppendInput {
+  const { task, batch } = input;
   return {
-    thinking: blocks
-      .filter((block) => block.type === "thinking")
-      .map((block) => block.thinking)
-      .join(""),
-    text: blocks
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join(""),
-    stopReason: message.stopReason,
-    usage: {
-      input: message.usage.input,
-      output: message.usage.output,
-      totalTokens: message.usage.totalTokens,
-    },
-    toolCalls: blocks
-      .filter((block) => block.type === "toolCall")
-      .map((block) => ({ id: block.id, name: block.name, args: block.arguments })),
+    type: FILL_AGENT_LOG_TYPE,
+    key: task.runId,
+    level: input.message.errorMessage === undefined ? "info" : "error",
+    text: JSON.stringify(
+      {
+        batch,
+        ...(task.kind === "floor" ? { block: { from: input.from, to: input.to } } : {}),
+        kind: "turn",
+        round: input.round,
+        thinking: thinkingOf(input.message),
+        output: textOf(input.message),
+        stopReason: input.message.stopReason,
+        usage: {
+          input: input.message.usage.input,
+          output: input.message.usage.output,
+          totalTokens: input.message.usage.totalTokens,
+        },
+        tools: turnToolsOf(input.message, input.toolResults),
+        ...(input.message.errorMessage === undefined
+          ? {}
+          : { errorMessage: input.message.errorMessage }),
+      },
+      null,
+      2,
+    ),
   };
 }
 
-export interface FillAgentRecorderOptions {
+function thinkingOf(message: AssistantMessage): string {
+  return message.content
+    .filter((block): block is { type: "thinking"; thinking: string } => block.type === "thinking")
+    .map((block) => block.thinking)
+    .join("");
+}
+
+function textOf(message: AssistantMessage): string {
+  return message.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+interface TurnTool {
+  readonly id: string;
+  readonly name: string;
+  readonly args: Record<string, unknown>;
+  readonly result?: string;
+  readonly isError?: boolean;
+}
+
+/** 工具调用与结果配对：结果集按 toolCallId 匹配调用，匹配不到的工具只留调用参数。 */
+function turnToolsOf(
+  message: AssistantMessage,
+  toolResults: readonly ToolResultMessage[],
+): readonly TurnTool[] {
+  const calls = message.content.filter(
+    (
+      block,
+    ): block is {
+      type: "toolCall";
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    } => block.type === "toolCall",
+  );
+  return calls.map((call) => {
+    const result = toolResults.find((toolResult) => toolResult.toolCallId === call.id);
+    return {
+      id: call.id,
+      name: call.name,
+      args: call.arguments,
+      ...(result === undefined
+        ? {}
+        : { result: toolResultTextOf(result), isError: result.isError }),
+    };
+  });
+}
+
+function toolResultTextOf(result: ToolResultMessage): string {
+  return result.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+export interface FillAgentTurnCollectorOptions {
   readonly task: FillTask;
   readonly batch: number;
   readonly from: number;
   readonly to: number;
-  /** 请求行写入：best-effort 由调用方决定（写入失败不阻断 Agent 循环）。 */
+  /** turn 行写入：best-effort 由调用方决定（写入失败不阻断 Agent 循环）。 */
   readonly appendLog: (input: LogAppendInput) => Promise<void>;
 }
 
-export interface FillAgentRecorder {
-  /** 包装 streamFn：逐轮快照新增消息，流终止时写入该轮请求行。 */
-  wrapStreamFn(streamFn: StreamFn): StreamFn;
-  /** 运行结束后的兜底：最终对话记录中未进入任何请求快照的消息。 */
-  trailingMessages(runMessages: readonly AgentMessage[]): readonly AgentMessage[];
+export interface FillAgentTurnCollector {
+  /** Agent 事件监听（runFillAgent onEvent 通道）；只消费 turn_end。 */
+  readonly listener: (event: AgentEvent) => void;
+  /** 等已入队轮次行写完：批结束行落库前调用，保证行序 = 批内时间序。 */
+  flush(): Promise<void>;
 }
 
-export function createFillAgentRecorder(options: FillAgentRecorderOptions): FillAgentRecorder {
-  const { task, batch, from, to } = options;
-  /** 已进入过请求快照的消息（含模型输出） */
-  const covered = new WeakSet<AgentMessage>();
-  /** 已写入请求行 output 的模型输出消息（不在 messages 里重复记录） */
-  const modelOutputs = new WeakSet<AgentMessage>();
-  let coveredCount = 0;
+export function createFillAgentTurnCollector(
+  options: FillAgentTurnCollectorOptions,
+): FillAgentTurnCollector {
   let round = 0;
-  let systemPromptPending = true;
-
-  const wrapStreamFn: FillAgentRecorder["wrapStreamFn"] =
-    (streamFn) => async (model, context, streamOptions) => {
-      round += 1;
-      const currentRound = round;
-      const includeSystemPrompt = systemPromptPending;
-      const messages = context.messages
-        .slice(coveredCount)
-        .filter((message) => !modelOutputs.has(message));
-      // 快照本身逐轮追加（convertToLlm 只过滤不重排）：上次长度之后即本轮新增
-      coveredCount = context.messages.length;
-      for (const message of context.messages) covered.add(message);
-
-      const stream = await streamFn(model, context, streamOptions);
-      return forwardStream(stream, async (output) => {
-        modelOutputs.add(output);
-        systemPromptPending = false;
-        await options.appendLog(
-          fillAgentLog({
-            task,
-            batch,
-            from,
-            to,
-            round: currentRound,
-            systemPrompt: includeSystemPrompt ? (context.systemPrompt ?? "") : undefined,
-            messages,
-            output,
-          }),
-        );
-      });
-    };
-
-  const trailingMessages: FillAgentRecorder["trailingMessages"] = (runMessages) =>
-    runMessages.filter((message) => !covered.has(message) && !modelOutputs.has(message));
-
-  return { wrapStreamFn, trailingMessages };
-}
-
-/**
- * 惰性包装流：观察器挂在原流迭代器上，逐事件透传给 Agent 循环；终止事件
- * （done/error）携带该轮最终助手消息，流静默结束（无终止事件）时回落
- * result()。迭代异常原样传播（不改变任务失败语义），result() 委托原流。
- */
-function forwardStream(
-  stream: AssistantMessageEventStream,
-  observe: (output: AssistantMessage) => Promise<void>,
-): AssistantMessageEventStream {
-  const iterator = stream[Symbol.asyncIterator]();
-  let observed = false;
-  const observeOnce = async (output: AssistantMessage) => {
-    if (observed) return;
-    observed = true;
-    await observe(output);
+  // 写入队列：listener 是同步回调、appendLog 异步——串行链保证行序 = 轮次序。
+  let queue: Promise<void> = Promise.resolve();
+  const listener: FillAgentTurnCollector["listener"] = (event) => {
+    if (event.type !== "turn_end") return;
+    round += 1;
+    const currentRound = round;
+    // turn_end 的 message 必为本轮助手消息（循环事件契约：工具执行后与终止轮都发）。
+    const message = event.message as AssistantMessage;
+    queue = queue.then(() =>
+      options.appendLog(
+        fillAgentTurnLog({
+          task: options.task,
+          batch: options.batch,
+          from: options.from,
+          to: options.to,
+          round: currentRound,
+          message,
+          toolResults: event.toolResults,
+        }),
+      ),
+    );
   };
-  const outputOf = (event: AssistantMessageEvent): AssistantMessage | undefined => {
-    if (event.type === "done") return event.message;
-    if (event.type === "error") return event.error;
-    return undefined;
-  };
-  return {
-    [Symbol.asyncIterator]() {
-      return {
-        next: async () => {
-          const next = await iterator.next();
-          if (next.done) {
-            const output = await stream.result();
-            if (output !== undefined) await observeOnce(output);
-          } else {
-            const output = outputOf(next.value);
-            if (output !== undefined) await observeOnce(output);
-          }
-          return next;
-        },
-      };
-    },
-    result: () => stream.result(),
-  } as unknown as AssistantMessageEventStream;
+  const flush: FillAgentTurnCollector["flush"] = () => queue;
+  return { listener, flush };
 }

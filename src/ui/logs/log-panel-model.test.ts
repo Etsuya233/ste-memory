@@ -62,9 +62,9 @@ describe("日志查询页模型（ADR 0015）", () => {
     expect(LOG_TYPE_OPTIONS).toEqual([
       { value: FILL_TASK_LOG_TYPE, label: "填表任务" },
       { value: FILL_RUN_LOG_TYPE, label: "填表批" },
-      { value: FILL_AGENT_LOG_TYPE, label: "Agent 请求" },
+      { value: FILL_AGENT_LOG_TYPE, label: "Agent 决策" },
     ]);
-    expect(logTypeLabel(FILL_AGENT_LOG_TYPE)).toBe("Agent 请求");
+    expect(logTypeLabel(FILL_AGENT_LOG_TYPE)).toBe("Agent 决策");
     expect(logTypeLabel("unknown-type")).toBe("unknown-type");
   });
 

@@ -1,4 +1,3 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { LogAppendInput, LogLevel } from "../logging/log.ts";
 import type { FillTask } from "./fill-task.ts";
 
@@ -98,8 +97,6 @@ export function fillRunStartLog(input: {
 /**
  * 每批结束行：batch/block（初始化任务省略）/status/errorMessage（无错误为 null）/
  * endedAt/durationMs（批耗时 = 结束时刻 − 批开始时刻）。级别按终态映射。
- * trailingMessages = 运行结束时仍未落入任何请求行的消息（工具执行后直接结束），
- * 无此类消息时省略。
  */
 export function fillRunEndLog(input: {
   readonly task: FillTask;
@@ -110,9 +107,7 @@ export function fillRunEndLog(input: {
   readonly errorMessage: string | null;
   readonly startedAt: string;
   readonly endedAt: string;
-  readonly trailingMessages?: readonly AgentMessage[];
 }): LogAppendInput {
-  const trailing = input.trailingMessages ?? [];
   return {
     type: FILL_RUN_LOG_TYPE,
     key: input.task.runId,
@@ -126,7 +121,6 @@ export function fillRunEndLog(input: {
         errorMessage: input.errorMessage,
         endedAt: input.endedAt,
         durationMs: Date.parse(input.endedAt) - Date.parse(input.startedAt),
-        ...(trailing.length > 0 ? { trailingMessages: trailing } : {}),
       },
       null,
       2,

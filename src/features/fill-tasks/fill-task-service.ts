@@ -25,7 +25,7 @@ import {
 } from "../agent/index.ts";
 import type { MemorySpaceReader } from "../memory/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { runFillAgent } from "../agent/fill-agent-runner.ts";
+import { runFillAgent, systemTextOf } from "../agent/fill-agent-runner.ts";
 import {
   composePresetMessages,
   type AgentPromptSnapshot,
@@ -39,7 +39,11 @@ import {
 } from "./fill-task-block.ts";
 import { applyCleaningRules, type CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
 import { EVIDENCE_INIT_SOURCE_TYPE } from "../../constants.ts";
-import { createFillAgentRecorder } from "./fill-agent-log.ts";
+import {
+  createFillAgentTurnCollector,
+  fillAgentContextLog,
+  type FillAgentContextText,
+} from "./fill-agent-log.ts";
 import { fillRunEndLog, fillRunStartLog, fillTaskEndLog, fillTaskStartLog } from "./fill-log.ts";
 import type { LogAppendInput, LogRepository } from "../logging/log.ts";
 import {
@@ -61,6 +65,17 @@ export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
 
 /** 单块 Agent run 的总超时（对齐 ProposalAgent 默认 5 分钟）。 */
 const BLOCK_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** 本轮输入消息 → 上下文行载荷（文本块拼接为单条文本；runMessages 由本模块构造，必为 user 文本消息）。 */
+function fillAgentInputTextOf(message: AgentMessage): FillAgentContextText {
+  return {
+    role: "user",
+    text: (message as { readonly content: readonly { type: "text"; text: string }[] }).content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join(""),
+  };
+}
 
 /**
  * 填表任务编排上下文（ADR 0024 组装迁移）：**纯数据**，宿主在任务提交时构造
@@ -507,17 +522,15 @@ export class FillTaskService {
       fillRunStartLog({ task, batch, from, to, startedAt }),
       `填表任务 ${task.runId} 批次 ${batch} 开始日志写入失败`,
     );
-    // 请求行记录器（issue 03 / ADR 0016）：每个块一个实例（批内轮次与去重按批重置）。
-    const recorder = createFillAgentRecorder({
+    // turn 采集器（ADR 0016「上下文 + 轮次」形态）：循环每轮 turn_end 事件写一条 turn 行。
+    const collector = createFillAgentTurnCollector({
       task,
       batch,
       from,
       to,
       appendLog: (input) =>
-        this.#appendLog(input, `填表任务 ${task.runId} 批次 ${batch} 请求日志写入失败`),
+        this.#appendLog(input, `填表任务 ${task.runId} 批次 ${batch} Agent 轮次日志写入失败`),
     });
-    // 运行结束时仍未落入请求行的消息（工具执行后直接结束）：进本批结束行。
-    let trailingMessages: readonly AgentMessage[] = [];
     try {
       // 输入源：楼层任务 = 对话消息（实时读）；初始化任务 = 合成单条消息
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
@@ -585,10 +598,26 @@ export class FillTaskService {
                 timestamp: Date.now(),
               },
             ];
+      // 上下文行：批输入快照（系统提示词 + 预设 + 本批消息），批开始即写——
+      // 运行中/中断时系统提示词与预设内容仍可复盘。
+      await this.#appendLog(
+        fillAgentContextLog({
+          task,
+          batch,
+          from,
+          to,
+          systemPrompt: systemTextOf(composed),
+          preset: composed.filter(
+            (message): message is ComposedAgentMessage & { role: "user" | "assistant" } =>
+              message.role !== "system",
+          ),
+          input: runMessages.map(fillAgentInputTextOf),
+        }),
+        `填表任务 ${task.runId} 批次 ${batch} Agent 上下文日志写入失败`,
+      );
       // 组装模块 run（每个块一次完整 Agent 循环；result 形状对齐 ProposalAgentRunResult）。
-      // LLM 端口包上请求行记录器：每次 LLM 调用落一条 fill-agent 行。
       const result = await runFillAgent({
-        llm: { ...llm, streamFn: recorder.wrapStreamFn(llm.streamFn) },
+        llm,
         reader: this.#reader,
         ports: this.#ports,
         memorySpaceId: task.memorySpaceId,
@@ -598,8 +627,10 @@ export class FillTaskService {
         messageRange: { from, to },
         evidence,
         timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
+        onEvent: collector.listener,
       });
-      trailingMessages = recorder.trailingMessages(result.messages);
+      // 轮次行已全部入队：批收尾行落库前等写入链清空（行序 = 批内时间序，best-effort 写入不抛）。
+      await collector.flush();
       if (result.errorMessage !== undefined) {
         throw new Error(`Agent 运行失败：${result.errorMessage}`);
       }
@@ -616,7 +647,6 @@ export class FillTaskService {
             errorMessage: null,
             startedAt,
             endedAt: this.#now(),
-            trailingMessages,
           }),
           `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
         );
@@ -626,6 +656,8 @@ export class FillTaskService {
       // 删除任务行与本次提交在任务表上互斥——重建已提交后旧任务不可能再写入
       // （空间结构也已换新，旧表/字段 ID 不再存在）。空提案同路径：只标记台账，
       // 不产生记忆数据，但同样不得落在重建之后。
+      // 本批是否真正写入（批结束行状态以此为据）：取消落在提交之后不改写已完成的批。
+      let applied = false;
       if (result.proposal) {
         // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
         // 初始化任务无楼层：只提交批次，不标记台账。
@@ -638,6 +670,7 @@ export class FillTaskService {
               messages.map((message) => message.floor),
             );
           }
+          applied = true;
         });
       } else {
         // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
@@ -649,28 +682,29 @@ export class FillTaskService {
               messages.map((message) => message.floor),
             );
           }
+          applied = true;
         });
       }
-      // 批结束行：安全点 3 在事务内拦下（取消落地/任务行消失）→ interrupted（warn），
-      // 否则批提交或空提案确认完成 → succeeded（info 级）。
-      const stopped = !(await this.#isRunning(task.runId));
+      // 批结束行：本批已写入 → succeeded（info 级）；被安全点 3 拦下（取消落地/任务行消失）
+      // → interrupted（warn）——状态取自本批的实际结果，其后的取消不改写已完成的批。
       await this.#appendLog(
         fillRunEndLog({
           task,
           batch,
           from,
           to,
-          status: stopped ? "interrupted" : "succeeded",
+          status: applied ? "succeeded" : "interrupted",
           errorMessage: null,
           startedAt,
           endedAt: this.#now(),
-          trailingMessages,
         }),
         `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
       );
     } catch (error) {
       // 出错批结束行：任务已被取消（批中途中断）→ interrupted（warn）；
       // 否则 failed（error 级），携带可读失败原因后向外抛，由调用方收口任务。
+      // 异常发生在 run 中时轮次行可能仍在写：先排空队列再收尾（不阻断报错传播）。
+      await collector.flush();
       const current = await this.#tasks.find(task.runId);
       const interrupted = current !== undefined && current.status === "interrupted";
       await this.#appendLog(
@@ -683,7 +717,6 @@ export class FillTaskService {
           errorMessage: interrupted ? null : error instanceof Error ? error.message : String(error),
           startedAt,
           endedAt: this.#now(),
-          trailingMessages,
         }),
         `填表任务 ${task.runId} 批次 ${batch} 结束日志写入失败`,
       );

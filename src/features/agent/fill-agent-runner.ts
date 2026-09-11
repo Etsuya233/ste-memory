@@ -85,7 +85,7 @@ export interface FillAgentRunResult {
 }
 
 /** 编排消息里 system 角色的文本按顺序合并为系统提示词（空行分隔）。 */
-function systemTextOf(composed: readonly ComposedAgentMessage[]): string {
+export function systemTextOf(composed: readonly ComposedAgentMessage[]): string {
   return composed
     .filter((message) => message.role === "system")
     .map((message) => message.text)
