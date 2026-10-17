@@ -1,0 +1,131 @@
+/**
+ * Memory 公开入口：其他功能与 UI 只从这里使用 Memory。
+ *
+ * 导出面 = 完整操作（空间/表格/字段/记录/查询/提案提交与预览）+ 公共领域类型
+ * + 持久化接口（repository ports）。内部步骤（校验、修订、历史写入、
+ * 显示文本计算）不在这里暴露；需要提交细节的装配（runtime）使用
+ * `createMemoryCommitContext`。
+ */
+export type { MemorySpaceReader } from "./ports/memory-space-reader.ts";
+export { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "./system-tables/index.ts";
+export type { FieldTemplate, SystemMemoryTableKey, TableTemplate } from "./system-tables/index.ts";
+export { MemorySpaceService } from "./space-service.ts";
+export type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
+export { MemoryTableService } from "./table-service.ts";
+export type { CreateMemoryTableInput, UpdateMemoryTableInput } from "./table-service.ts";
+export type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
+export { MemoryFieldService } from "./field-service.ts";
+export type {
+  CreateMemoryFieldInput,
+  MemoryFieldUpdateResult,
+  UpdateMemoryFieldInput,
+} from "./field-service.ts";
+export type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
+export { MemoryRecordService } from "./record-writer.ts";
+export type {
+  CreateMemoryRecordInput,
+  MemoryRecordPage,
+  UpdateMemoryRecordInput,
+} from "./record-writer.ts";
+export { MemoryRecordQueryService } from "./record-query.ts";
+export type {
+  QueryRecordFieldId,
+  QueryRecordOperator,
+  QueryRecordSystemFieldId,
+  QueryRecordsCondition,
+  QueryRecordsInput,
+  QueryRecordsPage,
+} from "./record-query-contract.ts";
+export { createMemoryCommitContext } from "./internal/commit-context.ts";
+export { createReadTimeDisplayTextResolver } from "./internal/record-display.ts";
+export type {
+  DisplayTextLookups,
+  MemoryRecordDisplayResolver,
+  MemoryRecordDisplayTextResolver,
+} from "./internal/record-display.ts";
+export type { MemoryCommitContextOptions } from "./internal/commit-context.ts";
+export type {
+  MemoryRecordMutationBatchInput,
+  MemoryRecordMutationContext,
+  MemoryRecordMutationOperation,
+  MemoryRecordMutationResult,
+} from "./internal/record-mutations.ts";
+export type {
+  MemoryEvidenceRepository,
+  MemoryRecordHistoryQuery,
+  MemoryRecordMutation,
+  MemoryRecordRepository,
+} from "./ports/memory-record-repository.ts";
+export type { MemoryChangeFingerprint, MemoryChangeSource } from "./ports/change-source.ts";
+export { memoryChangesEqual } from "./ports/change-source.ts";
+export { commitMemoryProposalBatch } from "./internal/proposal-commit.ts";
+export {
+  MEMORY_PROPOSAL_TEMP_ID_PREFIX,
+  isProposalTempId,
+  memoryProposalBatch,
+  memoryProposalError,
+} from "./internal/proposal.ts";
+export type {
+  MemoryMutationBatch,
+  MemoryProposalCreateOperation,
+  MemoryProposalDeleteOperation,
+  MemoryProposalError,
+  MemoryProposalOperation,
+  MemoryProposalUpdateOperation,
+} from "./internal/proposal.ts";
+export {
+  validateProposalOperation,
+  validateProposalOperations,
+} from "./internal/proposal-validation.ts";
+export type { MemoryProposalPorts } from "./internal/proposal-validation.ts";
+export { memoryProposalSubmission, previewProposal } from "./internal/proposal-preview.ts";
+export type {
+  MemoryMessageRange,
+  MemoryProposalPreview,
+  MemoryProposalPreviewChange,
+  MemoryProposalPreviewOperation,
+  MemoryProposalSubmission,
+} from "./internal/proposal-preview.ts";
+export {
+  DomainError,
+  derivedDisplayTemplate,
+  memoryFieldName,
+  memoryFieldPosition,
+  memoryFieldKey,
+  memorySpaceName,
+  memoryTableDisplayFieldIds,
+  memoryTableName,
+  memoryTableKey,
+  remapMemoryTableDisplayStrategy,
+} from "./domain/index.ts";
+export type {
+  DomainErrorData,
+  DomainErrorType,
+  MemoryEvidence,
+  MemoryEvidenceId,
+  MemoryEvidenceInput,
+  MemoryEvidenceReference,
+  MemoryEvidenceSnapshot,
+  MemoryEvidenceSourceId,
+  MemoryField,
+  MemoryFieldEvidence,
+  MemoryFieldId,
+  MemoryFieldKey,
+  MemoryFieldType,
+  MemoryFieldValue,
+  MemoryRecord,
+  MemoryRecordHistory,
+  MemoryRecordHistoryId,
+  MemoryRecordId,
+  MemoryRecordPayload,
+  MemoryRecordSource,
+  MemoryRevisionId,
+  MemoryRevisionSource,
+  MemorySpace,
+  MemorySpaceId,
+  MemoryTable,
+  MemoryTableDisplayStrategy,
+  MemoryTableId,
+  MemoryTableKey,
+  MemoryTableKind,
+} from "./domain/index.ts";

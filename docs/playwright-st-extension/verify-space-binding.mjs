@@ -1,5 +1,4 @@
 // ticket 05 手动验收：真实 ST 中「打开对话建空间 → 发消息 → 切对话 → 重命名 → 刷新不重建」全流程。
-/* global SillyTavern, $, document, indexedDB */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 说明：仅针对测试实例（tmp/SillyTavern_Source_Code）；启动时会清掉测试角色的对话文件残留。
 // 用法：node verify-space-binding.mjs（exit 0 = 全流程通过）

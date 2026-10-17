@@ -5,7 +5,6 @@
 // 公开 API，handler 不消费 env）；数据写入走插件运行时（bootstrap 暴露的
 // __STE_MEMORY_RUNTIME__，core 服务层 → displayText/updatedAt/指纹全链路）。
 //
-// /* global SillyTavern, document, indexedDB, window */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-memory-macro.mjs（exit 0 = 全流程通过；脚本自清理：删除验收记录并恢复默认设置）
 import { existsSync, readdirSync, rmSync } from "node:fs";

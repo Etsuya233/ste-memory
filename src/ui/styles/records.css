@@ -1,0 +1,602 @@
+/* ---------- 记录视图：列表/详情/表单/证据楼层 chip ---------- */
+
+/* ============================================================
+ * 记录视图（ticket 11）：列表/详情/表单/证据楼层 chip
+ * 证据楼层 chip 是全插件唯一签名元素（spec §11）：铜绿 + 等宽 #N
+ * ============================================================ */
+
+.stm-record-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 工具栏（ticket 21）：操作行（新行/放弃/保存）+ 选择行（表格 chip 横向滑动 + 右侧折叠搜索） */
+.stm-record-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.stm-record-actions .stm-button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* 表格选择 chip 行：横向滑动 + scroll-snap（宽窄屏同一布局） */
+.stm-record-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stm-record-tables {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.stm-record-tables::-webkit-scrollbar {
+  display: none;
+}
+
+.stm-record-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--stm-border);
+  background: var(--stm-ink-bg);
+  color: var(--stm-ink-secondary);
+  font-size: 13px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stm-record-chip--active {
+  border-color: var(--stm-accent);
+  color: var(--stm-ink);
+  background: color-mix(in srgb, var(--stm-accent) 14%, var(--stm-ink-bg));
+}
+
+.stm-record-chip--disabled {
+  opacity: 0.45;
+}
+
+.stm-record-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stm-record-search-toggle {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--stm-border);
+  background: var(--stm-ink-bg);
+  color: var(--stm-ink-secondary);
+  cursor: pointer;
+}
+
+.stm-record-search-toggle:hover {
+  color: var(--stm-accent);
+}
+
+.stm-record-table-meta {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+/* 记录网格（表格填写视图）：行 = 记录、列 = 字段；冻结表头 + 冻结行号列 + 可调列宽 */
+.stm-grid-scroll {
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid var(--stm-border);
+  border-radius: 12px;
+  background: var(--stm-surface);
+}
+
+.stm-grid {
+  display: grid;
+  min-width: max-content;
+}
+
+/* 单元格：默认上下居中；查看/编辑单元格高度由行高决定（行内 style）。 */
+.stm-grid-cell {
+  min-height: 32px;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--stm-border);
+  border-right: 1px solid var(--stm-border);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stm-grid-cell--input {
+  display: block;
+}
+
+/* 已修改（未保存）行：背景色标记（ticket 21） */
+.stm-grid-cell--dirty {
+  background: color-mix(in srgb, var(--stm-accent) 9%, var(--stm-surface));
+}
+
+/* 查看模式单元格：默认态，整行只读文本；行数按行高计算（默认 60px ≈ 3 行，拖高后
+   显示可容纳的整行数、无上限，行数由 grid-editor 按行高算出并以行内
+   -webkit-line-clamp 覆盖，见 gridViewLineCount），点击进入编辑模式（停用字段不可点击） */
+.stm-grid-cell--view {
+  padding: 4px 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.stm-grid-cell--view .stm-grid-view-text {
+  width: 100%;
+  font-size: 13px;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+/* 停用字段的查看文本：次级色、不可点击 */
+.stm-grid-cell--view .stm-grid-view-text--disabled {
+  color: var(--stm-ink-secondary);
+  cursor: default;
+}
+
+/* 表头行：纵向滚动冻结；字段名 + 必填标记 + 停用徽标 */
+.stm-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--stm-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-grid-head-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stm-grid-head-disabled {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 999px;
+  color: var(--stm-warning);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+/* 行号列：横向滚动冻结（行号按钮点按进详情）；保存中显示转圈状态 */
+.stm-grid-rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--stm-ink-bg);
+  justify-content: center;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+
+/* 表头行号交叉单元格：两个方向都冻结，压在最上层 */
+.stm-grid-head.stm-grid-rownum {
+  z-index: 3;
+}
+
+.stm-grid-rownum--new {
+  color: var(--stm-accent);
+  font-weight: 600;
+}
+
+.stm-grid-rownum-saving {
+  color: var(--stm-accent);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.stm-grid-rownum-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stm-grid-rownum-btn:hover {
+  color: var(--stm-accent);
+}
+
+/* 行高拖拽把手（行号单元格下缘；与列宽把手同一模式，纵向） */
+.stm-grid-row-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 9px;
+  cursor: row-resize;
+  touch-action: none;
+  z-index: 4;
+}
+
+.stm-grid-row-resize::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: transparent;
+}
+
+.stm-grid-row-resize:hover::after,
+.stm-grid-row-resize:focus-visible::after {
+  background: var(--stm-accent);
+}
+
+/* 列宽拖拽把手（表头单元格右缘；sticky 表头即定位祖先） */
+.stm-grid-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 4;
+}
+
+.stm-grid-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.stm-grid-resize:hover::after,
+.stm-grid-resize:focus-visible::after {
+  background: var(--stm-accent);
+}
+
+/* 单元格输入：铺满、透明底、无边框（网格边框由单元格承担）；
+   textarea 填满单元格（ticket 21），内容超出内部滚动 */
+.stm-grid-cell input[type="text"],
+.stm-grid-cell input[type="number"],
+.stm-grid-cell input[type="date"],
+.stm-grid-cell input[type="datetime-local"],
+.stm-grid-cell select,
+.stm-grid-cell textarea {
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--stm-ink);
+  font-size: 13px;
+  font-family: var(--stm-font);
+}
+
+.stm-grid-cell textarea {
+  resize: none;
+  height: 100%;
+  min-height: 32px;
+  line-height: 1.5;
+}
+
+/* 原生多选（ticket 21）：适配默认 3 行行高 */
+.stm-grid-cell .stm-input--multiselect {
+  height: 100%;
+  min-height: 0;
+}
+
+.stm-grid-cell .stm-switch {
+  margin: 0;
+}
+
+/* 行底错误条（ticket 21）：跨整行宽；提交错误置顶，校验错误逐行 */
+.stm-grid-row-errors {
+  background: color-mix(in srgb, var(--stm-danger) 10%, var(--stm-surface));
+  border-bottom: 1px solid var(--stm-border);
+  border-right: 1px solid var(--stm-border);
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stm-grid-row-error {
+  color: var(--stm-danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stm-source-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 999px;
+}
+
+.stm-source-badge--manual {
+  color: var(--stm-ink-secondary);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+.stm-source-badge--agent {
+  color: var(--stm-ink-bg);
+  background: var(--stm-accent);
+}
+
+/* 分页 */
+.stm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.stm-page-button {
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-page-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stm-pagination-info {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+/* 记录详情 */
+.stm-record-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-record-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stm-record-detail-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* 详情页头：网格中有未保存草稿的提示（详情显示的是已保存值） */
+.stm-record-detail-unsaved {
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--stm-warning);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  white-space: nowrap;
+}
+
+.stm-record-display-large {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+}
+
+.stm-record-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stm-record-meta-time {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+.stm-record-revision {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+}
+
+.stm-no-evidence {
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-style: italic;
+  padding: 6px 10px;
+  background: var(--stm-ink-bg);
+  border: 1px dashed var(--stm-border);
+  border-radius: 8px;
+}
+
+/* 详情字段值 */
+.stm-record-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-record-field {
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.stm-record-field-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.stm-record-field-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--stm-ink);
+}
+
+.stm-field-disabled {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--stm-warning);
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+}
+
+.stm-record-field-value {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--stm-ink);
+  overflow-wrap: anywhere;
+}
+
+/* 证据楼层 chip（签名元素）：铜绿 + 等宽 #N */
+.stm-evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stm-evidence-chip-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.stm-evidence-chip {
+  /* spec §11 触控目标 ≥44px（签名元素：点按跳转 + 长按摘录） */
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stm-border);
+  background: var(--stm-ink-bg);
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font-mono);
+  cursor: default;
+}
+
+.stm-evidence-chip--floor {
+  background: var(--stm-accent);
+  border-color: var(--stm-accent);
+  color: var(--stm-ink-bg);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.stm-evidence-chip--floor:hover {
+  filter: brightness(1.1);
+}
+
+.stm-evidence-chip-floor {
+  font-family: var(--stm-font-mono);
+}
+
+/* 悬停/长按浮出的原文摘录 */
+.stm-evidence-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 260px;
+  max-width: 70vw;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  padding: 8px 10px;
+  pointer-events: none;
+}
+
+.stm-evidence-popover-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.stm-evidence-popover-floor {
+  color: var(--stm-accent);
+  font-family: var(--stm-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.stm-evidence-popover-name {
+  color: var(--stm-ink-secondary);
+  font-size: 11px;
+}
+
+.stm-evidence-popover-content {
+  color: var(--stm-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  max-height: 132px;
+  overflow-y: auto;
+}

@@ -1,56 +1,76 @@
 # STR-MEMORY
 
-本仓库用于构建 SillyTavern 长对话记忆的本地实验工具。当前提供纯逻辑 Core、HTTP API 与 React Web，并支持上传 SillyTavern JSONL 创建记忆空间、浏览原始聊天及管理空间；API 使用 Kysely 与 better-sqlite3 持久化应用数据。
+SillyTavern 长对话记忆插件的源码仓库：在对话文件之外维护可修订的「记忆表格」，
+供角色卡与提示词预设通过宏注入当前认知，并支持手动编辑、Agent 填表、问答与
+本地备份/镜像恢复。全部数据默认存在浏览器 IndexedDB 与对话文件（chatMetadata）
+中，不依赖任何远端服务。
 
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev/)
 
-项目通过 [`mise.toml`](./mise.toml) 固定 Node.js 和 pnpm 版本，不使用 Corepack。
+项目通过 [`mise.toml`](./mise.toml) 固定 Node.js 与 pnpm 版本，不使用 Corepack。
 
-## Start Locally
+## 开始
 
 ```bash
 mise install
 pnpm install
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env
-pnpm web:migrate
-pnpm web:dev
 ```
 
-API 默认运行在 `http://127.0.0.1:3000`，Web 默认运行在 `http://127.0.0.1:5173`。Web 首屏提供记忆空间列表，可上传 JSONL、浏览原始消息和解析错误，并进行重命名与删除。
-
-默认 API 只监听 `127.0.0.1`，用于本机单用户实验，当前版本不提供认证。
-
-## Configuration
-
-每个 Adapter 维护自己的环境配置，不共享根级 `.env`：
-
-- [`apps/api/.env.example`](./apps/api/.env.example) 配置 API 监听地址和应用 SQLite 数据库。
-- [`apps/web/.env.example`](./apps/web/.env.example) 配置 Web 使用的 API 地址。
-
-`DATABASE_URL` 指向唯一的应用数据库文件。Schema、Kysely 迁移、连接生命周期和 SQLite Adapter 均由 API 宿主管理；Memory 业务模块只保留领域模型、应用用例及其 Ports。迁移通过 `pnpm web:migrate` 显式执行。
-
-## Seed Demo Data
-
-内置两套演示种子数据（同一故事、日文版与中文版，剧情纪要 114 条，其余系统表依据纪要内容推导）：
+## 开发命令
 
 ```bash
-pnpm seed:jp    # 日文版「藤ノ森学園の放課後」
-pnpm seed:zh    # 中文版「藤ノ森学园放学后」
-pnpm seed       # 两版都写入
+pnpm dev          # esbuild watch + 同步到 ST 扩展目录（需 .env 配置）
+pnpm build        # 产物写到 dist/：index.js / manifest.json / style.css
+pnpm typecheck    # tsc -p tsconfig.json
+pnpm lint         # eslint .
+pnpm format:check # prettier --check .
+pnpm test         # vitest run
 ```
 
-默认写入应用数据库 `data/ste-memory.sqlite`；也可通过 `--db` 指定目标 SQLite 文件（支持 `sqlite:` 前缀，相对路径基于仓库根目录）：
+真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
+通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。
 
-```bash
-pnpm run seed:jp -- --db /path/to/other.db
+## ST 安装与同步
+
+`pnpm dev` / `pnpm sync` 会把 `dist/` 拷进 SillyTavern 的
+`public/scripts/extensions/third-party/ste-memory`（**会写入 ST 安装目录**）。
+目标位置从仓库根 `.env` 读取，二选一（参考 [`.env.example`](./.env.example)）：
+
+- `STE_ST_EXTENSION_DIR`：直接指向扩展目标目录；
+- `STE_ST_INSTALL`：SillyTavern 安装根目录，自动推导扩展子路径。
+
+## 发布
+
+`pnpm release:st` 重新生成 `release/sillytavern-plugin` 分支（构建产物分支，
+SillyTavern 通过该分支安装/更新）。默认只更新本地分支，`--push` 才推送远端。
+
+## 目录结构
+
+```text
+src/
+├── index.ts / bootstrap.ts / runtime.ts   # 入口、ST 环境守卫、组合根
+├── features/                              # 业务功能（直接函数/服务调用，无事件总线）
+│   ├── memory/                            # 共享记忆模型与写入规则（唯一来源）+ 公开入口
+│   ├── agent/                             # 提案/查询 Agent 运行与工具
+│   ├── fill-tasks/  query-chat/  macros/  # 填表任务、问答面板、宏
+│   ├── backup/  chat-mirror/              # 备份文件格式、镜像格式与导出辅助
+│   └── settings/ cleaning/ chat-binding/ space-maintenance/ logging/ agent-presets/
+├── infrastructure/                        # 具体实现：IndexedDB（Dexie）、SillyTavern 适配器、浏览器
+├── ui/                                    # 面板 React 组件与纯逻辑模型（shell/memory/tasks/…）
+└── common/                                # 跨功能的小工具（定时器端口、轮询骨架）
 ```
 
-脚本幂等：同名记忆空间会先被删除（外键级联）再重建，其他空间不受影响。种子数据源位于 `scripts/seed/`，由 `seed-lib.mjs`（入库机制）与 `seed-data-jp.mjs` / `seed-data-zh.mjs`（故事数据）组成。
+约束：
 
-## Verification
+- 其他功能与 UI 只能通过 `src/features/memory/index.ts` 使用 Memory（领域类型、
+  完整操作与持久化接口都在入口导出）；内部步骤（校验、修订、历史写入、显示文本
+  计算）不对外暴露。
+- 功能层不依赖 `infrastructure/` 与 `ui/`；具体实现由 `runtime.ts` 装配注入。
+- `tests/architecture/` 与 ESLint `no-restricted-imports` 同时强制以上方向。
+
+## 验证
 
 ```bash
 pnpm typecheck
@@ -60,14 +80,10 @@ pnpm test
 pnpm build
 ```
 
-## Project Boundaries
+## 文档
 
-- `core/src/memory`: 当前唯一的业务模块，内部按 Domain、Application、inbound Ports 和 outbound Ports 组织，不依赖 HTTP、SQLite、SillyTavern 或 LLM SDK。
-- `apps/api/src/application`: API 宿主专属流程和 Ports，例如来源聊天导入、系统表安装和运行状态查询。
-- `apps/api/src/adapters/inbound`: HTTP 路由、SillyTavern JSONL 解析等驱动 Adapter。
-- `apps/api/src/adapters/outbound`: SQLite 持久化、Source Store、数据库生命周期和健康检查等被驱动 Adapter。
-- `apps/api/src/main.ts`: API Composition Root，只负责配置读取、Adapter 构造、业务模块装配和宿主启动。
-- `apps/web`: React 实验界面，只通过 HTTP API 访问系统，并在自身 API client 边界维护传输契约。
-- `packages/tools`: 与平台无关的通用接口，目前包含异步 `UnitOfWork`。
-- `packages/memory-host-shared`: 系统表模板共享包（ADR 0020）——七张系统表 + 世界状态表的字段、固定选项与 v4 提示词，以及 `SystemMemoryTableInstaller`，由 apps/api 与 apps/st-extension 共用。
-- `packages/shared`: ESLint 和 Prettier 的共享配置。
+- 领域与插件词汇：[`CONTEXT.md`](./CONTEXT.md)
+- 结构决策：[`docs/adr`](./docs/adr)（插件决策在 `docs/adr/st`）
+- 对话文件镜像格式：[`docs/chat-metadata-mirror.md`](./docs/chat-metadata-mirror.md)
+- 记忆视图与记忆查询：[`docs/memory-views.md`](./docs/memory-views.md)
+- 本轮架构收敛：[`docs/refactor-plan.md`](./docs/refactor-plan.md)、[`docs/refactor-progress.md`](./docs/refactor-progress.md)

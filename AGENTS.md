@@ -18,4 +18,4 @@ The default five canonical triage labels are used. See `docs/agents/triage-label
 
 ### Domain docs
 
-This is a multi-context layout using root `CONTEXT-MAP.md` and per-context `CONTEXT.md` files (core owns the domain glossary; apps is shared by api + web). See `docs/agents/domain.md`.
+This is a single-context layout: vocabulary lives in the root `CONTEXT.md`, decisions in `docs/adr/`. See `docs/agents/domain.md`.

@@ -6,7 +6,6 @@
 // world-info.js:4937 已核实）；数据写入走插件运行时（__STE_MEMORY_RUNTIME__，
 // core 服务层全链路）。
 //
-// /* global SillyTavern, document, indexedDB, window */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-memory-views.mjs（exit 0 = 全流程通过；脚本自清理：删除验收记录/
 // 视图设置/世界书条目并恢复默认设置）
@@ -242,7 +241,8 @@ async function main() {
     check("未知视图名：空串不阻断", unknown === "", JSON.stringify(unknown));
 
     // 8. 世界书条目关键词触发：建书 + 条目（内容 = 宏）→ 分配给当前对话 → dry-run 扫描
-    const wi = await page.evaluate(async (bookName) => {      const ctx = SillyTavern.getContext();
+    await page.evaluate(async (bookName) => {
+      const ctx = SillyTavern.getContext();
       await ctx.saveWorldInfo(bookName, { entries: {} }, true);
       await ctx.updateWorldInfoList();
       ctx.chatMetadata["world_info"] = bookName;

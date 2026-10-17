@@ -1,0 +1,688 @@
+/* ---------- 面板骨架：顶部按钮 + 抽屉/浮动窗口 + Tab + 设置分组 ---------- */
+
+/* ============================================================
+ * 面板骨架（ticket 06）：顶部按钮 + 抽屉/浮动面板 + 底部 Tab
+ * 移动端优先：默认 = 全屏底部抽屉；桌面（≥1001px，与 ST 移动断点一致）
+ * = 居中大尺寸浮动窗口：顶栏拖拽移动 + 右下角缩放手柄（几何走 CSS 变量，
+ * 只被桌面媒体查询消费）。色板/字体全部走令牌；类名 stm- 前缀隔离，
+ * 不依赖 ST 主题变量。动效只留抽屉开合（spec UI 契约），尊重 reduced-motion。
+ * ============================================================ */
+
+/* 顶部工具栏按钮（插入 #top-settings-holder；自身完整自绘，仅借用容器位置） */
+.stm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.stm-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  color: var(--stm-ink);
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.stm-toolbar-button:hover {
+  opacity: 0.95;
+}
+
+.stm-toolbar-button[aria-pressed="true"] {
+  color: var(--stm-accent);
+  opacity: 1;
+}
+
+/* 魔法棒入口项：随 ST 菜单原生样式（list-group-item），只补按压/展开态与焦点 */
+.stm-wand-entry {
+  cursor: pointer;
+  user-select: none;
+}
+
+.stm-wand-entry .extensionsMenuExtensionButton {
+  color: var(--stm-ink-secondary);
+}
+
+.stm-wand-entry:hover .extensionsMenuExtensionButton,
+.stm-wand-entry:focus-visible .extensionsMenuExtensionButton {
+  color: var(--stm-ink);
+}
+
+.stm-wand-entry:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: -2px;
+}
+
+.stm-wand-entry[aria-pressed="true"] .extensionsMenuExtensionButton {
+  color: var(--stm-accent);
+}
+
+.stm-wand-entry[aria-pressed="true"] {
+  background: var(--stm-success-dim);
+}
+
+/* 面板：移动端 = 全屏底部抽屉（默认态，移动优先）。
+ * 注意：不能用 bottom: 0 锚定——ST 给 html 加了 -webkit-transform: translateZ(0)
+ * （防模糊闪烁），html 成为 fixed 包含块，而移动端 body 为 fixed 导致 html 高度
+ * 塌缩为 0，bottom: 0 会把面板顶到视口上方（真机踩坑，2026-08-08）。改以 top: 0
+ * 锚定（html 顶边 = 视口顶边）+ 关闭态 translateY 推到视口下方；底部内缩（面板
+ * 安全区）不能设 bottom，只能以高度计算表达，关闭位移相应补上底部内缩避免残影。 */
+.stm-panel {
+  position: fixed;
+  left: var(--stm-safe-left, 0);
+  right: var(--stm-safe-right, 0);
+  top: var(--stm-safe-top, 0);
+  z-index: 3010;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: calc(100dvh - var(--stm-safe-top, 0px) - var(--stm-safe-bottom, 0px));
+  background: var(--stm-surface);
+  color: var(--stm-ink);
+  font-family: var(--stm-font);
+  border-radius: 14px 14px 0 0;
+  border-top: 1px solid var(--stm-border);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+  visibility: hidden;
+  transform: translateY(calc(100% + var(--stm-safe-bottom, 0px)));
+  transition:
+    transform 0.22s ease-out,
+    visibility 0.22s;
+}
+
+.stm-panel.stm-panel--open {
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.stm-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--stm-border);
+}
+
+.stm-space-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.stm-space-status {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+/* 收起按钮：触控目标 ≥44px */
+.stm-panel-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -8px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.stm-panel-close:hover {
+  color: var(--stm-ink);
+}
+
+/* 底部 Tab：触控目标 ≥44px；当前 Tab 铜绿下划线 */
+
+/* 记忆宏组内作用域分区（内置/全局/对话级）分段切换 */
+.stm-macro-scope-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  background: var(--stm-ink-bg);
+  margin-bottom: 8px;
+}
+
+.stm-macro-scope-tab {
+  flex: 1;
+  min-height: 32px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-macro-scope-tab:hover {
+  color: var(--stm-ink);
+}
+
+.stm-macro-scope-tab[aria-selected="true"] {
+  color: var(--stm-ink);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--stm-accent) 12%, transparent);
+}
+.stm-tabbar {
+  display: flex;
+  border-bottom: 1px solid var(--stm-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.stm-tab {
+  flex: 1;
+  min-height: 44px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 14px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+  position: relative;
+}
+
+.stm-tab:hover {
+  color: var(--stm-ink);
+}
+
+.stm-tab[aria-selected="true"] {
+  color: var(--stm-ink);
+  font-weight: 600;
+}
+
+.stm-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--stm-accent);
+}
+
+.stm-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+}
+
+/* 桌面浮动窗口缩放手柄：右下角双斜线把手（视觉签名）；移动端全屏抽屉隐藏 */
+.stm-panel-resize {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+.stm-panel-resize::before {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid var(--stm-ink-secondary);
+  border-bottom: 2px solid var(--stm-ink-secondary);
+  border-bottom-right-radius: 2px;
+  opacity: 0.55;
+}
+
+.stm-panel-resize:hover::before {
+  border-color: var(--stm-accent);
+  opacity: 1;
+}
+
+/* 空状态（「空状态是邀请」风格） */
+.stm-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-empty-title {
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: var(--stm-ink);
+}
+
+.stm-empty-hint {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 表格列表（紧凑账本行） */
+.stm-table-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-table-card {
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stm-table-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 6px 10px 6px 4px;
+}
+
+/* 展开按钮：触控目标 44×44 */
+.stm-expand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stm-expand:hover {
+  color: var(--stm-ink);
+}
+
+.stm-table-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-table-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.stm-table-kind {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--stm-ink-secondary);
+  border: 1px solid var(--stm-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+
+.stm-table-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  border-top: 1px dashed var(--stm-border);
+}
+
+.stm-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 12px 4px 16px;
+}
+
+.stm-field-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-field-name {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.stm-field-required {
+  margin-left: 4px;
+  color: var(--stm-warning);
+}
+
+.stm-field-tag {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--stm-ink-secondary);
+  font-family: var(--stm-font-mono);
+}
+
+/* 自绘开关：label 触控目标 52×44（≥44px 契约），可视轨道 44×26 居中 */
+.stm-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  width: 52px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.stm-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.stm-switch-track {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 4px;
+  right: 4px;
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  background: var(--stm-ink-bg);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.stm-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--stm-ink-secondary);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.stm-switch input:checked + .stm-switch-track {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent);
+}
+
+.stm-switch input:checked + .stm-switch-track::after {
+  transform: translateX(18px);
+  background: var(--stm-ink-bg);
+}
+
+.stm-switch input:focus-visible + .stm-switch-track {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
+}
+
+/* 设置面板 */
+.stm-setting-group {
+  margin-bottom: 6px;
+}
+
+.stm-setting-group-title {
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--stm-border);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--stm-accent);
+}
+
+/* 可折叠设置分组（spec 设置界面移动端优化） */
+.stm-setting-group--collapsible {
+  margin-bottom: 8px;
+}
+
+.stm-setting-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed var(--stm-border);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--stm-font);
+  color: var(--stm-accent);
+}
+
+.stm-setting-group-header:hover {
+  border-color: var(--stm-accent);
+}
+
+.stm-setting-group-header:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.stm-setting-group-header-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stm-setting-group-title--collapsible {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.stm-setting-group-summary {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--stm-ink-secondary);
+  letter-spacing: normal;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-setting-group-header i.fa-solid {
+  flex: none;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-setting-group-header:hover i.fa-solid {
+  color: var(--stm-accent);
+}
+
+.stm-setting-group-body {
+  padding-top: 8px;
+}
+
+/* 管理器在可折叠体内：隐藏内部重复标题，避免双标题 */
+.stm-setting-group-body--manager > .stm-setting-group {
+  margin-bottom: 0;
+}
+
+.stm-setting-group-body--manager > .stm-setting-group > .stm-setting-group-title,
+.stm-setting-group-body--manager > div > .stm-setting-group-title {
+  display: none;
+}
+
+/* data-stm-section 标题同样隐藏（Agent 预设） */
+.stm-setting-group-body--manager [data-stm-section="agent-presets"] > .stm-setting-group-title {
+  display: none;
+}
+
+.stm-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 0;
+}
+
+.stm-setting-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-setting-name {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.stm-setting-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--stm-ink-secondary);
+}
+
+/* 面板入口三选一按钮（设置分组内） */
+.stm-entry-option {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink-secondary);
+  font-size: 13px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-entry-option:hover {
+  color: var(--stm-ink);
+}
+
+.stm-entry-option--active {
+  border-color: var(--stm-accent);
+  color: var(--stm-accent);
+}
+
+/* 面板安全区：四边输入 2×2 网格；面板内缩变量（--stm-safe-*）由面板宿主设置，
+ * 仅移动媒体查询消费——桌面查询显式覆盖 left/top/right/height，这些变量对桌面惰性。 */
+.stm-safe-area-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.stm-safe-area-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 设置行内的表单控件（ticket 22 清洗规则）：stm-input 默认 width:100%，直接作
+ * 为 stm-setting-row 的 flex 子项时 flex-basis=100% + select 固有最小宽度会把左侧
+ * 文本挤压换行；改为 flex 等分 + 允许收缩（label flex:1 同权，文本可自然折行）。 */
+.stm-setting-row > .stm-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.stm-setting-value {
+  font-size: 13px;
+  color: var(--stm-ink-secondary);
+}
+
+.stm-setting-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* 设置组内分隔（全库 / 单空间 备份两组按钮之间） */
+.stm-setting-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--stm-border);
+}
+
+.stm-button {
+  min-height: 36px;
+  padding: 8px 14px;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 13px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-button:hover {
+  border-color: var(--stm-accent);
+}
+
+.stm-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--stm-border);
+}
+
+.stm-button:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
+}
+
+.stm-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink);
+  font-size: 14px;
+  font-family: var(--stm-font);
+}
+
+.stm-input:disabled {
+  opacity: 0.55;
+}
+
+.stm-mono {
+  font-family: var(--stm-font-mono);
+}

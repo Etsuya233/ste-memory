@@ -1,6 +1,5 @@
 // ticket 12 手动验收：真实 ST 中经插件 LLM 适配器（ST backends 同源代理）
 // 调用一次生成成功——streamFn 端到端（CSRF 令牌 → generate 端点 → SSE → pi 事件）。
-// /* global __STE_MEMORY_RUNTIME__, SillyTavern */
 //
 // 前置：
 //   1. ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/；

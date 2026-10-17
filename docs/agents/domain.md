@@ -4,34 +4,30 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists -- it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`** -- read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+- **`CONTEXT.md`** at the repo root (single context: domain + plugin vocabulary).
+- **`docs/adr/`** -- read ADRs that touch the area you're about to work in; `docs/adr/st/` holds plugin-scoped decisions.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
 ## File structure
 
-Multi-context repo (this repo — `CONTEXT-MAP.md` exists at the root):
+Single-context repo (this repo):
 
 ```
 /
-|- CONTEXT-MAP.md                     <- read first: which context owns what
-|- docs/adr/                          <- system-wide decisions
-|- core/
-|  |- CONTEXT.md                      <- domain vocabulary (memory tables, evidence, revisions, spaces…)
-|  `- docs/adr/                       <- core-scoped decisions (created lazily)
-`- apps/
-   |- CONTEXT.md                      <- app-layer vocabulary, shared by apps/api + apps/web
-   |- docs/adr/                       <- app-scoped decisions (created lazily)
-   |- api/
-   `- web/
+|- CONTEXT.md                         <- domain + plugin vocabulary (one glossary)
+|- docs/adr/                          <- structural decisions
+|- docs/adr/st/                       <- plugin-scoped decisions
+`- src/
+   |- features/                       <- memory, agent, fill-tasks, query-chat, macros, …
+   |- infrastructure/                 <- indexeddb, sillytavern
+   |- ui/                             <- panel UI (shell / memory / tasks / …)
+   `- common/
 ```
 
-Context ownership:
-
-- The **core** context owns the domain vocabulary; every other context reads it without redefining it.
-- The **apps** context is one context shared by `apps/api` and `apps/web` — they are a pair with one vocabulary; never define an app-layer term for only one of them.
+Context ownership: the repo has exactly one context, so every term is defined once in
+`CONTEXT.md`. The memory feature owns the shared domain model; other features read it
+through `src/features/memory/index.ts`.
 
 ## Use the glossary's vocabulary
 

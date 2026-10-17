@@ -1,6 +1,5 @@
 // ticket 06 手动验收：真实 ST 中「顶部按钮 → 面板骨架（移动抽屉/桌面居中浮动窗口，
 // 含顶栏拖拽与右下角缩放）→ 表格列表启停落库 → 设置面板持久化与插件开关」全流程。
-/* global SillyTavern, document, indexedDB, window, getComputedStyle */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-ui-shell.mjs（exit 0 = 全流程通过）
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -412,7 +411,7 @@ async function main() {
         if (btn && btn.getAttribute("aria-expanded") === "false") btn.click();
       };
       // 按 spec 常用顺序展开，便于后续校验
-      ["macro", "r2", "version", "backup", "mirror"].forEach(expand);
+      ["macro", "version", "backup", "mirror"].forEach(expand);
       // 宏名/上限输入已移入「宏设置」分区（内置/全局/对话级/宏设置，默认全局宏）：先切分区
       document.querySelector('#stm-panel button[data-macro-scope="settings"]')?.click();
     });
@@ -420,7 +419,6 @@ async function main() {
     const settings = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="settings"]');
       const text = section?.textContent ?? "";
-      const r2Inputs = [...section.querySelectorAll('input[data-stm-field^="r2-"]')];
       const macroInput = section.querySelector('input[data-stm-field="macro-name"]');
       const limitInput = section.querySelector('input[data-stm-field="macro-limit"]');
       return {
@@ -428,8 +426,6 @@ async function main() {
         pluginSwitchOn: section?.querySelector('input[data-action="toggle-plugin"]')?.checked ?? null,
         version: text.match(/v\d+\.\d+\.\d+/)?.[0] ?? "",
         hasStatus: text.includes("运行状态") && text.includes("空间同步正常"),
-        // ticket 08：R2 四项为可编辑输入（未配置时值为空）
-        r2Editable: r2Inputs.length === 4 && r2Inputs.every((i) => !i.disabled),
         // ticket 15：宏名与上限为可编辑输入（默认 {{memoryContext}} / 2000）
         macroEditable: macroInput?.disabled === false && macroInput?.value === "{{memoryContext}}"
           && limitInput?.disabled === false && limitInput?.value === "2000",
@@ -439,15 +435,13 @@ async function main() {
         hasSpaceBackup: !!section?.querySelector('button[data-action="export-space-backup"]')
           && !!section?.querySelector('button[data-action="import-space-backup"]')
           && !!section?.querySelector('input[data-stm-field="import-space-backup-file"]'),
-        hasSyncStatus: !!section?.querySelector('[data-stm-field="cloud-sync-status"]')
-          && !!section?.querySelector('button[data-action="sync-now"]'),
         // ticket 16：对话文件镜像组（开关 + 包含修订历史 + 状态行）
         hasMirror: !!section?.querySelector('input[data-action="toggle-mirror"]')
           && !!section?.querySelector('input[data-action="toggle-mirror-history"]')
           && !!section?.querySelector('[data-stm-field="mirror-status"]'),
         // collapsible：默认折叠，标题与摘要可见
         hasCollapsible: !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="macro"]')
-          && !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="r2"]'),
+          && !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="mirror"]'),
         orderOk: (() => {
           const titles = [...section.querySelectorAll('button[data-action="toggle-settings-group"]')].map(b => b.textContent ?? "");
           const idx = (kw) => titles.findIndex(t => t.includes(kw));
@@ -457,8 +451,6 @@ async function main() {
     });
     check("设置 Tab：插件开关 + 版本 + 运行状态", settings.hasPluginSwitch && settings.hasStatus, JSON.stringify(settings));
     check("设置 Tab：版本号展示", settings.version === "v0.1.0", settings.version);
-    check("设置 Tab：R2 配置可编辑（4 个输入，ticket 08 生效）", settings.r2Editable);
-    check("设置 Tab：同步状态组（状态行 + 立即同步按钮）", settings.hasSyncStatus);
     check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
     check("设置 Tab：记忆宏配置可编辑（宏名默认 {{memoryContext}} + 上限 2000，ticket 15 生效）", settings.macroEditable);
     check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);

@@ -1,5 +1,7 @@
 # 系统表模板收编共享包（api 与插件共用）
 
+> **部分废弃（被取代）**：`packages/memory-host-shared` 已删除，模板直接归入 Memory（`src/features/memory/system-tables`）；「模板单一来源、不双份维护」的结论仍然成立。
+
 系统表模板定义（七张系统表 + 世界状态表的字段、固定选项、v4 提示词）从 `apps/api/src/application/system-memory` 收进 `packages/` 下的共享包（如 `packages/memory-host-shared`），`apps/api` 与 `apps/st-extension` 同时引用；模板仍属宿主资产，core 只区分系统表 kind（词汇表语义不变）。
 
 选择共享而非复制的原因：v4 提示词是经过数据库质量审查反复调校的资产，双份维护必然漂移；模板是无副作用纯资产，收进共享包零成本，实验台的调校成果直接惠及插件。

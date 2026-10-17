@@ -1,7 +1,6 @@
 // ticket 11 + ticket 21 手动验收：真实 ST 中「建自定义表 → 建字段 → 配显示策略 →
 // 记录 CRUD 全流程（chip 选表/查看-编辑模式/行底错误条/脏行标记/校验错误/停用字段
 // 值保留/来源徽标/修订摘要）→ 证据楼层 chip 渲染 + 跳转 + 摘录」
-/* global SillyTavern, document, indexedDB, window */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 用法：node verify-record-crud.mjs（exit 0 = 全流程通过；脚本自清理：删除验收表与种子数据）
 import { existsSync, readdirSync, rmSync } from "node:fs";

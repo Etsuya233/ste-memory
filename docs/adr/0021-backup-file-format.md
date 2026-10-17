@@ -1,5 +1,7 @@
 # 备份文件格式与编解码收进 core（ticket 07）
 
+> **路径已更新**：编解码模块位于 `src/features/backup`；api/web 宿主已删除，格式与校验仍只有一份实现。
+
 全库导出/导入的备份文件（`{ format, version, exportedAt, appVersion, data }`）序列化对象全部是 core 领域类型（记忆空间、记忆表格、字段、记录、修订历史、证据）。编解码模块放 `core/src/memory/export/`，api/web 与 st-extension 共享同一份格式定义与校验，避免两处实现导致格式漂移、备份互相不兼容；ticket 08（R2 云同步）复用同一套序列化。
 
 选择共享而非复制的原因：备份文件是跨平台契约，双份实现必然漂移；编解码是纯函数（信封组装、结构校验、完整性校验、JSON 层），进 core 零成本，错误类型复用 `DomainError`。

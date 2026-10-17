@@ -1,5 +1,4 @@
 // ticket 16 手动验收：真实 ST 中「镜像写入 → 文件持久化 → 设置开关 → LWW/未知版本守卫 → 清库恢复 → 按空间恢复」全流程。
-/* global SillyTavern, $, document, indexedDB */
 // 前置：ST 跑在 127.0.0.1:8000（ST_URL 可覆盖），扩展已同步进 extensions/third-party/ste-memory/。
 // 说明：仅针对测试实例（tmp/SillyTavern_Source_Code）；启动时清测试角色对话文件残留、强制镜像设置默认开启。
 // 用法：node verify-chat-metadata-mirror.mjs（exit 0 = 全流程通过）

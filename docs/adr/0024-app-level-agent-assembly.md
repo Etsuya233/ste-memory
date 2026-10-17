@@ -1,5 +1,7 @@
 # App 层可独立组装 Agent：core 开放运行基础设施
 
+> **已调整**：`ProposalAgent` 已随 API 宿主删除；插件侧由 `features/agent/fill-agent-runner.ts`（`runFillAgent`）承担同一组装职责，运行基础设施的公开面（`runAgentWithTimeout` 等）保留。
+
 ADR 0019 已把工具定义与 Agent 解耦：5 个工具工厂、ProposalState、digest 构建与 prompt 组合器全部从 agent 子层公开导出，`ProposalAgent` 只是"工具清单 + prompt 组合器"的薄装配。但装配 Agent 所需的运行基础设施（`runAgentWithTimeout` / `convertAgentMessagesToLlm` / `abortedAgentRunSummary` / `RunHooks` / `AgentRunSummary`，`agent-run.ts` 内部已导出）未进入公开面——`ProposalAgent` 仍是唯一可运行的装配，App 想完全控制 Agent（自定义消息序列、自定义工具集、循环事件处理）会在最后一步卡死，只能复制循环逻辑或回到默认装配。这是半成品缝：core 做出了"零件可组装"的姿态，却没交出装配所需的最后一块拼图。
 
 ## 决策

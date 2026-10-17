@@ -7,7 +7,7 @@
 //
 // 依赖：playwright-core（无需下载浏览器，直接用 Playwright 缓存里的 chromium）
 //   本目录执行：pnpm install --ignore-workspace
-/* global $, document */ // page.evaluate 回调运行在浏览器上下文（ST 页面有全局 jQuery）
+// page.evaluate 回调运行在浏览器上下文（ST 页面有全局 jQuery）
 import { chromium } from "playwright-core";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";

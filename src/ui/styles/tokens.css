@@ -1,0 +1,50 @@
+/* ---------- 设计令牌与基础重置（面板整体色板/字体/尺寸变量） ---------- */
+
+/*
+ * STE Memory 设计令牌 —— 全插件唯一的色板/字体定义处（spec「记忆账本」风格契约）。
+ * 后续调色、浅色模式、主题设置都只改这一块；组件类名前缀 stm- 隔离，不依赖 ST 主题变量。
+ */
+:root {
+  --stm-ink-bg: #171a20;
+  --stm-surface: #21252e;
+  --stm-border: #2c313d;
+  --stm-ink: #e7eaf0;
+  --stm-ink-secondary: #98a0b2;
+  --stm-accent: #6fa894;
+  --stm-success: #7fb08a;
+  --stm-danger: #c96a6a;
+  --stm-warning: #d9a25f;
+
+  /* 半透明底纹变体（横幅底色）：透明度由令牌集中定义，调色只改令牌区块 */
+  --stm-success-dim: rgba(127, 176, 138, 0.14);
+  --stm-danger-dim: rgba(201, 106, 106, 0.14);
+  --stm-warning-dim: rgba(217, 162, 95, 0.14);
+
+  /* 正文系统 CJK 栈；楼层号/时间/计数用 --stm-font-mono 等宽数字 */
+  --stm-font:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --stm-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+}
+
+/* 楼层跳转高亮（证据楼层 chip 的底层反馈）：ST 消息块 `.mes[mesid="N"]` 临时描边。
+ * 全插件仅此一处动效 + 抽屉开合，尊重 reduced-motion（spec UI 契约）。 */
+.stm-floor-flash {
+  animation: stm-floor-flash 2s ease-out;
+}
+
+@keyframes stm-floor-flash {
+  0%,
+  100% {
+    outline: 2px solid transparent;
+  }
+  20% {
+    outline: 2px solid var(--stm-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stm-floor-flash {
+    animation: none;
+  }
+}

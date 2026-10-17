@@ -11,19 +11,26 @@
 //   node scripts/release-st.mjs --dry-run  # 只构建 + 暂存，不 commit / 不 push
 //
 // 发版流程：
-//   1. 在 main 上把 apps/st-extension/package.json 与 manifest.json 的 version 更新为新版本号
+//   1. 在 main 上把根 package.json 与 manifest.json 的 version 更新为新版本号
 //   2. 合并/推送代码到 main
 //   3. 运行本脚本（版本号取 package.json，回写进产物 manifest.json，保证同源）
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RELEASE_BRANCH = "release/sillytavern-plugin";
 const WORKTREE_DIR = path.join(REPO_ROOT, ".worktrees", "release", "sillytavern-plugin");
-const ST_PKG = path.join(REPO_ROOT, "apps", "st-extension", "package.json");
-const ST_DIST = path.join(REPO_ROOT, "apps", "st-extension", "dist");
+const ST_PKG = path.join(REPO_ROOT, "package.json");
+const ST_DIST = path.join(REPO_ROOT, "dist");
 const DIST_FILES = ["index.js", "manifest.json", "style.css"];
 const REMOTE = "origin";
 
@@ -69,7 +76,9 @@ function ensureReleaseWorktree() {
     const remoteHead = git(["rev-parse", `${REMOTE}/${RELEASE_BRANCH}`]);
     if (localHead !== remoteHead) {
       const ahead = git(["rev-list", "--count", `${REMOTE}/${RELEASE_BRANCH}..${RELEASE_BRANCH}`]);
-      console.log(`  提示：本地 release 分支领先远端 ${ahead} 个未推送 commit，--push 将以远端重建并取代它们`);
+      console.log(
+        `  提示：本地 release 分支领先远端 ${ahead} 个未推送 commit，--push 将以远端重建并取代它们`,
+      );
     }
   }
 
@@ -169,16 +178,16 @@ if (!existsSync(ST_PKG)) {
 
 const version = readJson(ST_PKG).version;
 if (!version) {
-  die("apps/st-extension/package.json 缺少 version 字段");
+  die("根 package.json 缺少 version 字段");
 }
 const sourceBranch = git(["branch", "--show-current"]);
 const sourceCommit = git(["rev-parse", "HEAD"]);
 const sourceCommitShort = sourceCommit.slice(0, 7);
 log("版本", `v${version}（源：${sourceBranch} @ ${sourceCommitShort}）`);
 
-// ---------- 2. 构建（产物到 apps/st-extension/dist） ----------
-log("构建", "pnpm --filter @ste-memory/st-extension build");
-execFileSync("pnpm", ["--filter", "@ste-memory/st-extension", "build"], {
+// ---------- 2. 构建（产物到根 dist/） ----------
+log("构建", "pnpm build");
+execFileSync("pnpm", ["build"], {
   cwd: REPO_ROOT,
   stdio: "inherit",
 });
@@ -223,7 +232,10 @@ if (!staged) {
   if (dryRun) {
     console.log("[dry-run] 跳过 commit 与 push");
   } else {
-    git(["commit", "-m", `release v${version}（源提交 ${sourceCommitShort} @ ${sourceBranch}）`], WORKTREE_DIR);
+    git(
+      ["commit", "-m", `release v${version}（源提交 ${sourceCommitShort} @ ${sourceBranch}）`],
+      WORKTREE_DIR,
+    );
     if (shouldPush) {
       git(["push", REMOTE, RELEASE_BRANCH], WORKTREE_DIR);
     } else {
@@ -244,6 +256,6 @@ if (dryRun) {
   URL: https://github.com/Etsuya233/ste-memory
   Branch or tag name: ${RELEASE_BRANCH}
 
-下次发版：先在 main 更新 version（apps/st-extension/package.json），
+下次发版：先在 main 更新 version（根 package.json），
 再重跑本脚本。`);
 }

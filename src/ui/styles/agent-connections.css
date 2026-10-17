@@ -1,0 +1,109 @@
+/* ---------- Agent API 连接：连接列表与测试结果 ---------- */
+
+/* ---- Agent API 连接（ADR 0010）：连接列表行 / 编辑表单 / 测试结果 ---- */
+.stm-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.stm-connection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--SmartThemeBorderColor, #8882);
+  border-radius: 6px;
+}
+
+.stm-connection-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stm-connection-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.stm-connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin: 6px 0;
+  border: 1px dashed var(--SmartThemeBorderColor, #8884);
+  border-radius: 6px;
+}
+
+.stm-connection-model-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Agent 连接选择器容器：纵向堆叠（移动端优先，每行一个选择器） */
+.stm-connection-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+/* 表单行与选择器行：stm-setting-row 的 label flex:1 + stm-input width:100%
+   会互相挤压（label 折行、输入框遮挡）。改为 label 按内容宽度、控件占满剩余 */
+.stm-connection-form-row,
+.stm-connection-selector-row {
+  justify-content: flex-start;
+}
+
+.stm-connection-form-row .stm-setting-label,
+.stm-connection-selector-row .stm-setting-label {
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.stm-connection-form-row .stm-input,
+.stm-connection-selector-row .stm-input {
+  flex: 1;
+  width: auto;
+  margin: 0;
+}
+
+.stm-connection-model-row .stm-input {
+  width: auto;
+  margin: 0;
+}
+
+.stm-connection-model-row .stm-input:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 模型下拉在右侧，给固定下限宽度防被手写框挤压 */
+.stm-connection-model-row select.stm-input {
+  flex: 0 1 45%;
+  min-width: 120px;
+}
+
+.stm-connection-test-ok {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--SmartThemeGoodColor, #3a8);
+  background: var(--SmartThemeGoodColor, #3a8) 1a;
+}
+
+.stm-connection-test-fail {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--SmartThemeAlertColor, #d33);
+  background: var(--SmartThemeAlertColor, #d33) 1a;
+  word-break: break-all;
+}
