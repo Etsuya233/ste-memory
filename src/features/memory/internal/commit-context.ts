@@ -7,8 +7,8 @@ import { computeMemoryRecordDisplayText } from "./record-display.ts";
 
 /**
  * 记忆提交上下文工厂：把 id 生成、时钟与显示文本计算等提交细节收在 Memory
- * 内部，宿主（runtime）只需注入持久化仓库与 id 工厂。填表/问答/手动编辑
- * 共用同一份上下文，规则一致。
+ * 内部，仅供记录服务和内部测试使用。填表、问答通过记录服务提交，
+ * 与手动编辑共用相同规则。
  */
 export interface MemoryCommitContextOptions {
   readonly tables: MemoryTableRepository;

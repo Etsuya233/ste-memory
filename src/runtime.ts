@@ -5,7 +5,6 @@ import {
   MemorySpaceService,
   MemoryTableService,
   SystemMemoryTableInstaller,
-  createMemoryCommitContext,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -15,7 +14,6 @@ import {
   type MemoryTableId,
 } from "./features/memory/index.ts";
 import type { MemoryBackupRepository } from "./features/backup/index.ts";
-import type { MemoryRecordMutationContext } from "./features/memory/index.ts";
 import type { MemorySpaceReader } from "./features/memory/index.ts";
 import { buildMemorySpaceTableDigest } from "./features/agent/index.ts";
 
@@ -53,6 +51,7 @@ import { createPresetPreviewPorts } from "./features/agent-presets/preset-previe
 import { createFillTaskPromptContext } from "./features/fill-tasks/prompt-context.ts";
 import type { FillSourceMessage } from "./features/fill-tasks/fill-task.ts";
 import type { SettingsStore } from "./features/settings/plugin-settings.ts";
+import { SettingsService } from "./features/settings/settings-service.ts";
 import { resolveSelectedCleaningRules } from "./features/cleaning/cleaning-rule-lists.ts";
 import type { MemoryView } from "./features/macros/memory-views.ts";
 import { ChatSpaceManager } from "./features/chat-binding/chat-space-manager.ts";
@@ -89,6 +88,7 @@ export interface SteMemoryRuntime {
   readonly backupRepo: DexieMemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
+  readonly settingsService: SettingsService;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
@@ -270,17 +270,6 @@ export async function startSteMemory(
     db.transaction("rw", tables, async () => {
       await work();
     });
-  // 批次原子提交上下文：填表任务（ticket 13）与问答面板填写模式（ticket 20）共用。
-  // 提交细节（id 生成、时钟、显示文本计算）由 Memory 装配，宿主只注入仓库与工厂。
-  const commitContext: MemoryRecordMutationContext = createMemoryCommitContext({
-    tables: tableRepository,
-    fields: fieldRepository,
-    records: recordRepository,
-    createId: () => createId("record") as MemoryRecordId,
-    createHistoryId: () => createId("record-history") as MemoryRecordHistoryId,
-    createRevisionId: () => createId("revision") as MemoryRevisionId,
-    now,
-  });
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
   const floorLedgerRepository = new DexieFloorLedgerRepository(db);
   const tasks = new FillTaskService({
@@ -291,7 +280,7 @@ export async function startSteMemory(
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     evidence: recordRepository,
-    commitContext,
+    recordWriter: records,
     runInTransaction: runInTransaction([
       db.memoryTables,
       db.memoryFields,
@@ -352,7 +341,7 @@ export async function startSteMemory(
   const queryChat = new QueryChatService({
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
-    commitContext,
+    recordWriter: records,
     // 提交批次的事务作用域（不含台账表）：记录/历史/证据读写全集。
     runInTransaction: runInTransaction([
       db.memoryTables,
@@ -468,6 +457,14 @@ export async function startSteMemory(
       log.error(`[${PLUGIN_DISPLAY_NAME}] Agent 预设宏快照重建失败`, error);
     });
   });
+  const settingsService = new SettingsService({
+    store: settings,
+    syncToCurrentChat: () => manager.syncToCurrentChat(),
+    refreshMemoryMacros: () => macro.kick(),
+    refreshAgentMacros: () => agentMacro.kick(),
+    refreshMirror: () => mirror.kick(),
+    writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
+  });
   return {
     manager,
     adapter,
@@ -478,6 +475,7 @@ export async function startSteMemory(
     backup,
     backupRepo: backup,
     settings,
+    settingsService,
     mirror,
     tasks,
     spaceMaintenance,

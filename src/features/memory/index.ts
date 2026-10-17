@@ -3,8 +3,7 @@
  *
  * 导出面 = 完整操作（空间/表格/字段/记录/查询/提案提交与预览）+ 公共领域类型
  * + 持久化接口（repository ports）。内部步骤（校验、修订、历史写入、
- * 显示文本计算）不在这里暴露；需要提交细节的装配（runtime）使用
- * `createMemoryCommitContext`。
+ * 记录提交中的校验、修订与历史写入只通过记录服务的完整操作执行。
  */
 export type { MemorySpaceReader } from "./ports/memory-space-reader.ts";
 export { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "./system-tables/index.ts";
@@ -36,17 +35,14 @@ export type {
   QueryRecordsInput,
   QueryRecordsPage,
 } from "./record-query-contract.ts";
-export { createMemoryCommitContext } from "./internal/commit-context.ts";
 export { createReadTimeDisplayTextResolver } from "./internal/record-display.ts";
 export type {
   DisplayTextLookups,
   MemoryRecordDisplayResolver,
   MemoryRecordDisplayTextResolver,
 } from "./internal/record-display.ts";
-export type { MemoryCommitContextOptions } from "./internal/commit-context.ts";
 export type {
   MemoryRecordMutationBatchInput,
-  MemoryRecordMutationContext,
   MemoryRecordMutationOperation,
   MemoryRecordMutationResult,
 } from "./internal/record-mutations.ts";
@@ -58,7 +54,6 @@ export type {
 } from "./ports/memory-record-repository.ts";
 export type { MemoryChangeFingerprint, MemoryChangeSource } from "./ports/change-source.ts";
 export { memoryChangesEqual } from "./ports/change-source.ts";
-export { commitMemoryProposalBatch } from "./internal/proposal-commit.ts";
 export {
   MEMORY_PROPOSAL_TEMP_ID_PREFIX,
   isProposalTempId,

@@ -6,10 +6,9 @@ import {
   SUBMIT_PROPOSAL_TOOL_NAME,
 } from "../agent/index.ts";
 import {
-  createMemoryCommitContext,
+  MemoryRecordService,
   MemoryRecordQueryService,
   type MemoryEvidenceId,
-  type MemoryRecordMutationContext,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
   type MemoryRevisionId,
@@ -245,15 +244,15 @@ async function createHarness(
   let historySeq = 0;
   let revisionSeq = 0;
   let evidenceSeq = 0;
-  const commitContext: MemoryRecordMutationContext = createMemoryCommitContext({
-    tables: services.tableRepository,
-    fields: services.fieldRepository,
-    records: services.recordRepository,
-    createId: () => `record-${++recordSeq}` as MemoryRecordId,
-    createHistoryId: () => `history-${++historySeq}` as MemoryRecordHistoryId,
-    createRevisionId: () => `revision-${++revisionSeq}` as MemoryRevisionId,
-    now: () => NOW,
-  });
+  const recordWriter = new MemoryRecordService(
+    services.tableRepository,
+    services.fieldRepository,
+    services.recordRepository,
+    () => `record-${++recordSeq}` as MemoryRecordId,
+    () => `history-${++historySeq}` as MemoryRecordHistoryId,
+    () => `revision-${++revisionSeq}` as MemoryRevisionId,
+    () => NOW,
+  );
   let runSeq = 0;
   const service = new FillTaskService({
     tasks,
@@ -262,7 +261,7 @@ async function createHarness(
     reader,
     ports,
     evidence: services.recordRepository,
-    commitContext,
+    recordWriter,
     runInTransaction: (work) =>
       // 事务作用域函数必须声明为 async：非 async 包装（() => work()）不会触发
       // Dexie 的 expected-awaits 追踪，事务会在承诺链完成前提交（PrematureCommit）。

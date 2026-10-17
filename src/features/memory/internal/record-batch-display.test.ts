@@ -1,7 +1,8 @@
+import { commitMemoryProposalBatch } from "./proposal-commit.ts";
+import type { MemoryRecordMutationContext } from "./record-mutations.ts";
+import { createMemoryCommitContext } from "./commit-context.ts";
 import { describe, expect, it } from "vitest";
 import {
-  commitMemoryProposalBatch,
-  createMemoryCommitContext,
   memoryProposalSubmission,
   previewProposal,
   type MemoryEvidence,
@@ -16,7 +17,6 @@ import {
   type MemoryRecordHistory,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
-  type MemoryRecordMutationContext,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemoryTable,

@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { SteMemoryRuntime } from "../../runtime.ts";
+import type { SettingsService } from "../../features/settings/settings-service.ts";
 import { PLUGIN_DISPLAY_NAME } from "../../constants.ts";
 import {
   DESKTOP_MEDIA_QUERY,
@@ -117,6 +118,7 @@ export interface PanelRuntime {
     readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
   };
   readonly settings: SettingsStore;
+  readonly settingsService: SettingsService;
   /**
    * 面板入口挂载控制器端口（面板入口）：设置分组读当前计划（回退标记）
    * 并在写入入口位置后 replan 热切换。缺省（测试/旧运行时）用默认计划。
@@ -499,7 +501,10 @@ export function PanelShell(props: {
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
             <TablesTab
-              runtime={props.runtime}
+              tables={props.runtime.tables}
+              fields={props.runtime.fields}
+              records={props.runtime.records}
+              macro={props.runtime.macro}
               status={status}
               settings={settings}
               dataVersion={dataVersion}
@@ -555,7 +560,19 @@ export function PanelShell(props: {
         {state.tab === "settings" && (
           <section className="stm-tab-section" data-stm-section="settings" role="tabpanel">
             <SettingsTab
-              runtime={props.runtime}
+              settingsService={props.runtime.settingsService}
+              tables={props.runtime.tables}
+              fields={props.runtime.fields}
+              manager={props.runtime.manager}
+              backup={props.runtime.backup}
+              mirror={props.runtime.mirror}
+              macro={props.runtime.macro}
+              spaceMaintenance={props.runtime.spaceMaintenance}
+              cleaning={props.runtime.cleaning}
+              presetPreview={props.runtime.presetPreview}
+              macroOverview={props.runtime.macroOverview}
+              entryMount={props.runtime.entryMount}
+              version={props.runtime.version}
               status={status}
               settings={settings}
               mirrorStatus={mirrorStatus}

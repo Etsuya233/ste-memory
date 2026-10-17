@@ -38,6 +38,9 @@ import {
   type MemoryRecordMutationResult,
 } from "./internal/record-mutations.ts";
 import type { MemoryRecordHistoryId } from "./domain/index.ts";
+import { createMemoryCommitContext } from "./internal/commit-context.ts";
+import { commitMemoryProposalBatch } from "./internal/proposal-commit.ts";
+import type { MemoryProposalSubmission } from "./internal/proposal-preview.ts";
 
 export interface CreateMemoryRecordInput {
   readonly payload: Readonly<Record<string, unknown>>;
@@ -212,29 +215,33 @@ export class MemoryRecordService {
     input: MemoryRecordMutationBatchInput,
     evidence: readonly MemoryEvidence[],
   ): Promise<MemoryRecordMutationResult> {
-    return commitMemoryRecordMutationBatch(
-      {
-        tables: this.tables,
-        fields: this.fields,
-        records: this.records,
-        createId: this.createId,
-        createHistoryId: this.createHistoryId,
-        createRevisionId: this.createRevisionId,
-        now: this.now,
-        displayText: (table, fields, payload, resolveReference) =>
-          computeMemoryRecordDisplayText(
-            this.records,
-            table.memorySpaceId,
-            table,
-            fields,
-            payload,
-            resolveReference,
-          ),
-      },
+    return commitMemoryRecordMutationBatch(this.mutationContext(), memorySpaceId, input, evidence);
+  }
+
+  /** 提案与手动修改共用提交规则；调用方可将此操作与台账更新放入同一事务。 */
+  commitProposal(
+    memorySpaceId: MemorySpaceId,
+    proposal: MemoryProposalSubmission,
+    revisionSource: MemoryRevisionSource,
+  ): Promise<MemoryRecordMutationResult> {
+    return commitMemoryProposalBatch(
+      this.mutationContext(),
       memorySpaceId,
-      input,
-      evidence,
+      proposal,
+      revisionSource,
     );
+  }
+
+  private mutationContext() {
+    return createMemoryCommitContext({
+      tables: this.tables,
+      fields: this.fields,
+      records: this.records,
+      createId: this.createId,
+      createHistoryId: this.createHistoryId,
+      createRevisionId: this.createRevisionId,
+      now: this.now,
+    });
   }
 
   async listHistory(

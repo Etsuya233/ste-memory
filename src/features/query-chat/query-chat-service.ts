@@ -23,10 +23,9 @@ import type { StopReason } from "@earendil-works/pi-ai";
 import type {
   MemoryProposalPorts,
   MemoryProposalSubmission,
-  MemoryRecordMutationContext,
+  MemoryRecordService,
   MemorySpaceId,
 } from "../memory/index.ts";
-import { commitMemoryProposalBatch } from "../memory/index.ts";
 import {
   QueryAgent,
   buildMemorySpaceTableDigest,
@@ -55,8 +54,8 @@ export interface QueryChatServiceOptions {
   readonly reader: MemorySpaceReader;
   /** 提案校验/预览/提交所需的领域访问端口（与填表任务共用同一组 repository）。 */
   readonly ports: MemoryProposalPorts;
-  /** 批次原子提交上下文（id 生成器 + displayText 等，与填表任务共用）。 */
-  readonly commitContext: MemoryRecordMutationContext;
+  /** 完整提案提交操作，与填表任务共用 Memory 写入规则。 */
+  readonly recordWriter: Pick<MemoryRecordService, "commitProposal">;
   /** 原子事务运行器（提交批次在单事务内；由组合根注入 Dexie 事务）。 */
   readonly runInTransaction: (work: () => Promise<void>) => Promise<void>;
   /** LLM 端口工厂：每次 run 构造一次（宿主以 includeReasoning: true 构造，ticket 19）。 */
@@ -99,7 +98,7 @@ const ZERO_USAGE = {
 export class QueryChatService {
   readonly #reader: MemorySpaceReader;
   readonly #ports: MemoryProposalPorts;
-  readonly #commitContext: MemoryRecordMutationContext;
+  readonly #recordWriter: Pick<MemoryRecordService, "commitProposal">;
   readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
   readonly #getCurrentSpaceId: () => MemorySpaceId | undefined;
@@ -108,7 +107,7 @@ export class QueryChatService {
   constructor(options: QueryChatServiceOptions) {
     this.#reader = options.reader;
     this.#ports = options.ports;
-    this.#commitContext = options.commitContext;
+    this.#recordWriter = options.recordWriter;
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
     this.#getCurrentSpaceId = options.getCurrentSpaceId;
@@ -224,7 +223,7 @@ export class QueryChatService {
     }
     try {
       await this.#runInTransaction(async () => {
-        await commitMemoryProposalBatch(this.#commitContext, startSpaceId, proposal, "agent");
+        await this.#recordWriter.commitProposal(startSpaceId, proposal, "agent");
       });
       return {
         status: "committed",

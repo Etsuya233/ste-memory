@@ -1,3 +1,4 @@
+import { SettingsService } from "../../features/settings/settings-service.ts";
 /**
  * 记录视图冒烟测试（react-dom/server renderToString，无 jsdom——沿用 spec 测试
  * 决策）：异步加载（useEffect）在 SSR 不执行，只验证「初始态 → 加载占位」的
@@ -63,6 +64,14 @@ function fakeRuntime(): PanelRuntime {
       getMessageAt: vi.fn(() => undefined),
       chatMessageCount: vi.fn(() => 0),
     },
+    settingsService: new SettingsService({
+      store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
+      syncToCurrentChat: vi.fn(async () => {}),
+      refreshMemoryMacros: vi.fn(async () => {}),
+      refreshAgentMacros: vi.fn(async () => {}),
+      refreshMirror: vi.fn(async () => {}),
+      writeChatScopeMacros: vi.fn(),
+    }),
     settings: {
       read: () => DEFAULT_SETTINGS,
       write: vi.fn(),

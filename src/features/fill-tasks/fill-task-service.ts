@@ -15,13 +15,8 @@
  * - 任务输入 = 原始消息内容；注入 resolveCleaningRules 时按清洗规则列表清洗
  *   （ticket 22 / ADR 0011，块处理时实时读取，改规则追溯生效），缺省不清洗。
  */
-import type {
-  MemoryEvidenceId,
-  MemoryRecordMutationContext,
-  MemorySpaceId,
-} from "../memory/index.ts";
+import type { MemoryEvidenceId, MemoryRecordService, MemorySpaceId } from "../memory/index.ts";
 import type { MemoryEvidenceRepository, MemoryProposalPorts } from "../memory/index.ts";
-import { commitMemoryProposalBatch } from "../memory/index.ts";
 import {
   buildMemorySpaceTableDigest,
   composeProposalAgentMessages,
@@ -104,8 +99,8 @@ export interface FillTaskServiceOptions {
   readonly ports: MemoryProposalPorts;
   /** 证据仓库：块证据复用既有行（memory_evidence 对同源唯一，重复处理不冲突） */
   readonly evidence: MemoryEvidenceRepository;
-  /** 批次原子提交上下文（id 生成器 + displayText 等，见 Memory memory-record-mutations） */
-  readonly commitContext: MemoryRecordMutationContext;
+  /** 完整提案提交操作；提交细节由 Memory 记录服务管理 */
+  readonly recordWriter: Pick<MemoryRecordService, "commitProposal">;
   /**
    * 原子事务运行器：批次提交 + 台账标记同一事务（api 语义：失败回滚不产生
    * 半批数据/半批状态）。由组合根注入 Dexie 事务（内部 repo 事务按 zone 合并）。
@@ -141,7 +136,7 @@ export class FillTaskService {
   readonly #reader: MemorySpaceReader;
   readonly #ports: MemoryProposalPorts;
   readonly #evidence: MemoryEvidenceRepository;
-  readonly #commitContext: MemoryRecordMutationContext;
+  readonly #recordWriter: Pick<MemoryRecordService, "commitProposal">;
   readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
   readonly #createPromptContext:
@@ -160,7 +155,7 @@ export class FillTaskService {
     this.#reader = options.reader;
     this.#ports = options.ports;
     this.#evidence = options.evidence;
-    this.#commitContext = options.commitContext;
+    this.#recordWriter = options.recordWriter;
     this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
     this.#createPromptContext = options.createPromptContext;
@@ -557,12 +552,7 @@ export class FillTaskService {
       // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
       // 初始化任务无楼层：只提交批次，不标记台账。
       await this.#runInTransaction(async () => {
-        await commitMemoryProposalBatch(
-          this.#commitContext,
-          task.memorySpaceId,
-          result.proposal!,
-          "agent",
-        );
+        await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
         if (task.kind !== "init") {
           await this.#ledger.markProcessed(
             task.memorySpaceId,

@@ -34,9 +34,12 @@ import {
   swapAdjacentFieldPositions,
   type FieldDraft,
 } from "./field-editor-model.ts";
-import type { PanelRuntime } from "../shell/panel-shell.tsx";
-
-// ---- 表格列表 Tab（ticket 09：建表 + 表格编辑/删除 + 字段定义编辑器） ----
+import type {
+  MemoryFieldService,
+  MemoryRecordService,
+  MemoryTableService,
+} from "../../features/memory/index.ts";
+import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
 
 // ---- 表格列表 Tab（ticket 09：建表 + 表格编辑/删除 + 字段定义编辑器） ----
 
@@ -50,7 +53,13 @@ type FieldEditorState =
   | null;
 
 export function TablesTab(props: {
-  readonly runtime: PanelRuntime;
+  readonly tables: Pick<MemoryTableService, "list" | "update" | "create" | "delete">;
+  readonly fields: Pick<
+    MemoryFieldService,
+    "list" | "update" | "create" | "delete" | "setDisplayStrategy"
+  >;
+  readonly records: Pick<MemoryRecordService, "list" | "previewDisplayText">;
+  readonly macro: Pick<MemoryMacroService, "kick">;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
   /** 整库数据版本（导入备份后自增，驱动重取） */
@@ -87,14 +96,9 @@ export function TablesTab(props: {
   const computePreview = useCallback(
     (strategy: MemoryTableDisplayStrategy, payload: MemoryRecordPayload) => {
       if (!spaceId || !strategyEditorTableId) return Promise.resolve("");
-      return props.runtime.records.previewDisplayText(
-        spaceId,
-        strategyEditorTableId,
-        strategy,
-        payload,
-      );
+      return props.records.previewDisplayText(spaceId, strategyEditorTableId, strategy, payload);
     },
-    [props.runtime, spaceId, strategyEditorTableId],
+    [props.records, spaceId, strategyEditorTableId],
   );
 
   useEffect(() => {
@@ -109,9 +113,9 @@ export function TablesTab(props: {
     let cancelled = false;
     void (async () => {
       try {
-        const list = await props.runtime.tables.list(spaceId);
+        const list = await props.tables.list(spaceId);
         const fieldLists = await Promise.all(
-          list.map((table) => props.runtime.fields.list(spaceId, table.id)),
+          list.map((table) => props.fields.list(spaceId, table.id)),
         );
         if (cancelled) return;
         const fieldsByTable = new Map(list.map((table, index) => [table.id, fieldLists[index]!]));
@@ -153,7 +157,7 @@ export function TablesTab(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.runtime, spaceId, reloadKey, props.dataVersion]);
+  }, [props.tables, props.fields, spaceId, reloadKey, props.dataVersion]);
 
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复表格展示与同步" />;
@@ -182,12 +186,12 @@ export function TablesTab(props: {
    */
   function bumpData(): void {
     setReloadKey((key) => key + 1);
-    void props.runtime.macro.kick().catch(reportError);
+    void props.macro.kick().catch(reportError);
   }
 
   async function toggleTable(tableId: MemoryTableId, enabled: boolean): Promise<void> {
     try {
-      await props.runtime.tables.update(currentSpaceId, tableId, { enabled });
+      await props.tables.update(currentSpaceId, tableId, { enabled });
     } catch (error) {
       reportError(error);
     }
@@ -200,7 +204,7 @@ export function TablesTab(props: {
     enabled: boolean,
   ): Promise<void> {
     try {
-      const result = await props.runtime.fields.update(currentSpaceId, tableId, fieldId, {
+      const result = await props.fields.update(currentSpaceId, tableId, fieldId, {
         enabled,
       });
       if (result && result.warnings.length > 0) {
@@ -232,7 +236,7 @@ export function TablesTab(props: {
 
   async function createTable(draft: TableDraft): Promise<void> {
     try {
-      await props.runtime.tables.create(currentSpaceId, {
+      await props.tables.create(currentSpaceId, {
         key: draft.key,
         kind: "custom",
         name: draft.name,
@@ -248,7 +252,7 @@ export function TablesTab(props: {
 
   async function saveTableEdit(tableId: MemoryTableId, draft: TableDraft): Promise<void> {
     try {
-      await props.runtime.tables.update(currentSpaceId, tableId, {
+      await props.tables.update(currentSpaceId, tableId, {
         key: draft.key,
         name: draft.name,
         description: draft.description,
@@ -268,7 +272,7 @@ export function TablesTab(props: {
       return;
     }
     try {
-      await props.runtime.tables.delete(currentSpaceId, tableId);
+      await props.tables.delete(currentSpaceId, tableId);
     } catch (error) {
       reportError(error);
     }
@@ -281,7 +285,7 @@ export function TablesTab(props: {
     const fields = fieldsByTable.get(tableId) ?? [];
     const position = fields.length === 0 ? 0 : fields[fields.length - 1]!.position + 1;
     try {
-      await props.runtime.fields.create(currentSpaceId, tableId, {
+      await props.fields.create(currentSpaceId, tableId, {
         key: draft.key,
         name: draft.name,
         type: draft.type,
@@ -306,7 +310,7 @@ export function TablesTab(props: {
     draft: FieldDraft,
   ): Promise<void> {
     try {
-      const result = await props.runtime.fields.update(currentSpaceId, tableId, fieldId, {
+      const result = await props.fields.update(currentSpaceId, tableId, fieldId, {
         key: draft.key,
         name: draft.name,
         required: draft.required,
@@ -341,7 +345,7 @@ export function TablesTab(props: {
       return;
     }
     try {
-      await props.runtime.fields.delete(currentSpaceId, tableId, fieldId);
+      await props.fields.delete(currentSpaceId, tableId, fieldId);
     } catch (error) {
       reportError(error);
     }
@@ -359,7 +363,7 @@ export function TablesTab(props: {
     const changes = swapAdjacentFieldPositions(fields, index, direction);
     try {
       for (const change of changes) {
-        await props.runtime.fields.update(currentSpaceId, tableId, change.id, {
+        await props.fields.update(currentSpaceId, tableId, change.id, {
           position: change.position,
         });
       }
@@ -389,7 +393,7 @@ export function TablesTab(props: {
     setStrategyPreviewRecords([]);
     setStrategyPreviewError(null);
     try {
-      const page = await props.runtime.records.list(currentSpaceId, tableId, {
+      const page = await props.records.list(currentSpaceId, tableId, {
         page: 1,
         pageSize: 5,
       });
@@ -409,7 +413,7 @@ export function TablesTab(props: {
   ): Promise<void> {
     setStrategySaving(true);
     try {
-      await props.runtime.fields.setDisplayStrategy(currentSpaceId, tableId, strategy);
+      await props.fields.setDisplayStrategy(currentSpaceId, tableId, strategy);
       reportSuccess("显示策略已保存");
       strategyEditorTableRef.current = null;
       setStrategyEditorTableId(null);

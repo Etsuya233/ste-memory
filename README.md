@@ -69,6 +69,10 @@ src/
   计算）不对外暴露。
 - 功能层不依赖 `infrastructure/` 与 `ui/`；具体实现由 `runtime.ts` 装配注入。
 - `tests/architecture/` 与 ESLint `no-restricted-imports` 同时强制以上方向。
+- 填表与问答通过记录服务的 `commitProposal` 提交，仓库、ID、时钟和显示计算由
+  Memory 内部管理；填表提交和台账更新仍由外层组织同一个事务。
+- 设置保存后的宏、镜像与聊天同步由 `SettingsService` 负责；设置页和表格页只接收
+  实际使用的服务，UI 负责草稿与错误展示。
 
 ## 验证
 

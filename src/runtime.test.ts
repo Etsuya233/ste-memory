@@ -380,19 +380,21 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(tableMacro).toContain("## 人物");
     expect(tableMacro).not.toContain("角色");
 
-    // 设置面板改名：写设置 + kick → 注销旧名、注册新名（Agent 预设宏不变）
-    const next = { ...runtime.settings.read(), macroName: "{{myMemory}}" };
-    runtime.settings.write(next);
-    await runtime.macro.kick();
+    // 设置服务负责保存和联动；调用方不再安排宏刷新。
+    await runtime.settingsService.setMacroName("{{myMemory}}");
     expect([...registered.keys()].sort()).toEqual(
       ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
 
     // 插件总开关关闭：注销（无注入）
-    runtime.settings.write({ ...next, enabled: false });
-    await runtime.macro.kick();
-    await runtime.agentMacro.kick();
+    await runtime.settingsService.setPluginEnabled(false);
     expect(registered.size).toBe(0);
+    expect(runtime.mirror.getStatus().kind).toBe("disabled");
+
+    await runtime.settingsService.setPluginEnabled(true);
+    expect([...registered.keys()].sort()).toEqual(
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+    );
   });
 
   it("宏预览数据源（issue 01 UI 改版）：macroOverview 聚合记忆宏与 Agent 预设宏快照（每行预览的读口）", async () => {
@@ -433,8 +435,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       limit: 50,
       projection: [] as readonly string[],
     };
-    runtime.settings.write({ ...runtime.settings.read(), memoryViews: [view] });
-    await runtime.macro.kick();
+    await runtime.settingsService.setMemoryViews([view]);
     const refreshed = runtime.macroOverview();
     expect(refreshed.some((row) => row.name === "{{ste::人物速览}}")).toBe(true);
   });

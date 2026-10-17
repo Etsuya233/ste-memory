@@ -8,10 +8,9 @@ import {
 } from "../agent/index.ts";
 import {
   MemoryRecordQueryService,
-  createMemoryCommitContext,
+  MemoryRecordService,
   type MemoryRecordHistoryId,
   type MemoryRecordId,
-  type MemoryRecordMutationContext,
   type MemoryRevisionId,
   type MemorySpaceId,
   type MemorySpaceReader,
@@ -133,15 +132,15 @@ async function createHarness(
   let recordSeq = 0;
   let historySeq = 0;
   let revisionSeq = 0;
-  const commitContext: MemoryRecordMutationContext = createMemoryCommitContext({
-    tables: services.tableRepository,
-    fields: services.fieldRepository,
-    records: services.recordRepository,
-    createId: () => `record-${++recordSeq}` as MemoryRecordId,
-    createHistoryId: () => `history-${++historySeq}` as MemoryRecordHistoryId,
-    createRevisionId: () => `revision-${++revisionSeq}` as MemoryRevisionId,
-    now: () => NOW,
-  });
+  const recordWriter = new MemoryRecordService(
+    services.tableRepository,
+    services.fieldRepository,
+    services.recordRepository,
+    () => `record-${++recordSeq}` as MemoryRecordId,
+    () => `history-${++historySeq}` as MemoryRecordHistoryId,
+    () => `revision-${++revisionSeq}` as MemoryRevisionId,
+    () => NOW,
+  );
   const currentSpace = { value: spaceId };
   const runInTransaction = (work: () => Promise<void>): Promise<void> =>
     db.transaction(
@@ -161,7 +160,7 @@ async function createHarness(
     new QueryChatService({
       reader,
       ports,
-      commitContext,
+      recordWriter,
       runInTransaction,
       createLlm: () => {
         if (options.createLlmThrows)

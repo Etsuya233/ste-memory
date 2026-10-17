@@ -1,5 +1,6 @@
+import { commitMemoryProposalBatch } from "./proposal-commit.ts";
+import type { MemoryRecordMutationContext } from "./record-mutations.ts";
 import {
-  commitMemoryProposalBatch,
   memoryProposalSubmission,
   type MemoryEvidence,
   type MemoryEvidenceId,
@@ -17,7 +18,6 @@ import {
   type MemoryTable,
   type MemoryTableId,
   type MemoryTableKey,
-  type MemoryRecordMutationContext,
 } from "../index.ts";
 import type {
   MemoryFieldRepository,

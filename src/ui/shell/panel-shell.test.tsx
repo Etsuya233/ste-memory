@@ -1,3 +1,4 @@
+import { SettingsService } from "../../features/settings/settings-service.ts";
 /**
  * 面板组件冒烟测试（react-dom/server renderToString，无 jsdom——沿用
  * spec「无组件测试基建」先例，只验证「状态 → 标记」投影的关键契约：
@@ -65,6 +66,14 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getMessageAt: vi.fn(() => undefined),
       chatMessageCount: vi.fn(() => 0),
     },
+    settingsService: new SettingsService({
+      store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
+      syncToCurrentChat: vi.fn(async () => {}),
+      refreshMemoryMacros: vi.fn(async () => {}),
+      refreshAgentMacros: vi.fn(async () => {}),
+      refreshMirror: vi.fn(async () => {}),
+      writeChatScopeMacros: vi.fn(),
+    }),
     settings: {
       read: () => DEFAULT_SETTINGS,
       write: vi.fn(),

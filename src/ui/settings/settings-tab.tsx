@@ -57,9 +57,18 @@ import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
 import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
-import type { PanelRuntime } from "../shell/panel-shell.tsx";
-
-// ---- 设置 Tab ----
+import type { SettingsService } from "../../features/settings/settings-service.ts";
+import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
+import type { MemoryBackupRepository } from "../../features/backup/index.ts";
+import type { ChatSpaceManager } from "../../features/chat-binding/chat-space-manager.ts";
+import type { ChatMetadataMirrorSync } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
+import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
+import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
+import type { AgentPresetPreviewPorts } from "../../features/agent-presets/preset-preview-model.ts";
+import type { MacroOverviewRow } from "../../features/macros/macro-overview-model.ts";
+import type { EntryMountControllerPort } from "../shell/entry-placement.ts";
+import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
+import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 
 // ---- 设置 Tab ----
 
@@ -112,7 +121,28 @@ export function MacroSettingsFields(props: {
   );
 }
 export function SettingsTab(props: {
-  readonly runtime: PanelRuntime;
+  readonly settingsService: SettingsService;
+  readonly tables: Pick<MemoryTableService, "list">;
+  readonly fields: Pick<MemoryFieldService, "list">;
+  readonly manager: Pick<ChatSpaceManager, "getStatus" | "syncToCurrentChat" | "importSpace">;
+  readonly backup: Pick<
+    MemoryBackupRepository,
+    "loadSnapshot" | "restoreSnapshot" | "restoreSpace"
+  >;
+  readonly mirror: Pick<ChatMetadataMirrorSync, "kick">;
+  readonly macro: Pick<MemoryMacroService, "kick">;
+  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords" | "reset">;
+  readonly cleaning: {
+    readonly readSelection: () => string | undefined;
+    readonly writeSelection: (listId: string | undefined) => void;
+    readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
+    readonly readChatScopeMacros: () => readonly MemoryView[];
+  };
+  readonly presetPreview: AgentPresetPreviewPorts;
+  readonly macroOverview: () => readonly MacroOverviewRow[];
+  readonly entryMount?: EntryMountControllerPort;
+  readonly version: string;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
   /** 对话文件镜像状态（ticket 16：体积 + 上次写回时间） */
@@ -128,19 +158,19 @@ export function SettingsTab(props: {
   // 当前对话的清洗列表选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
   // 变更即写 chatMetadata（防抖持久化）；对话切换（status 变化）后重新读取。
   const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(() =>
-    props.runtime.cleaning.readSelection(),
+    props.cleaning.readSelection(),
   );
   useEffect(() => {
-    setChatCleaningListId(props.runtime.cleaning.readSelection());
-  }, [props.status, props.runtime]);
+    setChatCleaningListId(props.cleaning.readSelection());
+  }, [props.status, props.cleaning]);
   // 当前对话的聊天 Scope 宏（双 Scope 宏系统）：本地态 = chatMetadata 的镜像，
   // 变更即写 chatMetadata（防抖持久化）+ macro.kick()；对话切换（status 变化）后重新读取。
   const [chatScopeMacros, setChatScopeMacros] = useState<readonly MemoryView[]>(() =>
-    props.runtime.cleaning.readChatScopeMacros(),
+    props.cleaning.readChatScopeMacros(),
   );
   useEffect(() => {
-    setChatScopeMacros(props.runtime.cleaning.readChatScopeMacros());
-  }, [props.status, props.runtime]);
+    setChatScopeMacros(props.cleaning.readChatScopeMacros());
+  }, [props.status, props.cleaning]);
   // 「记忆宏」组内作用域分区（内置/全局/对话级）；默认全局（原有行为）
   const [macroScopeTab, setMacroScopeTab] = useState<MacroScopeTab>("global");
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
@@ -148,42 +178,38 @@ export function SettingsTab(props: {
   // 单空间导入文件输入
   const importSpaceInputRef = useRef<HTMLInputElement>(null);
 
-  function togglePlugin(enabled: boolean): void {
-    const next = { ...props.settings, enabled };
-    props.runtime.settings.write(next);
-    props.onSettingsChange(next);
-    if (enabled) {
-      // 重新启用立即恢复空间同步（关闭期间 CHAT_CHANGED 被门控跳过）
-      void props.runtime.manager.syncToCurrentChat().catch(reportError);
-      // 记忆宏/Agent 预设宏同样重新评估：停用期间已注销 + 停止轮询，不 kick 则宏不恢复注册
-      void props.runtime.macro.kick().catch(reportError);
-      void props.runtime.agentMacro.kick().catch(reportError);
-    } else {
-      // 停用立即注销两个宏服务（轮询也会收敛，但注销要即时生效）
-      void props.runtime.agentMacro.kick().catch(reportError);
+  /** 设置服务同步保存新值，再等待联动；先刷新展示，失败由 UI 报告。 */
+  async function changeSettings(change: () => Promise<void>): Promise<void> {
+    try {
+      const pending = change();
+      props.onSettingsChange(props.settingsService.read());
+      await pending;
+    } catch (error) {
+      reportError(error);
     }
   }
 
-  /** 镜像开关切换：写设置 + kick（开关即时生效） */
-  function toggleMirror(enabled: boolean): void {
-    const next = { ...props.settings, mirror: { ...props.settings.mirror, enabled } };
-    props.runtime.settings.write(next);
+  function saveSettings(next: PluginSettings): void {
+    props.settingsService.save(next);
     props.onSettingsChange(next);
-    void props.runtime.mirror.kick().catch(reportError);
   }
 
-  /** 镜像包含修订历史开关切换：写设置 + kick（后续写回按新内容裁剪） */
+  function togglePlugin(enabled: boolean): void {
+    void changeSettings(() => props.settingsService.setPluginEnabled(enabled));
+  }
+
+  function toggleMirror(enabled: boolean): void {
+    void changeSettings(() => props.settingsService.setMirrorEnabled(enabled));
+  }
+
   function toggleMirrorHistory(includeHistory: boolean): void {
-    const next = { ...props.settings, mirror: { ...props.settings.mirror, includeHistory } };
-    props.runtime.settings.write(next);
-    props.onSettingsChange(next);
-    void props.runtime.mirror.kick().catch(reportError);
+    void changeSettings(() => props.settingsService.setMirrorHistoryIncluded(includeHistory));
   }
 
   async function exportBackup(): Promise<void> {
     try {
-      const snapshot = await props.runtime.backup.loadSnapshot();
-      const file = createBackupFile(snapshot, props.runtime.version, new Date().toISOString());
+      const snapshot = await props.backup.loadSnapshot();
+      const file = createBackupFile(snapshot, props.version, new Date().toISOString());
       downloadTextFile(serializeBackupFile(file), backupFilename(file.exportedAt));
       reportSuccess(`已导出 ${file.data.spaces.length} 个记忆空间`);
     } catch (error) {
@@ -208,9 +234,9 @@ export function SettingsTab(props: {
     if (!window.confirm(plan.confirmMessage)) return;
     try {
       await executeFullBackupImport(plan, {
-        backup: props.runtime.backup,
-        syncToCurrentChat: () => props.runtime.manager.syncToCurrentChat(),
-        kickMacros: () => void props.runtime.macro.kick().catch(reportError),
+        backup: props.backup,
+        syncToCurrentChat: () => props.manager.syncToCurrentChat(),
+        kickMacros: () => void props.macro.kick().catch(reportError),
         onDataChanged: props.onDataChanged,
       });
       reportSuccess(`已从备份恢复 ${plan.spaceCount} 个记忆空间`);
@@ -232,7 +258,7 @@ export function SettingsTab(props: {
     const spaceId = active.space.id;
     const spaceName = active.space.name;
     try {
-      const snapshot = await props.runtime.backup.loadSnapshot();
+      const snapshot = await props.backup.loadSnapshot();
       // 提取当前空间单单元 + 按「包含修订历史」设置裁剪历史（用户 story 5）
       const includeHistory = props.settings.mirror.includeHistory;
       const unit = buildSpaceExportUnit(snapshot, spaceId, includeHistory);
@@ -240,11 +266,7 @@ export function SettingsTab(props: {
         reportError(new Error("未找到当前记忆空间的数据，无法导出"));
         return;
       }
-      const file = createBackupFile(
-        { spaces: [unit] },
-        props.runtime.version,
-        new Date().toISOString(),
-      );
+      const file = createBackupFile({ spaces: [unit] }, props.version, new Date().toISOString());
       downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
       reportSuccess(`已导出记忆空间「${spaceName}」`);
     } catch (error) {
@@ -264,7 +286,7 @@ export function SettingsTab(props: {
       reportError(error);
       return;
     }
-    const plan = planSpaceImport(text, props.runtime.manager.getStatus());
+    const plan = planSpaceImport(text, props.manager.getStatus());
     if (plan.kind === "error") {
       reportError(new Error(plan.message));
       return;
@@ -273,10 +295,10 @@ export function SettingsTab(props: {
     try {
       reportInfo("正在导入…");
       await executeSpaceImport(plan, {
-        backup: props.runtime.backup,
-        manager: props.runtime.manager,
-        kickMacros: () => void props.runtime.macro.kick().catch(reportError),
-        kickMirror: () => void props.runtime.mirror.kick().catch(reportError),
+        backup: props.backup,
+        manager: props.manager,
+        kickMacros: () => void props.macro.kick().catch(reportError),
+        kickMirror: () => void props.mirror.kick().catch(reportError),
         onDataChanged: props.onDataChanged,
       });
       reportSuccess(`已导入记忆空间「${plan.spaceName}」`);
@@ -302,7 +324,7 @@ export function SettingsTab(props: {
     );
     if (!confirmed) return;
     try {
-      await props.runtime.spaceMaintenance.clearRecords(space.id);
+      await props.spaceMaintenance.clearRecords(space.id);
       reportSuccess(`已清除「${space.name}」的全部记录`);
       afterSpaceReset(space.id);
     } catch (error) {
@@ -319,7 +341,7 @@ export function SettingsTab(props: {
     );
     if (!confirmed) return;
     try {
-      await props.runtime.spaceMaintenance.reset(space.id);
+      await props.spaceMaintenance.reset(space.id);
       reportSuccess(`已重置「${space.name}」`);
       afterSpaceReset(space.id);
     } catch (error) {
@@ -331,33 +353,25 @@ export function SettingsTab(props: {
   function afterSpaceReset(spaceId: MemorySpaceId): void {
     props.onDataChanged();
     // 记忆宏快照立即重建（不等轮询）；镜像按既有机制传播空单元
-    void props.runtime.macro.kick().catch(reportError);
-    void props.runtime.mirror.kick().catch(reportError);
+    void props.macro.kick().catch(reportError);
+    void props.mirror.kick().catch(reportError);
     // 问答面板历史按（空间 × 模式）存页面内存：旧问答会误导，清空当前空间全部历史
     props.queryChatStore.clearSpaceHistory(spaceId);
   }
 
-  /** 记忆宏名变化：写设置 + 立即重新注册/重建（宏名不合法时注销 = 无注入） */
   function updateMacroName(value: string): void {
-    const next = { ...props.settings, macroName: value };
-    props.runtime.settings.write(next);
-    props.onSettingsChange(next);
-    void props.runtime.macro.kick().catch(reportError);
+    void changeSettings(() => props.settingsService.setMacroName(value));
   }
 
-  /** 记忆宏上限变化：写设置 + 立即按新上限重建快照 */
   function updateMacroLimit(value: string): void {
     const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) return; // 非法输入不落库
-    const next = { ...props.settings, macroLimit: parsed };
-    props.runtime.settings.write(next);
-    props.onSettingsChange(next);
-    void props.runtime.macro.kick().catch(reportError);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    void changeSettings(() => props.settingsService.setMacroLimit(parsed));
   }
 
   /** 宏预览读取口（内置/全局/对话级行共用）：完整宏名 → 预计算快照文本（未知 = 空串） */
   function readMacroPreview(name: string): string {
-    return props.runtime.macroOverview().find((row) => row.name === name)?.text ?? "";
+    return props.macroOverview().find((row) => row.name === name)?.text ?? "";
   }
 
   // ---- 折叠状态（纯展示偏好，持久化到 localStorage，不进 PluginSettings） ----
@@ -404,17 +418,16 @@ export function SettingsTab(props: {
 
   // ---- 面板入口（全局设置，存插件设置；切换即时生效——replan 热切换挂载点） ----
   const entryPlan: EntryMountPlan = useSyncExternalStore(
-    (listener) => props.runtime.entryMount?.onPlanChange(listener) ?? (() => {}),
-    () => props.runtime.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
-    () => props.runtime.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
+    (listener) => props.entryMount?.onPlanChange(listener) ?? (() => {}),
+    () => props.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
+    () => props.entryMount?.getPlan() ?? DEFAULT_ENTRY_PLAN,
   );
   /** 改入口位置：写设置 + 通知挂载控制器重解析（顶部/魔法棒/两者即时换挂载点） */
   function updateEntryPlacement(placement: EntryPlacement): void {
     if (props.settings.entryPlacement === placement) return;
-    const next = { ...props.settings, entryPlacement: placement };
-    props.runtime.settings.write(next);
-    props.onSettingsChange(next);
-    props.runtime.entryMount?.replan();
+    props.settingsService.setEntryPlacement(placement);
+    props.onSettingsChange(props.settingsService.read());
+    props.entryMount?.replan();
   }
 
   return (
@@ -487,7 +500,7 @@ export function SettingsTab(props: {
               <BuiltinMacrosList
                 prefix={props.settings.macroName.replace(/[{}]/g, "")}
                 spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
                 readPreview={readMacroPreview}
               />
             )}
@@ -498,17 +511,14 @@ export function SettingsTab(props: {
                 <MemoryViewsManager
                   prefix={props.settings.macroName.replace(/[{}]/g, "")}
                   spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                  readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                  readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
                   readFields={(spaceId, tableId) =>
-                    props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                    props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                   }
                   readPreview={readMacroPreview}
                   views={props.settings.memoryViews}
                   onChange={(views) => {
-                    const next = { ...props.settings, memoryViews: views };
-                    props.runtime.settings.write(next);
-                    props.onSettingsChange(next);
-                    void props.runtime.macro.kick().catch(reportError);
+                    void changeSettings(() => props.settingsService.setMemoryViews(views));
                   }}
                 />
               </>
@@ -519,16 +529,15 @@ export function SettingsTab(props: {
               <ChatScopeMacrosManager
                 prefix={props.settings.macroName.replace(/[{}]/g, "")}
                 spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                readTables={(spaceId) => props.runtime.tables.list(spaceId as MemorySpaceId)}
+                readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
                 readFields={(spaceId, tableId) =>
-                  props.runtime.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                  props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                 }
                 readPreview={readMacroPreview}
                 macros={chatScopeMacros}
                 onChange={(macros) => {
-                  props.runtime.cleaning.writeChatScopeMacros?.(macros);
+                  void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
                   setChatScopeMacros(macros);
-                  void props.runtime.macro.kick().catch(reportError);
                 }}
               />
             )}
@@ -577,8 +586,7 @@ export function SettingsTab(props: {
             <AgentConnectionManager
               settings={props.settings}
               onChange={(next) => {
-                props.runtime.settings.write(next);
-                props.onSettingsChange(next);
+                saveSettings(next);
               }}
               onTestConnection={(connection) => testAgentConnection(connection)}
             />
@@ -611,10 +619,9 @@ export function SettingsTab(props: {
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentPresetManager
               settings={props.settings}
-              presetPreview={props.runtime.presetPreview}
+              presetPreview={props.presetPreview}
               onChange={(next) => {
-                props.runtime.settings.write(next);
-                props.onSettingsChange(next);
+                saveSettings(next);
               }}
             />
           </div>
@@ -650,15 +657,14 @@ export function SettingsTab(props: {
               settings={props.settings}
               selectedListId={chatCleaningListId}
               onSelectList={(listId) => {
-                props.runtime.cleaning.writeSelection(listId);
+                props.cleaning.writeSelection(listId);
                 setChatCleaningListId(listId);
               }}
               onChange={(next) => {
-                props.runtime.settings.write(next);
-                props.onSettingsChange(next);
+                saveSettings(next);
               }}
-              readStRegexEntries={props.runtime.cleaning.readStRegexEntries}
-              readRecentMessages={props.runtime.cleaning.readRecentMessages}
+              readStRegexEntries={props.cleaning.readStRegexEntries}
+              readRecentMessages={props.cleaning.readRecentMessages}
             />
           </div>
         )}
@@ -842,7 +848,7 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-title stm-setting-group-title--collapsible">
               版本与运行状态
             </div>
-            <div className="stm-setting-group-summary">{`v${props.runtime.version} · ${runtimeStatusLabel(props.status)}`}</div>
+            <div className="stm-setting-group-summary">{`v${props.version} · ${runtimeStatusLabel(props.status)}`}</div>
           </div>
           <i
             className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "version") ? "fa-chevron-up" : "fa-chevron-down"}`}
@@ -853,7 +859,7 @@ export function SettingsTab(props: {
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
               <div className="stm-setting-name">版本</div>
-              <div className="stm-setting-value stm-mono">{`v${props.runtime.version}`}</div>
+              <div className="stm-setting-value stm-mono">{`v${props.version}`}</div>
             </div>
             <div className="stm-setting-row">
               <div className="stm-setting-name">运行状态</div>

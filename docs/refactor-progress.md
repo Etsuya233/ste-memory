@@ -1,6 +1,6 @@
 # ST 插件架构收敛重构进度
 
-状态：进行中。范围与阶段定义见 `docs/refactor-plan.md`。
+状态：代码重构与 Review 修复已完成，真实 ST 验收待执行。范围与阶段定义见 `docs/refactor-plan.md`。
 
 ## 阶段 A：基线与迁移清单
 
@@ -122,7 +122,7 @@
 - 插件文档迁移：`apps/st-extension/docs/adr/*` → `docs/adr/st/*`，
   `chat-metadata-mirror.md` → `docs/chat-metadata-mirror.md`。
 
-### 最终检查（根命令）
+### 首轮重构检查（Review 修复前）
 
 | 检查 | 结果 | 与基线对比 |
 | --- | --- | --- |
@@ -148,5 +148,34 @@
 ### 剩余工作
 
 - 真机（隔离 SillyTavern）验收插件加载、空间绑定、编辑、填表、取消、问答、宏、备份与镜像。
-- `pnpm release:st --dry-run` 未执行（会写入 `.worktrees/release` 并需要干净工作区；
-  本次改动尚未提交，脚本预检会在有未提交改动时退出）。
+- `pnpm release:st --dry-run` 未执行（会写入 `.worktrees/release` 并可能联网）。
+
+## Review 修复
+
+首轮 Review 发现三项 P2，现已修复：
+
+1. **边界检查**：合并 ESLint 中重叠的导入限制，避免后面的规则覆盖 Memory 限制。
+   架构测试使用 TypeScript AST 与项目编译配置解析实际目标，覆盖相对路径、别名、
+   重导出、仅副作用导入、字面量动态导入与类型导入；Domain 的技术包依赖会被拒绝。
+   增加正反向回归用例，确保合法公开入口及 UI 自身的 memory 目录导入不会被误拦。
+2. **提案提交**：已有 `MemoryRecordService` 增加 `commitProposal`，内部构造提交上下文。
+   填表与问答只接收完整提交操作，不再接收仓库、ID、时钟及显示回调的上下文。
+   公共入口移除上下文工厂、上下文类型及底层提案提交函数；内部测试直接测试内部实现。
+   原有填表事务范围保持，台账失败时记录、历史、证据回滚测试继续通过。
+3. **设置与 UI**：新增具体的 `SettingsService`，集中启停、镜像、宏设置、视图与对话宏
+   保存后的联动，先保存设置再执行刷新，错误交回 UI 报告；启停会立即刷新两个宏及镜像。
+   设置页、表格页改为局部依赖参数，不再依赖整份 `PanelRuntime`。
+   新增服务测试，并让运行时集成测试通过设置服务验证宏改名、插件启停与视图刷新。
+
+最终检查：
+
+| 检查 | 结果 |
+| --- | --- |
+| `pnpm typecheck` | 通过 |
+| `pnpm lint` | 通过 |
+| `pnpm format:check` | 通过 |
+| `pnpm test` | 105 个文件、1189 项全部通过 |
+| `pnpm build` | 通过，产物仍为 index.js、manifest.json、style.css |
+
+完整测试与独立构建顺序执行，避免并行编译干扰构建测试的 30 秒超时。
+未执行真实 ST 验收、开发同步和发布，也未修改用户数据。
