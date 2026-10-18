@@ -33,6 +33,8 @@ export interface TablePresetApplyPorts {
 
 /** 应用预设成功后的同步动作（调用方注入现有服务；失败不影响已提交的重建）。 */
 export interface TablePresetSyncActions {
+  /** 用户打开确认框时固定的对话身份，不能在执行时重新捕获。 */
+  readonly chatIdentity: string;
   readonly refreshMacros: () => Promise<void>;
   readonly syncMirror: () => Promise<void>;
 }
@@ -65,6 +67,12 @@ export class TablePresetApplyService {
     await this.#ports.cancelActiveTask(memorySpaceId);
   }
 
+  assertCurrentChat(chatIdentity: string): void {
+    if (this.#ports.currentChatIdentity() !== chatIdentity) {
+      throw new Error("对话已切换，请回到原对话后重新确认");
+    }
+  }
+
   /**
    * 应用预设到指定空间：原子重建 + 成功后同步。空间不存在（已被删除）时抛错，
    * 不做任何写入。操作全过程使用同一份预设内容，且固定作用到传入的空间。
@@ -74,7 +82,8 @@ export class TablePresetApplyService {
     preset: ResolvedTablePreset,
     sync: TablePresetSyncActions,
   ): Promise<ApplyTablePresetOutcome> {
-    const chatIdentity = this.#ports.currentChatIdentity();
+    const chatIdentity = sync.chatIdentity;
+    this.assertCurrentChat(chatIdentity);
     const rebuilt = await this.#rebuildWithPreset(memorySpaceId, preset);
     if (!rebuilt) {
       throw new Error(`记忆空间不存在，无法应用预设「${preset.name}」`);
@@ -96,6 +105,7 @@ export class TablePresetApplyService {
       issues.push(`宏快照重建失败：${messageOf(error)}`);
     }
     try {
+      this.assertCurrentChat(chatIdentity);
       await sync.syncMirror();
     } catch (error) {
       issues.push(`记忆镜像同步失败：${messageOf(error)}`);

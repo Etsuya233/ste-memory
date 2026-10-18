@@ -86,6 +86,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       cloneSpaceFromUnit: vi.fn(async () => "new-space" as MemorySpaceId),
     },
     mirror: {
+      flushRebuiltSpace: vi.fn(async () => {}),
       getStatus: () => ({ kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
       onStatusChange: () => () => {},
       kick: vi.fn(async () => {}),
@@ -102,6 +103,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     },
     spaceMaintenance: { clearRecords: vi.fn(async () => false) },
     presetApply: {
+      assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },
@@ -429,6 +431,7 @@ describe("PanelShell（面板骨架投影）", () => {
   it("设置 Tab：镜像已写回时状态行展示时间与体积", () => {
     const runtime = fakeRuntime({
       mirror: {
+        flushRebuiltSpace: vi.fn(async () => {}),
         getStatus: () => ({
           kind: "idle",
           lastWrittenAt: "2026-08-10T01:02:03.000Z",

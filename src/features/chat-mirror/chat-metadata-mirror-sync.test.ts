@@ -177,6 +177,91 @@ afterEach(() => {
 });
 
 describe("ChatMetadataMirrorSync 写回（本地 → 对话文件）", () => {
+  it("重建后立即覆盖较新的旧镜像，不等待防抖；普通 kick 仍遵守 LWW", async () => {
+    const h = createHarness();
+    seedBinding(h, "space-1");
+    h.changes.fingerprints.set("space-1", fingerprint("2026-08-10T01:00:00.000Z"));
+    h.backup.snapshot = { spaces: [unit("space-1", "2026-08-10T01:00:00.000Z")] };
+    h.chatMetadata[CHAT_METADATA_MIRROR_KEY] = createChatMirrorFile(
+      unit("space-1", "2026-08-10T02:00:00.000Z"),
+      "space-1",
+      "2026-08-10T02:00:00.000Z",
+      "0.1.0",
+    );
+
+    await h.sync.kick();
+    await settle(h);
+    expect(h.writeCalls).toHaveLength(0);
+
+    await h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story");
+    expect(h.writeCalls).toHaveLength(1);
+    expect(h.writeCalls[0]!.updatedAt).toBe("2026-08-10T01:00:00.000Z");
+    expect(h.writeCalls[0]!.data.space.id).toBe("space-1");
+  });
+
+  it("重建镜像写入失败向调用方抛出，且不记为已写", async () => {
+    const h = createHarness({
+      mirrorStore: {
+        read: () => undefined,
+        write: () => {
+          throw new Error("保存失败");
+        },
+      },
+    });
+    seedBinding(h, "space-1");
+    h.changes.fingerprints.set("space-1", fingerprint("2026-08-10T01:00:00.000Z"));
+    h.backup.snapshot = { spaces: [unit("space-1")] };
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).rejects.toThrow("保存失败");
+    expect(h.sync.getStatus()).toEqual({ kind: "disabled" });
+  });
+
+  it("重建同步期间切换对话，不写入新对话", async () => {
+    const h = createHarness();
+    seedBinding(h, "space-1");
+    h.changes.fingerprints.set("space-1", fingerprint("2026-08-10T01:00:00.000Z"));
+    h.backup.snapshot = { spaces: [unit("space-1")] };
+    vi.spyOn(h.backup, "loadSnapshot").mockImplementation(async () => {
+      h.switchChat("other");
+      return h.backup.snapshot;
+    });
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).rejects.toThrow("对话已切换");
+    expect(h.writeCalls).toHaveLength(0);
+  });
+
+  it("重建同步遇到未知镜像、错误绑定或空间缺失时显式报错", async () => {
+    const h = createHarness();
+    seedBinding(h, "space-1");
+    h.changes.fingerprints.set("space-1", fingerprint("2026-08-10T01:00:00.000Z"));
+    h.backup.snapshot = { spaces: [unit("space-1")] };
+    h.chatMetadata[CHAT_METADATA_MIRROR_KEY] = { format: "ste-memory-chat-mirror", version: 99 };
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).rejects.toThrow("无法识别");
+    delete h.chatMetadata[CHAT_METADATA_MIRROR_KEY];
+    seedBinding(h, "other-space");
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).rejects.toThrow("未绑定");
+    seedBinding(h, "space-1");
+    h.backup.snapshot = { spaces: [] };
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).rejects.toThrow("不存在");
+    expect(h.writeCalls).toHaveLength(0);
+  });
+
+  it("镜像功能关闭时重建同步明确跳过写入", async () => {
+    const h = createHarness({ isEnabled: () => false });
+    await expect(
+      h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story"),
+    ).resolves.toBeUndefined();
+    expect(h.writeCalls).toHaveLength(0);
+  });
+
   it("绑定空间指纹变化：防抖后写镜像（信封含 spaceId/updatedAt/appVersion，data 完整）", async () => {
     const h = createHarness();
     seedBinding(h, "space-1");

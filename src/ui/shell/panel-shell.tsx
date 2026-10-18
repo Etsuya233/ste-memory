@@ -78,7 +78,10 @@ export interface PanelRuntime {
   /** ST 适配器（分支检测需要访问 getChatSnapshot 和 bindingStore） */
   readonly adapter?: Pick<SteMemoryRuntime["adapter"], "getChatSnapshot" | "bindingStore">;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化重新评估 */
-  readonly mirror: Pick<SteMemoryRuntime["mirror"], "getStatus" | "onStatusChange" | "kick">;
+  readonly mirror: Pick<
+    SteMemoryRuntime["mirror"],
+    "getStatus" | "onStatusChange" | "kick" | "flushRebuiltSpace"
+  >;
   /** 通用日志（独立数据库，ADR 0015）：日志 Tab 查询（按 Key/最近）+ 清空 */
   readonly logs: Pick<SteMemoryRuntime["logs"], "byKey" | "recent" | "clearAll">;
   /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
@@ -107,7 +110,10 @@ export interface PanelRuntime {
   /** 空间维护（spec reset-space）：清除空间记录（设置 Tab 危险操作区） */
   readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords">;
   /** 表格预设应用（spec table-presets）：停止写入 + 当前空间应用预设（原子重建） */
-  readonly presetApply: Pick<TablePresetApplyService, "stopSpaceWrites" | "applyPreset">;
+  readonly presetApply: Pick<
+    TablePresetApplyService,
+    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat"
+  >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */

@@ -5,6 +5,7 @@ import {
   memoryChangesEqual,
   type MemoryChangeFingerprint,
   type MemoryChangeSource,
+  type MemorySpaceId,
 } from "../memory/index.ts";
 import { defaultTimers, type TimerPort } from "../../common/timers.ts";
 import {
@@ -174,6 +175,32 @@ export class ChatMetadataMirrorSync {
     return this.#queueEvaluate();
   }
 
+  /** 预设重建已提交后，立即把指定空间写入所属对话的镜像。 */
+  flushRebuiltSpace(spaceId: MemorySpaceId, expectedIdentity: string): Promise<void> {
+    const run = this.#evaluating.then(async () => {
+      if (!this.#ports.isEnabled()) return;
+      this.#assertTarget(spaceId, expectedIdentity);
+      const fingerprint = await this.#ports.changes.fingerprint(spaceId);
+      if (fingerprint.updatedAt === "") throw new Error(`记忆空间不存在: ${spaceId}`);
+      await this.#writeMirror(expectedIdentity, spaceId, fingerprint, true);
+    });
+    this.#evaluating = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  #assertTarget(spaceId: MemorySpaceId, expectedIdentity: string): void {
+    if (chatIdentityKey(this.#ports.getChat()) !== expectedIdentity) {
+      throw new Error("对话已切换，无法同步原对话镜像");
+    }
+    const binding = this.#ports.bindingStore.read();
+    if (binding.kind !== "bound" || binding.binding.spaceId !== spaceId) {
+      throw new Error(`当前对话未绑定记忆空间: ${spaceId}`);
+    }
+  }
+
   /**
    * 镜像恢复（读侧，ChatSpaceManager 的 space-missing 分支调用）：
    * 镜像开关开启 + 镜像有效 + spaceId 与绑定一致 → 按空间恢复；其余情况一律
@@ -264,17 +291,19 @@ export class ChatMetadataMirrorSync {
   /** 写回（本地 → 对话文件）：身份/LWW 闸门后写出 */
   async #writeMirror(
     identity: string,
-    spaceId: string,
+    spaceId: MemorySpaceId,
     fingerprint: MemoryChangeFingerprint,
+    rebuilt = false,
   ): Promise<void> {
     const fileRead = readMirror(this.#ports.mirrorStore);
     if (fileRead.kind === "unrecognized") {
+      if (rebuilt) throw new Error("对话文件中的记忆镜像无法识别");
       // 文件里已有无法识别的镜像（未来版本/损坏）：原样保留，绝不覆盖
       this.#ports.log?.warn("对话文件中的记忆镜像无法识别（可能来自更新版本），已原样保留未覆盖");
       this.#pushed.set(identity, { fingerprint });
       return;
     }
-    if (fileRead.kind === "mirror") {
+    if (fileRead.kind === "mirror" && !rebuilt) {
       // LWW：本地不比文件新 → 不写（较新版本胜出；相等也不写）
       const decision = compareMirrorUpdatedAt(fingerprint.updatedAt, fileRead.file.updatedAt);
       if (decision !== "local") {
@@ -290,7 +319,10 @@ export class ChatMetadataMirrorSync {
     // 构建镜像：全库快照 → 该空间单元 → 按设置裁剪 history
     const snapshot = await this.#ports.backup.loadSnapshot();
     const unit = snapshot.spaces.find((item) => item.space.id === spaceId);
-    if (unit === undefined) return; // 空间已被删除：无可镜像内容（下轮指纹为空会收敛）
+    if (unit === undefined) {
+      if (rebuilt) throw new Error(`记忆空间不存在: ${spaceId}`);
+      return; // 空间已被删除：无可镜像内容（下轮指纹为空会收敛）
+    }
     const file = createChatMirrorFile(
       unit,
       spaceId,
@@ -300,7 +332,8 @@ export class ChatMetadataMirrorSync {
     );
     const bytes = JSON.stringify(file);
     // 快照构建期间切走了对话 → 放弃写出（宿主写的是当前对话的 chatMetadata）
-    if (chatIdentityKey(this.#ports.getChat()) !== identity) return;
+    if (rebuilt) this.#assertTarget(spaceId, identity);
+    else if (chatIdentityKey(this.#ports.getChat()) !== identity) return;
     this.#ports.mirrorStore.write(file);
     this.#pushed.set(identity, { fingerprint });
     this.#lastWrittenAt = this.#nowIso();

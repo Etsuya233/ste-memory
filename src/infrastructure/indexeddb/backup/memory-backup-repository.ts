@@ -23,9 +23,15 @@ import type {
 } from "../../../features/memory/index.ts";
 import { remapMemoryTableDisplayStrategy } from "../../../features/memory/index.ts";
 import type { FillTask } from "../../../features/fill-tasks/fill-task.ts";
+import { isFillTaskTerminal } from "../../../features/fill-tasks/fill-task.ts";
 import type { SteMemoryDatabase, MemoryEvidenceRow } from "../database.ts";
 import { normalizeTaskRow } from "../fill-tasks/fill-task-repository.ts";
 import { toDomainEvidence, toEvidenceRow } from "../memory/evidence-conversion.ts";
+
+/** 复制出的任务没有原来的执行循环，活动状态必须结束，历史字段仍保留。 */
+function taskWithoutExecutor(task: FillTask): FillTask {
+  return isFillTaskTerminal(task.status) ? task : { ...task, status: "interrupted" };
+}
 
 /**
  * Memory MemoryBackupRepository 端口的 Dexie（IndexedDB）实现（ADR 0002 / 0021）。
@@ -434,7 +440,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         if (fillTasks.length > 0) {
           await this.#db.memoryFillTasks.bulkAdd(
             fillTasks.map((task) => ({
-              ...task,
+              ...taskWithoutExecutor(task),
               runId: createId.task(),
               memorySpaceId: newSpaceId,
             })),
@@ -473,7 +479,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
     }
     // 任务/进度为可选集合：带键即写入（调用方已按需删除目标行），缺省不涉及
     if (unit.fillTasks !== undefined && unit.fillTasks.length > 0) {
-      await this.#db.memoryFillTasks.bulkAdd([...unit.fillTasks]);
+      await this.#db.memoryFillTasks.bulkAdd(unit.fillTasks.map(taskWithoutExecutor));
     }
     if (unit.floorLedger !== undefined && unit.floorLedger.length > 0) {
       await this.#db.floorFillLedger.bulkAdd(

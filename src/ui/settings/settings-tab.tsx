@@ -7,7 +7,7 @@ import {
   planFullBackupImport,
   spaceExportFilename,
 } from "../../features/backup/space-transfer.ts";
-import { downloadTextFile } from "../../infrastructure/browser/download.ts";
+import { downloadTextFile, saveTextFile } from "../../infrastructure/browser/download.ts";
 import type { MemorySpaceId, MemoryTableId } from "../../features/memory/index.ts";
 import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import type { EntryPlacement, PluginSettings } from "../../features/settings/plugin-settings.ts";
@@ -143,11 +143,14 @@ export function SettingsTab(props: {
     MemoryBackupRepository,
     "loadSnapshot" | "restoreSnapshot" | "restoreSpace"
   >;
-  readonly mirror: Pick<ChatMetadataMirrorSync, "kick">;
+  readonly mirror: Pick<ChatMetadataMirrorSync, "kick" | "flushRebuiltSpace">;
   readonly macro: Pick<MemoryMacroService, "kick">;
   readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords">;
   /** 表格预设应用服务（spec table-presets）：停止写入 + 原子重建 + 来源更新 */
-  readonly presetApply: Pick<TablePresetApplyService, "stopSpaceWrites" | "applyPreset">;
+  readonly presetApply: Pick<
+    TablePresetApplyService,
+    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat"
+  >;
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
@@ -269,7 +272,20 @@ export function SettingsTab(props: {
    * 与全库备份同构），按「包含修订历史」设置裁剪历史，下载为独立 JSON 文件。
    */
   async function exportSpaceBackup(): Promise<void> {
-    await exportCurrentSpaceBackup();
+    const active = activeStatus(props.status);
+    if (!active) return;
+    const macros = props.cleaning.readChatScopeMacros();
+    try {
+      const text = await spaceBackupText(
+        active.space.id,
+        props.settings.mirror.includeHistory,
+        macros,
+      );
+      downloadTextFile(text, spaceExportFilename(new Date().toISOString()));
+      reportSuccess(`已导出记忆空间「${active.space.name}」`);
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   /**
@@ -335,36 +351,37 @@ export function SettingsTab(props: {
     }
   }
 
-  /**
-   * 导出当前空间的备份（应用预设的「备份并应用」与数据备份组共用）：
-   * 返回导出流程是否完成——用户取消或导出失败 = false（调用方不执行清空）。
-   */
-  async function exportCurrentSpaceBackup(): Promise<boolean> {
-    const active = activeStatus(props.status);
-    if (!active) return false;
-    const spaceId = active.space.id;
-    const spaceName = active.space.name;
-    try {
-      const snapshot = await props.backup.loadSnapshot();
-      const includeHistory = props.settings.mirror.includeHistory;
-      // 单空间导出带上导出时当前对话的对话级宏：备份能恢复本次将被删除的内容
-      const unit = buildSpaceExportUnit(
-        snapshot,
-        spaceId,
-        includeHistory,
-        props.cleaning.readChatScopeMacros(),
-      );
-      if (!unit) {
-        reportError(new Error("未找到当前记忆空间的数据，无法导出"));
-        return false;
-      }
-      const file = createBackupFile({ spaces: [unit] }, props.version, new Date().toISOString());
-      downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
-      reportSuccess(`已导出记忆空间「${spaceName}」`);
-      return true;
-    } catch (error) {
-      reportError(error);
-      return false;
+  async function spaceBackupText(
+    spaceId: MemorySpaceId,
+    includeHistory: boolean,
+    macros: readonly MemoryView[],
+  ): Promise<string> {
+    const snapshot = await props.backup.loadSnapshot();
+    const unit = buildSpaceExportUnit(snapshot, spaceId, includeHistory, macros);
+    if (!unit) throw new Error("未找到目标记忆空间的数据，无法备份");
+    return serializeBackupFile(
+      createBackupFile({ spaces: [unit] }, props.version, new Date().toISOString()),
+    );
+  }
+
+  /** 先打开文件保存器保留用户激活，保存句柄确认后才停止任务和构建完整备份。 */
+  async function savePresetBackup(spaceId: MemorySpaceId, chatIdentity: string): Promise<boolean> {
+    assertPresetTarget(spaceId, chatIdentity);
+    return saveTextFile(async () => {
+      assertPresetTarget(spaceId, chatIdentity);
+      await props.presetApply.stopSpaceWrites(spaceId);
+      assertPresetTarget(spaceId, chatIdentity);
+      const macros = props.cleaning.readChatScopeMacros();
+      // 重建会删除全部历史，安全备份必须独立于镜像的体积裁剪设置。
+      return spaceBackupText(spaceId, true, macros);
+    }, spaceExportFilename(new Date().toISOString()));
+  }
+
+  function assertPresetTarget(spaceId: MemorySpaceId, chatIdentity: string): void {
+    props.presetApply.assertCurrentChat(chatIdentity);
+    const status = props.manager.getStatus();
+    if (status?.kind !== "active" || status.space.id !== spaceId) {
+      throw new Error("记忆空间绑定已变化，请重新确认目标空间");
     }
   }
 
@@ -386,10 +403,16 @@ export function SettingsTab(props: {
    * 问答历史、刷新面板数据与空间展示（重新同步空间上下文：初始化来源随之更新），
    * 宏与镜像同步由应用服务在重建提交后执行并回报。
    */
-  async function applyPresetToSpace(spaceId: MemorySpaceId, preset: ResolvedTablePreset) {
+  async function applyPresetToSpace(
+    spaceId: MemorySpaceId,
+    preset: ResolvedTablePreset,
+    chatIdentity: string,
+  ) {
+    assertPresetTarget(spaceId, chatIdentity);
     const outcome = await props.presetApply.applyPreset(spaceId, preset, {
+      chatIdentity,
       refreshMacros: () => props.macro.kick(),
-      syncMirror: () => props.mirror.kick(),
+      syncMirror: () => props.mirror.flushRebuiltSpace(spaceId, chatIdentity),
     });
     // 页面内存问答历史按空间清理（不落库、不随备份）
     props.queryChatStore.clearSpaceHistory(spaceId);
@@ -639,9 +662,12 @@ export function SettingsTab(props: {
                 saveSettings({ ...props.settings, tablePresets: presets });
               }}
               readSpaceStructure={readSpaceStructure}
-              onPrepareApply={(spaceId) => props.presetApply.stopSpaceWrites(spaceId)}
+              onPrepareApply={(spaceId, chatIdentity) => {
+                assertPresetTarget(spaceId, chatIdentity);
+                return props.presetApply.stopSpaceWrites(spaceId);
+              }}
               onApplyPreset={applyPresetToSpace}
-              onBackupSpace={exportCurrentSpaceBackup}
+              onBackupSpace={savePresetBackup}
               onDataChanged={props.onDataChanged}
             />
           </div>

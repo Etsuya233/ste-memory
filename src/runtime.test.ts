@@ -180,8 +180,13 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
 
     // 应用到当前空间：系统自带预设（原子重建 + 清除对话级宏）
     const outcome = await runtime.presetApply.applyPreset(status.space.id, SYSTEM_TABLE_PRESET, {
+      chatIdentity: status.binding.version === 2 ? status.binding.chatIdentity : "",
       refreshMacros: () => runtime.macro.kick(),
-      syncMirror: () => runtime.mirror.kick(),
+      syncMirror: () =>
+        runtime.mirror.flushRebuiltSpace(
+          status.space.id,
+          status.binding.version === 2 ? status.binding.chatIdentity : "",
+        ),
     });
     expect(outcome).toEqual({ kind: "applied" });
     const tables = await runtime.tables.list(status.space.id);

@@ -84,6 +84,7 @@ function fakeRuntime(): PanelRuntime {
       cloneSpaceFromUnit: vi.fn(async () => "new-space" as MemorySpaceId),
     },
     mirror: {
+      flushRebuiltSpace: vi.fn(async () => {}),
       getStatus: () => ({ kind: "idle", lastWrittenAt: undefined, sizeBytes: undefined }),
       onStatusChange: () => () => {},
       kick: vi.fn(async () => {}),
@@ -100,6 +101,7 @@ function fakeRuntime(): PanelRuntime {
     },
     spaceMaintenance: { clearRecords: vi.fn(async () => false) },
     presetApply: {
+      assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },

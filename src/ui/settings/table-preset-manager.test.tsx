@@ -169,4 +169,21 @@ describe("TablePresetManager（设置 Tab 表格预设分组冒烟）", () => {
     expect(html).not.toContain("备份并应用");
     expect(html).not.toContain("直接清空并应用");
   });
+
+  it("来源预设已删除：明确要求重新选择，不能静默应用系统默认", () => {
+    const status = activeStatus();
+    if (status.kind !== "active") throw new Error("expected active");
+    const html = render({
+      status: {
+        ...status,
+        space: {
+          ...status.space,
+          initializationSource: { presetId: "deleted", presetName: "已删除预设", appliedAt: NOW },
+        },
+      },
+    });
+    expect(html).toContain("请选择有效的表格预设");
+    expect(html.match(/<button[^>]*data-action="apply-preset"[^>]*>/)?.[0]).toContain("disabled");
+    expect(html).toContain("初始化自：已删除预设");
+  });
 });

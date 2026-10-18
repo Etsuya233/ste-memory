@@ -376,6 +376,67 @@ describe("Dexie memory backup repository", () => {
     expect((await tasks.listRecent(space.id, 10)).map((task) => task.runId)).toEqual(["run-1"]);
   });
 
+  it("克隆与恢复中断脱离执行器的运行任务，保留任务历史且不占用活动名额", async () => {
+    const db = createTestDatabase();
+    const { space } = await seedDatabase(db);
+    const tasks = new DexieFillTaskRepository(db, () => NOW);
+    await tasks.create({
+      runId: "running-source",
+      memorySpaceId: space.id,
+      from: 1,
+      to: 3,
+      blockSize: 20,
+      kind: "floor",
+      initText: null,
+      chatId: "source-chat",
+      status: "running",
+      errorMessage: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const repo = new DexieMemoryBackupRepository(db);
+    const unit = (await repo.loadSnapshot()).spaces[0]!;
+    let seq = 0;
+    const ids = () => ({
+      space: () => `clone-space-${++seq}` as MemorySpaceId,
+      table: () => `clone-table-${++seq}` as MemoryTableId,
+      field: () => `clone-field-${++seq}` as MemoryFieldId,
+      record: () => `clone-record-${++seq}` as MemoryRecordId,
+      history: () => `clone-history-${++seq}` as MemoryRecordHistoryId,
+      task: () => `clone-task-${++seq}`,
+      evidence: () => `clone-evidence-${++seq}` as MemoryEvidenceId,
+    });
+    const clonedId = await repo.cloneSpace(space.id, ids());
+    const importedId = await repo.cloneSpaceFromUnit(unit, ids());
+    for (const spaceId of [clonedId, importedId]) {
+      expect(await tasks.findActive(spaceId)).toBeUndefined();
+      expect(await tasks.listRecent(spaceId, 10)).toEqual([
+        expect.objectContaining({
+          memorySpaceId: spaceId,
+          chatId: "source-chat",
+          status: "interrupted",
+          createdAt: NOW,
+        }),
+      ]);
+    }
+    expect((await tasks.findActive(space.id))?.status).toBe("running");
+
+    await repo.restoreSpace(unit);
+    expect(await tasks.findActive(space.id)).toBeUndefined();
+    expect(await tasks.listRecent(space.id, 10)).toEqual([
+      expect.objectContaining({ runId: "running-source", status: "interrupted", createdAt: NOW }),
+    ]);
+
+    const freshDb = createTestDatabase();
+    const freshRepo = new DexieMemoryBackupRepository(freshDb);
+    await freshRepo.restoreSnapshot({ spaces: [unit] });
+    const restoredTasks = new DexieFillTaskRepository(freshDb, () => NOW);
+    expect(await restoredTasks.findActive(space.id)).toBeUndefined();
+    expect(await restoredTasks.listRecent(space.id, 10)).toEqual([
+      expect.objectContaining({ runId: "running-source", status: "interrupted", createdAt: NOW }),
+    ]);
+  });
+
   it("cloneSpace 全量复制 + ID 重生成 + 外键重映射", async () => {
     const db = createTestDatabase();
     const { space } = await seedDatabase(db);

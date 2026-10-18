@@ -86,14 +86,14 @@ describe("表格预设模型（spec 表格预设）", () => {
     ]);
   });
 
-  it("按 ID 解析预设：命中用户预设 / 系统预设 / 未知回退系统默认", () => {
+  it("按 ID 解析预设：命中用户预设 / 系统预设 / 未知 ID 明确报错", () => {
     const settings = settingsWith(userPreset("p1", "我的结构"));
     expect(resolveTablePreset(settings, SYSTEM_TABLE_PRESET, "p1").name).toBe("我的结构");
     expect(resolveTablePreset(settings, SYSTEM_TABLE_PRESET, SYSTEM_TABLE_PRESET_ID).builtIn).toBe(
       true,
     );
-    expect(resolveTablePreset(settings, SYSTEM_TABLE_PRESET, "gone").id).toBe(
-      SYSTEM_TABLE_PRESET_ID,
+    expect(() => resolveTablePreset(settings, SYSTEM_TABLE_PRESET, "gone")).toThrowError(
+      /预设不存在/,
     );
     expect(resolveDefaultTablePreset(settings, SYSTEM_TABLE_PRESET).id).toBe("p1");
   });

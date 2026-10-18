@@ -102,10 +102,7 @@ export function listTablePresets(
   ];
 }
 
-/**
- * 按 ID 解析预设：命中用户预设或系统自带预设返回其内容；未命中返回系统默认
- * （默认选择回退系统默认，与无设置时的初始状态一致）。
- */
+/** 按 ID 取得用户预设或系统自带预设；未知 ID 明确报错。 */
 export function resolveTablePreset(
   settings: TablePresetSettings,
   systemPreset: ResolvedTablePreset,
@@ -113,7 +110,12 @@ export function resolveTablePreset(
 ): ResolvedTablePreset {
   if (presetId === systemPreset.id) return systemPreset;
   const userPreset = settings.userPresets.find((preset) => preset.id === presetId);
-  if (!userPreset) return systemPreset;
+  if (!userPreset) {
+    throw new DomainError({
+      type: "table_preset_not_found",
+      humanMsg: "预设不存在",
+    });
+  }
   return {
     id: userPreset.id,
     name: userPreset.name,

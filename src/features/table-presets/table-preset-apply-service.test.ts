@@ -129,6 +129,31 @@ async function setup() {
 }
 
 describe("TablePresetApplyService（应用预设）", () => {
+  it("确认后切换对话：在任何重建和宏清理之前拒绝操作", async () => {
+    const rebuild = vi.fn(async () => true);
+    const clearChatScopeMacros = vi.fn();
+    const syncMirror = vi.fn(async () => undefined);
+    const apply = new TablePresetApplyService({
+      cancelActiveTask: async () => undefined,
+      rebuild: { rebuild },
+      defaultPreset: () => SYSTEM_TABLE_PRESET,
+      currentChatIdentity: () => "char:9:other",
+      clearChatScopeMacros,
+      createIds: { table: () => "unused" as MemoryTableId, field: () => "unused" as MemoryFieldId },
+      now: () => NOW,
+    });
+    await expect(
+      apply.applyPreset("space-A" as MemorySpaceId, TARGET_PRESET, {
+        chatIdentity: "char:3:story",
+        refreshMacros: async () => undefined,
+        syncMirror,
+      }),
+    ).rejects.toThrow("对话已切换");
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(clearChatScopeMacros).not.toHaveBeenCalled();
+    expect(syncMirror).not.toHaveBeenCalled();
+  });
+
   it("首次创建：按默认预设写结构并记录初始化来源", async () => {
     const { db, services } = await setup();
     const fresh = await services.spaces.create("新空间");
@@ -198,6 +223,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const refreshMacros = vi.fn(async () => undefined);
     const syncMirror = vi.fn(async () => undefined);
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
+      chatIdentity: "char:3:story",
       refreshMacros,
       syncMirror,
     });
@@ -231,6 +257,7 @@ describe("TablePresetApplyService（应用预设）", () => {
   it("应用后新结构可用：引用与显示策略按新 ID 建立、停用字段保留（AC-16）", async () => {
     const { db, services, space, apply } = await setup();
     await apply.applyPreset(space.id, TARGET_PRESET, {
+      chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
       syncMirror: async () => undefined,
     });
@@ -265,6 +292,7 @@ describe("TablePresetApplyService（应用预设）", () => {
   it("同一预设重新初始化：可执行且记录换新初始化来源（AC-09）", async () => {
     const { services, space, apply } = await setup();
     const sync = {
+      chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
       syncMirror: async () => undefined,
     };
@@ -340,6 +368,7 @@ describe("TablePresetApplyService（应用预设）", () => {
 
     await expect(
       apply.applyPreset(space.id, TARGET_PRESET, {
+        chatIdentity: "char:3:story",
         refreshMacros: async () => undefined,
         syncMirror: async () => undefined,
       }),
@@ -358,6 +387,7 @@ describe("TablePresetApplyService（应用预设）", () => {
 
     await expect(
       apply.applyPreset(missing, TARGET_PRESET, {
+        chatIdentity: "char:3:story",
         refreshMacros: async () => undefined,
         syncMirror: async () => undefined,
       }),
@@ -369,6 +399,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const { services, space, apply } = await setup();
 
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
+      chatIdentity: "char:3:story",
       refreshMacros: async () => {
         throw new Error("宏炸了");
       },
@@ -417,6 +448,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     });
 
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
+      chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
       syncMirror: async () => undefined,
     });
@@ -452,6 +484,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     });
 
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
+      chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
       syncMirror: async () => undefined,
     });

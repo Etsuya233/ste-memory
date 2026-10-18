@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MemorySpace } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { ApplyTablePresetOutcome } from "../../features/table-presets/table-preset-apply-service.ts";
@@ -39,7 +39,7 @@ import {
  * - 预设库与默认选择是全局设置（不随对话切换），组件只负责草稿与展示，写入经
  *   onPresetsChange（设置服务保存）；
  * - 选择目标、展开预览只改界面草稿：不写空间、不改默认选择、不触发清空确认；
- * - 应用前先停止目标空间的进行中填表写入（onPrepareApply），再进入确认流程；
+ * - 用户确认执行后停止目标空间的进行中填表写入；
  *   确认框提供「备份并应用 / 直接清空并应用 / 取消」，备份未完成不清空；
  * - 应用过程中固定目标空间与预设、禁止重复提交。
  */
@@ -50,15 +50,19 @@ export function TablePresetManager(props: {
   readonly onPresetsChange: (presets: TablePresetSettings) => void;
   /** 读取当前活动空间的实际结构（另存为预设 / 覆盖预设用） */
   readonly readSpaceStructure: () => Promise<TablePresetStructure>;
-  /** 应用前停止目标空间的进行中填表写入（确认流程之前） */
-  readonly onPrepareApply: (memorySpaceId: MemorySpace["id"]) => Promise<void>;
+  /** 用户确认执行后，应用前停止目标空间的进行中填表写入 */
+  readonly onPrepareApply: (
+    memorySpaceId: MemorySpace["id"],
+    chatIdentity: string,
+  ) => Promise<void>;
   /** 应用预设（原子重建 + 成功后同步） */
   readonly onApplyPreset: (
     memorySpaceId: MemorySpace["id"],
     preset: ResolvedTablePreset,
+    chatIdentity: string,
   ) => Promise<ApplyTablePresetOutcome>;
   /** 空间备份导出：返回是否完成（取消/失败 = false，不清空） */
-  readonly onBackupSpace: () => Promise<boolean>;
+  readonly onBackupSpace: (spaceId: MemorySpace["id"], chatIdentity: string) => Promise<boolean>;
   /** 重建成功后刷新面板数据 */
   readonly onDataChanged: () => void;
 }) {
@@ -91,6 +95,7 @@ export function TablePresetManager(props: {
     | {
         readonly spaceId: MemorySpace["id"];
         readonly spaceName: string;
+        readonly chatIdentity: string;
         readonly preset: ResolvedTablePreset;
         readonly backupIssue: string | undefined;
         readonly failure: string | undefined;
@@ -98,8 +103,12 @@ export function TablePresetManager(props: {
     | undefined
   >(undefined);
   const [busy, setBusy] = useState(false);
+  const operationRunning = useRef(false);
 
-  const applyTarget = resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, applyTargetId);
+  const targetExists = options.some((option) => option.id === applyTargetId);
+  const applyTarget = targetExists
+    ? resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, applyTargetId)
+    : undefined;
   const applyUnavailable = applyPresetUnavailableReason({
     pluginEnabled: props.pluginEnabled,
     hasActiveSpace: space !== undefined,
@@ -175,7 +184,12 @@ export function TablePresetManager(props: {
   function deletePreset(presetId: string, name: string, isDefault: boolean): void {
     if (!window.confirm(deletePresetConfirmText(name, isDefault))) return;
     try {
-      changePresets(deleteUserTablePreset(props.presets, presetId));
+      const next = deleteUserTablePreset(props.presets, presetId);
+      changePresets(next);
+      if (previewPresetId === presetId) setPreviewPresetId(null);
+      if (defaultDraft === presetId) {
+        setDefaultDraft(next.defaultPresetId);
+      }
       reportSuccess(`已删除预设「${name}」`);
     } catch (error) {
       reportError(error);
@@ -202,35 +216,40 @@ export function TablePresetManager(props: {
     }
   }
 
-  /** 进入应用确认流程：先停止进行中填表写入（备份必须发生在这之后）。 */
-  async function beginApply(): Promise<void> {
-    if (!space) return;
-    const preset = applyTarget;
-    setBusy(true);
-    try {
-      await props.onPrepareApply(space.id);
-    } catch (error) {
-      reportError(error);
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
+  /** 选择和确认阶段不停止任务；固定对话身份，后续不能借用新对话的上下文。 */
+  function beginApply(): void {
+    if (!space || !active || active.binding.version !== 2 || !applyTarget) return;
     setConfirming({
       spaceId: space.id,
       spaceName: space.name,
-      preset,
+      chatIdentity: active.binding.chatIdentity,
+      preset: applyTarget,
       backupIssue: undefined,
       failure: undefined,
     });
   }
 
   /** 执行应用（确认框固定了目标空间与预设；重建失败保留确认框以便重试）。 */
-  async function runApply(): Promise<void> {
+  async function runApply(withBackup: boolean): Promise<void> {
     const target = confirming;
-    if (!target) return;
+    if (!target || operationRunning.current) return;
+    operationRunning.current = true;
     setBusy(true);
     try {
-      const outcome = await props.onApplyPreset(target.spaceId, target.preset);
+      if (withBackup) {
+        const completed = await props.onBackupSpace(target.spaceId, target.chatIdentity);
+        if (!completed) {
+          setConfirming({
+            ...target,
+            backupIssue: "备份未完成（已取消），未执行清空；可重试或取消。",
+            failure: undefined,
+          });
+          return;
+        }
+      } else {
+        await props.onPrepareApply(target.spaceId, target.chatIdentity);
+      }
+      const outcome = await props.onApplyPreset(target.spaceId, target.preset, target.chatIdentity);
       if (outcome.kind === "applied") {
         reportSuccess(`已按预设「${target.preset.name}」重建「${target.spaceName}」`);
       } else {
@@ -241,35 +260,11 @@ export function TablePresetManager(props: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       reportError(error);
-      setConfirming({ ...target, failure: message });
+      setConfirming({ ...target, failure: message, backupIssue: undefined });
     } finally {
+      operationRunning.current = false;
       setBusy(false);
     }
-  }
-
-  /** 备份并应用：导出流程未完成（取消/失败）时不执行清空，保留确认框。 */
-  async function backupAndApply(): Promise<void> {
-    const target = confirming;
-    if (!target) return;
-    setBusy(true);
-    let completed: boolean;
-    try {
-      completed = await props.onBackupSpace();
-    } catch (error) {
-      reportError(error);
-      completed = false;
-    } finally {
-      setBusy(false);
-    }
-    if (!completed) {
-      setConfirming({
-        ...target,
-        backupIssue: "备份未完成（已取消或导出失败），未执行清空；可重试或取消。",
-        failure: undefined,
-      });
-      return;
-    }
-    await runApply();
   }
 
   return (
@@ -331,13 +326,16 @@ export function TablePresetManager(props: {
           <select
             className="stm-select"
             data-stm-field="preset-apply-target"
-            value={applyTargetId}
+            value={targetExists ? applyTargetId : ""}
             disabled={applyUnavailable !== undefined}
             onChange={(event) => {
               setApplyTargetId(event.target.value);
               setApplyPreviewOpen(false);
             }}
           >
+            <option value="" disabled>
+              请选择有效的表格预设
+            </option>
             {options.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
@@ -349,6 +347,7 @@ export function TablePresetManager(props: {
             className="stm-button"
             data-action="toggle-preset-apply-preview"
             aria-pressed={applyPreviewOpen}
+            disabled={!applyTarget}
             onClick={() => setApplyPreviewOpen(!applyPreviewOpen)}
           >
             {applyPreviewOpen ? "收起预览" : "结构预览"}
@@ -357,7 +356,7 @@ export function TablePresetManager(props: {
             type="button"
             className="stm-button stm-button--danger"
             data-action="apply-preset"
-            disabled={applyUnavailable !== undefined || applyBusy}
+            disabled={applyUnavailable !== undefined || applyBusy || !applyTarget}
             title={applyUnavailable}
             onClick={() => void beginApply()}
           >
@@ -365,7 +364,7 @@ export function TablePresetManager(props: {
           </button>
         </div>
         {applyUnavailable && <div className="stm-setting-hint">{applyUnavailable}</div>}
-        {applyPreviewOpen && (
+        {applyPreviewOpen && applyTarget && (
           <div className="stm-preset-preview" data-stm-field="preset-apply-preview">
             <PresetStructurePreview preset={applyTarget} />
           </div>
@@ -573,7 +572,7 @@ export function TablePresetManager(props: {
               )}
               {confirming.failure && (
                 <div className="stm-form-error" data-stm-field="preset-confirm-failure">
-                  {`重建失败：${confirming.failure}（原空间内容保留，可重试或取消）`}
+                  {`操作失败：${confirming.failure}`}
                 </div>
               )}
             </div>
@@ -592,7 +591,7 @@ export function TablePresetManager(props: {
                 className="stm-button"
                 data-action="backup-and-apply-preset"
                 disabled={busy}
-                onClick={() => void backupAndApply()}
+                onClick={() => void runApply(true)}
               >
                 备份并应用
               </button>
@@ -601,7 +600,7 @@ export function TablePresetManager(props: {
                 className="stm-button stm-button--danger"
                 data-action="apply-preset-directly"
                 disabled={busy}
-                onClick={() => void runApply()}
+                onClick={() => void runApply(false)}
               >
                 直接清空并应用
               </button>
