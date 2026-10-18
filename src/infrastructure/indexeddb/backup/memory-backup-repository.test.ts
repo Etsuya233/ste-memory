@@ -451,4 +451,180 @@ describe("Dexie memory backup repository", () => {
     // 整体回滚：数据库与复制前完全一致
     expect(await repo.loadSnapshot()).toEqual(before);
   });
+
+  it("克隆完整重映射 payload 字段键/引用、字段证据键与证据引用，且已删记录的归档历史保留记录归属", async () => {
+    const db = createTestDatabase();
+    const { services, space, name, identity, record, table } = await seedDatabase(db);
+
+    // 创建 → 更新 → 删除一条记录：留下两条 recordId 指向已删记录的归档历史（合法遗留）
+    const doomed = (await services.records.create(space.id, table.id, {
+      payload: { [name.id]: "临时记录" },
+    }))!;
+    const doomedUpdated = (await services.records.update(space.id, table.id, doomed.id, {
+      expectedRevisionId: doomed.revisionId,
+      patch: { [identity.id]: "临时身份" },
+      revisionSource: "user",
+    }))!;
+    await services.records.delete(space.id, table.id, doomed.id, doomedUpdated.revisionId, "user");
+
+    // 一条带引用字段的记录（single_reference → 现存记录）：克隆后引用必须指向克隆后的目标 ID
+    const relationships = (await services.tableRepository.list(space.id)).find(
+      (item) => item.key === "relationships",
+    )!;
+    const relationshipFields = await services.fieldRepository.list(space.id, relationships.id);
+    const characterA = relationshipFields.find((field) => field.key === "character_a")!;
+    const characterB = relationshipFields.find((field) => field.key === "character_b")!;
+    await services.records.create(space.id, relationships.id, {
+      payload: { [characterA.id]: record!.id, [characterB.id]: record!.id },
+    });
+
+    const repo = new DexieMemoryBackupRepository(db);
+    let seq = 0;
+    const newSpaceId = await repo.cloneSpace(space.id, {
+      space: () => `cloned-space-${++seq}` as MemorySpaceId,
+      table: () => `cloned-table-${++seq}` as MemoryTableId,
+      field: () => `cloned-field-${++seq}` as MemoryFieldId,
+      record: () => `cloned-record-${++seq}` as MemoryRecordId,
+      history: () => `cloned-history-${++seq}` as MemoryRecordHistoryId,
+      evidence: () => `cloned-evidence-${++seq}` as MemoryEvidenceId,
+    });
+    const clonedUnit = (await repo.loadSnapshot()).spaces.find(
+      (unit) => unit.space.id === newSpaceId,
+    )!;
+
+    // 已删记录的归档历史：归属是可用字符串（绝不 undefined）、共享同一个全新身份、不引用源空间 ID
+    const clonedRecordIds = new Set(clonedUnit.records.map((item) => item.id));
+    const orphanHistory = clonedUnit.history.filter((item) => !clonedRecordIds.has(item.recordId));
+    expect(orphanHistory).toHaveLength(2);
+    expect(new Set(orphanHistory.map((item) => item.recordId)).size).toBe(1);
+    expect(
+      orphanHistory.every((item) => typeof item.recordId === "string" && item.recordId !== ""),
+    ).toBe(true);
+    expect(orphanHistory.some((item) => item.recordId === doomed.id)).toBe(false);
+
+    // 字段证据键必须落在克隆字段集内；证据引用必须落在克隆证据行内；历史 payload 键同理
+    const clonedFieldIdsByTable = new Map<string, Set<string>>();
+    for (const field of clonedUnit.fields) {
+      const bucket = clonedFieldIdsByTable.get(field.tableId) ?? new Set<string>();
+      bucket.add(field.id);
+      clonedFieldIdsByTable.set(field.tableId, bucket);
+    }
+    const clonedEvidenceIds = new Set(clonedUnit.evidence.map((item) => item.evidence_id));
+    for (const row of [...clonedUnit.records, ...clonedUnit.history]) {
+      const fieldIds = clonedFieldIdsByTable.get(row.tableId) ?? new Set<string>();
+      for (const [fieldId, entries] of Object.entries(row.fieldEvidence)) {
+        expect(fieldIds.has(fieldId)).toBe(true);
+        expect(entries.every((entry) => clonedEvidenceIds.has(entry.evidence_id))).toBe(true);
+      }
+      expect(Object.keys(row.payload).every((fieldId) => fieldIds.has(fieldId))).toBe(true);
+    }
+
+    // 存活记录：证据挂到克隆后的字段 ID，且引用克隆后的证据行
+    const clonedCharacters = clonedUnit.tables.find((item) => item.key === "characters")!;
+    const clonedName = clonedUnit.fields.find(
+      (field) => field.tableId === clonedCharacters.id && field.key === "name",
+    )!;
+    const clonedRole = clonedUnit.fields.find(
+      (field) => field.tableId === clonedCharacters.id && field.key === "role",
+    )!;
+    const clonedCharacter = clonedUnit.records.find(
+      (item) => item.tableId === clonedCharacters.id,
+    )!;
+    expect(Object.keys(clonedCharacter.fieldEvidence)).toEqual([clonedName.id, clonedRole.id]);
+    expect(clonedCharacter.fieldEvidence[clonedName.id]![0]!.evidence_id).toBe(
+      clonedUnit.evidence[0]!.evidence_id,
+    );
+
+    // payload 引用值：关系记录的两个引用都指向克隆后的记录 ID
+    const clonedRelationships = clonedUnit.tables.find((item) => item.key === "relationships")!;
+    const clonedRelationshipFields = clonedUnit.fields.filter(
+      (field) => field.tableId === clonedRelationships.id,
+    );
+    const clonedCharacterA = clonedRelationshipFields.find((field) => field.key === "character_a")!;
+    const clonedCharacterB = clonedRelationshipFields.find((field) => field.key === "character_b")!;
+    const clonedRelationship = clonedUnit.records.find(
+      (item) => item.tableId === clonedRelationships.id,
+    )!;
+    expect(clonedRelationship.payload[clonedCharacterA.id]).toBe(clonedCharacter.id);
+    expect(clonedRelationship.payload[clonedCharacterB.id]).toBe(clonedCharacter.id);
+
+    // 克隆单元必须直接通过备份文件编解码（导出即可被导入的结构与完整性校验接受）
+    const text = serializeBackupFile(
+      createBackupFile({ spaces: [clonedUnit] }, "test", "2026-07-28T00:00:00.000Z"),
+    );
+    expect(() => parseBackupFile(text)).not.toThrow();
+  });
+
+  it("克隆带旧版损坏残留的空间（缺 recordId 的历史 / 悬挂字段证据键）产出干净单元", async () => {
+    const db = createTestDatabase();
+    await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const unit = (await repo.loadSnapshot()).spaces[0]!;
+
+    // 模拟旧版克隆留在库里的损坏形态：历史行缺 recordId（undefined）+ 字段证据键指向不存在的字段
+    const poisoned: MemoryBackupSnapshot = {
+      spaces: [
+        {
+          ...unit,
+          history: [
+            {
+              ...unit.history[0]!,
+              id: "poisoned-history" as MemoryRecordHistoryId,
+              recordId: undefined as unknown as MemoryRecordId,
+            },
+            ...unit.history,
+          ],
+          records: unit.records.map((record) => ({
+            ...record,
+            fieldEvidence: { ...record.fieldEvidence, ["ghost-field" as MemoryFieldId]: [] },
+          })),
+        },
+      ],
+    };
+    await repo.restoreSpace(poisoned.spaces[0]!);
+
+    // 先确认这份库数据确实是坏的：直接导出通不过导入校验（旧版克隆的产物形态）
+    const poisonedText = serializeBackupFile(
+      createBackupFile(
+        { spaces: [(await repo.loadSnapshot()).spaces[0]!] },
+        "test",
+        "2026-07-28T00:00:00.000Z",
+      ),
+    );
+    expect(() => parseBackupFile(poisonedText)).toThrow();
+
+    // 再克隆一次：缺 recordId 的历史补全新归属、悬挂字段证据键丢弃 → 产出干净单元
+    let seq = 0;
+    const newSpaceId = await repo.cloneSpace(unit.space.id, {
+      space: () => `repaired-space-${++seq}` as MemorySpaceId,
+      table: () => `repaired-table-${++seq}` as MemoryTableId,
+      field: () => `repaired-field-${++seq}` as MemoryFieldId,
+      record: () => `repaired-record-${++seq}` as MemoryRecordId,
+      history: () => `repaired-history-${++seq}` as MemoryRecordHistoryId,
+      evidence: () => `repaired-evidence-${++seq}` as MemoryEvidenceId,
+    });
+    const clonedUnit = (await repo.loadSnapshot()).spaces.find(
+      (space) => space.space.id === newSpaceId,
+    )!;
+
+    const clonedRecordIds = new Set(clonedUnit.records.map((item) => item.id));
+    expect(
+      clonedUnit.history.every((item) => typeof item.recordId === "string" && item.recordId !== ""),
+    ).toBe(true);
+    // 缺 recordId 的那条历史拿到全新归属（不属于任何克隆记录），存活记录的归档历史仍归其名下
+    expect(clonedUnit.history.filter((item) => !clonedRecordIds.has(item.recordId))).toHaveLength(
+      1,
+    );
+    const clonedFieldIds = new Set<string>(clonedUnit.fields.map((field) => field.id));
+    expect(
+      [...clonedUnit.records, ...clonedUnit.history].every((row) =>
+        Object.keys(row.fieldEvidence).every((fieldId) => clonedFieldIds.has(fieldId)),
+      ),
+    ).toBe(true);
+
+    const repairedText = serializeBackupFile(
+      createBackupFile({ spaces: [clonedUnit] }, "test", "2026-07-28T00:00:00.000Z"),
+    );
+    expect(() => parseBackupFile(repairedText)).not.toThrow();
+  });
 });

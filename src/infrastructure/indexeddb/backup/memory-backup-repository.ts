@@ -5,13 +5,16 @@ import type {
   MemorySpaceBackup,
 } from "../../../features/backup/index.ts";
 import type {
+  MemoryEvidence,
   MemoryEvidenceId,
   MemoryField,
+  MemoryFieldEvidence,
   MemoryFieldId,
   MemoryRecord,
   MemoryRecordHistory,
   MemoryRecordHistoryId,
   MemoryRecordId,
+  MemoryRecordPayload,
   MemorySpaceId,
   MemorySpace,
   MemoryTable,
@@ -222,6 +225,67 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       evidenceIdMap.set(row.id, createId.evidence());
     }
 
+    const fieldsById = new Map<string, MemoryField>(fields.map((field) => [field.id, field]));
+
+    /**
+     * 记录 ID 解析：记录本体命中映射表；**已删记录的归档历史**（历史行对已删记录的
+     * 归属，属合法遗留）落空时分配新身份并 memoize——同一条被删记录的历史行共享同一
+     * 新 ID，且绝不产出 undefined（undefined 会被 JSON 序列化丢键，导出文件随之
+     * 通不过导入结构校验）。历史遗留的坏行（recordId 曾丢过）逐行分配新身份。
+     */
+    const resolveRecordId = (oldRecordId: string | undefined): MemoryRecordId => {
+      if (oldRecordId === undefined) return createId.record();
+      const mapped = recordIdMap.get(oldRecordId);
+      if (mapped !== undefined) return mapped;
+      const allocated = createId.record();
+      recordIdMap.set(oldRecordId, allocated);
+      return allocated;
+    };
+
+    /**
+     * payload 重映射：键旧 fieldId → 新 fieldId，字段已删则丢弃该键（保留旧 ID 会让
+     * 克隆单元带悬挂字段键，导出通不过导入完整性校验；读路径本就按定义漂移投影掉
+     * 这些键）。引用值（记录 ID）同样重映射。
+     */
+    const remapPayload = (payload: MemoryRecordPayload): MemoryRecordPayload => {
+      const next: Record<string, unknown> = {};
+      for (const [oldFieldId, value] of Object.entries(payload)) {
+        const newFieldId = fieldIdMap.get(oldFieldId);
+        if (newFieldId === undefined) continue;
+        const field = fieldsById.get(oldFieldId);
+        const isReference = field?.type === "single_reference" || field?.type === "multi_reference";
+        if (isReference && Array.isArray(value)) {
+          next[newFieldId] = value.map((item) => resolveRecordId(item as string));
+        } else if (isReference && typeof value === "string") {
+          next[newFieldId] = resolveRecordId(value);
+        } else {
+          next[newFieldId] = value;
+        }
+      }
+      return next as MemoryRecordPayload;
+    };
+
+    /**
+     * 字段证据重映射：键旧 fieldId → 新 fieldId（字段已删则丢弃条目）；条目里的证据
+     * 引用 → 新 evidence_id（证据行整体重生成 ID，不映射会留下悬挂引用，导出时报
+     * 「引用了不存在的证据」）。
+     */
+    const remapFieldEvidence = (fieldEvidence: MemoryFieldEvidence): MemoryFieldEvidence => {
+      const next: Record<string, readonly MemoryEvidence[]> = {};
+      for (const [oldFieldId, entries] of Object.entries(fieldEvidence)) {
+        const newFieldId = fieldIdMap.get(oldFieldId);
+        if (newFieldId === undefined) continue;
+        const remapped: MemoryEvidence[] = [];
+        for (const entry of entries) {
+          const newEvidenceId = evidenceIdMap.get(entry.evidence_id);
+          if (newEvidenceId === undefined) continue; // 防御：引用必须落在单元证据表内
+          remapped.push({ ...entry, evidence_id: newEvidenceId });
+        }
+        next[newFieldId] = remapped;
+      }
+      return next;
+    };
+
     // 在事务内原子写入
     await this.#db.transaction(
       "rw",
@@ -270,74 +334,36 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           );
         }
 
-        // 写入新记录行（重映射 memorySpaceId, tableId, revisionId, payload 字段 key）
+        // 写入新记录行（重映射 memorySpaceId, tableId, payload 与字段证据；
+        // revisionId 是独立的修订身份，不需要映射）
         if (records.length > 0) {
           await this.#db.memoryRecords.bulkAdd(
-            records.map((record) => {
-              // payload 的 key 是旧 fieldId，需要重映射到新 fieldId
-              // 引用字段的 value 是记录 ID（或记录 ID 数组），也需要重映射
-              const newPayload: Record<string, unknown> = {};
-              for (const [oldFieldId, value] of Object.entries(record.payload)) {
-                const newFieldId = fieldIdMap.get(oldFieldId as MemoryFieldId) ?? oldFieldId;
-                // 查找对应的字段定义，判断是否为引用类型
-                const fieldDef = fields.find((f) => f.id === oldFieldId);
-                const isReference =
-                  fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
-                if (isReference && Array.isArray(value)) {
-                  // multi_reference: value 是 recordId 数组
-                  newPayload[newFieldId] = value.map(
-                    (v) => recordIdMap.get(v as MemoryRecordId) ?? v,
-                  );
-                } else if (isReference && typeof value === "string") {
-                  // single_reference: value 是单个 recordId
-                  newPayload[newFieldId] = recordIdMap.get(value as MemoryRecordId) ?? value;
-                } else {
-                  newPayload[newFieldId] = value;
-                }
-              }
-              return {
-                ...record,
-                id: recordIdMap.get(record.id)!,
-                memorySpaceId: newSpaceId,
-                tableId: tableIdMap.get(record.tableId)!,
-                revisionId: record.revisionId, // revisionId 是独立的，不需要映射
-                payload: newPayload as typeof record.payload,
-              };
-            }),
+            records.map((record) => ({
+              ...record,
+              id: recordIdMap.get(record.id)!,
+              memorySpaceId: newSpaceId,
+              tableId: tableIdMap.get(record.tableId)!,
+              revisionId: record.revisionId,
+              payload: remapPayload(record.payload),
+              fieldEvidence: remapFieldEvidence(record.fieldEvidence),
+            })),
           );
         }
 
-        // 写入新历史行（重映射 memorySpaceId, tableId, recordId, revisionId, payload 字段 key + 引用值）
+        // 写入新历史行（重映射 memorySpaceId, tableId, recordId, payload 与字段证据；
+        // 已删记录的归档历史由 resolveRecordId 分配新归属）
         if (history.length > 0) {
           await this.#db.memoryRecordHistory.bulkAdd(
-            history.map((item) => {
-              // 与 records 同理：payload key 是旧 fieldId，引用值是旧 recordId
-              const newPayload: Record<string, unknown> = {};
-              for (const [oldFieldId, value] of Object.entries(item.payload)) {
-                const newFieldId = fieldIdMap.get(oldFieldId as MemoryFieldId) ?? oldFieldId;
-                const fieldDef = fields.find((f) => f.id === oldFieldId);
-                const isReference =
-                  fieldDef?.type === "single_reference" || fieldDef?.type === "multi_reference";
-                if (isReference && Array.isArray(value)) {
-                  newPayload[newFieldId] = value.map(
-                    (v) => recordIdMap.get(v as MemoryRecordId) ?? v,
-                  );
-                } else if (isReference && typeof value === "string") {
-                  newPayload[newFieldId] = recordIdMap.get(value as MemoryRecordId) ?? value;
-                } else {
-                  newPayload[newFieldId] = value;
-                }
-              }
-              return {
-                ...item,
-                id: historyIdMap.get(item.id)!,
-                memorySpaceId: newSpaceId,
-                tableId: tableIdMap.get(item.tableId)!,
-                recordId: recordIdMap.get(item.recordId)!,
-                revisionId: item.revisionId,
-                payload: newPayload as typeof item.payload,
-              };
-            }),
+            history.map((item) => ({
+              ...item,
+              id: historyIdMap.get(item.id)!,
+              memorySpaceId: newSpaceId,
+              tableId: tableIdMap.get(item.tableId)!,
+              recordId: resolveRecordId(item.recordId),
+              revisionId: item.revisionId,
+              payload: remapPayload(item.payload),
+              fieldEvidence: remapFieldEvidence(item.fieldEvidence),
+            })),
           );
         }
 
