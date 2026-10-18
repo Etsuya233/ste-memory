@@ -63,7 +63,7 @@ export interface BuildExtensionOptions {
   outdir?: string;
 }
 
-/** esbuild 配置（dev 与 prod 的唯一定义处，dev.ts 与 build.ts 共用） */
+/** esbuild 配置（dev 与 prod 的唯一定义处，watch.ts 与 build.ts 共用） */
 export function createEsbuildOptions(outdir: string, dev: boolean): BuildOptions {
   return {
     entryPoints: [ENTRY],

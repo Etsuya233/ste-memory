@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { isLinkToDist } from "./extension-link.ts";
 
 /**
  * ST 扩展目标目录：`<ST 安装根>/public/scripts/extensions/third-party/ste-memory`
@@ -35,14 +36,33 @@ export function resolveExtensionTarget(env: ExtensionTargetEnv): string {
   );
 }
 
+/**
+ * 解析目标目录；未配置返回 undefined（`pnpm watch` 的「仅构建」模式用它——
+ * 配了 st:link 的 Junction 时 ST 直接读 dist，不需要目标目录）。
+ * 写操作（sync / deploy / st:link）仍用会抛错的 resolveExtensionTarget。
+ */
+export function tryResolveExtensionTarget(env: ExtensionTargetEnv): string | undefined {
+  try {
+    return resolveExtensionTarget(env);
+  } catch {
+    return undefined;
+  }
+}
+
 export interface CopyResult {
-  copied: string[];
+  readonly copied: readonly string[];
+  /** 目标即 dist 链接（st:link 模式）：无文件可拷 */
+  readonly linked: boolean;
 }
 
 /** 把 dist 目录下所有文件拷贝进目标目录（递归创建），返回落盘的文件路径 */
 export function copyDistToTarget(distDir: string, targetDir: string): CopyResult {
   if (!existsSync(distDir)) {
     throw new Error(`dist 目录不存在：${distDir}（请先运行 build）`);
+  }
+  // Junction 直连：目标就是 dist 本身，拷贝只会自己拷自己 → 跳过
+  if (isLinkToDist(distDir, targetDir)) {
+    return { copied: [], linked: true };
   }
   mkdirSync(targetDir, { recursive: true });
   const copied: string[] = [];
@@ -55,5 +75,5 @@ export function copyDistToTarget(distDir: string, targetDir: string): CopyResult
     copyFileSync(source, dest);
     copied.push(dest);
   }
-  return { copied };
+  return { copied, linked: false };
 }

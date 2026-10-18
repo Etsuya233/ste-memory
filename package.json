@@ -5,10 +5,12 @@
   "type": "module",
   "packageManager": "pnpm@11.17.0",
   "scripts": {
-    "dev": "node --experimental-strip-types scripts/dev.ts",
+    "watch": "node --experimental-strip-types scripts/watch.ts",
     "build": "node --experimental-strip-types scripts/build.ts",
     "sync": "node --experimental-strip-types scripts/sync.ts",
     "deploy:st": "pnpm build && pnpm sync",
+    "st:link": "node --experimental-strip-types scripts/link-st.ts",
+    "st:unlink": "node --experimental-strip-types scripts/link-st.ts --remove",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -21,8 +21,10 @@ pnpm install
 ## 开发命令
 
 ```bash
-pnpm dev          # esbuild watch + 同步到 ST 扩展目录（需 .env 配置）
+pnpm watch        # esbuild watch 增量构建；配了 .env 就同步到 ST，Junction 模式自动跳过拷贝
 pnpm build        # 产物写到 dist/：index.js / manifest.json / style.css
+pnpm st:link      # 把 ST 扩展目录做成指向 dist/ 的链接（开发直连，见下）
+pnpm st:unlink    # 解除该链接（只删链接，不动 dist）
 pnpm typecheck    # tsc -p tsconfig.json
 pnpm lint         # eslint .
 pnpm format:check # prettier --check .
@@ -34,12 +36,34 @@ pnpm test         # vitest run
 
 ## ST 安装与同步
 
-`pnpm dev` / `pnpm sync` 会把 `dist/` 拷进 SillyTavern 的
+开发用两种方式，二选一。
+
+### 方式一：Junction 直连（推荐）
+
+```bash
+pnpm build     # 先产出一份 dist/
+pnpm st:link   # 把 ST 扩展目录链接到 dist/（Windows Junction，无需管理员）
+```
+
+之后 `pnpm watch`（或 `pnpm build`）产出的文件 ST 直接可见，**不再拷贝**：
+
+- 链接目标必须是构建产物 `dist/`，不是 TS 源码——ST 只加载 `index.js` /
+  `manifest.json` / `style.css`，TS 必须先经 esbuild 打包；
+- 改动生效仍需刷新 ST 页面（扩展以 module script 加载，无 HMR）；
+- `pnpm st:unlink` 解除链接（只删链接，dist 内容不受影响）；目标已存在真实目录
+  时会拒绝建立/删除，不会动用户数据。
+
+### 方式二：拷贝
+
+`pnpm sync` / `pnpm deploy:st` 会把 `dist/` 拷进 SillyTavern 的
 `public/scripts/extensions/third-party/ste-memory`（**会写入 ST 安装目录**）。
 目标位置从仓库根 `.env` 读取，二选一（参考 [`.env.example`](./.env.example)）：
 
 - `STE_ST_EXTENSION_DIR`：直接指向扩展目标目录；
 - `STE_ST_INSTALL`：SillyTavern 安装根目录，自动推导扩展子路径。
+
+`pnpm watch` 不配 `.env` 时只构建到 `dist/`（配合方式一的 Junction 正好）；
+配置了但目标已是 dist 链接时，同一步骤会自动跳过拷贝。
 
 ## 发布
 
