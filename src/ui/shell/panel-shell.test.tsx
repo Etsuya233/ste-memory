@@ -22,6 +22,7 @@ function activeStatus(): SpaceContextStatus {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      initializationSource: null,
       createdAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -99,9 +100,10 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       ledgerStatuses: vi.fn(async () => []),
       markFloorStatuses: vi.fn(async () => undefined),
     },
-    spaceMaintenance: {
-      clearRecords: vi.fn(async () => false),
-      reset: vi.fn(async () => false),
+    spaceMaintenance: { clearRecords: vi.fn(async () => false) },
+    presetApply: {
+      stopSpaceWrites: vi.fn(async () => undefined),
+      applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },
     queryChat: {
       run: vi.fn(async () => ({
@@ -358,7 +360,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain("系统默认");
   });
 
-  it("设置 Tab：危险操作区两个按钮就位（spec reset-space，active 状态可用）", () => {
+  it("设置 Tab：危险操作区按钮就位（清除记录；active 状态可用）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const collapsed = renderShell(model);
@@ -367,15 +369,12 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(collapsed).not.toContain("清除空间记录");
     const html = renderWithExpanded(model, ["danger"]);
     expect(html).toContain("清除空间记录");
-    expect(html).toContain("重置空间");
     const clearButton =
       html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
-    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
     expect(clearButton).not.toContain("disabled");
-    expect(resetButton).not.toContain("disabled");
   });
 
-  it("设置 Tab：无有效空间时危险操作按钮置灰（spec reset-space）", () => {
+  it("设置 Tab：无有效空间时危险操作按钮置灰", () => {
     const missing: SpaceContextStatus = {
       kind: "space-missing",
       binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
@@ -395,12 +394,10 @@ describe("PanelShell（面板骨架投影）", () => {
     const html = renderWithExpanded(model, ["danger"], runtime);
     const clearButton =
       html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
-    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
     expect(clearButton).toContain("disabled");
-    expect(resetButton).toContain("disabled");
   });
 
-  it("设置 Tab：插件停用时危险操作按钮置灰（spec reset-space）", () => {
+  it("设置 Tab：插件停用时危险操作按钮置灰", () => {
     const runtime = fakeRuntime({
       settings: {
         read: () => ({ ...DEFAULT_SETTINGS, enabled: false }),
@@ -412,9 +409,7 @@ describe("PanelShell（面板骨架投影）", () => {
     const html = renderWithExpanded(model, ["danger"], runtime);
     const clearButton =
       html.match(/<button[^>]*data-action="clear-space-records"[^>]*>/)?.[0] ?? "";
-    const resetButton = html.match(/<button[^>]*data-action="reset-space"[^>]*>/)?.[0] ?? "";
     expect(clearButton).toContain("disabled");
-    expect(resetButton).toContain("disabled");
   });
 
   it("设置 Tab：对话文件镜像组（开关 + 包含修订历史 + 状态展示）", () => {
@@ -457,6 +452,7 @@ describe("PanelShell（面板骨架投影）", () => {
       space: {
         id: "space-1" as MemorySpaceId,
         name: "爱丽丝 - story",
+        initializationSource: null,
         createdAt: "2026-07-28T00:00:00.000Z",
         updatedAt: "2026-07-28T00:00:00.000Z",
       },
@@ -574,6 +570,7 @@ describe("PanelShell（面板骨架投影）", () => {
     // 其余分组默认折叠：aria-expanded=false + chevron-down
     for (const group of [
       "macro",
+      "table-presets",
       "agent-connections",
       "agent-presets",
       "cleaning",
@@ -591,10 +588,11 @@ describe("PanelShell（面板骨架投影）", () => {
     // 摘要在折叠态可见
     expect(html).toContain("{{ste}}");
     expect(html).toContain("未配置");
-    // 顺序：插件总开关 < 记忆宏 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 版本 < 面板安全区 < 危险操作
+    // 顺序：插件总开关 < 记忆宏 < 表格预设 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 版本 < 面板安全区 < 危险操作
     const order = [
       "插件总开关",
       "记忆宏",
+      "表格预设",
       "Agent 连接",
       "Agent 提示词预设",
       "清洗规则",

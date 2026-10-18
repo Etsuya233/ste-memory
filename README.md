@@ -79,6 +79,7 @@ src/
 │   ├── memory/                            # 共享记忆模型与写入规则（唯一来源）+ 公开入口
 │   ├── agent/                             # 提案/查询 Agent 运行与工具
 │   ├── fill-tasks/  query-chat/  macros/  # 填表任务、问答面板、宏
+│   ├── table-presets/                     # 表格预设：预设库、实例化、应用（原子重建）
 │   ├── backup/  chat-mirror/              # 备份文件格式、镜像格式与导出辅助
 │   └── settings/ cleaning/ chat-binding/ space-maintenance/ logging/ agent-presets/
 ├── infrastructure/                        # 具体实现：IndexedDB（Dexie）、SillyTavern 适配器、浏览器
@@ -97,6 +98,9 @@ src/
   Memory 内部管理；填表提交和台账更新仍由外层组织同一个事务。
 - 设置保存后的宏、镜像与聊天同步由 `SettingsService` 负责；设置页和表格页只接收
   实际使用的服务，UI 负责草稿与错误展示。
+- 表格结构只在两处产生：首次创建对话时复制默认表格预设、设置页应用预设；两者共用
+  `features/table-presets` 的实例化与原子重建路径，空间内的引用与显示策略在写入时
+  按预设内的 Key 重新映射。
 
 ## 验证
 
@@ -114,4 +118,6 @@ pnpm build
 - 结构决策：[`docs/adr`](./docs/adr)（插件决策在 `docs/adr/st`）
 - 对话文件镜像格式：[`docs/chat-metadata-mirror.md`](./docs/chat-metadata-mirror.md)
 - 记忆视图与记忆查询：[`docs/memory-views.md`](./docs/memory-views.md)
+- 表格预设：[`docs/table-presets.md`](./docs/table-presets.md)
+- 系统自带预设的默认表结构：[`docs/system-memory-tables.md`](./docs/system-memory-tables.md)
 - 本轮架构收敛：[`docs/refactor-plan.md`](./docs/refactor-plan.md)、[`docs/refactor-progress.md`](./docs/refactor-progress.md)

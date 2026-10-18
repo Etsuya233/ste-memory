@@ -20,6 +20,7 @@ function activeStatus(): SpaceContextStatus {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      initializationSource: null,
       createdAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -97,9 +98,10 @@ function fakeRuntime(): PanelRuntime {
       ledgerStatuses: vi.fn(async () => []),
       markFloorStatuses: vi.fn(async () => undefined),
     },
-    spaceMaintenance: {
-      clearRecords: vi.fn(async () => false),
-      reset: vi.fn(async () => false),
+    spaceMaintenance: { clearRecords: vi.fn(async () => false) },
+    presetApply: {
+      stopSpaceWrites: vi.fn(async () => undefined),
+      applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },
     queryChat: {
       run: vi.fn(async () => ({

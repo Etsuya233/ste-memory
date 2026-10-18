@@ -4,7 +4,6 @@ import type { MemoryFieldId } from "./memory-field.ts";
 
 export type MemoryTableId = string & { readonly __brand: "MemoryTableId" };
 export type MemoryTableKey = string & { readonly __brand: "MemoryTableKey" };
-export type MemoryTableKind = "custom" | "system";
 export type MemoryTableDisplayStrategy =
   | { readonly type: "field"; readonly fieldId: MemoryFieldId }
   | { readonly type: "template"; readonly template: string };
@@ -59,11 +58,12 @@ export interface MemoryTable {
   readonly id: MemoryTableId;
   readonly memorySpaceId: MemorySpaceId;
   readonly key: MemoryTableKey;
-  readonly kind: MemoryTableKind;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
   readonly enabled: boolean;
+  /** 空间内显式顺序（升序展示；新建表取当前最大值 + 1） */
+  readonly position: number;
   readonly displayStrategy: MemoryTableDisplayStrategy | null;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -103,4 +103,14 @@ export function memoryTableName(value: string): string {
     });
   }
   return name;
+}
+
+export function memoryTablePosition(value: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new DomainError({
+      type: "memory_table_position_invalid",
+      humanMsg: "表格顺序必须是大于或等于 0 的整数",
+    });
+  }
+  return value;
 }

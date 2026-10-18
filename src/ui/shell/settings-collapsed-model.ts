@@ -7,11 +7,14 @@ import type { PluginSettings } from "../../features/settings/plugin-settings.ts"
 import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import { FOLLOW_ST_CONNECTION_LABEL } from "../settings/agent-connection-manager.tsx";
 import { BUILTIN_AGENT_PRESET_ID } from "../../features/agent-presets/preset-model.ts";
+import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
+import { tablePresetsSummary as tablePresetsGroupSummary } from "../settings/table-preset-manager-model.ts";
 import { mirrorStatusSummary } from "./space-info.ts";
 
 /** 设置分组稳定标识（持久化键）；插件总开关不参与折叠 */
 export const SETTINGS_GROUP_KEYS = [
   "macro",
+  "table-presets",
   "agent-connections",
   "agent-presets",
   "cleaning",
@@ -140,4 +143,9 @@ export function cleaningSummary(
 export function mirrorSummary(settings: PluginSettings, mirrorStatus: ChatMirrorStatus): string {
   if (!settings.mirror.enabled) return "已停用";
   return mirrorStatusSummary(mirrorStatus);
+}
+
+/** 表格预设分组摘要（用户预设数 + 新空间默认预设名）。 */
+export function tablePresetsSummary(settings: PluginSettings): string {
+  return tablePresetsGroupSummary(settings.tablePresets, SYSTEM_TABLE_PRESET);
 }

@@ -16,7 +16,7 @@ function table(overrides: Record<string, unknown> = {}): MemoryTable {
     id: `table-${++tableSeq}` as MemoryTableId,
     memorySpaceId: "space-1",
     key: `key-${tableSeq}`,
-    kind: "custom",
+    position: 0,
     name: `表格 ${tableSeq}`,
     description: "",
     prompt: "",
@@ -57,8 +57,8 @@ describe("buildTableListViewModel（表格列表视图模型）", () => {
   });
 
   it("按表分组字段，统计启用数与类型标签", () => {
-    const characters = table({ key: "characters", kind: "system", name: "人物" });
-    const locations = table({ key: "locations", kind: "system", name: "地点" });
+    const characters = table({ key: "characters", position: 0, name: "人物" });
+    const locations = table({ key: "locations", position: 0, name: "地点" });
     const fields = [
       field(characters.id, {
         key: "name",
@@ -89,7 +89,6 @@ describe("buildTableListViewModel（表格列表视图模型）", () => {
       id: characters.id,
       key: "characters",
       name: "人物",
-      kind: "system",
       enabled: true,
       enabledFieldCount: 1,
     });

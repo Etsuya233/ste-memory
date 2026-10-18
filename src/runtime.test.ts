@@ -24,6 +24,8 @@ import {
   type StContext,
 } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { createChatMirrorFile } from "./features/chat-mirror/index.ts";
+import { CHAT_METADATA_CHAT_SCOPE_MACROS_KEY } from "./infrastructure/sillytavern/chat-adapter.ts";
+import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import type { MemorySpaceBackup } from "./features/backup/index.ts";
 import type { MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
@@ -99,6 +101,96 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(reopenedStatus.created).toBe(false);
     expect(reopenedStatus.space.id).toBe(status.space.id);
     expect(await spaceRepository.list()).toHaveLength(1);
+  });
+
+  it("表格预设：新空间按默认预设初始化并记录来源；应用预设重建当前空间（spec table-presets）", async () => {
+    const db = createTestDatabase();
+    const { context, chatMetadata } = fakeStContext();
+    const userPreset = {
+      id: "p1",
+      name: "我的结构",
+      description: "",
+      createdAt: "2026-10-18T00:00:00.000Z",
+      updatedAt: "2026-10-18T00:00:00.000Z",
+      tables: [
+        {
+          key: "people",
+          name: "人物",
+          description: "",
+          prompt: "",
+          enabled: true,
+          displayStrategy: { type: "field" as const, fieldKey: "name" },
+          fields: [
+            {
+              key: "name",
+              name: "名称",
+              type: "short_text" as const,
+              required: true,
+              prompt: "",
+              enabled: true,
+              options: [],
+              referenceTableKey: null,
+              maxChars: 30,
+              valuePattern: null,
+              valuePatternMessage: null,
+            },
+          ],
+        },
+      ],
+    };
+    let settings: PluginSettings = {
+      ...DEFAULT_SETTINGS,
+      tablePresets: { userPresets: [userPreset], defaultPresetId: "p1" },
+    };
+    const settingsStore: SettingsStore = {
+      read: () => settings,
+      write: (next) => {
+        settings = next;
+      },
+    };
+
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore,
+    });
+
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+    // 新空间按默认用户预设初始化，并记录初始化来源
+    expect((await runtime.tables.list(status.space.id)).map((table) => table.key)).toEqual([
+      "people",
+    ]);
+    expect((await runtime.spaces.find(status.space.id))?.initializationSource).toMatchObject({
+      presetId: "p1",
+      presetName: "我的结构",
+    });
+    // 对话级宏 = 针对旧结构的局部配置
+    chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = {
+      version: 1,
+      macros: [
+        {
+          name: "旧宏",
+          tableKey: "people",
+          condition: { fieldKey: "name", values: ["林夏"] },
+          limit: 20,
+        },
+      ],
+    };
+
+    // 应用到当前空间：系统自带预设（原子重建 + 清除对话级宏）
+    const outcome = await runtime.presetApply.applyPreset(status.space.id, SYSTEM_TABLE_PRESET, {
+      refreshMacros: () => runtime.macro.kick(),
+      syncMirror: () => runtime.mirror.kick(),
+    });
+    expect(outcome).toEqual({ kind: "applied" });
+    const tables = await runtime.tables.list(status.space.id);
+    expect(tables).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
+    expect((await runtime.spaces.find(status.space.id))?.initializationSource).toMatchObject({
+      presetId: "systemDefault",
+      presetName: "系统默认",
+    });
+    expect(chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY]).toEqual({ version: 1, macros: [] });
   });
 
   it("CHAT_CHANGED 切换空间上下文；消息事件已注册但无消费方", async () => {
@@ -281,6 +373,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       space: {
         id: "space-ghost" as MemorySpaceId,
         name: "爱丽丝 - story",
+        initializationSource: null,
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
       },

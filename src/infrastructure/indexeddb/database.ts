@@ -76,6 +76,13 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
  * - memoryLogs：遗留表。ADR 0015 起通用日志迁往独立数据库（SteMemoryLogDatabase），
  *   此表原地保留——运行路径不读取、不迁移、不删除（旧行随旧库留在本机）。
  *   保留 schema 声明是为了兼容已安装的旧库：不触发 Dexie 删除该表与其中的数据。
+ *
+ * v5：表格预设（spec table-presets）带来的两处行内调整，无新表：
+ *
+ * - memorySpaces.initializationSource：初始化来源（预设 ID/名称快照/时间），
+ *   旧空间补 null（UI 显示「初始化来源未记录」）；
+ * - memoryTables.position：表格显式顺序（旧行按创建顺序赋位）与废弃的系统表
+ *   身份字段 kind 一并清理（统一表格规则，不再区分系统表与自定义表）。
  */
 export class SteMemoryDatabase extends Dexie {
   memorySpaces!: Table<MemorySpace, MemorySpaceId>;
@@ -107,6 +114,33 @@ export class SteMemoryDatabase extends Dexie {
     this.version(4).stores({
       memoryLogs: "++id, [type+createdAt], [key+createdAt], [spaceId+createdAt]",
     });
+    this.version(5)
+      .stores({})
+      .upgrade(async (transaction) => {
+        const spaces = await transaction.table("memorySpaces").toArray();
+        for (const space of spaces) {
+          await transaction.table("memorySpaces").put({ ...space, initializationSource: null });
+        }
+        const tables = (await transaction.table("memoryTables").toArray()) as Record<
+          string,
+          unknown
+        >[];
+        // 旧表格行按创建顺序赋显式顺序（新库由实例化与建表流程写入 position）
+        tables.sort(
+          (left, right) =>
+            String(left.createdAt).localeCompare(String(right.createdAt)) ||
+            String(left.id).localeCompare(String(right.id)),
+        );
+        const nextPositionBySpace = new Map<string, number>();
+        for (const table of tables) {
+          const spaceId = String(table.memorySpaceId);
+          const position = nextPositionBySpace.get(spaceId) ?? 0;
+          nextPositionBySpace.set(spaceId, position + 1);
+          delete table.kind;
+          table.position = position;
+        }
+        if (tables.length > 0) await transaction.table("memoryTables").bulkPut(tables);
+      });
   }
 }
 

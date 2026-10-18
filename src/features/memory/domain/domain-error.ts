@@ -31,6 +31,10 @@ export type DomainErrorData =
       readonly humanMsg: string;
     }
   | {
+      readonly type: "memory_table_position_invalid";
+      readonly humanMsg: string;
+    }
+  | {
       readonly type: "memory_field_key_required";
       readonly humanMsg: string;
     }
@@ -173,6 +177,26 @@ export type DomainErrorData =
   | {
       readonly type: "memory_cloud_version_unsupported";
       readonly param: { readonly version: unknown };
+      readonly humanMsg: string;
+    }
+  // 表格预设（spec table-presets）：预设库规则与预设实例化校验
+  | {
+      readonly type: "table_preset_name_required" | "table_preset_name_too_long";
+      readonly param?: { readonly maxLength: number };
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "table_preset_name_reserved" | "table_preset_name_conflict";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type: "table_preset_not_found";
+      readonly humanMsg: string;
+    }
+  | {
+      readonly type:
+        "table_preset_reference_target_missing" | "table_preset_display_strategy_invalid";
+      readonly param: { readonly tableKey: string; readonly fieldKey?: string };
       readonly humanMsg: string;
     };
 

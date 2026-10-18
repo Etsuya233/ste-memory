@@ -77,7 +77,30 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
     formatInvalid(details);
   }
   validateBackupData((value as unknown as MemoryBackupFile).data);
-  return value as unknown as MemoryBackupFile;
+  const file = value as unknown as MemoryBackupFile;
+  return { ...file, data: normalizeBackupData(file.data) };
+}
+
+/**
+ * 备份数据归一化（旧文件 → 当前领域形状）：表格预设之前的文件没有空间
+ * 初始化来源与表格显式顺序键——来源补 null（「初始化来源未记录」），表格顺序
+ * 按单元内数组顺序补齐（旧导出按 id 排序，顺序确定且稳定）。新导出总是写全，
+ * 归一化对它们是恒等映射。
+ */
+export function normalizeBackupData(data: MemoryBackupData): MemoryBackupData {
+  return {
+    spaces: data.spaces.map((unit) => ({
+      ...unit,
+      space: {
+        ...unit.space,
+        initializationSource: unit.space.initializationSource ?? null,
+      },
+      tables: unit.tables.map((table, index) => ({
+        ...table,
+        position: table.position ?? index,
+      })),
+    })),
+  };
 }
 
 /** 各类 id 去重集合（备份文件内全局唯一；跨单元共享同一个 seen） */
@@ -204,6 +227,23 @@ export function validateSpaceBackupUnit(
       formatInvalid(`证据 id 重复：${evidence.evidence_id}`, label);
     }
     seen.evidence.add(evidence.evidence_id);
+  }
+
+  // 可选集合（缺省 = 不涉及）：填表任务必须属于本空间；进度楼层互不重复
+  for (const task of unit.fillTasks ?? []) {
+    if (task.memorySpaceId !== spaceId) {
+      formatInvalid(`填表任务 ${task.runId} 不属于空间 ${spaceId}`, label);
+    }
+  }
+  const ledgerFloors = new Set<number>();
+  for (const entry of unit.floorLedger ?? []) {
+    if (!Number.isInteger(entry.floor) || entry.floor < 0) {
+      formatInvalid(`楼层进度条目的楼层无效：${String(entry.floor)}`, label);
+    }
+    if (ledgerFloors.has(entry.floor)) {
+      formatInvalid(`楼层进度条目重复：${entry.floor}`, label);
+    }
+    ledgerFloors.add(entry.floor);
   }
 
   // 记录字段证据引用的证据条目必须存在于本单元（否则恢复出悬挂引用）

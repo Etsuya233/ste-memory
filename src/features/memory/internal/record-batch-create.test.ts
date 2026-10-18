@@ -33,7 +33,7 @@ function table(id: MemoryTableId): MemoryTable {
     id,
     memorySpaceId: spaceId,
     key: id as unknown as MemoryTableKey,
-    kind: "custom",
+    position: 0,
     name: id,
     description: "",
     prompt: "",

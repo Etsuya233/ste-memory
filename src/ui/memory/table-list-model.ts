@@ -35,7 +35,6 @@ export interface TableListItemViewModel {
   readonly id: MemoryTableId;
   readonly key: string;
   readonly name: string;
-  readonly kind: MemoryTable["kind"];
   readonly description: string;
   readonly enabled: boolean;
   readonly fields: readonly FieldItemViewModel[];
@@ -45,8 +44,8 @@ export interface TableListItemViewModel {
 
 /**
  * 表格列表视图模型（纯函数）：表 + 按表分组的字段 → 展示形状。
- * 排序由服务保证（表 createdAt 升序、字段 position 升序），本函数不重排；
- * fieldsByTable 缺表的表 = 无字段（防御空映射）。
+ * 排序由服务保证（表 position 升序、字段 position 升序），本函数不重排；
+ * fieldsByTable 缺表的表 = 无字段。
  */
 export function buildTableListViewModel(
   tables: readonly MemoryTable[],
@@ -65,7 +64,6 @@ export function buildTableListViewModel(
       id: table.id,
       key: table.key,
       name: table.name,
-      kind: table.kind,
       description: table.description,
       enabled: table.enabled,
       fields,

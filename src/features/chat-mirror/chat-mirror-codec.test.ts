@@ -30,6 +30,7 @@ function sampleUnit(): MemorySpaceBackup {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      initializationSource: null,
       createdAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -38,7 +39,7 @@ function sampleUnit(): MemorySpaceBackup {
         id: "table-1" as MemoryTableId,
         memorySpaceId: "space-1" as MemorySpaceId,
         key: "characters" as MemoryTableKey,
-        kind: "system",
+        position: 0,
         name: "人物",
         description: "",
         prompt: "",
@@ -157,6 +158,27 @@ describe("createChatMirrorFile（组装信封）", () => {
     expect(file.data.records).toEqual(sampleUnit().records);
     expect(file.data.tables).toEqual(sampleUnit().tables);
     expect(file.data.evidence).toEqual(sampleUnit().evidence);
+  });
+
+  it("镜像不带任务、楼层进度与对话级宏：恢复时不触碰本地对应内容（spec 6.3）", () => {
+    const withRuntimeRows: MemorySpaceBackup = {
+      ...sampleUnit(),
+      fillTasks: [],
+      floorLedger: [{ floor: 0, status: "processed", updatedAt: "2026-07-28T02:00:00.000Z" }],
+      chatScopeMacros: [
+        { name: "未完成", tableKey: "characters", condition: null, limit: null, projection: [] },
+      ],
+    };
+    const file = createChatMirrorFile(
+      withRuntimeRows,
+      "space-1",
+      "2026-07-28T02:00:00.000Z",
+      "0.1.0",
+    );
+    expect("fillTasks" in file.data).toBe(false);
+    expect("floorLedger" in file.data).toBe(false);
+    expect("chatScopeMacros" in file.data).toBe(false);
+    expect(file.data.space).toEqual(withRuntimeRows.space);
   });
 });
 

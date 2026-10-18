@@ -1,11 +1,4 @@
-import type {
-  MemoryField,
-  MemoryFieldService,
-  MemoryFieldType,
-  MemorySpaceId,
-  MemoryTable,
-  MemoryTableService,
-} from "../index.ts";
+import type { MemoryFieldType } from "../index.ts";
 import {
   SYSTEM_FIELD_PROMPTS as FP,
   SYSTEM_TABLE_PROMPTS as TP,
@@ -37,11 +30,18 @@ export interface FieldTemplate {
   readonly valuePatternMessage?: string | null;
 }
 
+/** 模板显示策略：字段以模板内字段 Key 表达，模板占位符写字段 Key（创建空间时换成空间内字段 ID）。 */
+export type TableTemplateDisplayStrategy =
+  | { readonly type: "field"; readonly fieldKey: string }
+  | { readonly type: "template"; readonly template: string };
+
 export interface TableTemplate {
   readonly key: SystemMemoryTableKey;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
+  /** 显示策略：字段以模板内字段 Key 表达（模板占位符写字段 Key） */
+  readonly displayStrategy: TableTemplateDisplayStrategy;
   readonly fields: readonly FieldTemplate[];
 }
 
@@ -84,6 +84,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "人物",
     description: "持续维护人物身份、特征、经历与当前状态。",
     prompt: TP.characters,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -143,6 +144,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "人际关系",
     description: "维护人物对之间的关系认知、现状与关键事实。",
     prompt: TP.relationships,
+    displayStrategy: { type: "template", template: "{character_a} <-> {character_b}" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -195,6 +197,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "地点",
     description: "维护地点属性、位置文本、状态及关联对象。",
     prompt: TP.locations,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -251,6 +254,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "物品",
     description: "维护物品类型、归属、位置、状态与关键属性。",
     prompt: TP.items,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -308,6 +312,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "剧情",
     description: "维护持续发展的剧情事件及其参与对象和状态。",
     prompt: TP.plots,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -368,6 +373,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "伏笔",
     description: "维护尚未闭环的叙事线索及其计划回收信息。",
     prompt: TP.foreshadowing,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -424,6 +430,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     name: "待办",
     description: "维护明确提出且尚需执行的行动事项。",
     prompt: TP.todos,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -489,6 +496,7 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
     description:
       "维护剧情世界的当前状态快照（时间、地点、天气、服装）；全表仅一条记录，覆盖式更新。",
     prompt: TP.storyState,
+    displayStrategy: { type: "field", fieldKey: "name" },
     fields: [
       {
         ...FIELD_DEFAULTS,
@@ -541,65 +549,6 @@ export const SYSTEM_TABLE_TEMPLATES: readonly TableTemplate[] = [
   },
 ];
 
-export class SystemMemoryTableInstaller {
-  private readonly tables: MemoryTableService;
-  private readonly fields: MemoryFieldService;
-
-  constructor(tables: MemoryTableService, fields: MemoryFieldService) {
-    this.tables = tables;
-    this.fields = fields;
-  }
-
-  async install(memorySpaceId: MemorySpaceId): Promise<void> {
-    const tablesByKey = new Map<SystemMemoryTableKey, MemoryTable>();
-    for (const template of SYSTEM_TABLE_TEMPLATES) {
-      tablesByKey.set(
-        template.key,
-        (await this.tables.create(memorySpaceId, {
-          key: template.key,
-          kind: "system",
-          name: template.name,
-          description: template.description,
-          prompt: template.prompt,
-        }))!,
-      );
-    }
-    const fieldsByTable = new Map<SystemMemoryTableKey, MemoryField[]>();
-    for (const table of SYSTEM_TABLE_TEMPLATES) {
-      const fields: MemoryField[] = [];
-      for (const [position, field] of table.fields.entries()) {
-        fields.push(
-          (await this.fields.create(memorySpaceId, tablesByKey.get(table.key)!.id, {
-            key: field.key,
-            name: field.name,
-            type: field.type,
-            required: field.required,
-            prompt: field.prompt,
-            enabled: true,
-            position,
-            options: field.options,
-            referenceTableId: field.referenceTableKey
-              ? tablesByKey.get(field.referenceTableKey)!.id
-              : null,
-            maxChars: field.maxChars,
-            valuePattern: field.valuePattern ?? null,
-            valuePatternMessage: field.valuePatternMessage ?? null,
-          }))!,
-        );
-      }
-      fieldsByTable.set(table.key, fields);
-    }
-
-    for (const template of SYSTEM_TABLE_TEMPLATES) {
-      const table = tablesByKey.get(template.key)!;
-      const fields = fieldsByTable.get(template.key)!;
-      await this.fields.setDisplayStrategy(
-        memorySpaceId,
-        table.id,
-        template.key === "relationships"
-          ? { type: "template", template: `{${fields[0]!.id}} <-> {${fields[1]!.id}}` }
-          : { type: "field", fieldId: fields[0]!.id },
-      );
-    }
-  }
-}
+/* 安装/重建路径已统一为「表格预设」：SYSTEM_TABLE_TEMPLATES 由
+ * features/table-presets 转成系统自带预设结构，再经预设实例化生成空间内
+ * 表格与字段（含引用与显示策略的 Key → ID 映射）。本文件只保留模板资产。 */

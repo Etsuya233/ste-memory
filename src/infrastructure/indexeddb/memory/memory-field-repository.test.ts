@@ -7,7 +7,7 @@ async function setupFieldTest() {
   const space = await services.spaces.create("会话");
   const table = await services.tables.create(space.id, {
     key: "clues",
-    kind: "custom",
+    position: 0,
     name: "线索",
     description: "",
     prompt: "",
@@ -80,14 +80,14 @@ describe("Dexie memory field repository", () => {
     const spaceB = await services.spaces.create("空间 B");
     const tableA = await services.tables.create(spaceA.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
     });
     const tableB = await services.tables.create(spaceB.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
@@ -116,7 +116,7 @@ describe("Dexie memory field repository", () => {
     // 同空间不同表也可以有相同 Key（唯一性按表内计）
     const tableA2 = await services.tables.create(spaceA.id, {
       key: "places",
-      kind: "custom",
+      position: 0,
       name: "地点",
       description: "",
       prompt: "",
@@ -221,7 +221,7 @@ describe("Dexie memory field repository", () => {
     const otherSpace = await spaces.create("另一个空间");
     const foreignTable = await tables.create(otherSpace.id, {
       key: "foreign",
-      kind: "custom",
+      position: 0,
       name: "外部表",
       description: "",
       prompt: "",

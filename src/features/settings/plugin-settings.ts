@@ -19,6 +19,11 @@ import {
 import type { AgentConnection } from "./agent-connections.ts";
 import { mergeCleaningRuleLists, type CleaningRuleList } from "../cleaning/cleaning-rule-lists.ts";
 import { mergeMemoryViews, type MemoryView } from "../macros/memory-views.ts";
+import {
+  DEFAULT_TABLE_PRESET_SETTINGS,
+  mergeTablePresetSettings,
+  type TablePresetSettings,
+} from "../table-presets/preset-model.ts";
 
 /** 对话文件镜像设置（ticket 16）：随聊天文件同步记忆快照的开关与内容范围 */
 export interface ChatMirrorSettings {
@@ -53,6 +58,8 @@ export interface PluginSettings {
   readonly cleaningRuleLists: readonly CleaningRuleList[];
   /** 记忆视图（ticket 02 / ADR 0025）：插件级命名视图，{{宏名::视图名}} 展开 */
   readonly memoryViews: readonly MemoryView[];
+  /** 表格预设（spec table-presets）：用户预设库 + 新空间默认预设（全局，不随对话切换） */
+  readonly tablePresets: TablePresetSettings;
   /** 面板入口位置（面板入口）：顶部导航栏 / 底部魔法棒 / 两者；默认顶部（老用户零感知） */
   readonly entryPlacement: EntryPlacement;
 }
@@ -71,6 +78,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   queryChatConnectionId: undefined,
   cleaningRuleLists: [],
   memoryViews: [],
+  tablePresets: DEFAULT_TABLE_PRESET_SETTINGS,
   entryPlacement: "top",
 };
 
@@ -104,6 +112,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
     queryChatConnectionId: mergeConnectionSelection(source.queryChatConnectionId, agentConnections),
     cleaningRuleLists: mergeCleaningRuleLists(source.cleaningRuleLists),
     memoryViews: mergeMemoryViews(source.memoryViews),
+    tablePresets: mergeTablePresetSettings(source.tablePresets),
     entryPlacement: isEntryPlacement(source.entryPlacement)
       ? source.entryPlacement
       : DEFAULT_SETTINGS.entryPlacement,

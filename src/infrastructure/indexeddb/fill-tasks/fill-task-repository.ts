@@ -13,7 +13,7 @@ import type { FloorLedgerRow, SteMemoryDatabase } from "../database.ts";
  * （kind: "floor"、initText: null）。IndexedDB 行是动态对象，旧行不迁移、读取时
  * 补齐默认——状态转换写回时也保留补齐后的字段，旧数据行为不变。
  */
-function normalizeTaskRow(row: FillTask): FillTask {
+export function normalizeTaskRow(row: FillTask): FillTask {
   if (row.kind === "init") {
     return { ...row, kind: "init", initText: row.initText };
   }

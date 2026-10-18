@@ -14,12 +14,15 @@ import type {
   MemoryTableId,
 } from "../../../features/memory/index.ts";
 import { memoryTableDisplayFieldIds } from "../../../features/memory/index.ts";
-import { SystemMemoryTableInstaller } from "../../../features/memory/index.ts";
 import { describe, expect, it } from "vitest";
 // 必须先于 ./database.ts 导入：dexie 在模块加载时捕获全局 indexedDB，
 // fake-indexeddb 必须在它之前求值（否则 MissingAPIError）
-import { createServices, createTestDatabase } from "../test-support.ts";
+import { createServices, createTestDatabase, installDefaultPreset, NOW } from "../test-support.ts";
 import type { SteMemoryDatabase } from "../database.ts";
+import {
+  DexieFillTaskRepository,
+  DexieFloorLedgerRepository,
+} from "../fill-tasks/fill-task-repository.ts";
 import { DexieMemoryBackupRepository } from "./memory-backup-repository.ts";
 
 /** 克隆单元里每张表的显示策略字段 ID 必须全部落在克隆后的字段集合中（field 策略的 fieldId、template 策略的占位符）。 */
@@ -55,7 +58,7 @@ function expectStrategiesPointIntoClonedFields(
 async function seedDatabase(db: SteMemoryDatabase) {
   const services = createServices(db);
   const space = await services.spaces.create("会话");
-  await new SystemMemoryTableInstaller(services.tables, services.fields).install(space.id);
+  await installDefaultPreset(db, space.id);
   const table = (await services.tableRepository.list(space.id)).find(
     (item) => item.key === "characters",
   )!;
@@ -93,7 +96,9 @@ describe("Dexie memory backup repository", () => {
     const snapshot = await repo.loadSnapshot();
     expect(snapshot.spaces).toHaveLength(1);
     const unit = snapshot.spaces[0]!;
-    expect(unit.space).toEqual(space);
+    // 空间行原样序列化：含表格预设写入的初始化来源
+    expect(unit.space).toEqual(await services.spaces.find(space.id));
+    expect(unit.space.initializationSource).toMatchObject({ presetId: "systemDefault" });
     expect(unit.tables.map((item) => item.id)).toContain(table.id);
     expect(unit.tables).toHaveLength((await services.tableRepository.list(space.id)).length);
     // 单元内字段：包含字符表字段，且全部归属单元内表格
@@ -130,7 +135,7 @@ describe("Dexie memory backup repository", () => {
     const db = createTestDatabase();
     const { services } = await seedDatabase(db);
     const other = await services.spaces.create("另一会话");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(other.id);
+    await installDefaultPreset(services.db, other.id);
     const repo = new DexieMemoryBackupRepository(db);
 
     const snapshot = await repo.loadSnapshot();
@@ -190,7 +195,7 @@ describe("Dexie memory backup repository", () => {
     const db = createTestDatabase();
     const { services, space } = await seedDatabase(db);
     const other = await services.spaces.create("另一会话");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(other.id);
+    await installDefaultPreset(services.db, other.id);
     const repo = new DexieMemoryBackupRepository(db);
 
     const before = await repo.loadSnapshot();
@@ -242,7 +247,7 @@ describe("Dexie memory backup repository", () => {
     const db = createTestDatabase();
     const { services, space } = await seedDatabase(db);
     const other = await services.spaces.create("另一会话");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(other.id);
+    await installDefaultPreset(services.db, other.id);
     const repo = new DexieMemoryBackupRepository(db);
     const before = await repo.loadSnapshot();
     const target = before.spaces.find((unit) => unit.space.id === space.id)!;
@@ -276,6 +281,101 @@ describe("Dexie memory backup repository", () => {
     expect(await repo.loadSnapshot()).toEqual(before);
   });
 
+  it("任务与楼层进度随单元携带：快照读取、按空间恢复、缺省不涉及（spec 表格预设 6.3）", async () => {
+    const db = createTestDatabase();
+    const { space } = await seedDatabase(db);
+    const tasks = new DexieFillTaskRepository(db, () => NOW);
+    const ledger = new DexieFloorLedgerRepository(db, () => NOW);
+    await tasks.create({
+      runId: "run-1",
+      memorySpaceId: space.id,
+      from: 0,
+      to: 3,
+      blockSize: 20,
+      kind: "floor",
+      initText: null,
+      chatId: "story",
+      status: "succeeded",
+      errorMessage: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await ledger.markProcessed(space.id, [0, 1]);
+
+    const repo = new DexieMemoryBackupRepository(db);
+    const snapshot = await repo.loadSnapshot();
+    const unit = snapshot.spaces[0]!;
+    // 快照带上任务与进度（导出即包含，供恢复）
+    expect(unit.fillTasks?.map((task) => task.runId)).toEqual(["run-1"]);
+    expect(unit.floorLedger).toEqual([
+      { floor: 0, status: "processed", updatedAt: NOW },
+      { floor: 1, status: "processed", updatedAt: NOW },
+    ]);
+
+    // 单元带任务/进度 → 恢复时替换该空间的对应行
+    await tasks.clear(space.id);
+    await ledger.clear(space.id);
+    await repo.restoreSpace(unit);
+    expect((await tasks.listRecent(space.id, 10)).map((task) => task.runId)).toEqual(["run-1"]);
+    expect(await ledger.processedCount(space.id, 0, 3)).toBe(2);
+
+    // 缺省（镜像与旧文件形态）→ 保持目标原有任务与进度
+    const { fillTasks, floorLedger, ...withoutRuntimeRows } = unit;
+    expect(fillTasks).toBeDefined();
+    expect(floorLedger).toBeDefined();
+    await repo.restoreSpace(withoutRuntimeRows);
+    expect((await tasks.listRecent(space.id, 10)).map((task) => task.runId)).toEqual(["run-1"]);
+    expect(await ledger.processedCount(space.id, 0, 3)).toBe(2);
+  });
+
+  it("cloneSpace 克隆任务与进度：任务换新 runId、进度归属新空间（不与源空间相撞）", async () => {
+    const db = createTestDatabase();
+    const { space } = await seedDatabase(db);
+    const tasks = new DexieFillTaskRepository(db, () => NOW);
+    const ledger = new DexieFloorLedgerRepository(db, () => NOW);
+    await tasks.create({
+      runId: "run-1",
+      memorySpaceId: space.id,
+      from: 0,
+      to: 3,
+      blockSize: 20,
+      kind: "floor",
+      initText: null,
+      chatId: "story",
+      status: "failed",
+      errorMessage: "boom",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await ledger.markError(space.id, [2]);
+
+    const repo = new DexieMemoryBackupRepository(db);
+    let seq = 0;
+    const newSpaceId = await repo.cloneSpace(space.id, {
+      space: () => `cloned-space-${++seq}` as MemorySpaceId,
+      table: () => `cloned-table-${++seq}` as MemoryTableId,
+      field: () => `cloned-field-${++seq}` as MemoryFieldId,
+      record: () => `cloned-record-${++seq}` as MemoryRecordId,
+      history: () => `cloned-history-${++seq}` as MemoryRecordHistoryId,
+      task: () => `cloned-task-${++seq}`,
+      evidence: () => `cloned-evidence-${++seq}` as MemoryEvidenceId,
+    });
+
+    const clonedTasks = await tasks.listRecent(newSpaceId, 10);
+    expect(clonedTasks).toHaveLength(1);
+    expect(clonedTasks[0]!.runId).not.toBe("run-1");
+    expect(clonedTasks[0]!.memorySpaceId).toBe(newSpaceId);
+    expect(clonedTasks[0]).toMatchObject({ status: "failed", errorMessage: "boom" });
+    expect(await ledger.statuses(newSpaceId, 0, 3)).toEqual([
+      { floor: 0, status: "untracked" },
+      { floor: 1, status: "untracked" },
+      { floor: 2, status: "error" },
+      { floor: 3, status: "untracked" },
+    ]);
+    // 源空间任务原样保留
+    expect((await tasks.listRecent(space.id, 10)).map((task) => task.runId)).toEqual(["run-1"]);
+  });
+
   it("cloneSpace 全量复制 + ID 重生成 + 外键重映射", async () => {
     const db = createTestDatabase();
     const { space } = await seedDatabase(db);
@@ -288,6 +388,7 @@ describe("Dexie memory backup repository", () => {
     let fieldSeq = 0;
     let recordSeq = 0;
     let historySeq = 0;
+    let taskSeq = 0;
     let evidenceSeq = 0;
     const newSpaceId = await repo.cloneSpace(space.id, {
       space: () => `cloned-space-${++spaceSeq}` as MemorySpaceId,
@@ -295,6 +396,7 @@ describe("Dexie memory backup repository", () => {
       field: () => `cloned-field-${++fieldSeq}` as MemoryFieldId,
       record: () => `cloned-record-${++recordSeq}` as MemoryRecordId,
       history: () => `cloned-history-${++historySeq}` as MemoryRecordHistoryId,
+      task: () => `cloned-task-${++taskSeq}`,
       evidence: () => `cloned-evidence-${++evidenceSeq}` as MemoryEvidenceId,
     });
 
@@ -355,6 +457,7 @@ describe("Dexie memory backup repository", () => {
         field: () => `fail-field-${++seq}` as MemoryFieldId,
         record: () => `fail-record-${++seq}` as MemoryRecordId,
         history: () => `fail-history-${++seq}` as MemoryRecordHistoryId,
+        task: () => `cloned-task-${++seq}`,
         evidence: () => `fail-evidence-${++seq}` as MemoryEvidenceId,
       }),
     ).rejects.toThrow();
@@ -375,6 +478,7 @@ describe("Dexie memory backup repository", () => {
     let fieldSeq = 0;
     let recordSeq = 0;
     let historySeq = 0;
+    let taskSeq = 0;
     let evidenceSeq = 0;
     const newSpaceId = await repo.cloneSpaceFromUnit(sourceUnit, {
       space: () => `cloned-unit-space-${++spaceSeq}` as MemorySpaceId,
@@ -382,6 +486,7 @@ describe("Dexie memory backup repository", () => {
       field: () => `cloned-unit-field-${++fieldSeq}` as MemoryFieldId,
       record: () => `cloned-unit-record-${++recordSeq}` as MemoryRecordId,
       history: () => `cloned-unit-history-${++historySeq}` as MemoryRecordHistoryId,
+      task: () => `cloned-task-${++taskSeq}`,
       evidence: () => `cloned-unit-evidence-${++evidenceSeq}` as MemoryEvidenceId,
     });
 
@@ -444,6 +549,7 @@ describe("Dexie memory backup repository", () => {
         field: () => `fail-unit-field-${++seq}` as MemoryFieldId,
         record: () => `fail-unit-record-${++seq}` as MemoryRecordId,
         history: () => `fail-unit-history-${++seq}` as MemoryRecordHistoryId,
+        task: () => `cloned-task-${++seq}`,
         evidence: () => `fail-unit-evidence-${++seq}` as MemoryEvidenceId,
       }),
     ).rejects.toThrow();
@@ -486,6 +592,7 @@ describe("Dexie memory backup repository", () => {
       field: () => `cloned-field-${++seq}` as MemoryFieldId,
       record: () => `cloned-record-${++seq}` as MemoryRecordId,
       history: () => `cloned-history-${++seq}` as MemoryRecordHistoryId,
+      task: () => `cloned-task-${++seq}`,
       evidence: () => `cloned-evidence-${++seq}` as MemoryEvidenceId,
     });
     const clonedUnit = (await repo.loadSnapshot()).spaces.find(
@@ -601,6 +708,7 @@ describe("Dexie memory backup repository", () => {
       field: () => `repaired-field-${++seq}` as MemoryFieldId,
       record: () => `repaired-record-${++seq}` as MemoryRecordId,
       history: () => `repaired-history-${++seq}` as MemoryRecordHistoryId,
+      task: () => `cloned-task-${++seq}`,
       evidence: () => `repaired-evidence-${++seq}` as MemoryEvidenceId,
     });
     const clonedUnit = (await repo.loadSnapshot()).spaces.find(

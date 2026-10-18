@@ -26,6 +26,7 @@ export const STYLE_SOURCES: readonly string[] = [
   "logs.css",
   "query-chat.css",
   "agent-connections.css",
+  "table-presets.css",
   "preview.css",
 ].map((name) => path.join(PACKAGE_ROOT, "src", "ui", "styles", name));
 

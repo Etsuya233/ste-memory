@@ -1,22 +1,20 @@
 /**
- * 空间维护服务（spec reset-space）测试 —— 主接缝（行为全量）。
+ * 空间维护服务测试 —— 主接缝（行为全量）。
  *
- * 用内存 Dexie 库 + 真实系统表安装器 + 真实填表任务/台账仓库接线（同一库）：
+ * 用内存 Dexie 库 + 真实表格预设初始化 + 真实填表任务/台账仓库接线（同一库）：
  * - 清除空间记录：记录派生数据消失而表格结构保留；填表任务与楼层台账被清；
- *   空间身份不变；
- * - 重置空间：表格归零并重装出 8 张出厂系统表（自定义表不重装、被修改的系统表
- *   回默认）；记录/历史/证据消失；空间身份不变；
+ *   空间身份与初始化来源不变；
  * - 进行中填表任务在执行前被取消（cancelActiveTask 先于数据操作被调用）；
- * - 重装失败上抛、空间保持无表状态；空间不存在返回 false。
+ * - 空间不存在返回 false。
  */
 import { describe, expect, it, vi } from "vitest";
-import { SystemMemoryTableInstaller } from "../memory/index.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"）
 import {
   createServices,
   createTestDatabase,
   createTestLogDatabase,
+  installDefaultPreset,
   NOW,
 } from "../../infrastructure/indexeddb/test-support.ts";
 import {
@@ -29,17 +27,16 @@ import { SpaceMaintenanceService } from "./space-maintenance-service.ts";
 /** 出厂 characters 表字段数（system-memory-table-definitions）。 */
 const CHARACTERS_DEFAULT_FIELD_COUNT = 7;
 
-async function setup(overrides: { readonly installThrows?: boolean } = {}) {
+async function setup() {
   const db = createTestDatabase();
   const services = createServices(db);
   const space = await services.spaces.create("会话");
-  const installer = new SystemMemoryTableInstaller(services.tables, services.fields);
-  await installer.install(space.id);
+  await installDefaultPreset(db, space.id);
   const taskRepository = new DexieFillTaskRepository(db, () => NOW);
   const ledgerRepository = new DexieFloorLedgerRepository(db, () => NOW);
   const logs = new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
 
-  // 给系统表加一条记录（含字段证据 → 证据行）+ 更新一次（→ 历史行）
+  // 给表格加一条记录（含字段证据 → 证据行）+ 更新一次（→ 历史行）
   const characters = (await services.tableRepository.list(space.id)).find(
     (table) => table.key === "characters",
   )!;
@@ -65,17 +62,17 @@ async function setup(overrides: { readonly installThrows?: boolean } = {}) {
     patch: { [name.id]: "林夏（改）" },
   });
 
-  // 自定义表（重置后不应重装）
+  // 用户自行新增的表（清除记录后应原样保留）
   const custom = await services.tables.create(space.id, {
     key: "clues",
-    kind: "custom",
     name: "线索",
     description: "",
     prompt: "",
+    position: 8,
   });
   expect(custom).toBeDefined();
 
-  // 系统表被修改过（新增字段 → 重置后应回到出厂字段数）
+  // 被修改过的表（新增字段 → 清除记录后字段原样保留）
   await services.fields.create(space.id, characters.id, {
     key: "extra",
     name: "附加",
@@ -89,35 +86,12 @@ async function setup(overrides: { readonly installThrows?: boolean } = {}) {
   const cancelActiveTask = vi.fn(async () => {});
   const maintenance = new SpaceMaintenanceService({
     clearRecords: (id) => services.spaces.clearRecords(id),
-    deleteAllTables: (id) => services.spaces.deleteAllTables(id),
     cancelActiveTask,
     clearTasks: (id) => taskRepository.clear(id),
     clearLedger: (id) => ledgerRepository.clear(id),
-    installSystemTables: async (id) => {
-      if (overrides.installThrows) {
-        // 模拟安装器中途失败留下的半初始化状态（安装器非事务，逐表创建）
-        await services.tables.create(id, {
-          key: "half-1",
-          kind: "system",
-          name: "半装表 1",
-          description: "",
-          prompt: "",
-        });
-        await services.tables.create(id, {
-          key: "half-2",
-          kind: "system",
-          name: "半装表 2",
-          description: "",
-          prompt: "",
-        });
-        throw new Error("重装失败");
-      }
-      await installer.install(id);
-    },
   });
 
   return {
-    db,
     ...services,
     space,
     characters,
@@ -129,7 +103,7 @@ async function setup(overrides: { readonly installThrows?: boolean } = {}) {
   };
 }
 
-describe("SpaceMaintenanceService（spec reset-space）", () => {
+describe("SpaceMaintenanceService（清除空间记录）", () => {
   it("清除空间记录：记录/历史/证据消失，表格结构保留，任务与台账清空，空间保留", async () => {
     const { db, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
       await setup();
@@ -159,7 +133,7 @@ describe("SpaceMaintenanceService（spec reset-space）", () => {
     expect(await db.memoryRecords.count()).toBe(0);
     expect(await db.memoryRecordHistory.count()).toBe(0);
     expect(await db.memoryEvidence.count()).toBe(0);
-    // 表格结构保留（8 张系统表 + 1 张自定义表），字段原样（含新增的 extra）
+    // 表格结构保留（8 张预设表 + 1 张用户新增表），字段原样（含新增的 extra）
     const remaining = await db.memoryTables.toArray();
     expect(remaining).toHaveLength(9);
     expect(remaining.map((table) => table.key)).toContain("clues");
@@ -171,67 +145,10 @@ describe("SpaceMaintenanceService（spec reset-space）", () => {
     expect(await db.memoryFillTasks.count()).toBe(0);
     expect(await db.floorFillLedger.count()).toBe(0);
     expect((await logs.recent(10)).map((row) => row.key)).toEqual(["run-1"]);
-    // 空间身份保留
-    expect(await spaces.find(spaceId)).toMatchObject({ id: spaceId, name: "会话" });
-  });
-
-  it("重置空间：表格归零并重装出厂系统表，自定义表消失、被修改的系统表回默认", async () => {
-    const { db, maintenance, space } = await setup();
-
-    const existed = await maintenance.reset(space.id);
-    expect(existed).toBe(true);
-
-    const tables = await db.memoryTables.toArray();
-    expect(tables).toHaveLength(8);
-    expect(tables.every((table) => table.kind === "system" && table.enabled)).toBe(true);
-    expect(tables.map((table) => table.key)).toEqual([
-      "characters",
-      "relationships",
-      "locations",
-      "items",
-      "plots",
-      "foreshadowing",
-      "todos",
-      "story_state",
-    ]);
-    // 记录/历史/证据消失
-    expect(await db.memoryRecords.count()).toBe(0);
-    expect(await db.memoryRecordHistory.count()).toBe(0);
-    expect(await db.memoryEvidence.count()).toBe(0);
-    // 被修改过的系统表回到出厂字段数
-    const characters = tables.find((table) => table.key === "characters")!;
-    expect(
-      await db.memoryFields
-        .where("[memorySpaceId+tableId]")
-        .equals([space.id, characters.id])
-        .count(),
-    ).toBe(CHARACTERS_DEFAULT_FIELD_COUNT);
-    // 空间身份保留
-    expect(await db.memorySpaces.get(space.id)).toMatchObject({ id: space.id, name: "会话" });
-  });
-
-  it("重置空间同时清空填表任务与楼层台账", async () => {
-    const { db, maintenance, space, taskRepository, ledgerRepository } = await setup();
-
-    await taskRepository.create({
-      runId: "task-2",
-      memorySpaceId: space.id,
-      from: 0,
-      to: 3,
-      blockSize: 20,
-      kind: "floor",
-      initText: null,
-      chatId: null,
-      status: "failed",
-      errorMessage: "boom",
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    await ledgerRepository.markProcessed(space.id, [4, 5]);
-
-    await maintenance.reset(space.id);
-    expect(await db.memoryFillTasks.count()).toBe(0);
-    expect(await db.floorFillLedger.count()).toBe(0);
+    // 空间身份与初始化来源保留（清除记录不套用预设、不改来源）
+    const after = await spaces.find(spaceId);
+    expect(after).toMatchObject({ id: spaceId, name: "会话" });
+    expect(after?.initializationSource?.presetName).toBe("系统默认");
   });
 
   it("执行前取消进行中的填表任务（先于数据操作）", async () => {
@@ -241,21 +158,10 @@ describe("SpaceMaintenanceService（spec reset-space）", () => {
     expect(cancelActiveTask).toHaveBeenCalledWith(space.id);
   });
 
-  it("重置重装失败：清理半初始化表格后上抛，空间保持无表状态", async () => {
-    const { db, maintenance, space } = await setup({ installThrows: true });
-
-    await expect(maintenance.reset(space.id)).rejects.toThrow("重装失败");
-    // 半初始化表格（安装器中途失败留下的）也被清理：无表状态承诺成立，可重试
-    expect(await db.memoryTables.count()).toBe(0);
-    expect(await db.memoryFields.count()).toBe(0);
-    expect(await db.memorySpaces.get(space.id)).toBeDefined();
-  });
-
-  it("空间不存在：清除/重置返回 false 且不抛错", async () => {
+  it("空间不存在：清除返回 false 且不抛错", async () => {
     const { maintenance } = await setup();
     const missing = "missing-space" as MemorySpaceId;
 
     expect(await maintenance.clearRecords(missing)).toBe(false);
-    expect(await maintenance.reset(missing)).toBe(false);
   });
 });

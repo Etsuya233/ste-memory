@@ -1,14 +1,13 @@
-import { SystemMemoryTableInstaller } from "../../../features/memory/index.ts";
 import { describe, expect, it } from "vitest";
-import { createServices, createTestDatabase } from "../test-support.ts";
+import { createServices, createTestDatabase, installDefaultPreset } from "../test-support.ts";
 
-describe("system memory table initialization (Dexie)", () => {
-  it("installs the eight system tables with fields, references and display strategies", async () => {
-    const { spaces, tables, fields, tableRepository, fieldRepository } =
-      createServices(createTestDatabase());
+describe("系统自带预设初始化（Dexie）", () => {
+  it("按系统默认预设创建八张表，含字段、引用目标与显示策略", async () => {
+    const services = createServices(createTestDatabase());
+    const { spaces, tableRepository, fieldRepository } = services;
     const space = await spaces.create("会话");
 
-    await new SystemMemoryTableInstaller(tables, fields).install(space.id);
+    await installDefaultPreset(services.db, space.id);
 
     const installed = await tableRepository.list(space.id);
     expect(installed).toHaveLength(8);
@@ -22,8 +21,15 @@ describe("system memory table initialization (Dexie)", () => {
       ["todos", "待办"],
       ["story_state", "世界状态"],
     ]);
-    expect(installed.every((table) => table.kind === "system" && table.enabled)).toBe(true);
+    expect(installed.every((table) => table.enabled)).toBe(true);
     expect(installed.every((table) => table.prompt.length > 0)).toBe(true);
+    // 表格顺序由显式 position 表达（不再有系统表优先等身份排序）
+    expect(installed.map((table) => table.position)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    // 初始化来源写入空间行（预设名称快照）
+    expect((await spaces.find(space.id))?.initializationSource).toMatchObject({
+      presetId: "systemDefault",
+      presetName: "系统默认",
+    });
 
     const fieldsByTable = new Map<string, Awaited<ReturnType<typeof fieldRepository.list>>>();
     for (const table of installed) {
@@ -71,24 +77,20 @@ describe("system memory table initialization (Dexie)", () => {
     }
   });
 
-  it("keeps each space's system tables isolated (跨空间互不可见)", async () => {
-    const { spaces, tables, fields, tableRepository, fieldRepository } =
-      createServices(createTestDatabase());
+  it("每个空间的实例互相隔离（同 Key 不同 ID、引用不跨空间）", async () => {
+    const services = createServices(createTestDatabase());
+    const { spaces, tableRepository, fieldRepository } = services;
     const spaceA = await spaces.create("会话 A");
     const spaceB = await spaces.create("会话 B");
 
-    await new SystemMemoryTableInstaller(tables, fields).install(spaceA.id);
-    await new SystemMemoryTableInstaller(tables, fields).install(spaceB.id);
+    await installDefaultPreset(services.db, spaceA.id);
+    await installDefaultPreset(services.db, spaceB.id);
 
     const tablesA = await tableRepository.list(spaceA.id);
     const tablesB = await tableRepository.list(spaceB.id);
     expect(tablesA).toHaveLength(8);
     expect(tablesB).toHaveLength(8);
-    // 同 Key 不同 id：两个空间的系统表互不串扰（顺序按 id 兜底排序，不比较次序）
-    expect(new Set(tablesA.map((table) => table.key))).toEqual(
-      new Set(tablesB.map((table) => table.key)),
-    );
-    // 同 Key 不同 id：两个空间的系统表互不串扰
+    expect(tablesA.map((table) => table.key)).toEqual(tablesB.map((table) => table.key));
     expect(new Set(tablesA.map((table) => table.id))).toHaveLength(8);
     expect(tablesA.some((tableA) => tablesB.some((tableB) => tableA.id === tableB.id))).toBe(false);
     expect(await tableRepository.find(spaceA.id, tablesB[0]!.id)).toBeUndefined();

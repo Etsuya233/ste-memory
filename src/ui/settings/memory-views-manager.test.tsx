@@ -27,7 +27,7 @@ function table(key: string, name: string): MemoryTable {
     id: `table-${key}` as MemoryTable["id"],
     memorySpaceId: "space-1" as MemorySpaceId,
     key: key as MemoryTable["key"],
-    kind: "custom",
+    position: 0,
     name,
     description: "",
     prompt: "",

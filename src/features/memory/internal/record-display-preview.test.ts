@@ -31,7 +31,7 @@ const table: MemoryTable = {
   id: tableId,
   memorySpaceId: spaceId,
   key: "characters" as MemoryTableKey,
-  kind: "custom",
+  position: 0,
   name: "人物",
   description: "",
   prompt: "",

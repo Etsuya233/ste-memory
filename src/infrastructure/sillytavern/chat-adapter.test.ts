@@ -119,6 +119,7 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
       {
         space: {
           id: "space-1" as MemorySpaceId,
+          initializationSource: null,
           name: "爱丽丝 - story",
           createdAt: "2026-08-10T00:00:00.000Z",
           updatedAt: "2026-08-10T01:00:00.000Z",
@@ -152,6 +153,7 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
             space: {
               id: "space-1" as MemorySpaceId,
               name: "爱丽丝 - story",
+              initializationSource: null,
               createdAt: "2026-08-10T00:00:00.000Z",
               updatedAt: "2026-08-10T01:00:00.000Z",
             },

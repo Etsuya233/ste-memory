@@ -19,6 +19,7 @@ export {
   memoryTableDisplayFieldIds,
   memoryTableKey,
   memoryTableName,
+  memoryTablePosition,
   remapMemoryTableDisplayStrategy,
 } from "./memory-table.ts";
 export type {
@@ -27,10 +28,13 @@ export type {
   MemoryTableDisplayStrategy,
   MemoryTableId,
   MemoryTableKey,
-  MemoryTableKind,
 } from "./memory-table.ts";
 export { memorySpaceName } from "./memory-space.ts";
-export type { MemorySpace, MemorySpaceId } from "./memory-space.ts";
+export type {
+  MemorySpace,
+  MemorySpaceId,
+  MemorySpaceInitializationSource,
+} from "./memory-space.ts";
 export type {
   MemoryEvidence,
   MemoryEvidenceId,

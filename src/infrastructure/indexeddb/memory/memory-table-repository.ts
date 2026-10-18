@@ -74,10 +74,9 @@ export class DexieMemoryTableRepository implements MemoryTableRepository {
       .where("memorySpaceId")
       .equals(memorySpaceId)
       .toArray();
-    // 与 SQLite 参照实现同语义：创建时间升序（id 兜底，保证确定性）
+    // 空间内显式顺序（position 升序；id 兜底，保证确定性）——不再有系统表优先
     return tables.sort(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+      (left, right) => left.position - right.position || left.id.localeCompare(right.id),
     );
   }
 
@@ -91,6 +90,7 @@ export class DexieMemoryTableRepository implements MemoryTableRepository {
       description: memoryTable.description,
       prompt: memoryTable.prompt,
       enabled: memoryTable.enabled,
+      position: memoryTable.position,
       displayStrategy: memoryTable.displayStrategy,
       updatedAt: memoryTable.updatedAt,
     });

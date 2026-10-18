@@ -4,7 +4,6 @@ import {
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
-  SystemMemoryTableInstaller,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -29,6 +28,7 @@ import {
   DexieMemoryRecordRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
+  DexieSpaceStructureRebuild,
   SteMemoryDatabase,
   SteMemoryLogDatabase,
 } from "./infrastructure/indexeddb/index.ts";
@@ -54,7 +54,10 @@ import type { SettingsStore } from "./features/settings/plugin-settings.ts";
 import { SettingsService } from "./features/settings/settings-service.ts";
 import { resolveSelectedCleaningRules } from "./features/cleaning/cleaning-rule-lists.ts";
 import type { MemoryView } from "./features/macros/memory-views.ts";
-import { ChatSpaceManager } from "./features/chat-binding/chat-space-manager.ts";
+import { ChatSpaceManager, chatIdentityKey } from "./features/chat-binding/chat-space-manager.ts";
+import { TablePresetApplyService } from "./features/table-presets/table-preset-apply-service.ts";
+import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
+import { resolveDefaultTablePreset } from "./features/table-presets/preset-model.ts";
 import {
   StChatAdapter,
   type StContext,
@@ -93,8 +96,10 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
-  /** 空间维护（spec reset-space）：清除空间记录 / 重置空间（危险操作区） */
+  /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
+  /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
+  readonly presetApply: TablePresetApplyService;
   /** 通用日志（独立数据库，ADR 0015）：本地审计日志（填表行流）；不同步不备份不随空间删除 */
   readonly logs: LogRepository;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
@@ -172,7 +177,8 @@ export function defaultIdFactory(prefix: string): string {
 
 /**
  * 启动插件运行时（组合根，bootstrap 在 ST 环境可用时调用）：
- * Dexie 持久层 + Memory 服务 + 系统表安装器 + ST 适配器 + 事件桥 + 首次同步。
+ * Dexie 持久层 + Memory 服务 + 表格预设（结构初始化/应用）+ ST 适配器 + 事件桥
+ * + 首次同步。
  *
  * getContext 必须是可重复调用的工厂（ST getContext() 每次构造新对象，切对话后
  * chatId / chatMetadata 均需重取），而不是一次性快照。
@@ -193,6 +199,7 @@ export async function startSteMemory(
   const fieldRepository = new DexieMemoryFieldRepository(db);
   const recordRepository = new DexieMemoryRecordRepository(db);
   const backup = new DexieMemoryBackupRepository(db);
+  const spaceStructureRebuild = new DexieSpaceStructureRebuild(db, spaceRepository);
 
   const spaces = new MemorySpaceService(
     spaceRepository,
@@ -288,6 +295,9 @@ export async function startSteMemory(
       db.memoryRecordHistory,
       db.memoryEvidence,
       db.floorFillLedger,
+      // 任务表进事务：块提交在事务内复检任务行（running），与空间结构重建
+      // （删除任务行）互斥——重建后旧任务不可能再写入（spec 6.3 / AC-12）
+      db.memoryFillTasks,
     ]),
     createLlm,
     createPromptContext,
@@ -320,12 +330,27 @@ export async function startSteMemory(
       error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
     },
   });
-  const systemInstaller = new SystemMemoryTableInstaller(tables, fields);
+  const presetApply = new TablePresetApplyService({
+    cancelActiveTask: async (id) => {
+      const active = await tasks.activeTask(id);
+      if (active) await tasks.cancel(id, active.runId);
+    },
+    rebuild: spaceStructureRebuild,
+    defaultPreset: () =>
+      resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET),
+    currentChatIdentity: () => chatIdentityKey(adapter.getChatSnapshot()),
+    clearChatScopeMacros: () => adapter.chatScopeMacroStore.write([]),
+    createIds: {
+      table: () => createId("table") as MemoryTableId,
+      field: () => createId("field") as MemoryFieldId,
+    },
+    now,
+  });
   const manager = new ChatSpaceManager({
     getChat: () => adapter.getChatSnapshot(),
     bindingStore: adapter.bindingStore,
     spaces,
-    installer: systemInstaller,
+    installer: { installDefaultStructure: (id) => presetApply.installDefaultStructure(id) },
     mirrorRestore: {
       // 空间缺失时从对话文件镜像恢复（镜像有效 + spaceId 与绑定一致才恢复）
       restore: (binding) => mirror.restoreFromMirror(binding),
@@ -357,18 +382,16 @@ export async function startSteMemory(
     },
   });
 
-  // 空间维护（spec reset-space）：清除空间记录 / 重置空间（设置 Tab 危险操作区）。
-  // 执行前取消进行中填表任务；重置重装失败上抛（空间保持无表状态，可重试）。
+  // 空间维护：清除空间记录（保留表格结构与初始化来源）；按预设重建统一走
+  // 表格预设的应用流程（TablePresetApplyService）。
   const spaceMaintenance = new SpaceMaintenanceService({
     clearRecords: (id) => spaces.clearRecords(id),
-    deleteAllTables: (id) => spaces.deleteAllTables(id),
     cancelActiveTask: async (id) => {
       const active = await tasks.activeTask(id);
       if (active) await tasks.cancel(id, active.runId);
     },
     clearTasks: (id) => fillTaskRepository.clear(id),
     clearLedger: (id) => floorLedgerRepository.clear(id),
-    installSystemTables: (id) => systemInstaller.install(id),
   });
 
   // 页面/浏览器重开：所有非终态填表任务标记 interrupted，不自动重放（关页语义）
@@ -479,6 +502,7 @@ export async function startSteMemory(
     mirror,
     tasks,
     spaceMaintenance,
+    presetApply,
     logs,
     macro,
     agentMacro,

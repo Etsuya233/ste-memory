@@ -40,6 +40,7 @@ function unit(spaceId: string, updatedAt: string = BASE_TIME): MemorySpaceBackup
     space: {
       id: spaceId as MemorySpaceId,
       name: `空间-${spaceId}`,
+      initializationSource: null,
       createdAt: BASE_TIME,
       updatedAt,
     },

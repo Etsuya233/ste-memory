@@ -1,4 +1,5 @@
 import type { MemoryBackupRepository } from "../backup/index.ts";
+import type { MemoryView } from "../macros/memory-views.ts";
 import { parseBackupFile, type MemorySpaceBackup } from "../backup/index.ts";
 import type { SpaceContextStatus } from "./chat-space-manager.ts";
 import { BINDING_UNRECOGNIZED_MESSAGE } from "./chat-space-manager.ts";
@@ -25,6 +26,11 @@ export interface SpaceImportExecutionDeps {
   readonly kickMirror: () => void;
   /** 面板数据刷新（依赖数据的区块重取） */
   readonly onDataChanged: () => void;
+  /**
+   * 写回文件携带的对话级宏（spec 表格预设 6.3：单空间导出会带上导出时该对话的
+   * 对话级宏，导入到当前对话时恢复）；文件缺省该键时不调用（保持当前对话的宏）。
+   */
+  readonly writeChatScopeMacros?: (macros: readonly MemoryView[]) => void;
 }
 
 interface SpaceImportManager {
@@ -96,6 +102,10 @@ export async function executeSpaceImport(
   } else {
     // clone-and-rebind / create-and-bind 共用：克隆新空间 + 重建/建立绑定
     await deps.manager.importSpace(plan.action.unit);
+  }
+  // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
+  if (plan.action.unit.chatScopeMacros !== undefined) {
+    deps.writeChatScopeMacros?.(plan.action.unit.chatScopeMacros);
   }
   deps.onDataChanged();
   deps.kickMacros();

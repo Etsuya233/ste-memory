@@ -33,9 +33,9 @@ const timestamp = "2026-07-30T00:00:00.000Z";
  * characters 含启用/停用字段、引用字段（→ locations）、多值字段与多选字段。
  */
 export const TABLES: readonly MemoryTable[] = [
-  table(TABLE_CHARACTERS, "characters", "人物", true),
-  table(TABLE_LOCATIONS, "locations", "地点", true),
-  table(TABLE_ARCHIVES, "archives", "归档", false),
+  table(TABLE_CHARACTERS, "characters", "人物", true, 0),
+  table(TABLE_LOCATIONS, "locations", "地点", true, 1),
+  table(TABLE_ARCHIVES, "archives", "归档", false, 2),
 ];
 
 export const FIELDS_BY_TABLE_ID = new Map<MemoryTableId, readonly MemoryField[]>([
@@ -147,16 +147,22 @@ export function listRecordsOf(
   return memorySpaceId === SPACE_ID ? [...(RECORDS_BY_TABLE_ID.get(tableId) ?? [])] : [];
 }
 
-function table(id: MemoryTableId, key: string, name: string, enabled: boolean): MemoryTable {
+function table(
+  id: MemoryTableId,
+  key: string,
+  name: string,
+  enabled: boolean,
+  position: number,
+): MemoryTable {
   return {
     id,
     memorySpaceId: SPACE_ID,
     key: key as MemoryTableKey,
-    kind: "custom",
     name,
     description: "",
     prompt: "",
     enabled,
+    position,
     displayStrategy: id === TABLE_CHARACTERS ? { type: "field", fieldId: FIELD_NAME } : null,
     createdAt: timestamp,
     updatedAt: timestamp,

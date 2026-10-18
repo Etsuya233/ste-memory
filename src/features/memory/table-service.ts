@@ -2,20 +2,21 @@ import {
   DomainError,
   memoryTableKey,
   memoryTableName,
+  memoryTablePosition,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
-  type MemoryTableKind,
 } from "./domain/index.ts";
 import type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
 
 export interface CreateMemoryTableInput {
   readonly key: string;
-  readonly kind: MemoryTableKind;
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
+  /** 空间内显式顺序（调用方给出：新建取当前最大值 + 1） */
+  readonly position: number;
 }
 
 export interface UpdateMemoryTableInput {
@@ -24,6 +25,7 @@ export interface UpdateMemoryTableInput {
   readonly description?: string;
   readonly prompt?: string;
   readonly enabled?: boolean;
+  readonly position?: number;
 }
 
 export class MemoryTableService {
@@ -61,11 +63,11 @@ export class MemoryTableService {
       id: this.createId(),
       memorySpaceId,
       key,
-      kind: input.kind,
       name: memoryTableName(input.name),
       description: input.description,
       prompt: input.prompt,
       enabled: true,
+      position: memoryTablePosition(input.position),
       displayStrategy: null,
       createdAt: now,
       updatedAt: now,
@@ -108,6 +110,8 @@ export class MemoryTableService {
       description: input.description ?? current.description,
       prompt: input.prompt ?? current.prompt,
       enabled: input.enabled ?? current.enabled,
+      position:
+        input.position === undefined ? current.position : memoryTablePosition(input.position),
       updatedAt: this.now(),
     };
     await this.tables.update(updated);

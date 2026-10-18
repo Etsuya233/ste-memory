@@ -1,4 +1,5 @@
 import type { MemorySpaceId } from "../memory/index.ts";
+import type { MemoryView } from "../macros/memory-views.ts";
 import type { MemoryBackupRepository, MemoryBackupSnapshot } from "./backup-port.ts";
 import type { MemoryBackupData, MemorySpaceBackup } from "./backup-file.ts";
 import { parseBackupFile } from "./backup-codec.ts";
@@ -17,16 +18,22 @@ export function spaceExportFilename(exportedAt: string): string {
 
 /**
  * 从全库快照提取当前空间的单单元导出（issue 26 纯函数 seam）：只含当前空间单元，
- * 按 includeHistory 裁剪修订历史。找不到当前空间返回 null（导出前校验）。
+ * 按 includeHistory 裁剪修订历史；找不到当前空间返回 null（导出前校验）。
+ *
+ * 单空间导出用于「备份并应用」与手动导出，因此带上该单元的任务与楼层进度
+ * （loadSnapshot 已含）并写入导出时当前对话的对话级宏，使备份能恢复本次将被
+ * 删除的持久化内容（spec 表格预设 6.3）。
  */
 export function buildSpaceExportUnit(
   snapshot: MemoryBackupSnapshot,
   spaceId: MemorySpaceId,
   includeHistory: boolean,
+  chatScopeMacros: readonly MemoryView[] = [],
 ): MemorySpaceBackup | null {
   const unit = snapshot.spaces.find((item) => item.space.id === spaceId);
   if (!unit) return null;
-  return includeHistory ? unit : { ...unit, history: [] };
+  const trimmed = includeHistory ? unit : { ...unit, history: [] };
+  return { ...trimmed, chatScopeMacros: [...chatScopeMacros] };
 }
 
 /**

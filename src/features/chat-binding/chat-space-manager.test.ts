@@ -1,4 +1,4 @@
-import { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "../memory/index.ts";
+import { SYSTEM_TABLE_TEMPLATES } from "../memory/index.ts";
 import type {
   MemoryFieldId,
   MemoryFieldKey,
@@ -11,7 +11,11 @@ import type {
 import type { MemorySpaceBackup } from "../backup/index.ts";
 import { describe, expect, it, vi } from "vitest";
 import { DexieMemoryBackupRepository } from "../../infrastructure/indexeddb/backup/memory-backup-repository.ts";
-import { createServices, createTestDatabase } from "../../infrastructure/indexeddb/test-support.ts";
+import {
+  createServices,
+  createTestDatabase,
+  installDefaultPreset,
+} from "../../infrastructure/indexeddb/test-support.ts";
 import {
   StChatAdapter,
   CHAT_METADATA_BINDING_KEY,
@@ -25,7 +29,7 @@ import {
   buildChatSpaceName,
   type ChatSpaceManagerPorts,
   type SpaceContextStatus,
-  type SystemTableInstallerPort,
+  type SpaceStructureInstallerPort,
 } from "./chat-space-manager.ts";
 
 type ActiveStatus = Extract<SpaceContextStatus, { kind: "active" }>;
@@ -53,7 +57,9 @@ function chatContext(
 function createHarness() {
   const db = createTestDatabase();
   const services = createServices(db);
-  const installer = new SystemMemoryTableInstaller(services.tables, services.fields);
+  const installer: SpaceStructureInstallerPort = {
+    installDefaultStructure: (id) => installDefaultPreset(db, id),
+  };
   return {
     db,
     services,
@@ -61,7 +67,7 @@ function createHarness() {
     createManager(
       context: StContext,
       options: {
-        installer?: SystemTableInstallerPort;
+        installer?: SpaceStructureInstallerPort;
         log?: ChatSpaceManagerPorts["log"];
         mirrorRestore?: ChatSpaceManagerPorts["mirrorRestore"];
       } = {},
@@ -90,7 +96,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
-  it("首次打开对话：自动建空间 + 安装系统表 + 写绑定，状态 active(created)", async () => {
+  it("首次打开对话：自动建空间 + 按默认预设初始化结构 + 写绑定，状态 active(created)", async () => {
     const h = createHarness();
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
     const { manager } = h.createManager(context);
@@ -109,10 +115,10 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
       chatIdentity: string;
     };
     expect(binding).toEqual({ version: 2, spaceId: status.space.id, chatIdentity: "char:3:story" });
-    // 系统表全部就位（模板来自共享包，ticket 01）
+    // 默认预设结构全部就位（表格预设：系统默认）
     const tables = await h.services.tables.list(status.space.id);
     expect(tables).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
-    expect(tables.every((t) => t.kind === "system")).toBe(true);
+    expect(tables.every((t) => t.enabled)).toBe(true);
   });
 
   it("再次打开（页面刷新语义）不重复建：绑定存在 → 直接激活", async () => {
@@ -241,6 +247,7 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
       await h.db.memorySpaces.add({
         id: "space-ghost" as MemorySpaceId,
         name: "爱丽丝 - story",
+        initializationSource: null,
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
       });
@@ -302,6 +309,7 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
       await h.db.memorySpaces.add({
         id: "space-ghost" as MemorySpaceId,
         name: "爱丽丝 - story",
+        initializationSource: null,
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
       });
@@ -363,14 +371,16 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     expect(await h.services.spaces.list()).toHaveLength(2);
   });
 
-  it("系统表安装失败：空间回滚、不写绑定、错误上抛，下次打开可重试", async () => {
+  it("结构初始化失败：空间回滚、不写绑定、错误上抛，下次打开可重试", async () => {
     const h = createHarness();
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
-    const install = vi
-      .fn<SystemTableInstallerPort["install"]>()
+    const installDefaultStructure = vi
+      .fn<SpaceStructureInstallerPort["installDefaultStructure"]>()
       .mockRejectedValueOnce(new Error("install boom"))
       .mockResolvedValue(undefined);
-    const { manager } = h.createManager(context, { installer: { install } });
+    const { manager } = h.createManager(context, {
+      installer: { installDefaultStructure },
+    });
 
     await expect(manager.syncToCurrentChat()).rejects.toThrow("install boom");
 
@@ -494,11 +504,11 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
     const gate = deferred<void>();
     const { manager } = h.createManager(context, {
-      installer: { install: () => gate.promise },
+      installer: { installDefaultStructure: () => gate.promise },
     });
 
     const first = manager.syncToCurrentChat();
-    await Promise.resolve(); // 让同步体先取快照并挂起在系统表安装上
+    await Promise.resolve(); // 让同步体先取快照并挂起在结构初始化上
     context.chatId = "story-2"; // 用户切走
     context.chatMetadata = {}; // 新对话的 metadata（无绑定）
     gate.resolve();
@@ -581,7 +591,7 @@ describe("buildChatSpaceName（空间显示名）", () => {
       getChat: () => adapter.getChatSnapshot(),
       bindingStore: adapter.bindingStore,
       spaces: h.services.spaces,
-      installer: new SystemMemoryTableInstaller(h.services.tables, h.services.fields),
+      installer: { installDefaultStructure: (id) => installDefaultPreset(h.db, id) },
       backup,
       createId,
     });
@@ -593,13 +603,23 @@ describe("buildChatSpaceName（空间显示名）", () => {
 
     // 构造一个与当前空间无关的文件单元（记忆空间「旧名」）
     const unit: MemorySpaceBackup = {
-      space: { id: "imported-space" as MemorySpaceId, name: "旧名", createdAt: "", updatedAt: "" },
+      space: {
+        id: "imported-space" as MemorySpaceId,
+        name: "旧名",
+        initializationSource: {
+          presetId: "p-imported",
+          presetName: "导入来源预设",
+          appliedAt: "2026-09-01T00:00:00.000Z",
+        },
+        createdAt: "",
+        updatedAt: "",
+      },
       tables: [
         {
           id: "t1" as MemoryTableId,
           memorySpaceId: "imported-space" as MemorySpaceId,
           key: "k" as MemoryTableKey,
-          kind: "custom",
+          position: 0,
           name: "T",
           description: "",
           prompt: "",
@@ -670,5 +690,11 @@ describe("buildChatSpaceName（空间显示名）", () => {
     // 记录的 payload 键被重映射为克隆后的新字段 id（外键重映射正确）
     const clonedFieldId = cloned.fields[0]!.id;
     expect(cloned.records[0]!.payload).toEqual({ [clonedFieldId]: "v" });
+    // 初始化来源随克隆保留（不依赖本地预设库中存在来源预设；AC-18）
+    expect(cloned.space.initializationSource).toEqual({
+      presetId: "p-imported",
+      presetName: "导入来源预设",
+      appliedAt: "2026-09-01T00:00:00.000Z",
+    });
   });
 });

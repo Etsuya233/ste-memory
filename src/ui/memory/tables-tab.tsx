@@ -235,10 +235,12 @@ export function TablesTab(props: {
   }
 
   async function createTable(draft: TableDraft): Promise<void> {
+    const positions = (rawTables ?? []).map((table) => table.position);
+    const position = positions.length === 0 ? 0 : Math.max(...positions) + 1;
     try {
       await props.tables.create(currentSpaceId, {
         key: draft.key,
-        kind: "custom",
+        position,
         name: draft.name,
         description: draft.description,
         prompt: draft.prompt,
@@ -457,9 +459,7 @@ export function TablesTab(props: {
       <ul className="stm-table-list">
         {tables.map((table) => {
           const isExpanded = expanded.has(table.id);
-          const isCustom = table.kind === "custom";
           const isManagingFields = fieldEditMode.has(table.id);
-          const kindLabel = table.kind === "system" ? "系统表" : "自定义";
           const fieldCountText =
             table.fields.length === 0
               ? "无字段"
@@ -497,10 +497,7 @@ export function TablesTab(props: {
                   />
                 </button>
                 <div className="stm-table-row-main">
-                  <div className="stm-table-name">
-                    {table.name}
-                    <span className="stm-table-kind">{kindLabel}</span>
-                  </div>
+                  <div className="stm-table-name">{table.name}</div>
                   <div className="stm-table-meta">
                     {table.key} · {fieldCountText} ·{" "}
                     {displayStrategySummary(rawTable?.displayStrategy ?? null, tableFields)}
@@ -517,60 +514,54 @@ export function TablesTab(props: {
                   <span className="stm-switch-track" aria-hidden="true"></span>
                 </label>
               </div>
-              {/* 自定义表：编辑/新增字段/删除；系统表只读 */}
-              {isCustom ? (
-                <div className="stm-table-actions">
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="edit-table"
-                    data-table-id={table.id}
-                    aria-pressed={editingTableId === table.id}
-                    onClick={() => setEditingTableId(editingTableId === table.id ? null : table.id)}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="add-field"
-                    data-table-id={table.id}
-                    onClick={() => openFieldEditor({ mode: "create", tableId: table.id })}
-                  >
-                    新增字段
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="edit-display-strategy"
-                    data-table-id={table.id}
-                    aria-pressed={strategyEditorTableId === table.id}
-                    onClick={() => {
-                      if (strategyEditorTableId === table.id) {
-                        closeStrategyEditor();
-                      } else {
-                        void openStrategyEditor(table.id);
-                      }
-                    }}
-                  >
-                    显示策略
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action stm-table-action--danger"
-                    data-action="delete-table"
-                    data-table-id={table.id}
-                    onClick={() => void deleteTable(table.id, table.name)}
-                  >
-                    删除
-                  </button>
-                </div>
-              ) : (
-                <div className="stm-table-actions">
-                  <span className="stm-table-action stm-table-action--hint">系统表只读</span>
-                </div>
-              )}
-              {isCustom && editingTableId === table.id && rawTable && (
+              {/* 全部表格统一支持编辑/新增字段/显示策略/删除（不再区分系统表与自定义表） */}
+              <div className="stm-table-actions">
+                <button
+                  type="button"
+                  className="stm-table-action"
+                  data-action="edit-table"
+                  data-table-id={table.id}
+                  aria-pressed={editingTableId === table.id}
+                  onClick={() => setEditingTableId(editingTableId === table.id ? null : table.id)}
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  className="stm-table-action"
+                  data-action="add-field"
+                  data-table-id={table.id}
+                  onClick={() => openFieldEditor({ mode: "create", tableId: table.id })}
+                >
+                  新增字段
+                </button>
+                <button
+                  type="button"
+                  className="stm-table-action"
+                  data-action="edit-display-strategy"
+                  data-table-id={table.id}
+                  aria-pressed={strategyEditorTableId === table.id}
+                  onClick={() => {
+                    if (strategyEditorTableId === table.id) {
+                      closeStrategyEditor();
+                    } else {
+                      void openStrategyEditor(table.id);
+                    }
+                  }}
+                >
+                  显示策略
+                </button>
+                <button
+                  type="button"
+                  className="stm-table-action stm-table-action--danger"
+                  data-action="delete-table"
+                  data-table-id={table.id}
+                  onClick={() => void deleteTable(table.id, table.name)}
+                >
+                  删除
+                </button>
+              </div>
+              {editingTableId === table.id && rawTable && (
                 <TableEditorForm
                   title="编辑表格"
                   initial={{
@@ -584,8 +575,7 @@ export function TablesTab(props: {
                   onCancel={() => setEditingTableId(null)}
                 />
               )}
-              {/* 显示策略编辑器（ticket 10）：自定义表可配置；系统表策略预置只读 */}
-              {isCustom && strategyEditorTableId === table.id && rawTable && (
+              {strategyEditorTableId === table.id && rawTable && (
                 <DisplayStrategyEditor
                   title="显示策略"
                   initial={emptyDisplayStrategyDraft(rawTable.displayStrategy)}
@@ -600,20 +590,18 @@ export function TablesTab(props: {
               )}
               {isExpanded && (
                 <>
-                  {isCustom && (
-                    <div className="stm-field-edit-toggle">
-                      <button
-                        type="button"
-                        className="stm-table-action"
-                        data-action="toggle-field-edit"
-                        data-table-id={table.id}
-                        aria-pressed={isManagingFields}
-                        onClick={() => toggleFieldEditMode(table.id)}
-                      >
-                        {isManagingFields ? "完成字段管理" : "管理字段"}
-                      </button>
-                    </div>
-                  )}
+                  <div className="stm-field-edit-toggle">
+                    <button
+                      type="button"
+                      className="stm-table-action"
+                      data-action="toggle-field-edit"
+                      data-table-id={table.id}
+                      aria-pressed={isManagingFields}
+                      onClick={() => toggleFieldEditMode(table.id)}
+                    >
+                      {isManagingFields ? "完成字段管理" : "管理字段"}
+                    </button>
+                  </div>
                   {table.fields.length > 0 && (
                     <ul className="stm-field-list">
                       {table.fields.map((field, fieldIndex) => {
@@ -658,7 +646,7 @@ export function TablesTab(props: {
                               />
                               <span className="stm-switch-track" aria-hidden="true"></span>
                             </label>
-                            {isCustom && isManagingFields && (
+                            {isManagingFields && (
                               <div className="stm-field-edit-row">
                                 <button
                                   type="button"
@@ -724,7 +712,7 @@ export function TablesTab(props: {
                 </>
               )}
               {/* 字段编辑器（打开即显示，不依赖卡片展开） */}
-              {isCustom && fieldEditor?.tableId === table.id && (
+              {fieldEditor?.tableId === table.id && (
                 <FieldEditorForm
                   key={fieldEditor.mode === "create" ? "create" : fieldEditor.fieldId}
                   title={fieldEditor.mode === "create" ? "新增字段" : "编辑字段"}

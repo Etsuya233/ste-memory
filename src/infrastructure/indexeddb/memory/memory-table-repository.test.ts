@@ -13,7 +13,7 @@ describe("Dexie memory table repository", () => {
 
     const created = await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "值得追踪的线索",
       prompt: "只保留仍可能影响后续情节的内容。",
@@ -23,7 +23,7 @@ describe("Dexie memory table repository", () => {
       id: "table-1",
       memorySpaceId: space.id,
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "值得追踪的线索",
       prompt: "只保留仍可能影响后续情节的内容。",
@@ -65,14 +65,14 @@ describe("Dexie memory table repository", () => {
 
     const tableA = await tables.create(spaceA.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索 A",
       description: "",
       prompt: "",
     });
     const tableB = await tables.create(spaceB.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索 B",
       description: "",
       prompt: "",
@@ -95,7 +95,7 @@ describe("Dexie memory table repository", () => {
     const space = await spaces.create("会话");
     await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
@@ -104,7 +104,7 @@ describe("Dexie memory table repository", () => {
     await expect(
       tables.create(space.id, {
         key: "clues",
-        kind: "custom",
+        position: 0,
         name: "另一个线索",
         description: "",
         prompt: "",
@@ -114,7 +114,7 @@ describe("Dexie memory table repository", () => {
     // 同空间内换一个 Key 即可创建
     const another = await tables.create(space.id, {
       key: "clues2",
-      kind: "custom",
+      position: 0,
       name: "另一个线索",
       description: "",
       prompt: "",
@@ -127,7 +127,7 @@ describe("Dexie memory table repository", () => {
     const space = await spaces.create("会话");
     const created = await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
@@ -153,14 +153,14 @@ describe("Dexie memory table repository", () => {
     const space = await spaces.create("会话");
     const first = await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
     });
     const second = await tables.create(space.id, {
       key: "items",
-      kind: "custom",
+      position: 0,
       name: "物品",
       description: "",
       prompt: "",
@@ -173,7 +173,7 @@ describe("Dexie memory table repository", () => {
     const { tables } = createServices(createTestDatabase());
     const created = await tables.create("missing" as MemorySpaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
@@ -186,7 +186,7 @@ describe("Dexie memory table repository", () => {
     const space = await spaces.create("会话");
     const table = await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",

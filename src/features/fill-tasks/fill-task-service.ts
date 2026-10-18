@@ -449,6 +449,15 @@ export class FillTaskService {
   }
 
   /**
+   * 提交写入守卫（在提交事务内复查）：任务行存在且仍为 running 才允许写入。
+   * 用户取消、页面重开与空间结构重建（删除任务行）都会让本检查失败。
+   */
+  async #isRunning(runId: string): Promise<boolean> {
+    const task = await this.#tasks.find(runId);
+    return task?.status === "running";
+  }
+
+  /**
    * 对话切换检测：提交时的 chatId 与当前一致才继续。
    * 未保存对话（chatId = null）无法识别切换，跳过检查（漂移接受）。
    */
@@ -548,10 +557,15 @@ export class FillTaskService {
     }
     // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试）。
     if (await this.#isStopped(task.runId)) return;
+    // 安全点 3（事务内）：任务行在写入事务里复检（running 才写入）。重建空间结构
+    // 删除任务行与本次提交在任务表上互斥——重建已提交后旧任务不可能再写入
+    // （空间结构也已换新，旧表/字段 ID 不再存在）。空提案同路径：只标记台账，
+    // 不产生记忆数据，但同样不得落在重建之后。
     if (result.proposal) {
       // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
       // 初始化任务无楼层：只提交批次，不标记台账。
       await this.#runInTransaction(async () => {
+        if (!(await this.#isRunning(task.runId))) return;
         await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
         if (task.kind !== "init") {
           await this.#ledger.markProcessed(
@@ -562,12 +576,15 @@ export class FillTaskService {
       });
     } else {
       // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
-      if (task.kind !== "init") {
-        await this.#ledger.markProcessed(
-          task.memorySpaceId,
-          messages.map((message) => message.floor),
-        );
-      }
+      await this.#runInTransaction(async () => {
+        if (!(await this.#isRunning(task.runId))) return;
+        if (task.kind !== "init") {
+          await this.#ledger.markProcessed(
+            task.memorySpaceId,
+            messages.map((message) => message.floor),
+          );
+        }
+      });
     }
   }
 

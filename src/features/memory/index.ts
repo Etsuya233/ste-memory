@@ -6,8 +6,13 @@
  * 记录提交中的校验、修订与历史写入只通过记录服务的完整操作执行。
  */
 export type { MemorySpaceReader } from "./ports/memory-space-reader.ts";
-export { SYSTEM_TABLE_TEMPLATES, SystemMemoryTableInstaller } from "./system-tables/index.ts";
-export type { FieldTemplate, SystemMemoryTableKey, TableTemplate } from "./system-tables/index.ts";
+export { SYSTEM_TABLE_TEMPLATES } from "./system-tables/index.ts";
+export type {
+  FieldTemplate,
+  SystemMemoryTableKey,
+  TableTemplate,
+  TableTemplateDisplayStrategy,
+} from "./system-tables/index.ts";
 export { MemorySpaceService } from "./space-service.ts";
 export type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 export { MemoryTableService } from "./table-service.ts";
@@ -84,13 +89,16 @@ export type {
 export {
   DomainError,
   derivedDisplayTemplate,
+  memoryFieldConfiguration,
   memoryFieldName,
   memoryFieldPosition,
   memoryFieldKey,
+  memoryFieldValuePattern,
   memorySpaceName,
   memoryTableDisplayFieldIds,
   memoryTableName,
   memoryTableKey,
+  memoryTablePosition,
   remapMemoryTableDisplayStrategy,
 } from "./domain/index.ts";
 export type {
@@ -118,9 +126,9 @@ export type {
   MemoryRevisionSource,
   MemorySpace,
   MemorySpaceId,
+  MemorySpaceInitializationSource,
   MemoryTable,
   MemoryTableDisplayStrategy,
   MemoryTableId,
   MemoryTableKey,
-  MemoryTableKind,
 } from "./domain/index.ts";

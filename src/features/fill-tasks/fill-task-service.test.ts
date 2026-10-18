@@ -15,13 +15,13 @@ import {
   type MemorySpaceId,
   type MemorySpaceReader,
 } from "../memory/index.ts";
-import { SystemMemoryTableInstaller } from "../memory/index.ts";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"）
 import {
   createTestDatabase,
   createTestLogDatabase,
   createServices,
+  installDefaultPreset,
   type TestServices,
 } from "../../infrastructure/indexeddb/test-support.ts";
 import {
@@ -209,7 +209,7 @@ async function createHarness(
   const services = createServices(db, () => NOW);
   const { spaces, tables, fields } = services;
   const space = await spaces.create("会话");
-  await new SystemMemoryTableInstaller(tables, fields).install(space.id);
+  await installDefaultPreset(db, space.id);
   const spaceId = space.id;
 
   const tasks = new DexieFillTaskRepository(db, () => NOW);
@@ -275,6 +275,8 @@ async function createHarness(
           db.memoryRecordHistory,
           db.memoryEvidence,
           db.floorFillLedger,
+          // 提交事务复检任务行（running 才写入）：任务表必须在事务作用域内
+          db.memoryFillTasks,
         ],
         async () => {
           await work();
@@ -318,6 +320,36 @@ async function floorStatuses(harness: Harness): Promise<readonly string[]> {
 }
 
 describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
+  it("空间结构重建后旧任务无法写入：提交事务内复检任务行（spec 6.3 / AC-12）", async () => {
+    const streamFn = gatedStreamFn(scriptedFillAgent().respond, 1);
+    const harness = await createHarness({ streamFn });
+    const { service, spaceId, db } = harness;
+
+    const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 1, blockSize: 2 });
+    // 等门控：Agent 已产出提案，尚未进入提交（安全点 2 已过、事务未开）
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && streamFn.calls.count < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(streamFn.calls.count).toBe(1);
+
+    // 模拟应用预设的原子重建：任务行被删除（真实路径同时替换空间结构）。
+    // 提交事务在任务表上与重建互斥，且事务内复检任务行 —— 旧任务不再写入。
+    await db.memoryFillTasks.where("memorySpaceId").equals(spaceId).delete();
+
+    streamFn.gate.open();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // 旧任务没有落下任何记录/历史/证据/台账，也没有复活任务行
+    expect(await db.memoryRecords.count()).toBe(0);
+    expect(await db.memoryRecordHistory.count()).toBe(0);
+    expect(await db.memoryEvidence.count()).toBe(0);
+    expect(await db.floorFillLedger.count()).toBe(0);
+    expect(await db.memoryFillTasks.count()).toBe(0);
+    expect(await service.activeTask(spaceId)).toBeUndefined();
+    expect(view.runId).toBeTruthy();
+  });
+
   it("端到端：分块跑 Agent，每块原子写入记录与证据，楼层标记 processed，任务 succeeded", async () => {
     const streamFn = scriptedFillAgent();
     const harness = await createHarness({ streamFn });

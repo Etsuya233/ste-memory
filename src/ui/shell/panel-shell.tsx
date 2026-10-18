@@ -29,6 +29,7 @@ import type { FillTaskService } from "../../features/fill-tasks/fill-task-servic
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import type { QueryChatService } from "../../features/query-chat/query-chat-service.ts";
 import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
+import type { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
 import { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
 import { buildSpaceInfo } from "./space-info.ts";
@@ -103,8 +104,10 @@ export interface PanelRuntime {
     | "ledgerStatuses"
     | "markFloorStatuses"
   >;
-  /** 空间维护（spec reset-space）：清除空间记录 / 重置空间（设置 Tab 危险操作区） */
-  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords" | "reset">;
+  /** 空间维护（spec reset-space）：清除空间记录（设置 Tab 危险操作区） */
+  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords">;
+  /** 表格预设应用（spec table-presets）：停止写入 + 当前空间应用预设（原子重建） */
+  readonly presetApply: Pick<TablePresetApplyService, "stopSpaceWrites" | "applyPreset">;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */
@@ -568,6 +571,7 @@ export function PanelShell(props: {
               mirror={props.runtime.mirror}
               macro={props.runtime.macro}
               spaceMaintenance={props.runtime.spaceMaintenance}
+              presetApply={props.runtime.presetApply}
               cleaning={props.runtime.cleaning}
               presetPreview={props.runtime.presetPreview}
               macroOverview={props.runtime.macroOverview}

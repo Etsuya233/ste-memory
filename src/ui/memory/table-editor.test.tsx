@@ -15,16 +15,16 @@ import { emptyFieldDraft, fieldDraftFromField } from "./field-editor-model.ts";
 import { EMPTY_TABLE_DRAFT } from "./table-editor-model.ts";
 import { FieldEditorForm, TableEditorForm } from "./table-editor.tsx";
 
-function makeTable(id: string, name: string, kind: MemoryTable["kind"] = "custom"): MemoryTable {
+function makeTable(id: string, name: string, position = 0): MemoryTable {
   return {
     id: id as MemoryTableId,
     memorySpaceId: "space-1" as MemoryTable["memorySpaceId"],
     key: `key-${id}` as MemoryTable["key"],
-    kind,
     name,
     description: "",
     prompt: "",
     enabled: true,
+    position,
     displayStrategy: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
@@ -165,10 +165,7 @@ describe("FieldEditorForm（字段定义编辑器投影）", () => {
         title="新增字段"
         initial={emptyFieldDraft("single_reference")}
         existingKeys={[]}
-        referenceTables={[
-          makeTable("table-2", "角色档案"),
-          makeTable("table-3", "记忆索引", "system"),
-        ]}
+        referenceTables={[makeTable("table-2", "角色档案"), makeTable("table-3", "记忆索引", 1)]}
         typeLocked={false}
         submitLabel="创建字段"
         onSave={() => {}}
@@ -178,7 +175,6 @@ describe("FieldEditorForm（字段定义编辑器投影）", () => {
     expect(html).toContain('data-stm-field="field-reference-table"');
     expect(html).toContain("角色档案");
     expect(html).toContain("记忆索引");
-    expect(html).toContain("（系统表）");
     expect(html).toContain("只能引用当前记忆空间内的表");
     expect(html).not.toContain('data-stm-field="field-options"');
   });

@@ -44,7 +44,7 @@ function table(id: string, name: string, enabled = true): MemoryTable {
     id: id as MemoryTableId,
     memorySpaceId: "space-1" as MemorySpaceId,
     key: `table-${id}` as MemoryTableKey,
-    kind: "custom",
+    position: 0,
     name,
     description: "登场角色",
     prompt: "",

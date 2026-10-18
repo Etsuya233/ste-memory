@@ -14,6 +14,8 @@ export type MemoryBackupSnapshot = MemoryBackupData;
 /** 克隆空间时的 ID 工厂（st-extension 的 cloneSpace / cloneSpaceFromUnit 共用）。 */
 export interface BackupIdFactory {
   readonly space: () => MemorySpaceId;
+  /** 填表任务 runId（克隆的任务行必须是全新身份，避免与源空间主键相撞） */
+  readonly task: () => string;
   readonly table: () => MemoryTableId;
   readonly field: () => MemoryFieldId;
   readonly record: () => MemoryRecordId;

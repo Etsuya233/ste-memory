@@ -3,6 +3,7 @@ import type {
   MemoryBackupRepository,
   MemoryBackupSnapshot,
   MemorySpaceBackup,
+  MemorySpaceBackupLedgerEntry,
 } from "../../../features/backup/index.ts";
 import type {
   MemoryEvidence,
@@ -21,17 +22,22 @@ import type {
   MemoryTableId,
 } from "../../../features/memory/index.ts";
 import { remapMemoryTableDisplayStrategy } from "../../../features/memory/index.ts";
+import type { FillTask } from "../../../features/fill-tasks/fill-task.ts";
 import type { SteMemoryDatabase, MemoryEvidenceRow } from "../database.ts";
+import { normalizeTaskRow } from "../fill-tasks/fill-task-repository.ts";
 import { toDomainEvidence, toEvidenceRow } from "../memory/evidence-conversion.ts";
 
 /**
  * Memory MemoryBackupRepository 端口的 Dexie（IndexedDB）实现（ADR 0002 / 0021）。
  *
- * - loadSnapshot：读全部六张表，把证据行还原为领域对象（evidence_id / 去掉
- *   memorySpaceId 包装），按空间分组；各数组按 id 排序保证确定性。
- * - restoreSnapshot：整体替换——六张表清空后按空间单元依次写入，全部包在
- *   同一个读写事务里：任一步失败（如主键冲突）整体回滚，绝不产生半导入状态
- *   （导入前校验由 Memory codec 负责，这里只兜底物理约束）。
+ * - loadSnapshot：读全部六张表 + 该空间的填表任务与楼层进度台账，把证据行还原为
+ *   领域对象（evidence_id / 去掉 memorySpaceId 包装），按空间分组；各数组按 id
+ *   排序保证确定性。
+ * - restoreSnapshot：整体替换——六张表 + 任务/进度表清空后按空间单元依次写入，
+ *   全部包在同一个读写事务里：任一步失败（如主键冲突）整体回滚，绝不产生半导入
+ *   状态（导入前校验由 Memory codec 负责，这里只兜底物理约束）。
+ * - 任务/进度/对话级宏是可选集合（spec 表格预设 6.3）：单元带这些键 = 替换目标
+ *   空间的对应内容；缺省 = 不涉及，保持目标原有值（对话文件镜像即如此）。
  */
 export class DexieMemoryBackupRepository implements MemoryBackupRepository {
   readonly #db: SteMemoryDatabase;
@@ -41,14 +47,17 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
   }
 
   async loadSnapshot(): Promise<MemoryBackupSnapshot> {
-    const [spaces, tables, fields, records, history, evidenceRows] = await Promise.all([
-      this.#db.memorySpaces.toArray(),
-      this.#db.memoryTables.toArray(),
-      this.#db.memoryFields.toArray(),
-      this.#db.memoryRecords.toArray(),
-      this.#db.memoryRecordHistory.toArray(),
-      this.#db.memoryEvidence.toArray(),
-    ]);
+    const [spaces, tables, fields, records, history, evidenceRows, tasks, ledgerRows] =
+      await Promise.all([
+        this.#db.memorySpaces.toArray(),
+        this.#db.memoryTables.toArray(),
+        this.#db.memoryFields.toArray(),
+        this.#db.memoryRecords.toArray(),
+        this.#db.memoryRecordHistory.toArray(),
+        this.#db.memoryEvidence.toArray(),
+        this.#db.memoryFillTasks.toArray(),
+        this.#db.floorFillLedger.toArray(),
+      ]);
     const sorted = {
       spaces: [...spaces].sort((left, right) => left.id.localeCompare(right.id)),
       tables: [...tables].sort((left, right) => left.id.localeCompare(right.id)),
@@ -56,6 +65,12 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       records: [...records].sort((left, right) => left.id.localeCompare(right.id)),
       history: [...history].sort((left, right) => left.id.localeCompare(right.id)),
       evidence: [...evidenceRows].sort((left, right) => left.id.localeCompare(right.id)),
+      tasks: [...tasks]
+        .map(normalizeTaskRow)
+        .sort((left, right) => left.runId.localeCompare(right.runId)),
+      ledger: [...ledgerRows].sort(
+        (left, right) => left.floor - right.floor || left.id.localeCompare(right.id),
+      ),
     };
     return {
       spaces: sorted.spaces.map((space) => ({
@@ -67,6 +82,10 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         evidence: sorted.evidence
           .filter((row) => row.memorySpaceId === space.id)
           .map(toDomainEvidence),
+        fillTasks: sorted.tasks.filter((task) => task.memorySpaceId === space.id),
+        floorLedger: sorted.ledger
+          .filter((row) => row.memorySpaceId === space.id)
+          .map((row) => ({ floor: row.floor, status: row.status, updatedAt: row.updatedAt })),
       })),
     };
   }
@@ -81,6 +100,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         this.#db.memoryRecords,
         this.#db.memoryRecordHistory,
         this.#db.memoryEvidence,
+        this.#db.memoryFillTasks,
+        this.#db.floorFillLedger,
       ],
       async () => {
         await Promise.all([
@@ -90,6 +111,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           this.#db.memoryRecords.clear(),
           this.#db.memoryRecordHistory.clear(),
           this.#db.memoryEvidence.clear(),
+          this.#db.memoryFillTasks.clear(),
+          this.#db.floorFillLedger.clear(),
         ]);
         for (const unit of snapshot.spaces) {
           await this.#writeUnit(unit);
@@ -101,7 +124,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
   /**
    * 按空间恢复单个单元（镜像恢复，ADR 0023）：先删该空间在六张表的全部行，
    * 再写入单元数据——只影响目标空间，其他空间原样保留；与 restoreSnapshot
-   * 同事务语义：任一步失败整体回滚。
+   * 同事务语义：任一步失败整体回滚。单元带任务/进度时一并替换该空间的对应行，
+   * 缺省（镜像不带）保持原有值与既有行为。
    */
   async restoreSpace(unit: MemorySpaceBackup): Promise<void> {
     const spaceId = unit.space.id;
@@ -114,6 +138,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         this.#db.memoryRecords,
         this.#db.memoryRecordHistory,
         this.#db.memoryEvidence,
+        this.#db.memoryFillTasks,
+        this.#db.floorFillLedger,
       ],
       async () => {
         await Promise.all([
@@ -126,6 +152,10 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           this.#db.memoryRecordHistory.where("memorySpaceId").equals(spaceId).delete(),
           this.#db.memoryEvidence.where("memorySpaceId").equals(spaceId).delete(),
         ]);
+        if (unit.fillTasks !== undefined || unit.floorLedger !== undefined) {
+          await this.#db.memoryFillTasks.where("memorySpaceId").equals(spaceId).delete();
+          await this.#db.floorFillLedger.where("memorySpaceId").equals(spaceId).delete();
+        }
         await this.#writeUnit(unit);
       },
     );
@@ -145,15 +175,30 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       throw new Error(`源空间不存在: ${sourceSpaceId}`);
     }
     // 读取源空间完整单元
-    const [tables, fields, records, history, evidenceRows] = await Promise.all([
+    const [tables, fields, records, history, evidenceRows, tasks, ledgerRows] = await Promise.all([
       this.#db.memoryTables.where("memorySpaceId").equals(sourceSpaceId).toArray(),
       this.#db.memoryFields.filter((field) => field.memorySpaceId === sourceSpaceId).toArray(),
       this.#db.memoryRecords.where("memorySpaceId").equals(sourceSpaceId).toArray(),
       this.#db.memoryRecordHistory.where("memorySpaceId").equals(sourceSpaceId).toArray(),
       this.#db.memoryEvidence.where("memorySpaceId").equals(sourceSpaceId).toArray(),
+      this.#db.memoryFillTasks.where("memorySpaceId").equals(sourceSpaceId).toArray(),
+      this.#db.floorFillLedger.where("memorySpaceId").equals(sourceSpaceId).toArray(),
     ]);
     return this.#writeClonedUnit(
-      { space: sourceSpace, tables, fields, records, history, evidenceRows },
+      {
+        space: sourceSpace,
+        tables,
+        fields,
+        records,
+        history,
+        evidenceRows,
+        fillTasks: tasks.map(normalizeTaskRow),
+        floorLedger: ledgerRows.map((row) => ({
+          floor: row.floor,
+          status: row.status,
+          updatedAt: row.updatedAt,
+        })),
+      },
       createId,
     );
   }
@@ -178,6 +223,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         records: unit.records,
         history: unit.history,
         evidenceRows,
+        fillTasks: unit.fillTasks ?? [],
+        floorLedger: unit.floorLedger ?? [],
       },
       createId,
     );
@@ -192,12 +239,14 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       readonly records: readonly MemoryRecord[];
       readonly history: readonly MemoryRecordHistory[];
       readonly evidenceRows: readonly MemoryEvidenceRow[];
+      readonly fillTasks: readonly FillTask[];
+      readonly floorLedger: readonly MemorySpaceBackupLedgerEntry[];
     },
     createId: BackupIdFactory,
   ): Promise<MemorySpaceId> {
     // 生成新 space ID
     const newSpaceId = createId.space();
-    const { tables, fields, records, history, evidenceRows } = source;
+    const { tables, fields, records, history, evidenceRows, fillTasks, floorLedger } = source;
 
     // 构建旧 ID → 新 ID 映射表
     const tableIdMap = new Map<string, MemoryTableId>();
@@ -296,6 +345,8 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         this.#db.memoryRecords,
         this.#db.memoryRecordHistory,
         this.#db.memoryEvidence,
+        this.#db.memoryFillTasks,
+        this.#db.floorFillLedger,
       ],
       async () => {
         // 写入新空间行
@@ -377,6 +428,29 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
             })),
           );
         }
+
+        // 写入克隆的任务与楼层进度：任务换新 runId（runId 是全局主键，直接复用会
+        // 与源空间任务行相撞），进度行按新空间重算 id
+        if (fillTasks.length > 0) {
+          await this.#db.memoryFillTasks.bulkAdd(
+            fillTasks.map((task) => ({
+              ...task,
+              runId: createId.task(),
+              memorySpaceId: newSpaceId,
+            })),
+          );
+        }
+        if (floorLedger.length > 0) {
+          await this.#db.floorFillLedger.bulkAdd(
+            floorLedger.map((entry) => ({
+              id: `${newSpaceId}:${entry.floor}`,
+              memorySpaceId: newSpaceId,
+              floor: entry.floor,
+              status: entry.status,
+              updatedAt: entry.updatedAt,
+            })),
+          );
+        }
       },
     );
 
@@ -395,6 +469,21 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
     if (unit.evidence.length > 0) {
       await this.#db.memoryEvidence.bulkAdd(
         unit.evidence.map((evidence) => toEvidenceRow(unit.space.id, evidence)),
+      );
+    }
+    // 任务/进度为可选集合：带键即写入（调用方已按需删除目标行），缺省不涉及
+    if (unit.fillTasks !== undefined && unit.fillTasks.length > 0) {
+      await this.#db.memoryFillTasks.bulkAdd([...unit.fillTasks]);
+    }
+    if (unit.floorLedger !== undefined && unit.floorLedger.length > 0) {
+      await this.#db.floorFillLedger.bulkAdd(
+        unit.floorLedger.map((entry) => ({
+          id: `${unit.space.id}:${entry.floor}`,
+          memorySpaceId: unit.space.id,
+          floor: entry.floor,
+          status: entry.status,
+          updatedAt: entry.updatedAt,
+        })),
       );
     }
   }

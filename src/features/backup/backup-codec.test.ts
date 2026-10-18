@@ -27,6 +27,11 @@ function sampleSnapshot(): MemoryBackupData {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      initializationSource: {
+        presetId: "systemDefault",
+        presetName: "系统默认",
+        appliedAt: "2026-07-28T00:00:00.000Z",
+      },
       createdAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "2026-07-28T00:00:00.000Z",
     },
@@ -35,7 +40,7 @@ function sampleSnapshot(): MemoryBackupData {
         id: "table-1" as MemoryTableId,
         memorySpaceId: "space-1" as MemorySpaceId,
         key: "characters" as MemoryTableKey,
-        kind: "system",
+        position: 0,
         name: "人物",
         description: "登场角色",
         prompt: "只记录有持续影响的角色",
@@ -187,6 +192,65 @@ describe("备份文件编解码", () => {
     const text = serializeBackupFile(file);
     expect(JSON.parse(text)).toEqual(file);
     expect(parseBackupFile(text).data).toEqual(sampleSnapshot());
+  });
+
+  it("初始化来源随单元往返保留（备份与恢复不改写来源快照；AC-17）", () => {
+    const file = createBackupFile(sampleSnapshot(), "0.2.0", "2026-08-05T10:00:00.000Z");
+    const source = file.data.spaces[0]!.space.initializationSource;
+    expect(source).toEqual({
+      presetId: "systemDefault",
+      presetName: "系统默认",
+      appliedAt: "2026-07-28T00:00:00.000Z",
+    });
+    const reparsed = parseBackupFile(serializeBackupFile(file));
+    expect(reparsed.data.spaces[0]!.space.initializationSource).toEqual(source);
+  });
+
+  it("旧文件（无初始化来源与表格顺序键）解码时归一化：来源补 null、顺序按数组顺序", () => {
+    const file = createBackupFile(sampleSnapshot(), "0.2.0", "2026-08-05T10:00:00.000Z");
+    const legacy = JSON.parse(JSON.stringify(file)) as {
+      data: { spaces: { space: Record<string, unknown>; tables: Record<string, unknown>[] }[] };
+    };
+    delete legacy.data.spaces[0]!.space.initializationSource;
+    for (const table of legacy.data.spaces[0]!.tables) delete table.position;
+
+    const decoded = decodeBackupFile(legacy);
+    expect(decoded.data.spaces[0]!.space.initializationSource).toBeNull();
+    expect(decoded.data.spaces[0]!.tables.map((table) => table.position)).toEqual([0]);
+    expect(decoded.data.spaces[0]!.tables[0]!.key).toBe("characters");
+  });
+
+  it("任务与楼层进度随单元校验：不属于本空间或楼层重复报格式错误", () => {
+    const base = createBackupFile(sampleSnapshot(), "0.2.0", "2026-08-05T10:00:00.000Z");
+    const foreignTask = JSON.parse(JSON.stringify(base)) as {
+      data: { spaces: { fillTasks?: unknown[] }[] };
+    };
+    foreignTask.data.spaces[0]!.fillTasks = [
+      {
+        runId: "run-1",
+        memorySpaceId: "other-space",
+        from: 0,
+        to: 1,
+        blockSize: 20,
+        kind: "floor",
+        initText: null,
+        chatId: null,
+        status: "succeeded",
+        errorMessage: null,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    expect(decodeError(foreignTask).humanMsg).toContain("不属于空间 space-1");
+
+    const duplicateFloors = JSON.parse(JSON.stringify(base)) as {
+      data: { spaces: { floorLedger?: unknown[] }[] };
+    };
+    duplicateFloors.data.spaces[0]!.floorLedger = [
+      { floor: 0, status: "processed", updatedAt: "" },
+      { floor: 0, status: "error", updatedAt: "" },
+    ];
+    expect(decodeError(duplicateFloors).humanMsg).toContain("楼层进度条目重复：0");
   });
 
   it("serialize 输出人类可读的格式化 JSON", () => {

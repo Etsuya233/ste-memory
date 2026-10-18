@@ -12,8 +12,11 @@ import {
   type MemorySpaceId,
   type MemoryTableId,
 } from "../../features/memory/index.ts";
+import { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
+import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import { afterEach } from "vitest";
 import { SteMemoryDatabase } from "./database.ts";
+import { DexieSpaceStructureRebuild } from "./space/space-structure-rebuild-repository.ts";
 import { SteMemoryLogDatabase } from "./logs/log-database.ts";
 import { DexieMemoryFieldRepository } from "./memory/memory-field-repository.ts";
 import { DexieMemoryRecordRepository } from "./memory/memory-record-repository.ts";
@@ -47,7 +50,36 @@ afterEach(async () => {
   await Promise.all([...pending.map((db) => db.delete()), ...pendingLogs.map((db) => db.delete())]);
 });
 
+let presetIdSequence = 0;
+
+/**
+ * 把系统自带预设安装进空间（测试用）：与首次创建共用同一套
+ * 表格预设实例化 + 原子重建路径（替代旧的 SystemMemoryTableInstaller）。
+ * 实体 ID 用独立前缀，避免与 Memory 服务各自的 ID 序列相撞。
+ */
+export async function installDefaultPreset(
+  db: SteMemoryDatabase,
+  memorySpaceId: MemorySpaceId,
+  now: () => string = () => NOW,
+): Promise<void> {
+  const apply = new TablePresetApplyService({
+    cancelActiveTask: async () => undefined,
+    rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
+    defaultPreset: () => SYSTEM_TABLE_PRESET,
+    currentChatIdentity: () => undefined,
+    clearChatScopeMacros: () => undefined,
+    createIds: {
+      table: () => `preset-table-${++presetIdSequence}` as MemoryTableId,
+      field: () => `preset-field-${++presetIdSequence}` as MemoryFieldId,
+    },
+    now,
+  });
+  await apply.installDefaultStructure(memorySpaceId);
+}
+
 export interface TestServices {
+  /** 测试库（表格预设安装/原子重建等整库操作用） */
+  db: SteMemoryDatabase;
   spaces: MemorySpaceService;
   tables: MemoryTableService;
   fields: MemoryFieldService;
@@ -75,6 +107,7 @@ export function createServices(db: SteMemoryDatabase, now: () => string = () => 
   let revisionSeq = 0;
   let evidenceSeq = 0;
   return {
+    db,
     spaces: new MemorySpaceService(
       spaceRepository,
       () => `space-${++spaceSeq}` as MemorySpaceId,

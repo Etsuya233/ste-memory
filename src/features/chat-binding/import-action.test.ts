@@ -7,7 +7,13 @@ import { resolveImportAction } from "./import-action.ts";
 /** 造一个最小可序列化的单空间单元（解析器只读取 unit.space.id）。 */
 function unit(spaceId: string): MemorySpaceBackup {
   return {
-    space: { id: spaceId as MemorySpaceId, name: `空间 ${spaceId}`, createdAt: "", updatedAt: "" },
+    space: {
+      id: spaceId as MemorySpaceId,
+      name: `空间 ${spaceId}`,
+      initializationSource: null,
+      createdAt: "",
+      updatedAt: "",
+    },
     tables: [],
     fields: [],
     records: [],

@@ -1,5 +1,4 @@
-import { createServices, createTestDatabase, NOW } from "../test-support.ts";
-import { SystemMemoryTableInstaller } from "../../../features/memory/index.ts";
+import { createServices, createTestDatabase, installDefaultPreset, NOW } from "../test-support.ts";
 import type {
   MemoryField,
   MemoryFieldId,
@@ -20,7 +19,7 @@ import { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
 async function setup() {
   const services = createServices(createTestDatabase());
   const space = await services.spaces.create("会话");
-  await new SystemMemoryTableInstaller(services.tables, services.fields).install(space.id);
+  await installDefaultPreset(services.db, space.id);
   const table = (await services.tableRepository.list(space.id)).find(
     (item) => item.key === "characters",
   )!;
@@ -436,8 +435,8 @@ describe("Dexie memory record repository", () => {
     const services = createServices(createTestDatabase());
     const spaceA = await services.spaces.create("空间 A");
     const spaceB = await services.spaces.create("空间 B");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(spaceA.id);
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(spaceB.id);
+    await installDefaultPreset(services.db, spaceA.id);
+    await installDefaultPreset(services.db, spaceB.id);
     const tableA = (await services.tableRepository.list(spaceA.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -502,7 +501,7 @@ describe("Dexie memory record repository", () => {
       new Date(Date.parse(NOW) + ++tick * 60_000).toISOString(),
     );
     const space = await services.spaces.create("会话");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(space.id);
+    await installDefaultPreset(services.db, space.id);
     const table = (await services.tableRepository.list(space.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -529,22 +528,63 @@ describe("Dexie memory record repository", () => {
     expect(histories[1]!.revisionId).toBe(first!.revisionId);
   });
 
-  it("upgrades an existing v1 database to v2 without data loss (schema 升级路径)", async () => {
+  it("upgrades an existing v1 database to the current schema without data loss (schema 升级路径)", async () => {
     const name = "ste-memory-test-upgrade";
     const v1 = new SteMemoryDatabaseV1(name);
     await v1.open();
-    await v1.memorySpaces.add({
+    // v1 时代的行形状：空间没有初始化来源字段，表格带已废弃的身份字段、没有显式顺序
+    const legacySpaces = v1.memorySpaces as unknown as Table<
+      Record<string, unknown>,
+      MemorySpaceId
+    >;
+    await legacySpaces.add({
       id: "space-1" as MemorySpaceId,
       name: "会话",
       createdAt: NOW,
       updatedAt: NOW,
     });
+    await v1.memoryTables.bulkAdd([
+      {
+        id: "table-a" as MemoryTableId,
+        memorySpaceId: "space-1" as MemorySpaceId,
+        key: "characters" as MemoryTable["key"],
+        name: "人物",
+        description: "",
+        prompt: "",
+        enabled: true,
+        displayStrategy: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        kind: "system",
+      } as unknown as MemoryTable,
+      {
+        id: "table-b" as MemoryTableId,
+        memorySpaceId: "space-1" as MemorySpaceId,
+        key: "clues" as MemoryTable["key"],
+        name: "线索",
+        description: "",
+        prompt: "",
+        enabled: true,
+        displayStrategy: null,
+        createdAt: "2026-07-29T00:00:00.000Z",
+        updatedAt: NOW,
+        kind: "custom",
+      } as unknown as MemoryTable,
+    ]);
     v1.close();
 
     const upgraded = new SteMemoryDatabase(name);
     try {
-      // v1 数据在升级后仍在
-      expect((await upgraded.memorySpaces.get("space-1" as MemorySpaceId))?.name).toBe("会话");
+      // v1 数据在升级后仍在；空间补齐初始化来源，表格按创建顺序补显式顺序并清掉身份字段
+      const space = await upgraded.memorySpaces.get("space-1" as MemorySpaceId);
+      expect(space?.name).toBe("会话");
+      expect(space?.initializationSource).toBeNull();
+      const tables = await upgraded.memoryTables.toArray();
+      expect(tables.map((table) => [table.key, table.position])).toEqual([
+        ["characters", 0],
+        ["clues", 1],
+      ]);
+      expect(tables.some((table) => "kind" in table)).toBe(false);
       // v2 新增的表可用
       await upgraded.memoryRecords.add({
         id: "record-1" as MemoryRecordId,
@@ -570,7 +610,7 @@ describe("Dexie memory record repository", () => {
     const first = new SteMemoryDatabase(name);
     const services = createServices(first);
     const space = await services.spaces.create("会话");
-    await new SystemMemoryTableInstaller(services.tables, services.fields).install(space.id);
+    await installDefaultPreset(services.db, space.id);
     const table = (await services.tableRepository.list(space.id)).find(
       (item) => item.key === "characters",
     )!;

@@ -13,6 +13,7 @@ function space(overrides: Partial<MemorySpace> = {}): MemorySpace {
   return {
     id: "space-1" as MemorySpaceId,
     name: "爱丽丝 - story",
+    initializationSource: null,
     createdAt: "2026-07-28T00:00:00.000Z",
     updatedAt: "2026-07-28T00:00:00.000Z",
     ...overrides,

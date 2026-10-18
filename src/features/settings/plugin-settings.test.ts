@@ -177,6 +177,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
       cleaningRuleLists: [],
+      tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
       entryPlacement: "wand",
       memoryViews: [
         {
@@ -208,6 +209,31 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     });
     expect(merged.memoryViews.map((v) => v.name)).toEqual(["未完成伏笔"]);
     expect(mergeSettings({ memoryViews: "oops" }).memoryViews).toEqual([]);
+  });
+
+  it("表格预设：缺省系统默认、损坏预设逐项丢弃、默认选择悬空回退系统默认（spec table-presets）", () => {
+    expect(mergeSettings({}).tablePresets).toEqual({
+      userPresets: [],
+      defaultPresetId: "systemDefault",
+    });
+    const merged = mergeSettings({
+      tablePresets: {
+        userPresets: [
+          { id: "p1", name: "预设", description: "", createdAt: "", updatedAt: "", tables: [] },
+          { id: "", name: "无 id", tables: [] },
+          "garbage",
+        ],
+        defaultPresetId: "p1",
+      },
+    });
+    expect(merged.tablePresets.userPresets.map((preset) => preset.id)).toEqual(["p1"]);
+    expect(merged.tablePresets.defaultPresetId).toBe("p1");
+    // 默认选择指向不存在的预设 → 回退系统自带预设
+    expect(
+      mergeSettings({ tablePresets: { userPresets: [], defaultPresetId: "ghost" } }).tablePresets
+        .defaultPresetId,
+    ).toBe("systemDefault");
+    expect(mergeSettings({ tablePresets: "oops" }).tablePresets.userPresets).toEqual([]);
   });
 
   it("Agent 连接（ADR 0010）：损坏项丢弃、悬空选择回退跟随 ST", () => {

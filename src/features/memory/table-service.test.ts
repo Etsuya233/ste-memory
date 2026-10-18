@@ -96,7 +96,13 @@ function service(
   repository: MemoryRepository,
   clock: () => string = () => now,
 ): MemoryTableService {
-  repository.spaces.set(spaceId, { id: spaceId, name: "会话", createdAt: now, updatedAt: now });
+  repository.spaces.set(spaceId, {
+    id: spaceId,
+    name: "会话",
+    initializationSource: null,
+    createdAt: now,
+    updatedAt: now,
+  });
   return new MemoryTableService(repository, repository, () => tableId, clock);
 }
 
@@ -106,7 +112,7 @@ describe("MemoryTableService", () => {
 
     const created = await service(repository).create(spaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "  线索  ",
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",
@@ -116,7 +122,7 @@ describe("MemoryTableService", () => {
       id: tableId,
       memorySpaceId: spaceId,
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "值得追踪的线索",
       prompt: "只记录仍可能影响后续情节的线索。",
@@ -134,7 +140,7 @@ describe("MemoryTableService", () => {
     const tables = service(repository, () => times.shift()!);
     const created = await tables.create(spaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "旧描述",
       prompt: "旧 Prompt",
@@ -162,7 +168,7 @@ describe("MemoryTableService", () => {
     const tables = service(repository);
     await tables.create(spaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",
@@ -171,7 +177,7 @@ describe("MemoryTableService", () => {
     await expect(
       tables.create(spaceId, {
         key: "clues",
-        kind: "custom",
+        position: 0,
         name: "另一张表",
         description: "",
         prompt: "",
@@ -186,12 +192,14 @@ describe("MemoryTableService", () => {
     repository.spaces.set(spaceId, {
       id: spaceId,
       name: "会话",
+      initializationSource: null,
       createdAt: now,
       updatedAt: now,
     });
     repository.spaces.set(secondSpaceId, {
       id: secondSpaceId,
       name: "另一会话",
+      initializationSource: null,
       createdAt: now,
       updatedAt: now,
     });
@@ -204,14 +212,14 @@ describe("MemoryTableService", () => {
     );
     await tables.create(spaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "A",
       prompt: "",
     });
     await tables.create(secondSpaceId, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "B",
       prompt: "",

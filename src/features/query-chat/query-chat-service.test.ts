@@ -15,10 +15,10 @@ import {
   type MemorySpaceId,
   type MemorySpaceReader,
 } from "../memory/index.ts";
-import { SystemMemoryTableInstaller } from "../memory/index.ts";
 import {
   createTestDatabase,
   createServices,
+  installDefaultPreset,
   type TestServices,
 } from "../../infrastructure/indexeddb/test-support.ts";
 import type { SteMemoryDatabase } from "../../infrastructure/indexeddb/database.ts";
@@ -111,7 +111,7 @@ async function createHarness(
   const services = createServices(db, () => NOW);
   const { spaces, tables, fields } = services;
   const space = await spaces.create("会话");
-  await new SystemMemoryTableInstaller(tables, fields).install(space.id);
+  await installDefaultPreset(db, space.id);
   const spaceId = space.id;
 
   const reader: MemorySpaceReader = {

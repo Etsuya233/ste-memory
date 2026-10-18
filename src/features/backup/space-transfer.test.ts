@@ -5,7 +5,13 @@ import { buildSpaceExportUnit } from "./space-transfer.ts";
 
 function unit(spaceId: string, withHistory: boolean): MemorySpaceBackup {
   return {
-    space: { id: spaceId as MemorySpaceId, name: `空间 ${spaceId}`, createdAt: "", updatedAt: "" },
+    space: {
+      id: spaceId as MemorySpaceId,
+      name: `空间 ${spaceId}`,
+      initializationSource: null,
+      createdAt: "",
+      updatedAt: "",
+    },
     tables: [],
     fields: [],
     records: [],
@@ -61,5 +67,55 @@ describe("buildSpaceExportUnit（issue 26 导出快照过滤）", () => {
     expect(result?.history).toHaveLength(0);
     // 其余数据保留
     expect(result?.space.id).toBe("A");
+  });
+
+  it("保留单元的任务与楼层进度，并写入导出时该对话的对话级宏（spec 6.3）", () => {
+    const withRuntimeRows = {
+      ...unit("A", true),
+      fillTasks: [
+        {
+          runId: "run-1",
+          memorySpaceId: "A" as MemorySpaceId,
+          from: 0,
+          to: 5,
+          blockSize: 20,
+          kind: "floor" as const,
+          initText: null,
+          chatId: "story",
+          status: "succeeded" as const,
+          errorMessage: null,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      floorLedger: [{ floor: 0, status: "processed" as const, updatedAt: "" }],
+    };
+
+    const result = buildSpaceExportUnit({ spaces: [withRuntimeRows] }, "A" as MemorySpaceId, true, [
+      {
+        name: "未完成伏笔",
+        tableKey: "plots",
+        condition: { fieldKey: "status", values: ["埋设中"] },
+        limit: 20,
+        projection: [],
+      },
+    ]);
+
+    expect(result?.fillTasks).toHaveLength(1);
+    expect(result?.floorLedger).toEqual([{ floor: 0, status: "processed", updatedAt: "" }]);
+    expect(result?.chatScopeMacros).toEqual([
+      {
+        name: "未完成伏笔",
+        tableKey: "plots",
+        condition: { fieldKey: "status", values: ["埋设中"] },
+        limit: 20,
+        projection: [],
+      },
+    ]);
+  });
+
+  it("未传对话级宏时导出宏为空数组（不涉及当前对话的宏设置）", () => {
+    const result = buildSpaceExportUnit(snapshot, "A" as MemorySpaceId, true);
+    expect(result?.chatScopeMacros).toEqual([]);
   });
 });

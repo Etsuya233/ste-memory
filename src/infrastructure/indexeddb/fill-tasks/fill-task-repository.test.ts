@@ -323,8 +323,20 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     await ledger.markError(SPACE_B, [2]);
 
     const spaces = new DexieMemorySpaceRepository(db);
-    await spaces.create({ id: SPACE_A, name: "会话", createdAt: NOW, updatedAt: NOW });
-    await spaces.create({ id: SPACE_B, name: "其他", createdAt: NOW, updatedAt: NOW });
+    await spaces.create({
+      id: SPACE_A,
+      name: "会话",
+      initializationSource: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await spaces.create({
+      id: SPACE_B,
+      name: "其他",
+      initializationSource: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
 
     expect(await spaces.delete(SPACE_A)).toBe(true);
     // 空间 A 的任务与台账行被清掉；空间 B 不受影响
@@ -344,6 +356,7 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     await v2.memorySpaces.add({
       id: SPACE_A,
       name: "会话",
+      initializationSource: null,
       createdAt: NOW,
       updatedAt: NOW,
     });

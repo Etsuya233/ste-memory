@@ -23,6 +23,7 @@ function insertSpace(db: ReturnType<typeof createTestDatabase>, spaceId: string)
   void db.memorySpaces.add({
     id: spaceId as MemorySpaceId,
     name: `空间-${spaceId}`,
+    initializationSource: null,
     createdAt: NOW,
     updatedAt: NOW,
   });
@@ -54,7 +55,7 @@ describe("DexieMemoryChangeSource（空间指纹）", () => {
       id: "table-1" as MemoryTableId,
       memorySpaceId: "space-1" as MemorySpaceId,
       key: "characters" as MemoryTableKey,
-      kind: "system",
+      position: 0,
       name: "人物",
       description: "",
       prompt: "",
@@ -146,7 +147,7 @@ describe("DexieMemoryChangeSource（空间指纹）", () => {
       id: "table-1" as MemoryTableId,
       memorySpaceId: "space-2" as MemorySpaceId,
       key: "characters" as MemoryTableKey,
-      kind: "system",
+      position: 0,
       name: "人物",
       description: "",
       prompt: "",

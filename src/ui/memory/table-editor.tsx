@@ -267,7 +267,6 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
             {props.referenceTables.map((table) => (
               <option key={table.id} value={table.id}>
                 {table.name}
-                {table.kind === "system" ? "（系统表）" : ""}
               </option>
             ))}
           </select>

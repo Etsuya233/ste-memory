@@ -16,6 +16,7 @@ describe("Dexie memory space repository", () => {
     expect(space).toEqual({
       id: "space-1",
       name: "会话",
+      initializationSource: null,
       createdAt: NOW,
       updatedAt: NOW,
     });
@@ -52,6 +53,7 @@ describe("Dexie memory space repository", () => {
     expect(renamed).toEqual({
       id: space.id,
       name: "重命名会话",
+      initializationSource: null,
       createdAt: NOW,
       updatedAt: "2026-07-28T02:00:00.000Z",
     });
@@ -79,7 +81,7 @@ describe("Dexie memory space repository", () => {
     const space = await spaces.create("会话");
     const table = await tables.create(space.id, {
       key: "clues",
-      kind: "custom",
+      position: 0,
       name: "线索",
       description: "",
       prompt: "",

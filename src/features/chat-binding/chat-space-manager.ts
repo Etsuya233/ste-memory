@@ -16,8 +16,9 @@ import type {
  * repository）以端口注入，测试用 fake 实现。
  *
  * 职责：
- * - 首次打开对话：自动创建记忆空间 + 安装系统表（模板来自共享包），并把绑定
- *   指针写入 chatMetadata（写绑定在最后——「绑定存在 = 空间与表已就绪」是不变量）；
+ * - 首次打开对话：自动创建记忆空间 + 按当时默认表格预设初始化结构（端口注入，
+ *   实现见 features/table-presets），并把绑定指针写入 chatMetadata
+ *   （写绑定在最后——「绑定存在 = 空间与结构已就绪」是不变量）；
  * - 再次打开 / 切对话（CHAT_CHANGED）：按绑定指针激活对应空间，不重复创建；
  * - 临时/未保存对话（chatId 无值）：跳过绑定、不建空间、不报错，状态
  *   unsaved-chat 供面板提示「当前对话未保存，暂不支持记忆」；
@@ -25,7 +26,7 @@ import type {
  *   对话文件镜像恢复后自动恢复（spec「空库期间显示同步中状态而非报错」）。
  *
  * 不变量：
- * - 绑定存在 ⇔ 该对话的空间与系统表已就绪（创建中途失败回滚空间并抛错，下次
+ * - 绑定存在 ⇔ 该对话的空间与结构已就绪（创建中途失败回滚空间并抛错，下次
  *   打开重试；同步期间切走则回滚，绝不把旧对话的绑定写进新对话的 chatMetadata）；
  * - 空间显示名创建时定死，对话重命名不触发改名（绑定靠指针，名字只是显示，
  *   跨角色同名对话文件互不冲突）。
@@ -73,16 +74,16 @@ export interface ChatBindingStore {
   write(binding: ChatSpaceBinding): void;
 }
 
-/** 系统表安装端口（宿主 = SystemMemoryTableInstaller，模板来自共享包，ticket 01） */
-export interface SystemTableInstallerPort {
-  install(memorySpaceId: MemorySpaceId): Promise<void>;
+/** 空间结构初始化端口（宿主 = 表格预设应用服务：复制默认预设 + 记录初始化来源） */
+export interface SpaceStructureInstallerPort {
+  installDefaultStructure(memorySpaceId: MemorySpaceId): Promise<void>;
 }
 
 export interface ChatSpaceManagerPorts {
   readonly getChat: () => ChatSnapshot;
   readonly bindingStore: ChatBindingStore;
   readonly spaces: MemorySpaceService;
-  readonly installer: SystemTableInstallerPort;
+  readonly installer: SpaceStructureInstallerPort;
   /** 镜像恢复端口（可选；宿主 = ChatMetadataMirrorSync.restoreFromMirror，ticket 16） */
   readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
   /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
@@ -268,10 +269,10 @@ export class ChatSpaceManager {
       return this.#publish(status);
     }
 
-    // 首次打开：自动创建空间 + 安装系统表 + 最后写绑定
+    // 首次打开：自动创建空间 + 按当时默认预设初始化结构 + 最后写绑定
     const space = await this.#ports.spaces.create(buildChatSpaceName(chat));
     try {
-      await this.#ports.installer.install(space.id);
+      await this.#ports.installer.installDefaultStructure(space.id);
     } catch (error) {
       // 安装失败：回收空间、不写绑定，保持「绑定存在 = 就绪」不变量，下次打开重试
       await this.#ports.spaces.delete(space.id);
@@ -329,6 +330,7 @@ export class ChatSpaceManager {
         field: () => id("field") as MemoryFieldId,
         record: () => id("record") as MemoryRecordId,
         history: () => id("record-history") as MemoryRecordHistoryId,
+        task: () => id("task"),
         evidence: () => id("evidence") as MemoryEvidenceId,
       });
       // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
@@ -336,7 +338,7 @@ export class ChatSpaceManager {
     } else {
       const space = await this.#ports.spaces.create(newSpaceName);
       try {
-        await this.#ports.installer.install(space.id);
+        await this.#ports.installer.installDefaultStructure(space.id);
       } catch (error) {
         await this.#ports.spaces.delete(space.id);
         throw error;
@@ -381,6 +383,7 @@ export class ChatSpaceManager {
       record: () => id("record") as MemoryRecordId,
       history: () => id("record-history") as MemoryRecordHistoryId,
       evidence: () => id("evidence") as MemoryEvidenceId,
+      task: () => id("task"),
     });
     // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
     await this.#ports.spaces.rename(newSpaceId, newSpaceName);

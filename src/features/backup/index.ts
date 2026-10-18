@@ -5,10 +5,16 @@ export {
   memoryBackupDataSchema,
   memoryBackupFileSchema,
 } from "./backup-file.ts";
-export type { MemoryBackupData, MemoryBackupFile, MemorySpaceBackup } from "./backup-file.ts";
+export type {
+  MemoryBackupData,
+  MemoryBackupFile,
+  MemorySpaceBackup,
+  MemorySpaceBackupLedgerEntry,
+} from "./backup-file.ts";
 export {
   createBackupFile,
   decodeBackupFile,
+  normalizeBackupData,
   parseBackupFile,
   serializeBackupFile,
   validateBackupData,

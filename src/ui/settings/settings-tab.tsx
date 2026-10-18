@@ -33,6 +33,7 @@ import {
   macroSummary,
   mirrorSummary,
   saveExpandedGroups,
+  tablePresetsSummary,
   toggleGroup as toggleSettingsGroup,
   type SettingsGroupKey,
 } from "../shell/settings-collapsed-model.ts";
@@ -48,7 +49,13 @@ import {
   type PanelSafeArea,
   type SafeAreaEdge,
 } from "../shell/safe-area-model.ts";
-import { activeStatus, reportError, reportInfo, reportSuccess } from "../shell/ui-helpers.tsx";
+import {
+  activeStatus,
+  reportError,
+  reportInfo,
+  reportSuccess,
+  reportWarning,
+} from "../shell/ui-helpers.tsx";
 import { safeLocalStorage } from "../shell/panel-window.ts";
 import { mirrorStatusSummary, runtimeStatusLabel } from "../shell/space-info.ts";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
@@ -57,6 +64,7 @@ import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
 import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
+import { TablePresetManager } from "./table-preset-manager.tsx";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
 import type { MemoryBackupRepository } from "../../features/backup/index.ts";
@@ -64,6 +72,12 @@ import type { ChatSpaceManager } from "../../features/chat-binding/chat-space-ma
 import type { ChatMetadataMirrorSync } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
 import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
+import type { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
+import type {
+  ResolvedTablePreset,
+  TablePresetStructure,
+} from "../../features/table-presets/preset-model.ts";
+import { captureSpaceStructure } from "../../features/table-presets/space-structure-capture.ts";
 import type { AgentPresetPreviewPorts } from "../../features/agent-presets/preset-preview-model.ts";
 import type { MacroOverviewRow } from "../../features/macros/macro-overview-model.ts";
 import type { EntryMountControllerPort } from "../shell/entry-placement.ts";
@@ -131,7 +145,9 @@ export function SettingsTab(props: {
   >;
   readonly mirror: Pick<ChatMetadataMirrorSync, "kick">;
   readonly macro: Pick<MemoryMacroService, "kick">;
-  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords" | "reset">;
+  readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords">;
+  /** 表格预设应用服务（spec table-presets）：停止写入 + 原子重建 + 来源更新 */
+  readonly presetApply: Pick<TablePresetApplyService, "stopSpaceWrites" | "applyPreset">;
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
@@ -253,25 +269,7 @@ export function SettingsTab(props: {
    * 与全库备份同构），按「包含修订历史」设置裁剪历史，下载为独立 JSON 文件。
    */
   async function exportSpaceBackup(): Promise<void> {
-    const active = activeStatus(props.status);
-    if (!active) return;
-    const spaceId = active.space.id;
-    const spaceName = active.space.name;
-    try {
-      const snapshot = await props.backup.loadSnapshot();
-      // 提取当前空间单单元 + 按「包含修订历史」设置裁剪历史（用户 story 5）
-      const includeHistory = props.settings.mirror.includeHistory;
-      const unit = buildSpaceExportUnit(snapshot, spaceId, includeHistory);
-      if (!unit) {
-        reportError(new Error("未找到当前记忆空间的数据，无法导出"));
-        return;
-      }
-      const file = createBackupFile({ spaces: [unit] }, props.version, new Date().toISOString());
-      downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
-      reportSuccess(`已导出记忆空间「${spaceName}」`);
-    } catch (error) {
-      reportError(error);
-    }
+    await exportCurrentSpaceBackup();
   }
 
   /**
@@ -300,6 +298,11 @@ export function SettingsTab(props: {
         kickMacros: () => void props.macro.kick().catch(reportError),
         kickMirror: () => void props.mirror.kick().catch(reportError),
         onDataChanged: props.onDataChanged,
+        // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
+        writeChatScopeMacros: (macros) => {
+          void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
+          setChatScopeMacros(macros);
+        },
       });
       reportSuccess(`已导入记忆空间「${plan.spaceName}」`);
     } catch (error) {
@@ -308,10 +311,10 @@ export function SettingsTab(props: {
   }
 
   /**
-   * 空间维护操作（spec reset-space）：清除空间记录 / 重置空间。
-   * 仅当前对话绑定空间（active 状态）且插件开启时可执行；原生 confirm 确认，
-   * 文案写明删除范围与「对话文件镜像副本也会被清空」。执行成功后刷新
-   * 面板数据、重建记忆宏快照、kick 镜像写回、清空问答面板当前空间历史。
+   * 空间维护操作：清除空间记录（spec reset-space）。仅当前对话绑定空间
+   * （active 状态）且插件开启时可执行；原生 confirm 确认，文案写明删除范围与
+   * 「对话文件镜像副本也会被清空」。执行成功后刷新面板数据、重建记忆宏快照、
+   * kick 镜像写回、清空问答面板当前空间历史。
    */
   const canMaintainSpace = props.status?.kind === "active" && props.settings.enabled;
 
@@ -326,36 +329,86 @@ export function SettingsTab(props: {
     try {
       await props.spaceMaintenance.clearRecords(space.id);
       reportSuccess(`已清除「${space.name}」的全部记录`);
-      afterSpaceReset(space.id);
+      afterSpaceDataChange(space.id);
     } catch (error) {
       reportError(error);
     }
   }
 
-  async function resetSpace(): Promise<void> {
-    const status = props.status;
-    if (status?.kind !== "active") return;
-    const space = status.space;
-    const confirmed = window.confirm(
-      `重置「${space.name}」？将删除所有表格并恢复为系统默认的 8 张表（自定义表与修改过的表定义将被移除）；对话文件镜像中的副本也会被清空。`,
-    );
-    if (!confirmed) return;
+  /**
+   * 导出当前空间的备份（应用预设的「备份并应用」与数据备份组共用）：
+   * 返回导出流程是否完成——用户取消或导出失败 = false（调用方不执行清空）。
+   */
+  async function exportCurrentSpaceBackup(): Promise<boolean> {
+    const active = activeStatus(props.status);
+    if (!active) return false;
+    const spaceId = active.space.id;
+    const spaceName = active.space.name;
     try {
-      await props.spaceMaintenance.reset(space.id);
-      reportSuccess(`已重置「${space.name}」`);
-      afterSpaceReset(space.id);
+      const snapshot = await props.backup.loadSnapshot();
+      const includeHistory = props.settings.mirror.includeHistory;
+      // 单空间导出带上导出时当前对话的对话级宏：备份能恢复本次将被删除的内容
+      const unit = buildSpaceExportUnit(
+        snapshot,
+        spaceId,
+        includeHistory,
+        props.cleaning.readChatScopeMacros(),
+      );
+      if (!unit) {
+        reportError(new Error("未找到当前记忆空间的数据，无法导出"));
+        return false;
+      }
+      const file = createBackupFile({ spaces: [unit] }, props.version, new Date().toISOString());
+      downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
+      reportSuccess(`已导出记忆空间「${spaceName}」`);
+      return true;
     } catch (error) {
       reportError(error);
+      return false;
     }
   }
 
-  /** 空间内容已变更（清除/重置成功）后的面板侧收尾。 */
-  function afterSpaceReset(spaceId: MemorySpaceId): void {
+  /** 读取当前活动空间的表结构（另存为预设 / 用当前结构覆盖预设）。 */
+  async function readSpaceStructure(): Promise<TablePresetStructure> {
+    const active = activeStatus(props.status);
+    if (!active) throw new Error("当前对话没有活动的记忆空间");
+    return captureSpaceStructure(
+      {
+        listTables: (spaceId) => props.tables.list(spaceId),
+        listFields: (spaceId, tableId) => props.fields.list(spaceId, tableId),
+      },
+      active.space.id,
+    );
+  }
+
+  /**
+   * 应用预设（spec 6.2/6.4）：只作用传入的空间；成功后清空该空间页面内存的
+   * 问答历史、刷新面板数据与空间展示（重新同步空间上下文：初始化来源随之更新），
+   * 宏与镜像同步由应用服务在重建提交后执行并回报。
+   */
+  async function applyPresetToSpace(spaceId: MemorySpaceId, preset: ResolvedTablePreset) {
+    const outcome = await props.presetApply.applyPreset(spaceId, preset, {
+      refreshMacros: () => props.macro.kick(),
+      syncMirror: () => props.mirror.kick(),
+    });
+    // 页面内存问答历史按空间清理（不落库、不随备份）
+    props.queryChatStore.clearSpaceHistory(spaceId);
+    // 重建已提交：立即重同步空间上下文，让初始化来源与空间展示更新
+    try {
+      await props.manager.syncToCurrentChat();
+    } catch (error) {
+      reportWarning(
+        `空间已重建，但空间展示刷新失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return outcome;
+  }
+
+  /** 空间内容已变更（清除记录/应用预设）后的面板侧收尾。 */
+  function afterSpaceDataChange(spaceId: MemorySpaceId): void {
     props.onDataChanged();
-    // 记忆宏快照立即重建（不等轮询）；镜像按既有机制传播空单元
     void props.macro.kick().catch(reportError);
     void props.mirror.kick().catch(reportError);
-    // 问答面板历史按（空间 × 模式）存页面内存：旧问答会误导，清空当前空间全部历史
     props.queryChatStore.clearSpaceHistory(spaceId);
   }
 
@@ -551,6 +604,46 @@ export function SettingsTab(props: {
                 onLimitChange={updateMacroLimit}
               />
             )}
+          </div>
+        )}
+      </div>
+
+      {/* 表格预设：新空间默认 / 当前空间应用 / 预设管理（spec table-presets） */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="table-presets">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="table-presets"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "table-presets")}
+          onClick={() => toggleGroup("table-presets")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
+              表格预设
+            </div>
+            <div className="stm-setting-group-summary">{tablePresetsSummary(props.settings)}</div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "table-presets") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "table-presets") && (
+          <div className="stm-setting-group-body stm-setting-group-body--manager">
+            <TablePresetManager
+              presets={props.settings.tablePresets}
+              status={props.status}
+              pluginEnabled={props.settings.enabled}
+              onPresetsChange={(presets) => {
+                saveSettings({ ...props.settings, tablePresets: presets });
+              }}
+              readSpaceStructure={readSpaceStructure}
+              onPrepareApply={(spaceId) => props.presetApply.stopSpaceWrites(spaceId)}
+              onApplyPreset={applyPresetToSpace}
+              onBackupSpace={exportCurrentSpaceBackup}
+              onDataChanged={props.onDataChanged}
+            />
           </div>
         )}
       </div>
@@ -1013,7 +1106,7 @@ export function SettingsTab(props: {
         {isSettingsGroupExpanded(expandedGroups, "danger") && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-hint">
-              以下操作会清空当前对话记忆空间的内容，且对话文件镜像中的副本也会随之清空，操作不可恢复
+              以下操作会清空当前对话记忆空间的内容，且对话文件镜像中的副本也会随之清空，操作不可恢复；按预设重建请使用上方「表格预设」分组。
             </div>
             <div className="stm-setting-actions">
               <button
@@ -1025,15 +1118,9 @@ export function SettingsTab(props: {
               >
                 清除空间记录
               </button>
-              <button
-                type="button"
-                className="stm-button stm-button--danger"
-                data-action="reset-space"
-                disabled={!canMaintainSpace}
-                onClick={() => void resetSpace()}
-              >
-                重置空间
-              </button>
+            </div>
+            <div className="stm-setting-hint">
+              清除记录保留当前表结构与初始化来源，不套用预设；表格结构重建走「表格预设」的应用流程。
             </div>
           </div>
         )}
