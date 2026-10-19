@@ -1,4 +1,4 @@
-import type { FloorLedgerEntry } from "./fill-task.ts";
+import type { FillTaskView, FloorLedgerEntry } from "./fill-task.ts";
 
 export interface AutoFillSettings {
   readonly mode: "off" | "remind" | "auto";
@@ -18,7 +18,14 @@ export const DEFAULT_AUTO_FILL_SETTINGS: AutoFillSettings = {
   retryDelaySeconds: 10,
 };
 
+export type PendingFillContinuation = Pick<
+  FillTaskView,
+  "runId" | "memorySpaceId" | "from" | "to" | "blockSize"
+>;
+
 export interface AutoFillChatState {
+  readonly pendingResumeTask?: PendingFillContinuation;
+  readonly acknowledgedInterruptionRunId?: string;
   readonly overrides: Partial<AutoFillSettings>;
   readonly pausedReason: string | null;
 }

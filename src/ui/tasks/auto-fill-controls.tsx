@@ -153,11 +153,13 @@ export function AutoFillControls(props: {
             className="stm-button"
             data-action="resume-auto-fill"
             onClick={() => {
-              props.service.resume();
-              update((value) => value + 1);
+              void props.service
+                .resume()
+                .then(() => update((value) => value + 1))
+                .catch(reportError);
             }}
           >
-            恢复自动填表
+            {state.pendingResumeTask ? "继续填表" : "恢复自动填表"}
           </button>
         </div>
       )}

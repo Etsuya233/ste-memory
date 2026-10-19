@@ -221,6 +221,7 @@ const memoryRecordHistorySchema = Type.Object({
 /** 单空间备份单元里的填表任务行 schema（与 FillTask 领域类型同构）。 */
 const memorySpaceFillTaskSchema = Type.Object({
   automatic: Type.Optional(Type.Boolean()),
+  interruptionReason: Type.Optional(Type.Literal("chat-changed")),
   runId: Type.String(),
   memorySpaceId: Type.String(),
   from: Type.Number(),

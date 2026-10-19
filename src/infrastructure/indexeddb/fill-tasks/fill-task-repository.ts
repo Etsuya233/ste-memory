@@ -162,8 +162,8 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "failed", errorMessage);
   }
 
-  async markInterrupted(runId: string): Promise<boolean> {
-    return this.#transition(runId, "interrupted", null);
+  async markInterrupted(runId: string, reason?: "chat-changed"): Promise<boolean> {
+    return this.#transition(runId, "interrupted", null, reason);
   }
 
   /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
@@ -204,6 +204,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     runId: string,
     status: "succeeded" | "failed" | "interrupted",
     errorMessage: string | null,
+    interruptionReason?: "chat-changed",
   ): Promise<boolean> {
     let applied = false;
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
@@ -211,6 +212,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       if (!row || row.status !== "running") return;
       await this.#db.memoryFillTasks.put({
         ...normalizeTaskRow(row),
+        ...(interruptionReason ? { interruptionReason } : {}),
         status,
         errorMessage,
         updatedAt: this.#now(),

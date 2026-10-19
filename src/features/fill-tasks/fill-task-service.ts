@@ -99,6 +99,7 @@ export interface FillTaskSubmitInput {
     readonly retries: number;
     readonly delaySeconds: number;
     readonly canContinue: () => boolean;
+    readonly interruptionReason?: () => "chat-changed" | undefined;
     readonly onFailure?: (message: string) => void;
   };
 }
@@ -268,18 +269,30 @@ export class FillTaskService {
 
   /** 用户取消：立即置 interrupted（与关 tab 同态），写入任务中断结束行；
    *  循环在安全点停止，不自动重放。 */
-  async cancel(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+  async cancel(
+    memorySpaceId: MemorySpaceId,
+    runId: string,
+    reason?: "chat-changed",
+  ): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
-    const applied = await this.#tasks.markInterrupted(runId);
+    const applied = await this.#tasks.markInterrupted(runId, reason);
     this.#retryWakeups.get(runId)?.();
-    if (!applied) throw new FillTaskStateError(task);
+    if (!applied) {
+      if (reason === "chat-changed")
+        return this.#toView(await this.#requireTask(memorySpaceId, runId));
+      throw new FillTaskStateError(task);
+    }
     // 中断结束行在取消落地后立即写入（循环不再负责，避免重复）；
     // 正在运行的批由循环在安全点补写批中断结束行。
     await this.#appendLog(
       fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
       `填表任务 ${task.runId} 结束日志写入失败`,
     );
-    return this.#toView({ ...task, status: "interrupted" });
+    return this.#toView({
+      ...task,
+      status: "interrupted",
+      ...(reason ? { interruptionReason: reason } : {}),
+    });
   }
 
   /**
@@ -465,7 +478,7 @@ export class FillTaskService {
         // 安全点 1：块开始前。用户取消/启动中断已落库 → 直接停止。
         if (await this.#isStopped(task.runId)) return;
         if (automatic && !automatic.canContinue()) {
-          await this.cancel(task.memorySpaceId, task.runId);
+          await this.cancel(task.memorySpaceId, task.runId, automatic?.interruptionReason?.());
           return;
         }
         // 安全点 1b：对话已切换（楼层归属的对话变了）→ 失败停止，楼层不标记。
@@ -489,17 +502,17 @@ export class FillTaskService {
               batch,
               blockFrom,
               blockTo,
-              automatic?.canContinue,
+              automatic,
             );
             if (automatic && !automatic.canContinue() && !(await this.#isStopped(task.runId))) {
-              await this.cancel(task.memorySpaceId, task.runId);
+              await this.cancel(task.memorySpaceId, task.runId, automatic?.interruptionReason?.());
               return;
             }
             break;
           } catch (error) {
             if (await this.#isStopped(task.runId)) return;
             if (automatic && !automatic.canContinue()) {
-              await this.cancel(task.memorySpaceId, task.runId);
+              await this.cancel(task.memorySpaceId, task.runId, automatic?.interruptionReason?.());
               return;
             }
             if (!automatic || attempt >= automatic.retries) throw error;
@@ -520,7 +533,7 @@ export class FillTaskService {
             this.#retryWakeups.delete(task.runId);
             if (await this.#isStopped(task.runId)) return;
             if (!automatic.canContinue()) {
-              await this.cancel(task.memorySpaceId, task.runId);
+              await this.cancel(task.memorySpaceId, task.runId, automatic?.interruptionReason?.());
               return;
             }
           }
@@ -584,7 +597,7 @@ export class FillTaskService {
     batch: number,
     from: number,
     to: number,
-    canContinue?: () => boolean,
+    automatic?: FillTaskSubmitInput["automatic"],
   ): Promise<void> {
     // 批开始行在块处理前先落库（边跑边写）：运行中查询即可见已完成/进行中批。
     const startedAt = this.#now();
@@ -706,8 +719,9 @@ export class FillTaskService {
       }
       // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试），
       // 批以 interrupted 收尾（进行中的批也有完整的开始/结束行）。
-      if (canContinue && !canContinue()) {
-        if (!(await this.#isStopped(task.runId))) await this.cancel(task.memorySpaceId, task.runId);
+      if (automatic && !automatic.canContinue()) {
+        if (!(await this.#isStopped(task.runId)))
+          await this.cancel(task.memorySpaceId, task.runId, automatic?.interruptionReason?.());
       }
       if (await this.#isStopped(task.runId)) {
         await this.#appendLog(
@@ -735,7 +749,8 @@ export class FillTaskService {
         // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
         // 初始化任务无楼层：只提交批次，不标记台账。
         await this.#runInTransaction(async () => {
-          if (!(await this.#isRunning(task.runId)) || (canContinue && !canContinue())) return;
+          if (!(await this.#isRunning(task.runId)) || (automatic && !automatic.canContinue()))
+            return;
           await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
           if (task.kind !== "init") {
             await this.#ledger.markProcessed(
@@ -748,7 +763,8 @@ export class FillTaskService {
       } else {
         // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
         await this.#runInTransaction(async () => {
-          if (!(await this.#isRunning(task.runId)) || (canContinue && !canContinue())) return;
+          if (!(await this.#isRunning(task.runId)) || (automatic && !automatic.canContinue()))
+            return;
           if (task.kind !== "init") {
             await this.#ledger.markProcessed(
               task.memorySpaceId,

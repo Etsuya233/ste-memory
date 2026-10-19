@@ -457,6 +457,16 @@ export async function startSteMemory(
       };
     },
     notify: showAutoFillNotification,
+    confirmResume: async (task) => {
+      const context = getContext() as StContext;
+      const result = await context.callGenericPopup?.(
+        `上次填表任务（楼层 #${task.from}–#${task.to}）因切换对话中断。是否继续填表？已成功填写的楼层会保留。`,
+        2,
+        "",
+        { okButton: "继续填表", cancelButton: "暂不继续" },
+      );
+      return result === 1;
+    },
     dismissReminder: () => {
       if (typeof document !== "undefined")
         document.getElementById("stm-auto-fill-reminder")?.remove();

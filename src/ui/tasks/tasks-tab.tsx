@@ -332,8 +332,14 @@ export function TasksTab(props: {
       const task = (await props.runtime.tasks.recentTasks(currentSpaceId, TASK_HISTORY_LIMIT)).find(
         (item) => item.runId === runId,
       );
-      if (task?.automatic && props.runtime.autoFill) await props.runtime.autoFill.retry(task);
-      else await props.runtime.tasks.retry(currentSpaceId, runId);
+      if (task?.automatic && props.runtime.autoFill) {
+        const submitted = await props.runtime.autoFill.retry(task);
+        if (!submitted) {
+          reportSuccess("此任务已无需重试");
+          setReloadKey((key) => key + 1);
+          return;
+        }
+      } else await props.runtime.tasks.retry(currentSpaceId, runId);
       reportSuccess("已重新触发填表任务");
       setReloadKey((key) => key + 1);
     } catch (error) {

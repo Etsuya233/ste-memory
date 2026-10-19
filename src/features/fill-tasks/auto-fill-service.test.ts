@@ -45,13 +45,19 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     activeTask: vi.fn(async () => active),
     recentTasks: vi.fn(async () => recent),
     ledgerStatuses: vi.fn(async () => ledger),
-    cancel: vi.fn(async () => {
-      const stopped = { ...active!, status: "interrupted" as const };
+    cancel: vi.fn(async (_spaceId: MemorySpaceId, _runId: string, reason?: "chat-changed") => {
+      const stopped = {
+        ...active!,
+        status: "interrupted" as const,
+        ...(reason ? { interruptionReason: reason } : {}),
+      };
+      recent = [stopped];
       active = undefined;
       return stopped;
     }),
   };
   const notify = vi.fn();
+  const confirmResume = vi.fn(async () => false);
   const reportError = vi.fn();
   const service = new AutoFillService({
     tasks,
@@ -64,6 +70,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     globalSettings: () => global,
     current: () => current,
     notify,
+    confirmResume,
     dismissReminder: vi.fn(),
     reportError,
   });
@@ -71,6 +78,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     service,
     tasks,
     notify,
+    confirmResume,
     reportError,
     state: () => state,
     setGlobal: (value: Partial<AutoFillSettings>) => {
@@ -205,5 +213,63 @@ describe("自动填表调度", () => {
     h.service.kick();
     await vi.waitFor(() => expect(h.tasks.activeTask).toHaveBeenCalledTimes(2));
     expect(h.state().pausedReason).toBeNull();
+  });
+
+  it("切换返回后先询问，拒绝后保持暂停，手动继续只续跑原范围", async () => {
+    const h = setup({ blockSize: 4 });
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    h.setLedger([{ floor: 25, status: "processed" }]);
+    await h.service.chatChanged();
+    expect(h.tasks.cancel).toHaveBeenCalledWith("space", "run", "chat-changed");
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledTimes(1));
+    expect(h.state().pendingResumeTask).toMatchObject({ from: 21, to: 30, blockSize: 4 });
+    h.service.generationEnded();
+    await vi.waitFor(() => expect(h.tasks.activeTask.mock.calls.length).toBeGreaterThan(3));
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+    expect(h.confirmResume).toHaveBeenCalledTimes(1);
+    await h.service.resume();
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 26, to: 30, blockSize: 4 });
+    expect(h.state().pendingResumeTask).toBeUndefined();
+    expect(h.state().pausedReason).toBeNull();
+  });
+
+  it("确认继续不受间隔限制，也不把新增积压纳入原任务", async () => {
+    const h = setup({ blockSize: 4 });
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    h.setLedger([{ floor: 28, status: "processed" }]);
+    await h.service.chatChanged();
+    h.setCurrent({ identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 40, aiFloor: 39 });
+    h.confirmResume.mockResolvedValue(true);
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(2));
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 29, to: 30, blockSize: 4 });
+  });
+
+  it("暂不继续后再次进入仍会询问，确认期间切走不会启动旧任务", async () => {
+    const h = setup();
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    await h.service.chatChanged();
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledTimes(1));
+    await h.service.chatChanged();
+    let decide!: (value: boolean) => void;
+    h.confirmResume.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          decide = resolve;
+        }),
+    );
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledTimes(2));
+    await h.service.chatChanged();
+    h.setCurrent({ identity: "b", spaceId: "other" as MemorySpaceId, chatLength: 32, aiFloor: 31 });
+    decide(true);
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.activeTask.mock.calls.length).toBeGreaterThan(4));
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
   });
 });

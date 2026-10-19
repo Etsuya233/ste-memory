@@ -2280,6 +2280,28 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
 });
 
 describe("自动填表批内重试", () => {
+  it("切换对话中断原因随任务保存，重复中断返回实际终态", async () => {
+    const streamFn = failingAgent();
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 2, delaySeconds: 10, canContinue: () => true },
+    });
+    await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+    await harness.service.cancel(harness.spaceId, task.runId, "chat-changed");
+    expect(await harness.tasks.find(task.runId)).toMatchObject({
+      status: "interrupted",
+      interruptionReason: "chat-changed",
+    });
+    expect(await harness.service.cancel(harness.spaceId, task.runId, "chat-changed")).toMatchObject(
+      { status: "interrupted", interruptionReason: "chat-changed" },
+    );
+    await vi.waitFor(() => expect(harness.service.retryStates.size).toBe(0));
+    expect(streamFn.calls.count).toBe(1);
+  });
+
   it("耗尽配置次数后失败，并在任务终态前通知持久化暂停", async () => {
     const streamFn = failingAgent();
     const harness = await createHarness({ streamFn });

@@ -41,6 +41,7 @@ export type FillTaskKind = "floor" | "init";
 
 interface FillTaskBase {
   readonly automatic?: boolean;
+  readonly interruptionReason?: "chat-changed";
   readonly runId: string;
   readonly memorySpaceId: MemorySpaceId;
   /**
@@ -129,7 +130,7 @@ export interface FillTaskRepository {
   /** 仅 running → failed（携带可读错误信息）；状态不允许时返回 false。 */
   markFailed(runId: string, errorMessage: string): Promise<boolean>;
   /** 仅 running → interrupted（用户取消）；状态不允许时返回 false。 */
-  markInterrupted(runId: string): Promise<boolean>;
+  markInterrupted(runId: string, reason?: "chat-changed"): Promise<boolean>;
   /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
    *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
   markInterruptedOnStartup(): Promise<readonly FillTask[]>;
