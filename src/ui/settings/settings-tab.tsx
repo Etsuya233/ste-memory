@@ -1,4 +1,4 @@
-import { AutoFillFields } from "../tasks/auto-fill-controls.tsx";
+import { AutoFillFields, AUTO_FILL_MODE_LABELS } from "../tasks/auto-fill-controls.tsx";
 import {
   validateAutoFillSettings,
   type AutoFillSettings,
@@ -532,20 +532,45 @@ export function SettingsTab(props: {
         </div>
       </div>
 
-      <div className="stm-setting-group" data-group="auto-fill">
-        <div className="stm-setting-name">自动填表 · 全局设置</div>
-        <AutoFillFields
-          values={props.settings.autoFill}
-          onChange={(values) => {
-            try {
-              const autoFill = values as AutoFillSettings;
-              validateAutoFillSettings(autoFill);
-              saveSettings({ ...props.settings, autoFill });
-            } catch (error) {
-              reportError(error);
-            }
-          }}
-        />
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="auto-fill">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="auto-fill"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "auto-fill")}
+          onClick={() => toggleGroup("auto-fill")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
+              自动填表
+            </div>
+            <div className="stm-setting-group-summary">
+              {AUTO_FILL_MODE_LABELS[props.settings.autoFill.mode]} · 间隔{" "}
+              {props.settings.autoFill.interval} 层 · 每批 {props.settings.autoFill.blockSize} 层
+            </div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "auto-fill") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "auto-fill") && (
+          <div className="stm-setting-group-body">
+            <AutoFillFields
+              values={props.settings.autoFill}
+              onChange={(values) => {
+                try {
+                  const autoFill = values as AutoFillSettings;
+                  validateAutoFillSettings(autoFill);
+                  saveSettings({ ...props.settings, autoFill });
+                } catch (error) {
+                  reportError(error);
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* 记忆宏：常用首位 */}
