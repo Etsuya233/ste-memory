@@ -115,6 +115,7 @@ pnpm build
 ## 文档
 
 - 领域与插件词汇：[`CONTEXT.md`](./CONTEXT.md)
+- UI 设计系统（墨灰主题/令牌/骨架/模块迁移流程）：[`docs/ui/design-system.md`](./docs/ui/design-system.md)
 - 结构决策：[`docs/adr`](./docs/adr)（插件决策在 `docs/adr/st`）
 - 对话文件镜像格式：[`docs/chat-metadata-mirror.md`](./docs/chat-metadata-mirror.md)
 - 记忆视图与记忆查询：[`docs/memory-views.md`](./docs/memory-views.md)

@@ -6,6 +6,10 @@
 
 我们正在开发 SillyTavern 插件。
 
+### UI
+
+面板 UI 使用「墨灰」设计系统（语义令牌 + 四外观旋钮 + 顶栏/侧边抽屉骨架）。改 UI 前先读 `docs/ui/design-system.md`；组件只引用语义令牌，不新增依赖与 CSS 文件。
+
 ## Agent skills
 
 ### Issue tracker
