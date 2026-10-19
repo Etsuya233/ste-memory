@@ -1,0 +1,1394 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-accent="neutral" data-font="system" data-size="normal">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>STE Memory · UI 原型（墨灰主题 · 四旋钮）</title>
+<style>
+  /* ============================================================
+   * STE Memory UI 原型 v2 · 墨灰主题（zinc 中性底）
+   * 四个旋钮：data-theme / data-accent / data-font / data-size
+   * 组件只引用语义令牌；色阶层与旋钮层在这里，组件层不出现字面色。
+   * ============================================================ */
+
+  /* ---------- 语义令牌（默认：墨灰 · 深色） ---------- */
+  :root {
+    color-scheme: dark;
+
+    --stm-bg: #09090b;
+    --stm-surface: #121215;
+    --stm-surface-2: #1a1a1f;
+    --stm-surface-3: #27272a;
+    --stm-raised: #0e0e11;
+    --stm-float-bg: #1a1a1f;
+    --stm-border: #24242a;
+
+    --stm-fg: #fafafa;
+    --stm-fg-2: #a1a1aa;
+    --stm-fg-3: #6f6f78;
+
+    --stm-hover: rgba(255, 255, 255, 0.06);
+    --stm-pressed: rgba(255, 255, 255, 0.1);
+    --stm-input-bg: rgba(255, 255, 255, 0.04);
+    --stm-switch-track: #2e2e34;
+    --stm-scrim: rgba(0, 0, 0, 0.55);
+    --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.55);
+
+    --stm-success: #4ade80;
+    --stm-warning: #fbbf24;
+    --stm-danger: #f87171;
+    --stm-danger-fill: #dc2626;
+
+    --stm-radius: 10px;
+    --stm-radius-card: 14px;
+    --stm-control-h: 44px;
+
+    --stm-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --stm-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    /* 字号：全部走缩放因子，控件高度不受影响 */
+    --stm-font-scale: 1;
+    --stm-fs-xs: calc(12px * var(--stm-font-scale));
+    --stm-fs-sm: calc(13px * var(--stm-font-scale));
+    --stm-fs-md: calc(15px * var(--stm-font-scale));
+    --stm-fs-lg: calc(17px * var(--stm-font-scale));
+  }
+
+  /* ---------- 旋钮 1：主题（深 / 浅） ---------- */
+  [data-theme="light"] {
+    color-scheme: light;
+
+    --stm-bg: #fafafa;
+    --stm-surface: #ffffff;
+    --stm-surface-2: #f4f4f5;
+    --stm-surface-3: #e4e4e7;
+    --stm-raised: #ffffff;
+    --stm-float-bg: #ffffff;
+    --stm-border: #e4e4e7;
+
+    --stm-fg: #18181b;
+    --stm-fg-2: #71717a;
+    --stm-fg-3: #a1a1aa;
+
+    --stm-hover: rgba(0, 0, 0, 0.04);
+    --stm-pressed: rgba(0, 0, 0, 0.07);
+    --stm-input-bg: rgba(0, 0, 0, 0.03);
+    --stm-switch-track: #d4d4d8;
+    --stm-scrim: rgba(0, 0, 0, 0.35);
+    --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.18);
+
+    --stm-success: #16a34a;
+    --stm-warning: #d97706;
+    --stm-danger: #dc2626;
+  }
+
+  /* ---------- 旋钮 3：字体 ---------- */
+  [data-font="serif"] {
+    --stm-font: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia,
+      "Times New Roman", serif;
+  }
+
+  /* ---------- 旋钮 4：字号档 ---------- */
+  [data-size="compact"] { --stm-font-scale: 0.94; }
+  [data-size="large"] { --stm-font-scale: 1.08; }
+
+  /* ---------- 旋钮 2：强调色（每个色板给深/浅四值） ---------- */
+  [data-accent="blue"] {
+    --ac-fill-dark: #0a84ff; --ac-text-dark: #6cb0ff; --ac-fg-dark: #ffffff;
+    --ac-fill-light: #2563eb; --ac-text-light: #1d4ed8; --ac-fg-light: #ffffff;
+  }
+  [data-accent="indigo"] {
+    --ac-fill-dark: #6366f1; --ac-text-dark: #a5b4fc; --ac-fg-dark: #ffffff;
+    --ac-fill-light: #4f46e5; --ac-text-light: #4338ca; --ac-fg-light: #ffffff;
+  }
+  [data-accent="teal"] {
+    --ac-fill-dark: #0d9488; --ac-text-dark: #5eead4; --ac-fg-dark: #ffffff;
+    --ac-fill-light: #0d9488; --ac-text-light: #0f766e; --ac-fg-light: #ffffff;
+  }
+  [data-accent="neutral"] {
+    --ac-fill-dark: #fafafa; --ac-text-dark: #fafafa; --ac-fg-dark: #09090b;
+    --ac-fill-light: #18181b; --ac-text-light: #18181b; --ac-fg-light: #ffffff;
+  }
+
+  /* 强调色 → 主题映射（浅色块靠后，覆盖深色） */
+  :root {
+    --stm-accent: var(--ac-fill-dark, #fafafa);
+    --stm-accent-text: var(--ac-text-dark, #fafafa);
+    --stm-accent-fg: var(--ac-fg-dark, #09090b);
+    --stm-accent-tint: color-mix(in srgb, var(--stm-accent) 14%, transparent);
+    --stm-accent-soft: color-mix(in srgb, var(--stm-accent) 32%, transparent);
+    --stm-ring: color-mix(in srgb, var(--stm-accent) 30%, transparent);
+  }
+  [data-theme="light"] {
+    --stm-accent: var(--ac-fill-light, #18181b);
+    --stm-accent-text: var(--ac-text-light, #18181b);
+    --stm-accent-fg: var(--ac-fg-light, #ffffff);
+  }
+
+  /* ============================================================
+   * 组件层：以下只用语义令牌
+   * ============================================================ */
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: var(--stm-font);
+    font-size: var(--stm-fs-md);
+    line-height: 1.5;
+    color: var(--stm-fg);
+    background: #050506;
+  }
+
+  [hidden] { display: none !important; }
+
+  .page { min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
+
+  .phone {
+    position: relative;
+    width: min(430px, 100vw);
+    height: min(900px, 100dvh);
+    background: var(--stm-bg);
+    overflow: hidden;
+  }
+
+  @media (min-width: 520px) {
+    .phone {
+      border: 1px solid #24242a;
+      border-radius: 30px;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+    }
+  }
+
+  .app { position: absolute; inset: 0; display: flex; flex-direction: column; }
+
+  /* ---- 顶栏 ---- */
+  .topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 56px;
+    padding: 0 6px;
+    border-bottom: 1px solid var(--stm-border);
+    background: var(--stm-bg);
+  }
+
+  .topbar-title {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--stm-fs-lg);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topbar-right { flex: none; display: flex; align-items: center; gap: 2px; }
+
+  .sync {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--stm-fs-sm);
+    color: var(--stm-fg-2);
+    padding-right: 6px;
+  }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--stm-success); flex: none; }
+
+  /* ---- 图标按钮 ---- */
+  .icon-btn {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: var(--stm-radius);
+    background: none;
+    color: var(--stm-fg-2);
+    cursor: pointer;
+  }
+
+  .icon-btn:hover { background: var(--stm-hover); color: var(--stm-fg); }
+  .icon-btn--sm { width: 36px; height: 36px; }
+
+  .ic {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
+  }
+
+  /* ---- 内容区 ---- */
+  .content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 16px 96px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .screen { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---- 分组 ---- */
+  .section { display: flex; flex-direction: column; gap: 8px; }
+
+  .section-label {
+    font-size: var(--stm-fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--stm-fg-3);
+    padding: 0 4px;
+  }
+
+  /* ---- 卡片 ---- */
+  .card {
+    background: var(--stm-surface);
+    border: 1px solid var(--stm-border);
+    border-radius: var(--stm-radius-card);
+    overflow: hidden;
+  }
+
+  .card--pad { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .card--danger { border-color: color-mix(in srgb, var(--stm-danger) 40%, var(--stm-border)); }
+
+  /* ---- 行 ---- */
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 54px; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { font-size: var(--stm-fs-md); font-weight: 500; }
+  .row-desc { font-size: var(--stm-fs-sm); color: var(--stm-fg-2); line-height: 1.45; }
+  .row-desc--pad { padding: 0 14px 12px; }
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .row-sep { height: 1px; background: var(--stm-border); margin-left: 14px; }
+
+  /* ---- 表单 ---- */
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .field-label { font-size: var(--stm-fs-xs); color: var(--stm-fg-2); }
+
+  .input, .select {
+    width: 100%;
+    height: var(--stm-control-h);
+    padding: 0 12px;
+    background: var(--stm-input-bg);
+    border: 1px solid var(--stm-border);
+    border-radius: var(--stm-radius);
+    color: var(--stm-fg);
+    font-size: var(--stm-fs-md);
+    font-family: var(--stm-font);
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .input:focus, .select:focus {
+    outline: none;
+    border-color: var(--stm-accent);
+    box-shadow: 0 0 0 3px var(--stm-ring);
+  }
+
+  .select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+
+  .input--inline { width: 160px; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  /* ---- 按钮：唯一一套，五种变体 ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: var(--stm-control-h);
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--stm-radius);
+    font-size: var(--stm-fs-md);
+    font-weight: 500;
+    font-family: var(--stm-font);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .btn-sm { height: 36px; padding: 0 12px; font-size: var(--stm-fs-sm); border-radius: 9px; }
+  .btn-xs { height: 30px; padding: 0 10px; font-size: var(--stm-fs-xs); border-radius: 8px; }
+  .btn-block { width: 100%; }
+
+  .btn-primary { background: var(--stm-accent); color: var(--stm-accent-fg); }
+  .btn-primary:hover { filter: brightness(1.08); }
+
+  .btn-secondary { background: var(--stm-surface-3); color: var(--stm-fg); }
+  .btn-secondary:hover { filter: brightness(1.08); }
+
+  .btn-outline { border-color: var(--stm-border); color: var(--stm-fg); background: transparent; }
+  .btn-outline:hover { background: var(--stm-hover); }
+
+  .btn-ghost { color: var(--stm-fg-2); background: transparent; }
+  .btn-ghost:hover { background: var(--stm-hover); color: var(--stm-fg); }
+
+  .btn-danger { background: var(--stm-danger-fill); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.08); }
+
+  .btn-icon { width: 44px; padding: 0; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---- 开关 ---- */
+  .switch { position: relative; flex: none; width: 52px; height: 44px; cursor: pointer; }
+  .switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+
+  .switch .track {
+    position: absolute;
+    top: 9px;
+    left: 4px;
+    width: 44px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--stm-switch-track);
+    transition: background 0.15s ease;
+  }
+
+  .switch .track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    transition: transform 0.15s ease;
+  }
+
+  .switch input:checked + .track { background: var(--stm-accent); }
+  .switch input:checked + .track::after { transform: translateX(18px); background: var(--stm-accent-fg); }
+  .switch input:focus-visible + .track { box-shadow: 0 0 0 3px var(--stm-ring); }
+
+  .switch--sm { width: 46px; height: 40px; }
+  .switch--sm .track { top: 8px; left: 2px; width: 40px; height: 24px; }
+  .switch--sm .track::after { width: 18px; height: 18px; }
+  .switch--sm input:checked + .track::after { transform: translateX(16px); }
+
+  /* ---- 分段控件 ---- */
+  .segmented {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--stm-surface-2);
+    border-radius: 11px;
+    margin: 12px 14px 4px;
+  }
+
+  .segmented button {
+    flex: 1;
+    height: 36px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--stm-fg-2);
+    font-size: var(--stm-fs-sm);
+    font-family: var(--stm-font);
+    cursor: pointer;
+  }
+
+  .seg--active {
+    background: var(--stm-raised) !important;
+    color: var(--stm-fg) !important;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ---- chips（表格切换、证据） ---- */
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+
+  .chip {
+    flex: none;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid var(--stm-border);
+    background: transparent;
+    color: var(--stm-fg-2);
+    font-size: var(--stm-fs-sm);
+    font-family: var(--stm-font);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .chip--active {
+    background: var(--stm-accent-tint);
+    border-color: var(--stm-accent-soft);
+    color: var(--stm-accent-text);
+    font-weight: 500;
+  }
+
+  .ev-chip {
+    font-family: var(--stm-mono);
+    font-size: var(--stm-fs-xs);
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--stm-accent-tint);
+    border: 1px solid var(--stm-accent-soft);
+    color: var(--stm-accent-text);
+    flex: none;
+  }
+
+  /* ---- 徽标 ---- */
+  .badge {
+    flex: none;
+    font-size: var(--stm-fs-xs);
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--stm-border);
+    color: var(--stm-fg-2);
+  }
+
+  .badge--accent {
+    background: var(--stm-accent-tint);
+    border-color: var(--stm-accent-soft);
+    color: var(--stm-accent-text);
+  }
+
+  .badge--warn { color: var(--stm-warning); border-color: color-mix(in srgb, var(--stm-warning) 40%, var(--stm-border)); }
+  .badge--error { color: var(--stm-danger); border-color: color-mix(in srgb, var(--stm-danger) 40%, var(--stm-border)); }
+
+  .tag {
+    font-size: var(--stm-fs-xs);
+    color: var(--stm-fg-3);
+    border: 1px solid var(--stm-border);
+    border-radius: 6px;
+    padding: 1px 6px;
+    flex: none;
+  }
+
+  /* ---- 列表行 ---- */
+  .list-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 58px; }
+  .list-main { flex: 1; min-width: 0; }
+  .card-foot { padding: 8px 14px 12px; }
+  .divider { height: 1px; background: var(--stm-border); }
+
+  /* ---- 记录 ---- */
+  .toolbar { display: flex; align-items: center; gap: 8px; }
+  .toolbar .chips { flex: 1; min-width: 0; }
+
+  .meta-line {
+    font-size: var(--stm-fs-sm);
+    color: var(--stm-fg-3);
+    font-family: var(--stm-mono);
+    padding: 0 4px;
+  }
+
+  .record-card { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+  .record-main { flex: 1; min-width: 0; }
+  .record-title { font-size: var(--stm-fs-md); font-weight: 600; }
+  .record-sub { font-size: var(--stm-fs-sm); color: var(--stm-fg-2); margin-top: 2px; }
+  .record-aside { display: flex; align-items: center; gap: 6px; flex: none; }
+  .record-card--dirty { border-color: var(--stm-accent-soft); }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--stm-fg-2);
+    font-size: var(--stm-fs-sm);
+    padding: 4px 0;
+  }
+
+  /* ---- 底部悬浮保存条 ---- */
+  .savebar {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--stm-float-bg);
+    border: 1px solid var(--stm-border);
+    border-radius: var(--stm-radius-card);
+    box-shadow: var(--stm-shadow-pop);
+  }
+
+  .savebar-text { flex: 1; min-width: 0; font-size: var(--stm-fs-sm); color: var(--stm-fg-2); }
+
+  /* ---- 任务 ---- */
+  .progress { height: 6px; border-radius: 999px; background: var(--stm-surface-3); overflow: hidden; }
+  .progress-bar { height: 100%; border-radius: 999px; background: var(--stm-accent); }
+
+  .coverage { display: flex; flex-wrap: wrap; gap: 3px; padding: 12px 14px 6px; }
+  .cov { width: 8px; height: 12px; border-radius: 2px; background: var(--stm-border); }
+  .cov--done { background: color-mix(in srgb, var(--stm-accent) 65%, transparent); }
+  .cov--part { background: var(--stm-warning); }
+
+  /* ---- 问答 ---- */
+  .bubble {
+    align-self: flex-end;
+    max-width: 82%;
+    padding: 10px 14px;
+    border-radius: 16px 16px 4px 16px;
+    background: var(--stm-accent);
+    color: var(--stm-accent-fg);
+    font-size: var(--stm-fs-md);
+  }
+
+  .chat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: var(--stm-fs-sm);
+    color: var(--stm-fg-2);
+  }
+
+  .chat-text { font-size: var(--stm-fs-md); line-height: 1.6; }
+
+  .thinking summary { cursor: pointer; font-size: var(--stm-fs-sm); color: var(--stm-fg-2); padding: 6px 0; }
+
+  .composer {
+    position: sticky;
+    bottom: -96px;
+    display: flex;
+    gap: 8px;
+    padding: 10px 0 96px;
+    background: var(--stm-bg);
+  }
+
+  /* ---- 日志 ---- */
+  .log-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 48px; }
+  .log-key {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--stm-mono);
+    font-size: var(--stm-fs-sm);
+    color: var(--stm-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .log-time { font-family: var(--stm-mono); font-size: var(--stm-fs-xs); color: var(--stm-fg-3); flex: none; }
+
+  .version { text-align: center; font-size: var(--stm-fs-xs); color: var(--stm-fg-3); padding: 4px 0 8px; }
+
+  /* ---- 抽屉与遮罩 ---- */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    background: var(--stm-scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  .scrim--open { opacity: 1; pointer-events: auto; }
+
+  .drawer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(78%, 300px);
+    display: flex;
+    flex-direction: column;
+    background: var(--stm-raised);
+    border-right: 1px solid var(--stm-border);
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+  }
+
+  .drawer--open { transform: none; }
+
+  .drawer-head {
+    padding: calc(20px + env(safe-area-inset-top)) 16px 14px;
+    border-bottom: 1px solid var(--stm-border);
+  }
+
+  .drawer-title { font-size: var(--stm-fs-lg); font-weight: 600; }
+
+  .drawer-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: var(--stm-fs-sm);
+    color: var(--stm-fg-2);
+  }
+
+  .drawer-nav {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--stm-radius);
+    background: transparent;
+    color: var(--stm-fg-2);
+    font-size: var(--stm-fs-md);
+    font-family: var(--stm-font);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .nav-item:hover { background: var(--stm-hover); color: var(--stm-fg); }
+
+  .nav-item--active {
+    background: var(--stm-accent-tint);
+    color: var(--stm-accent-text);
+    font-weight: 600;
+  }
+
+  .drawer-foot {
+    flex: none;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--stm-border);
+    font-size: var(--stm-fs-xs);
+    color: var(--stm-fg-3);
+  }
+
+  /* ---- 外观面板（原型控件，独立配色，不随主题） ---- */
+  .appearance {
+    position: fixed;
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .appearance-toggle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #1b1b20;
+    border: 1px solid #2c2c34;
+    color: #d4d4d8;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+
+  .appearance-panel {
+    width: 264px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(23, 23, 27, 0.96);
+    border: 1px solid #2c2c34;
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+    color: #e4e4e7;
+    font-family: var(--stm-font);
+  }
+
+  .ap-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .ap-label { font-size: 13px; color: #a1a1aa; flex: none; }
+
+  .ap-seg { display: flex; gap: 2px; padding: 2px; background: #101013; border-radius: 9px; }
+
+  .ap-seg button {
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: #a1a1aa;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .ap-seg button.ap-active { background: #2b2b31; color: #fafafa; }
+
+  .ap-swatches { display: flex; gap: 8px; }
+
+  .ap-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: var(--c);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .ap-swatch.ap-active { box-shadow: 0 0 0 2px #17171b, 0 0 0 4px var(--c); }
+
+  /* 设置页「外观」分组内的色板（跟随主题） */
+  .page-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--stm-border);
+    background: var(--c);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .page-swatch--active { box-shadow: 0 0 0 2px var(--stm-surface), 0 0 0 4px var(--c); }
+</style>
+</head>
+<body>
+
+<!-- 图标库（内联 sprite） -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+</svg>
+
+<div class="page">
+  <div class="phone">
+    <div class="app" id="app">
+
+      <!-- 顶栏 -->
+      <header class="topbar">
+        <button class="icon-btn" id="menuBtn" aria-label="打开导航">
+          <svg class="ic"><use href="#i-menu"/></svg>
+        </button>
+        <div class="topbar-title" id="screenTitle">设置</div>
+        <div class="topbar-right">
+          <span class="sync"><i class="dot"></i>已同步</span>
+          <button class="icon-btn" aria-label="收起面板">
+            <svg class="ic"><use href="#i-x"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- 内容 -->
+      <main class="content" id="content">
+
+        <!-- ============ 设置 ============ -->
+        <section class="screen" data-screen="settings">
+          <div class="section">
+            <div class="section-label">插件</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-title">插件总开关</div>
+                  <div class="row-desc">关闭后暂停绑定与同步，面板仍可打开</div>
+                </div>
+                <label class="switch"><input type="checkbox" checked><span class="track"></span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">外观</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-main"><div class="row-title">主题</div></div>
+                <div class="segmented" style="margin:0" data-knob="theme">
+                  <button type="button" data-v="dark" class="seg--active">深色</button>
+                  <button type="button" data-v="light">浅色</button>
+                </div>
+              </div>
+              <div class="row-sep"></div>
+              <div class="row">
+                <div class="row-main"><div class="row-title">强调色</div></div>
+                <div style="display:flex;gap:8px;padding-right:6px">
+                  <button class="page-swatch" data-accent-btn="blue" style="--c:#0a84ff" aria-label="系统蓝"></button>
+                  <button class="page-swatch page-swatch--active" data-accent-btn="neutral" style="--c:#fafafa" aria-label="中性白"></button>
+                  <button class="page-swatch" data-accent-btn="indigo" style="--c:#6366f1" aria-label="靛蓝"></button>
+                  <button class="page-swatch" data-accent-btn="teal" style="--c:#14b8a6" aria-label="青绿"></button>
+                </div>
+              </div>
+              <div class="row-sep"></div>
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-title">字体</div>
+                  <div class="row-desc">系统 / 衬线（宋体风）</div>
+                </div>
+                <div class="segmented" style="margin:0" data-knob="font">
+                  <button type="button" data-v="system" class="seg--active">系统</button>
+                  <button type="button" data-v="serif">衬线</button>
+                </div>
+              </div>
+              <div class="row-sep"></div>
+              <div class="row">
+                <div class="row-main"><div class="row-title">字号</div></div>
+                <div class="segmented" style="margin:0" data-knob="size">
+                  <button type="button" data-v="compact">紧凑</button>
+                  <button type="button" data-v="normal" class="seg--active">标准</button>
+                  <button type="button" data-v="large">大</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">自动填表</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-main"><div class="row-title">运行模式</div></div>
+                <select class="select" style="width:150px"><option>自动填表</option><option>仅提醒</option><option>关闭</option></select>
+              </div>
+              <div class="row-sep"></div>
+              <div class="row">
+                <div class="row-main"><div class="row-title">包含当前 AI 楼层</div></div>
+                <select class="select" style="width:110px"><option>是</option><option>否</option></select>
+              </div>
+              <div class="row-sep"></div>
+              <div class="grid-2">
+                <label class="field"><span class="field-label">触发间隔（层）</span><input class="input" value="12"></label>
+                <label class="field"><span class="field-label">每批楼层数</span><input class="input" value="8"></label>
+                <label class="field"><span class="field-label">额外重试次数</span><input class="input" value="2"></label>
+                <label class="field"><span class="field-label">重试等待（秒）</span><input class="input" value="30"></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">记忆宏</div>
+            <div class="card">
+              <div class="segmented">
+                <button type="button">内置</button>
+                <button type="button" class="seg--active">全局</button>
+                <button type="button">对话级</button>
+                <button type="button">宏设置</button>
+              </div>
+              <div class="row">
+                <div class="row-main"><div class="row-title">宏名</div></div>
+                <input class="input input--inline" value="steMemory">
+              </div>
+              <div class="row-sep"></div>
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">全部人物</div>
+                  <div class="row-desc">人物表 · 上限 20 条 · 显示 姓名 / 身份 / 关系</div>
+                </div>
+                <button class="icon-btn icon-btn--sm" aria-label="编辑视图"><svg class="ic"><use href="#i-edit"/></svg></button>
+              </div>
+              <div class="row-sep"></div>
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">最近剧情</div>
+                  <div class="row-desc">剧情表 · 上限 10 条 · 显示 事件 / 时间</div>
+                </div>
+                <button class="icon-btn icon-btn--sm" aria-label="编辑视图"><svg class="ic"><use href="#i-edit"/></svg></button>
+              </div>
+              <div class="row-sep"></div>
+              <div class="card-foot">
+                <button class="btn btn-ghost btn-sm"><svg class="ic"><use href="#i-plus"/></svg>新建视图</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">Agent 连接</div>
+            <div class="card">
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">DeepSeek 官方</div>
+                  <div class="row-desc">deepseek-chat · api.deepseek.com</div>
+                </div>
+                <span class="badge badge--accent">填表</span>
+                <button class="btn btn-outline btn-sm">测试</button>
+              </div>
+              <div class="row-sep"></div>
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">本地 Ollama</div>
+                  <div class="row-desc">qwen3:14b · 127.0.0.1:11434</div>
+                </div>
+                <span class="badge">查询</span>
+                <button class="btn btn-outline btn-sm">测试</button>
+              </div>
+              <div class="row-sep"></div>
+              <div class="card-foot">
+                <button class="btn btn-ghost btn-sm"><svg class="ic"><use href="#i-plus"/></svg>新建连接</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">数据备份</div>
+            <div class="card card--pad">
+              <div class="btn-row">
+                <button class="btn btn-secondary">导出全库备份</button>
+                <button class="btn btn-outline">导入备份</button>
+              </div>
+              <div class="divider"></div>
+              <button class="btn btn-outline btn-block">导出当前空间备份</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">危险操作</div>
+            <div class="card card--pad card--danger">
+              <div class="row-desc">清除当前记忆空间的全部记录（保留表结构），镜像中的副本同步清空，操作不可恢复。</div>
+              <button class="btn btn-danger btn-block"><svg class="ic"><use href="#i-trash"/></svg>清除空间记录</button>
+            </div>
+          </div>
+
+          <div class="version">v0.1.3 · 运行中 · IndexedDB 正常</div>
+        </section>
+
+        <!-- ============ 记录 ============ -->
+        <section class="screen" data-screen="records" hidden>
+          <div class="toolbar">
+            <div class="chips">
+              <button class="chip chip--active">人物</button>
+              <button class="chip">地点</button>
+              <button class="chip">物品</button>
+              <button class="chip">剧情</button>
+              <button class="chip">伏笔</button>
+              <button class="chip">待办</button>
+            </div>
+            <button class="icon-btn icon-btn--sm" aria-label="搜索"><svg class="ic"><use href="#i-search"/></svg></button>
+          </div>
+
+          <div class="meta-line">人物 · 共 18 条</div>
+
+          <div class="card">
+            <div class="record-card">
+              <div class="record-main">
+                <div class="record-title">艾琳·卡斯特</div>
+                <div class="record-sub">24 岁 · 猎魔人 · 与主角结盟</div>
+              </div>
+              <div class="record-aside">
+                <span class="ev-chip">#12</span><span class="ev-chip">#45</span>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+            </div>
+            <div class="row-sep"></div>
+            <div class="record-card">
+              <div class="record-main">
+                <div class="record-title">老管家 霍克</div>
+                <div class="record-sub">61 岁 · 雾雨宅邸管家 · 知晓宅邸旧事</div>
+              </div>
+              <div class="record-aside">
+                <span class="ev-chip">#3</span>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+            </div>
+            <div class="row-sep"></div>
+            <div class="record-card">
+              <div class="record-main">
+                <div class="record-title">莉泽尔</div>
+                <div class="record-sub">17 岁 · 见习修女 · 主角的青梅</div>
+              </div>
+              <div class="record-aside">
+                <span class="ev-chip">#7</span><span class="ev-chip">#22</span>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+            </div>
+            <div class="row-sep"></div>
+
+            <!-- 编辑中的一行（脏状态） -->
+            <div class="record-card record-card--dirty" style="display:block">
+              <div class="field" style="margin-bottom:10px">
+                <span class="field-label">姓名</span>
+                <input class="input" value="黑市商人">
+              </div>
+              <div class="field">
+                <span class="field-label">身份</span>
+                <input class="input" value="与伏笔「暗巷交易」相关">
+              </div>
+              <div class="row-desc" style="margin-top:8px">已修改，未保存</div>
+            </div>
+            <div class="row-sep"></div>
+
+            <div class="record-card">
+              <div class="record-main">
+                <div class="record-title">铁匠 布伦</div>
+                <div class="record-sub">45 岁 · 城东铁匠铺店主</div>
+              </div>
+              <div class="record-aside">
+                <span class="ev-chip">#18</span>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="pager">
+            <button class="icon-btn icon-btn--sm" aria-label="上一页" style="transform:rotate(180deg)"><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+            <span>1 / 2</span>
+            <button class="icon-btn icon-btn--sm" aria-label="下一页"><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          </div>
+        </section>
+
+        <!-- ============ 任务 ============ -->
+        <section class="screen" data-screen="tasks" hidden>
+          <div class="card card--pad">
+            <div class="row-between">
+              <div class="row-title">楼层 #24–#61</div>
+              <span class="badge badge--accent">运行中</span>
+            </div>
+            <div class="progress"><div class="progress-bar" style="width:62%"></div></div>
+            <div class="row-desc">正在处理 #43–#50（第 3 / 5 批）· 已用 1 分 12 秒</div>
+            <div class="btn-row">
+              <button class="btn btn-outline btn-sm">查看日志</button>
+              <button class="btn btn-secondary btn-sm">取消任务</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="coverage" id="coverage"></div>
+            <div class="row-desc row-desc--pad">已完成 34 / 48 层 · 当前批 #35</div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">触发填表</div>
+            <div class="card card--pad">
+              <div class="grid-2" style="padding:0">
+                <label class="field"><span class="field-label">起始楼层</span><input class="input" value="62"></label>
+                <label class="field"><span class="field-label">结束楼层</span><input class="input" value="80"></label>
+              </div>
+              <label class="field"><span class="field-label">每批楼层数</span><input class="input" value="8"></label>
+              <button class="btn btn-primary btn-block"><svg class="ic"><use href="#i-zap"/></svg>触发填表</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-label">最近任务</div>
+            <div class="card">
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">#1–#20</div>
+                  <div class="row-desc">成功 · 新增 6 条记录 · 2 分钟前</div>
+                </div>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+              <div class="row-sep"></div>
+              <div class="list-row">
+                <div class="list-main">
+                  <div class="row-title">#21–#23</div>
+                  <div class="row-desc">失败 · 连接超时（已重试 2 次）· 8 分钟前</div>
+                </div>
+                <svg class="ic" style="color:var(--stm-fg-3)"><use href="#i-chevron-right"/></svg>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 表格 ============ -->
+        <section class="screen" data-screen="tables" hidden>
+          <div class="toolbar" style="justify-content:flex-end">
+            <button class="btn btn-secondary btn-sm"><svg class="ic"><use href="#i-plus"/></svg>新建表格</button>
+          </div>
+          <div class="card">
+            <div class="row">
+              <div class="row-main">
+                <div class="row-title">人物</div>
+                <div class="row-desc">9 个字段 · 显示：姓名</div>
+              </div>
+              <label class="switch"><input type="checkbox" checked><span class="track"></span></label>
+            </div>
+            <div class="row-sep"></div>
+            <div class="list-row">
+              <div class="list-main"><div class="row-title">姓名</div></div>
+              <span class="tag">必填</span>
+              <label class="switch switch--sm"><input type="checkbox" checked><span class="track"></span></label>
+            </div>
+            <div class="row-sep"></div>
+            <div class="list-row">
+              <div class="list-main"><div class="row-title">身份</div></div>
+              <label class="switch switch--sm"><input type="checkbox" checked><span class="track"></span></label>
+            </div>
+            <div class="row-sep"></div>
+            <div class="list-row">
+              <div class="list-main"><div class="row-title">关系</div></div>
+              <span class="badge badge--accent">引用</span>
+              <label class="switch switch--sm"><input type="checkbox" checked><span class="track"></span></label>
+            </div>
+            <div class="row-sep"></div>
+            <div class="card-foot"><div class="row-desc">其余 6 个字段…</div></div>
+          </div>
+        </section>
+
+        <!-- ============ 问答 ============ -->
+        <section class="screen" data-screen="query" hidden>
+          <div class="toolbar">
+            <div class="segmented" style="margin:0;flex:1">
+              <button type="button" class="seg--active">查询</button>
+              <button type="button">填写</button>
+            </div>
+            <button class="icon-btn icon-btn--sm" aria-label="刷新"><svg class="ic"><use href="#i-refresh"/></svg></button>
+          </div>
+
+          <div class="bubble">现在有哪些待办？</div>
+
+          <div class="card card--pad">
+            <div class="chat-head">
+              <span>记忆助手 · 查询模式</span>
+              <button class="btn btn-ghost btn-xs"><svg class="ic"><use href="#i-copy"/></svg>复制</button>
+            </div>
+            <details class="thinking">
+              <summary>思考过程</summary>
+              <div class="row-desc">先查待办表，按状态筛选未完成项…</div>
+            </details>
+            <div class="chat-text">
+              当前有 3 条待办：<br>
+              1. 修复西北塔的封印<br>
+              2. 与霍克确认晚宴名单<br>
+              3. 取回城东铁匠铺的长剑
+            </div>
+          </div>
+
+          <div class="composer">
+            <input class="input" placeholder="问点什么…" style="flex:1">
+            <button class="btn btn-primary btn-icon" aria-label="发送"><svg class="ic"><use href="#i-send"/></svg></button>
+          </div>
+        </section>
+
+        <!-- ============ 日志 ============ -->
+        <section class="screen" data-screen="logs" hidden>
+          <div class="card card--pad">
+            <div class="grid-2" style="padding:0">
+              <label class="field"><span class="field-label">类型</span>
+                <select class="select"><option>填表日志</option><option>全部</option></select>
+              </label>
+              <label class="field"><span class="field-label">级别</span>
+                <select class="select"><option>全部</option><option>WARN</option><option>ERROR</option></select>
+              </label>
+            </div>
+            <label class="field"><span class="field-label">Key</span><input class="input" placeholder="按任务或运行 ID 过滤"></label>
+            <div class="btn-row">
+              <button class="btn btn-secondary btn-sm">查询</button>
+              <button class="btn btn-ghost btn-sm">清空日志</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="log-row">
+              <span class="badge">INFO</span>
+              <span class="log-key">task:7f3a · 批次 #35–#42 开始</span>
+              <span class="log-time">14:02</span>
+            </div>
+            <div class="row-sep"></div>
+            <div class="log-row">
+              <span class="badge badge--warn">WARN</span>
+              <span class="log-key">task:7f3a · 重试第 1 次</span>
+              <span class="log-time">14:01</span>
+            </div>
+            <div class="row-sep"></div>
+            <div class="log-row">
+              <span class="badge badge--error">ERROR</span>
+              <span class="log-key">task:6b21 · 连接超时</span>
+              <span class="log-time">13:58</span>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- 记录页脏数据保存条 -->
+      <div class="savebar" id="savebar" hidden>
+        <span class="savebar-text">1 条记录已修改</span>
+        <button class="btn btn-ghost btn-sm">放弃</button>
+        <button class="btn btn-primary btn-sm">保存</button>
+      </div>
+
+      <!-- 抽屉与遮罩 -->
+      <div class="scrim" id="scrim"></div>
+      <nav class="drawer" id="drawer" aria-label="记忆面板导航">
+        <div class="drawer-head">
+          <div class="drawer-title">雾雨宅邸</div>
+          <div class="drawer-sub"><i class="dot"></i>已同步 · 2 分钟前</div>
+        </div>
+        <div class="drawer-nav">
+          <button class="nav-item" data-target="tables" data-label="表格"><svg class="ic"><use href="#i-grid"/></svg>表格</button>
+          <button class="nav-item" data-target="records" data-label="记录"><svg class="ic"><use href="#i-list"/></svg>记录</button>
+          <button class="nav-item" data-target="tasks" data-label="任务"><svg class="ic"><use href="#i-zap"/></svg>任务</button>
+          <button class="nav-item" data-target="query" data-label="问答"><svg class="ic"><use href="#i-chat"/></svg>问答</button>
+          <button class="nav-item" data-target="logs" data-label="日志"><svg class="ic"><use href="#i-file"/></svg>日志</button>
+          <button class="nav-item nav-item--active" data-target="settings" data-label="设置"><svg class="ic"><use href="#i-settings"/></svg>设置</button>
+        </div>
+        <div class="drawer-foot">v0.1.3 · STE Memory</div>
+      </nav>
+
+    </div>
+  </div>
+</div>
+
+<!-- 外观面板（原型控件） -->
+<div class="appearance">
+  <div class="appearance-panel" id="appearancePanel" hidden>
+    <div class="ap-row">
+      <span class="ap-label">主题</span>
+      <div class="ap-seg" data-knob="theme">
+        <button type="button" data-v="dark" class="ap-active">深色</button>
+        <button type="button" data-v="light">浅色</button>
+      </div>
+    </div>
+    <div class="ap-row">
+      <span class="ap-label">强调色</span>
+      <div class="ap-swatches">
+        <button class="ap-swatch" data-accent-btn="blue" style="--c:#0a84ff" aria-label="系统蓝"></button>
+        <button class="ap-swatch ap-active" data-accent-btn="neutral" style="--c:#fafafa" aria-label="中性白"></button>
+        <button class="ap-swatch" data-accent-btn="indigo" style="--c:#6366f1" aria-label="靛蓝"></button>
+        <button class="ap-swatch" data-accent-btn="teal" style="--c:#14b8a6" aria-label="青绿"></button>
+      </div>
+    </div>
+    <div class="ap-row">
+      <span class="ap-label">字体</span>
+      <div class="ap-seg" data-knob="font">
+        <button type="button" data-v="system" class="ap-active">系统</button>
+        <button type="button" data-v="serif">衬线</button>
+      </div>
+    </div>
+    <div class="ap-row">
+      <span class="ap-label">字号</span>
+      <div class="ap-seg" data-knob="size">
+        <button type="button" data-v="compact">紧凑</button>
+        <button type="button" data-v="normal" class="ap-active">标准</button>
+        <button type="button" data-v="large">大</button>
+      </div>
+    </div>
+  </div>
+  <button class="appearance-toggle" id="appearanceToggle" aria-label="外观设置">
+    <svg class="ic"><use href="#i-sliders"/></svg>
+  </button>
+</div>
+
+<script>
+  const root = document.documentElement;
+
+  // ---- 抽屉开合 ----
+  const drawer = document.getElementById('drawer');
+  const scrim = document.getElementById('scrim');
+  const savebar = document.getElementById('savebar');
+
+  function setDrawer(open) {
+    drawer.classList.toggle('drawer--open', open);
+    scrim.classList.toggle('scrim--open', open);
+  }
+
+  document.getElementById('menuBtn').addEventListener('click', () => setDrawer(true));
+  scrim.addEventListener('click', () => setDrawer(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      setDrawer(false);
+      closeAppearance();
+    }
+  });
+
+  // ---- 导航切换 ----
+  const content = document.getElementById('content');
+  document.querySelectorAll('.nav-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.target;
+      document.querySelectorAll('.screen').forEach((s) => {
+        s.hidden = s.dataset.screen !== target;
+      });
+      document.querySelectorAll('.nav-item').forEach((b) => {
+        b.classList.toggle('nav-item--active', b === btn);
+      });
+      document.getElementById('screenTitle').textContent = btn.dataset.label;
+      savebar.hidden = target !== 'records';
+      setDrawer(false);
+      content.scrollTop = 0;
+    });
+  });
+
+  // ---- 外观四旋钮（浮层面板与设置页「外观」分组共用同一套绑定） ----
+  const apPanel = document.getElementById('appearancePanel');
+
+  function syncAppearanceActive() {
+    document.querySelectorAll('[data-knob]').forEach((seg) => {
+      const current = root.dataset[seg.dataset.knob];
+      const inFloatPanel = seg.classList.contains('ap-seg');
+      seg.querySelectorAll('button').forEach((b) => {
+        b.classList.toggle(inFloatPanel ? 'ap-active' : 'seg--active', b.dataset.v === current);
+      });
+    });
+    document.querySelectorAll('[data-accent-btn]').forEach((sw) => {
+      const inFloatPanel = sw.classList.contains('ap-swatch');
+      sw.classList.toggle(
+        inFloatPanel ? 'ap-active' : 'page-swatch--active',
+        sw.dataset.accentBtn === root.dataset.accent,
+      );
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const knobBtn = e.target.closest('[data-knob] button');
+    if (knobBtn) {
+      root.dataset[knobBtn.closest('[data-knob]').dataset.knob] = knobBtn.dataset.v;
+      syncAppearanceActive();
+      return;
+    }
+    const swatchBtn = e.target.closest('[data-accent-btn]');
+    if (swatchBtn) {
+      root.dataset.accent = swatchBtn.dataset.accentBtn;
+      syncAppearanceActive();
+    }
+  });
+
+  function closeAppearance() {
+    apPanel.hidden = true;
+  }
+
+  document.getElementById('appearanceToggle').addEventListener('click', () => {
+    apPanel.hidden = !apPanel.hidden;
+  });
+
+  document.addEventListener('click', (e) => {
+    const wrap = document.querySelector('.appearance');
+    if (!apPanel.hidden && !wrap.contains(e.target)) closeAppearance();
+  });
+
+  // ---- 楼层覆盖条 ----
+  const coverage = document.getElementById('coverage');
+  for (let i = 0; i < 48; i++) {
+    const sq = document.createElement('i');
+    sq.className = 'cov' + (i < 34 ? ' cov--done' : i === 34 ? ' cov--part' : '');
+    coverage.appendChild(sq);
+  }
+
+  syncAppearanceActive();
+</script>
+</body>
+</html>

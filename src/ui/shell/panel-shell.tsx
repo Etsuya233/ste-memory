@@ -2,9 +2,9 @@ import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.
 /**
  * 面板外壳（ADR 0005：UI 渲染层采用 React，随 esbuild 打进单文件 bundle）。
  *
- * 职责：窗口/安全区/入口几何、Tab 导航、公共上下文（状态订阅、设置、数据版本、
- * 分支检测弹窗）。表格/记录/任务/问答/日志/设置各自在自己的 Tab 模块里实现，
- * 本组件只负责装配与切换。
+ * 职责：窗口/安全区/入口几何、顶栏 + 侧边抽屉导航、公共上下文（状态订阅、设置、
+ * 数据版本、分支检测弹窗）。表格/记录/任务/问答/日志/设置各自在自己的 Tab 模块里
+ * 实现，本组件只负责装配与切换。
  *
  * DOM 结构与类名是验收脚本（docs/playwright-st-extension/verify-ui-shell.mjs）的
  * 契约：改动必须同步改脚本。data-action / data-stm-field 属性保留（脚本按它们
@@ -32,7 +32,7 @@ import type { QueryChatService } from "../../features/query-chat/query-chat-serv
 import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
 import type { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
 import { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
-import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
+import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel, type PanelTab } from "./panel-model.ts";
 import { buildSpaceInfo } from "./space-info.ts";
 import { RecordsTab, type LeaveGuard } from "../memory/record-view.tsx";
 import { TablesTab } from "../memory/tables-tab.tsx";
@@ -238,6 +238,16 @@ function viewportSize(): ViewportSize {
 
 // ---- 面板骨架 ----
 
+/** 抽屉导航项图标（FA6 solid；ST 内置 FontAwesome 6.5 全量图标集） */
+const NAV_ICONS: Readonly<Record<PanelTab, string>> = {
+  tables: "fa-table-cells",
+  records: "fa-rectangle-list",
+  tasks: "fa-bolt",
+  query: "fa-comment-dots",
+  logs: "fa-file-lines",
+  settings: "fa-sliders",
+};
+
 export function PanelShell(props: {
   readonly runtime: PanelRuntime;
   readonly model: PanelModel;
@@ -319,6 +329,46 @@ export function PanelShell(props: {
 
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
+  // 抽屉导航：☰ 按钮与抽屉元素（开合时焦点在两个元素间往返）
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const navWasOpenRef = useRef(false);
+
+  // 外观四旋钮（spec 墨灰主题）：设置值写到 #stm-panel 的 data-* 属性，
+  // 主题/强调色/字体/字号全部由 tokens.css 的旋钮层消费；挂载与设置变化都生效。
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const { theme, accent, font, size } = settings.appearance;
+    panel.dataset.theme = theme;
+    panel.dataset.accent = accent;
+    panel.dataset.font = font;
+    panel.dataset.size = size;
+  }, [settings.appearance]);
+
+  // 抽屉打开：焦点移入当前项；关闭：焦点还给 ☰（SSR 不执行，测试无副作用）
+  useEffect(() => {
+    if (state.navOpen) {
+      navWasOpenRef.current = true;
+      const target =
+        drawerRef.current?.querySelector<HTMLElement>(".stm-nav-item--active") ??
+        drawerRef.current?.querySelector<HTMLElement>(".stm-nav-item");
+      target?.focus();
+    } else if (navWasOpenRef.current) {
+      navWasOpenRef.current = false;
+      menuButtonRef.current?.focus();
+    }
+  }, [state.navOpen]);
+
+  // Esc 收起抽屉（遮罩点击在渲染里就近处理）
+  useEffect(() => {
+    if (!state.navOpen) return;
+    const handler = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") props.model.closeNav();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [state.navOpen, props.model]);
 
   // 记录 Tab 的离开守卫（未保存修改确认；RecordsTab 挂载时注册、卸载时注销）
   const internalGuardRef = useRef<LeaveGuard | null>(null);
@@ -500,18 +550,38 @@ export function PanelShell(props: {
     panel.addEventListener("pointercancel", onEnd);
   }
 
+  const panelClassName = [
+    "stm-panel",
+    state.open ? "stm-panel--open" : "",
+    state.navOpen ? "stm-panel--nav-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <aside
-      id="stm-panel"
-      ref={panelRef}
-      className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
-      aria-hidden={!state.open}
-    >
+    <aside id="stm-panel" ref={panelRef} className={panelClassName} aria-hidden={!state.open}>
+      {/* 顶栏：☰ 打开导航 + 当前区名 + 状态点 + 收起；整栏是桌面拖拽手柄 */}
       <header className="stm-panel-header" data-action="drag-panel" onPointerDown={beginHeaderDrag}>
-        <div className="stm-space-info">
-          <div className="stm-space-title">{info.title}</div>
-          {info.detail ? <div className="stm-space-status">{info.detail}</div> : null}
-        </div>
+        <button
+          type="button"
+          ref={menuButtonRef}
+          className="stm-header-nav"
+          data-action="open-nav"
+          aria-label="打开导航"
+          aria-expanded={state.navOpen}
+          aria-controls="stm-drawer"
+          onClick={() => props.model.toggleNav()}
+        >
+          <i className="fa-solid fa-bars" aria-hidden="true"></i>
+        </button>
+        <div className="stm-header-title">{PANEL_TAB_LABELS[state.tab]}</div>
+        <span
+          className="stm-header-dot"
+          data-tone={info.tone}
+          role="img"
+          title={info.detail || info.title}
+          aria-label={info.detail || info.title}
+        ></span>
         <button
           type="button"
           className="stm-panel-close"
@@ -525,25 +595,6 @@ export function PanelShell(props: {
           <i className="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
       </header>
-      <nav className="stm-tabbar" role="tablist" aria-label={`${PLUGIN_DISPLAY_NAME} 面板`}>
-        {PANEL_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            className="stm-tab"
-            role="tab"
-            data-tab={tab}
-            data-action="tab"
-            aria-selected={tab === state.tab}
-            onClick={() => {
-              if (!confirmLeaveRecordsTab()) return;
-              props.model.setTab(tab);
-            }}
-          >
-            {PANEL_TAB_LABELS[tab]}
-          </button>
-        ))}
-      </nav>
       <main className="stm-panel-body">
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
@@ -633,6 +684,50 @@ export function PanelShell(props: {
           </section>
         )}
       </main>
+      {/* 抽屉遮罩（打开时拦截点按并关闭抽屉；关闭态 pointer-events: none） */}
+      <div
+        className={state.navOpen ? "stm-drawer-scrim stm-drawer-scrim--open" : "stm-drawer-scrim"}
+        data-action="close-nav"
+        aria-hidden="true"
+        onClick={() => props.model.closeNav()}
+      ></div>
+      {/* 侧边抽屉导航：空间名 + 状态行 + 六个导航项 + 版本脚注（类名是验收脚本契约） */}
+      <nav
+        id="stm-drawer"
+        ref={drawerRef}
+        className={state.navOpen ? "stm-drawer stm-drawer--open" : "stm-drawer"}
+        aria-label={`${PLUGIN_DISPLAY_NAME} 面板导航`}
+        aria-hidden={!state.navOpen}
+        inert={!state.navOpen}
+      >
+        <div className="stm-drawer-head">
+          <div className="stm-space-title">{info.title}</div>
+          {info.detail ? <div className="stm-space-status">{info.detail}</div> : null}
+        </div>
+        <div className="stm-drawer-nav" role="tablist" aria-label={`${PLUGIN_DISPLAY_NAME} 面板`}>
+          {PANEL_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={tab === state.tab ? "stm-nav-item stm-nav-item--active" : "stm-nav-item"}
+              role="tab"
+              data-tab={tab}
+              data-action="tab"
+              aria-selected={tab === state.tab}
+              onClick={() => {
+                // 未保存守卫：拒绝时保持抽屉打开，用户可先处理记录草稿
+                if (!confirmLeaveRecordsTab()) return;
+                props.model.setTab(tab);
+                props.model.closeNav();
+              }}
+            >
+              <i className={`fa-solid ${NAV_ICONS[tab]}`} aria-hidden="true"></i>
+              {PANEL_TAB_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+        <div className="stm-drawer-foot">{`v${props.runtime.version} · ${PLUGIN_DISPLAY_NAME}`}</div>
+      </nav>
       {/* 桌面浮动窗口：右下角缩放手柄（移动端隐藏；data-action 为验收脚本契约） */}
       <div
         className="stm-panel-resize"

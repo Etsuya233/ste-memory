@@ -144,11 +144,11 @@ async function openSettingsTab(page) {
   });
   await waitUntil(
     page,
-    () => document.querySelector('#stm-panel .stm-tab[data-tab="settings"]') !== null,
+    () => document.querySelector('#stm-panel .stm-nav-item[data-tab="settings"]') !== null,
     "面板渲染（设置 Tab 按钮）",
   );
   await page.evaluate(() => {
-    document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
+    document.querySelector('#stm-panel .stm-nav-item[data-tab="settings"]')?.click();
   });
   await waitUntil(
     page,
@@ -160,7 +160,7 @@ async function openSettingsTab(page) {
 /** 面板内制造一次本地数据变更：切换第一张表的启停（指纹变化 → 触发镜像评估） */
 async function toggleFirstTable(page) {
   await page.evaluate(() => {
-    document.querySelector('#stm-panel .stm-tab[data-tab="tables"]')?.click();
+    document.querySelector('#stm-panel .stm-nav-item[data-tab="tables"]')?.click();
   });
   await waitUntil(
     page,
@@ -380,7 +380,7 @@ async function main() {
     //    注意：面板此刻停在表格 Tab（step 5/6 切走），先切回设置 Tab 再点击
     const diskMirrorBefore = readFileMirror(chatFileB);
     await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
+      document.querySelector('#stm-panel .stm-nav-item[data-tab="settings"]')?.click();
     });
     await waitUntil(
       page,

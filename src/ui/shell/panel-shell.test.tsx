@@ -475,6 +475,7 @@ describe("PanelShell（面板骨架投影）", () => {
     });
     const html = renderShell(new PanelModel(), runtime);
     expect(html).toContain("已从文件镜像恢复");
+    expect(html).toContain('class="stm-space-status"');
   });
 
   it("设置 Tab：数据备份组渲染导出/导入按钮与文件输入（验收脚本契约）", () => {
@@ -614,6 +615,60 @@ describe("PanelShell（面板骨架投影）", () => {
       expect(idx).toBeGreaterThan(lastIdx);
       lastIdx = idx;
     }
+  });
+
+  it("面板骨架：☰/状态点/抽屉导航契约（验收脚本选择器）", () => {
+    const model = new PanelModel();
+    const html = renderShell(model);
+    expect(html).toContain('data-action="open-nav"');
+    expect(html).toContain('aria-controls="stm-drawer"');
+    expect(html).toContain('class="stm-header-title"');
+    expect(html).toContain('class="stm-header-dot"');
+    expect(html).toContain('class="stm-drawer-scrim"');
+    expect(html).toContain('class="stm-drawer"');
+    expect(html).toContain('class="stm-drawer-head"');
+    expect(html).toContain('class="stm-space-title"');
+    expect(html).toContain('class="stm-drawer-foot"');
+    expect(html).toContain('role="tablist"');
+    // 六个导航项（表格/记录/任务/问答/日志/设置），默认选中表格
+    expect(html.match(/class="stm-nav-item/g)).toHaveLength(6);
+    expect(html).toContain('class="stm-nav-item stm-nav-item--active"');
+    // 抽屉收起：面板不带锁滚动类，☰ 的 aria-expanded=false
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("stm-panel--nav-open");
+  });
+
+  it("面板骨架：抽屉打开时面板锁滚动类就位", () => {
+    const model = new PanelModel();
+    model.open();
+    model.setNav(true);
+    const html = renderShell(model);
+    expect(html).toContain("stm-panel--nav-open");
+    expect(html).toContain('class="stm-drawer stm-drawer--open"');
+    expect(html).toContain("stm-drawer-scrim--open");
+    expect(html).toContain('aria-expanded="true"');
+  });
+
+  it("设置 Tab：外观组（四旋钮；默认折叠，展开后主题/强调色/字体/字号）", () => {
+    const model = new PanelModel();
+    model.setTab("settings");
+    const collapsed = renderShell(model);
+    expect(collapsed).toContain('data-group="appearance"');
+    expect(collapsed).toContain("外观");
+    expect(collapsed).toContain("深色 · 青绿 · 系统 · 标准");
+    expect(collapsed).not.toContain('data-action="set-appearance"');
+
+    const expanded = renderWithExpanded(model, ["appearance"]);
+    for (const key of ["theme", "accent", "font", "size"]) {
+      expect(expanded).toContain(`data-key="${key}"`);
+    }
+    // 主题 2 段 + 强调色 4 色板 + 字体 2 段 + 字号 3 段
+    expect(expanded.match(/data-action="set-appearance"/g)).toHaveLength(11);
+    expect(expanded).toContain('data-value="dark" aria-pressed="true"');
+    expect(expanded).toContain('data-value="teal" aria-label="青绿" aria-pressed="true"');
+    expect(expanded).toContain('data-value="system" aria-pressed="true"');
+    expect(expanded).toContain('data-value="normal" aria-pressed="true"');
+    expect(expanded).toContain("衬线");
   });
 
   it("设置 Tab：面板安全区组（四边输入 + 预设 + 折叠摘要）", () => {

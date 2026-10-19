@@ -154,7 +154,7 @@ async function openPanel(page) {
 
 async function clickTab(page, tab) {
   await page.evaluate((t) => {
-    document.querySelector(`#stm-panel .stm-tab[data-tab="${t}"]`)?.click();
+    document.querySelector(`#stm-panel .stm-nav-item[data-tab="${t}"]`)?.click();
   }, tab);
 }
 

@@ -44,6 +44,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     memoryViews: [],
     tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
     entryPlacement: "top",
+    appearance: { theme: "dark", accent: "teal", font: "system", size: "normal" },
     ...overrides,
   };
 }

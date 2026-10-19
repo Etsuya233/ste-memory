@@ -211,7 +211,7 @@ async function main() {
     const skeleton = await page.evaluate(() => {
       const panel = document.getElementById("stm-panel");
       const title = panel.querySelector(".stm-space-title")?.textContent ?? "";
-      const tabs = [...panel.querySelectorAll(".stm-tab")].map((t) => t.textContent.trim());
+      const tabs = [...panel.querySelectorAll(".stm-nav-item")].map((t) => t.textContent.trim());
       // React 条件渲染：DOM 中只存在激活区块，存在即激活
       const activeSection = panel.querySelector(".stm-tab-section")?.dataset.stmSection;
       return { title, tabs, activeSection, tableCards: panel.querySelectorAll(".stm-table-card").length };
@@ -329,7 +329,7 @@ async function main() {
 
     // 7. 记录/任务 Tab：记录视图（ticket 11 替换占位）；设置 Tab 内容与插件开关持久化
     await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="records"]')?.click();
+      document.querySelector('#stm-panel .stm-nav-item[data-tab="records"]')?.click();
     });
     await waitUntil(
       page,
@@ -354,7 +354,7 @@ async function main() {
     // 7b. 问答 Tab（ticket 20）：结构就位——模式切换（查询/填写）、输入行、空状态邀请；
     // 动态行为（真实 LLM 流式/提交）为手动验收，不进本脚本
     await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="query"]')?.click();
+      document.querySelector('#stm-panel .stm-nav-item[data-tab="query"]')?.click();
     });
     const queryTab = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="query"]');
@@ -402,7 +402,7 @@ async function main() {
     );
 
     await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
+      document.querySelector('#stm-panel .stm-nav-item[data-tab="settings"]')?.click();
     });
     // 展开常用分组（默认折叠，需先展开再校验内部控件）
     await page.evaluate(() => {

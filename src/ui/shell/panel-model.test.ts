@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { PANEL_TAB_LABELS, PANEL_TABS, PanelModel } from "./panel-model.ts";
 
 describe("PanelModel（面板开关与 Tab 状态机）", () => {
-  it("初始状态：关闭、表格 Tab", () => {
+  it("初始状态：关闭、抽屉收起、表格 Tab", () => {
     const model = new PanelModel();
-    expect(model.getState()).toEqual({ open: false, tab: "tables" });
+    expect(model.getState()).toEqual({ open: false, navOpen: false, tab: "tables" });
   });
 
   it("toggle 开 ↔ 关", () => {
@@ -46,7 +46,39 @@ describe("PanelModel（面板开关与 Tab 状态机）", () => {
     const model = new PanelModel();
     model.setTab("tasks");
     model.open();
-    expect(model.getState()).toEqual({ open: true, tab: "tasks" });
+    expect(model.getState()).toEqual({ open: true, navOpen: false, tab: "tasks" });
+  });
+
+  it("抽屉：toggleNav 切换、setNav 重复设置不通知、closeNav 只收抽屉", () => {
+    const model = new PanelModel();
+    model.open();
+    const listener = vi.fn();
+    model.onStateChange(listener);
+
+    model.toggleNav();
+    expect(model.getState().navOpen).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    model.setNav(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    model.closeNav();
+    expect(model.getState().navOpen).toBe(false);
+    expect(model.getState().open).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("收起面板时同时收起抽屉；toggle 关闭同理", () => {
+    const model = new PanelModel();
+    model.open();
+    model.setNav(true);
+    model.close();
+    expect(model.getState()).toEqual({ open: false, navOpen: false, tab: "tables" });
+
+    model.open();
+    model.setNav(true);
+    model.toggle();
+    expect(model.getState()).toEqual({ open: false, navOpen: false, tab: "tables" });
   });
 
   it("订阅/退订", () => {

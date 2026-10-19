@@ -143,6 +143,22 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({ entryPlacement: 42 }).entryPlacement).toBe("top");
   });
 
+  it("外观（appearance）：缺失补默认深色/青绿/系统/标准；合法值保留；未知值逐字段回退", () => {
+    expect(mergeSettings({}).appearance).toEqual(DEFAULT_SETTINGS.appearance);
+    expect(mergeSettings({ appearance: "oops" }).appearance).toEqual(DEFAULT_SETTINGS.appearance);
+    expect(
+      mergeSettings({
+        appearance: { theme: "light", accent: "indigo", font: "serif", size: "compact" },
+      }).appearance,
+    ).toEqual({ theme: "light", accent: "indigo", font: "serif", size: "compact" });
+    // 未知值只回退所在字段，其余字段保留
+    expect(
+      mergeSettings({
+        appearance: { theme: "solarized", accent: "teal", font: "comic", size: "xl" },
+      }).appearance,
+    ).toEqual({ theme: "dark", accent: "teal", font: "system", size: "normal" });
+  });
+
   it("未知键被丢弃（读取只取已知形状）", () => {
     const merged = mergeSettings({ enabled: true, evil: "x", r2: { hacker: 1 } });
     expect("evil" in merged).toBe(false);
@@ -180,6 +196,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       cleaningRuleLists: [],
       tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
       entryPlacement: "wand",
+      appearance: { theme: "light", accent: "indigo", font: "serif", size: "large" },
       memoryViews: [
         {
           name: "未完成伏笔",

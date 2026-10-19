@@ -41,6 +41,36 @@ export interface ChatMirrorSettings {
 /** 面板入口位置（面板入口：呼出/收起记忆面板的按钮所在的 ST 表面） */
 export type EntryPlacement = "top" | "wand" | "both";
 
+/** 外观旋钮值域（spec 墨灰主题：数组同时是设置页选项的展示顺序） */
+export const APPEARANCE_THEMES = ["dark", "light"] as const;
+export const APPEARANCE_ACCENTS = ["blue", "neutral", "indigo", "teal"] as const;
+export const APPEARANCE_FONTS = ["system", "serif"] as const;
+export const APPEARANCE_SIZES = ["compact", "normal", "large"] as const;
+
+export type AppearanceTheme = (typeof APPEARANCE_THEMES)[number];
+export type AppearanceAccent = (typeof APPEARANCE_ACCENTS)[number];
+export type AppearanceFont = (typeof APPEARANCE_FONTS)[number];
+export type AppearanceSize = (typeof APPEARANCE_SIZES)[number];
+
+/**
+ * 外观设置（spec 墨灰主题）：面板的主题/强调色/字体/字号偏好。
+ * 属插件设置（全局，不随对话切换、不参与备份），仅影响 #stm-panel 内的视觉。
+ */
+export interface AppearanceSettings {
+  readonly theme: AppearanceTheme;
+  readonly accent: AppearanceAccent;
+  readonly font: AppearanceFont;
+  readonly size: AppearanceSize;
+}
+
+/** 外观默认值：深色 · 青绿 · 系统字体 · 标准字号 */
+export const DEFAULT_APPEARANCE: AppearanceSettings = {
+  theme: "dark",
+  accent: "teal",
+  font: "system",
+  size: "normal",
+};
+
 export interface PluginSettings {
   readonly autoFill: AutoFillSettings;
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
@@ -68,6 +98,8 @@ export interface PluginSettings {
   readonly tablePresets: TablePresetSettings;
   /** 面板入口位置（面板入口）：顶部导航栏 / 底部魔法棒 / 两者；默认顶部（老用户零感知） */
   readonly entryPlacement: EntryPlacement;
+  /** 外观四旋钮（spec 墨灰主题）：面板视觉偏好，默认深色/青绿/系统/标准 */
+  readonly appearance: AppearanceSettings;
 }
 
 /** extension_settings 命名空间键（ST 全局设置对象上的插件私有键，不与其他扩展冲突） */
@@ -87,6 +119,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   memoryViews: [],
   tablePresets: DEFAULT_TABLE_PRESET_SETTINGS,
   entryPlacement: "top",
+  appearance: DEFAULT_APPEARANCE,
 };
 
 /** 设置存储端口：read 每次重取（宿主读 ST 全局对象，保证拿到最新持久化值） */
@@ -129,11 +162,29 @@ export function mergeSettings(raw: unknown): PluginSettings {
     entryPlacement: isEntryPlacement(source.entryPlacement)
       ? source.entryPlacement
       : DEFAULT_SETTINGS.entryPlacement,
+    appearance: mergeAppearance(source.appearance),
   };
 }
 
 function isEntryPlacement(value: unknown): value is EntryPlacement {
   return value === "top" || value === "wand" || value === "both";
+}
+
+/** 外观四旋钮逐字段合并：缺失或未知值退回默认（旧数据零感知）。 */
+export function mergeAppearance(raw: unknown): AppearanceSettings {
+  const source = isRecord(raw) ? raw : {};
+  return {
+    theme: pickOne(source.theme, APPEARANCE_THEMES, DEFAULT_APPEARANCE.theme),
+    accent: pickOne(source.accent, APPEARANCE_ACCENTS, DEFAULT_APPEARANCE.accent),
+    font: pickOne(source.font, APPEARANCE_FONTS, DEFAULT_APPEARANCE.font),
+    size: pickOne(source.size, APPEARANCE_SIZES, DEFAULT_APPEARANCE.size),
+  };
+}
+
+function pickOne<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : fallback;
 }
 
 /**

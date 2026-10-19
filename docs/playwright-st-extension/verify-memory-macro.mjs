@@ -275,7 +275,7 @@ async function main() {
       "面板打开",
     );
     await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
+      document.querySelector('#stm-panel .stm-nav-item[data-tab="settings"]')?.click();
     });
     await waitUntil(
       page,

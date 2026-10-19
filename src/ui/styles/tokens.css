@@ -1,30 +1,171 @@
-/* ---------- 设计令牌与基础重置（面板整体色板/字体/尺寸变量） ---------- */
+/* ---------- 设计令牌与基础重置（墨灰主题 v2：色阶 → 语义 → 旋钮三层） ---------- */
 
 /*
- * STE Memory 设计令牌 —— 全插件唯一的色板/字体定义处（spec「记忆账本」风格契约）。
- * 后续调色、浅色模式、主题设置都只改这一块；组件类名前缀 stm- 隔离，不依赖 ST 主题变量。
+ * STE Memory 设计令牌 —— 全插件唯一的色值/字体/尺寸定义处。
+ *
+ * 三层结构（原型 .scratch/ui-redesign/prototype.html 为准）：
+ *   色阶层（本文件固定值） → 语义令牌（组件唯一入口，--stm-*） → 旋钮层
+ *   （#stm-panel 上的 data-theme / data-accent / data-font / data-size）。
+ *
+ * 深色是默认（:root），面板外的顶部入口按钮不受旋钮影响；
+ * 主题/强调色/字体/字号覆盖一律挂在 #stm-panel[...] 上。
+ * 旧令牌名保留为别名、值指向新语义，其余样式文件无需跟随改名。
  */
+
 :root {
-  --stm-ink-bg: #171a20;
-  --stm-surface: #21252e;
-  --stm-border: #2c313d;
-  --stm-ink: #e7eaf0;
-  --stm-ink-secondary: #98a0b2;
-  --stm-accent: #6fa894;
-  --stm-success: #7fb08a;
-  --stm-danger: #c96a6a;
-  --stm-warning: #d9a25f;
+  color-scheme: dark;
 
-  /* 半透明底纹变体（横幅底色）：透明度由令牌集中定义，调色只改令牌区块 */
-  --stm-success-dim: rgba(127, 176, 138, 0.14);
-  --stm-danger-dim: rgba(201, 106, 106, 0.14);
-  --stm-warning-dim: rgba(217, 162, 95, 0.14);
+  --stm-bg: #09090b;
+  --stm-surface: #121215;
+  --stm-surface-2: #1a1a1f;
+  --stm-surface-3: #27272a;
+  --stm-raised: #0e0e11;
+  --stm-float-bg: #1a1a1f;
+  --stm-border: #24242a;
 
-  /* 正文系统 CJK 栈；楼层号/时间/计数用 --stm-font-mono 等宽数字 */
+  --stm-fg: #fafafa;
+  --stm-fg-2: #a1a1aa;
+  --stm-fg-3: #6f6f78;
+
+  --stm-hover: rgba(255, 255, 255, 0.06);
+  --stm-pressed: rgba(255, 255, 255, 0.1);
+  --stm-input-bg: rgba(255, 255, 255, 0.04);
+  --stm-switch-track: #2e2e34;
+  --stm-scrim: rgba(0, 0, 0, 0.55);
+  --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.55);
+
+  --stm-success: #4ade80;
+  --stm-warning: #fbbf24;
+  --stm-danger: #f87171;
+  --stm-danger-fill: #dc2626;
+
+  --stm-radius: 10px;
+  --stm-radius-card: 14px;
+  --stm-control-h: 44px;
+
   --stm-font:
     system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     "Noto Sans CJK SC", sans-serif;
-  --stm-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+  --stm-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+
+  /* 字号：全部走缩放因子，控件高度不受影响 */
+  --stm-font-scale: 1;
+  --stm-fs-xs: calc(12px * var(--stm-font-scale));
+  --stm-fs-sm: calc(13px * var(--stm-font-scale));
+  --stm-fs-md: calc(15px * var(--stm-font-scale));
+  --stm-fs-lg: calc(17px * var(--stm-font-scale));
+
+  /* 强调色（默认青绿）：面板外入口按钮的固定色；面板内由 data-accent 覆盖 */
+  --stm-accent: #0d9488;
+  --stm-accent-text: #5eead4;
+  --stm-accent-fg: #ffffff;
+  --stm-accent-tint: color-mix(in srgb, var(--stm-accent) 14%, transparent);
+  --stm-accent-soft: color-mix(in srgb, var(--stm-accent) 32%, transparent);
+  --stm-ring: color-mix(in srgb, var(--stm-accent) 30%, transparent);
+
+  /* 旧令牌兼容别名：名字保留、值指向新语义（横幅底纹随语义色走） */
+  --stm-ink: var(--stm-fg);
+  --stm-ink-secondary: var(--stm-fg-2);
+  --stm-ink-bg: var(--stm-surface);
+  --stm-font-mono: var(--stm-mono);
+  --stm-code-bg: rgba(255, 255, 255, 0.06);
+  --stm-accent-2: var(--stm-accent);
+  --stm-success-dim: color-mix(in srgb, var(--stm-success) 14%, transparent);
+  --stm-warning-dim: color-mix(in srgb, var(--stm-warning) 14%, transparent);
+  --stm-danger-dim: color-mix(in srgb, var(--stm-danger) 14%, transparent);
+}
+
+/* ---------- 旋钮 1：主题（深 / 浅） ---------- */
+#stm-panel[data-theme="light"] {
+  color-scheme: light;
+
+  --stm-bg: #fafafa;
+  --stm-surface: #ffffff;
+  --stm-surface-2: #f4f4f5;
+  --stm-surface-3: #e4e4e7;
+  --stm-raised: #ffffff;
+  --stm-float-bg: #ffffff;
+  --stm-border: #e4e4e7;
+
+  --stm-fg: #18181b;
+  --stm-fg-2: #71717a;
+  --stm-fg-3: #a1a1aa;
+
+  --stm-hover: rgba(0, 0, 0, 0.04);
+  --stm-pressed: rgba(0, 0, 0, 0.07);
+  --stm-input-bg: rgba(0, 0, 0, 0.03);
+  --stm-switch-track: #d4d4d8;
+  --stm-scrim: rgba(0, 0, 0, 0.35);
+  --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.18);
+
+  --stm-success: #16a34a;
+  --stm-warning: #d97706;
+  --stm-danger: #dc2626;
+  --stm-code-bg: rgba(0, 0, 0, 0.05);
+
+  --stm-accent: var(--ac-fill-light, #0d9488);
+  --stm-accent-text: var(--ac-text-light, #0f766e);
+  --stm-accent-fg: var(--ac-fg-light, #ffffff);
+}
+
+/* ---------- 旋钮 3：字体（衬线 = 宋体风） ---------- */
+#stm-panel[data-font="serif"] {
+  --stm-font:
+    "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman",
+    serif;
+}
+
+/* ---------- 旋钮 4：字号档（只缩文字，不缩控件） ---------- */
+#stm-panel[data-size="compact"] {
+  --stm-font-scale: 0.94;
+}
+
+#stm-panel[data-size="large"] {
+  --stm-font-scale: 1.08;
+}
+
+/* ---------- 旋钮 2：强调色预置（每色四值 fill/text/fg × 深/浅，默认 teal） ---------- */
+#stm-panel[data-accent="blue"] {
+  --ac-fill-dark: #0a84ff;
+  --ac-text-dark: #6cb0ff;
+  --ac-fg-dark: #ffffff;
+  --ac-fill-light: #2563eb;
+  --ac-text-light: #1d4ed8;
+  --ac-fg-light: #ffffff;
+}
+
+#stm-panel[data-accent="indigo"] {
+  --ac-fill-dark: #6366f1;
+  --ac-text-dark: #a5b4fc;
+  --ac-fg-dark: #ffffff;
+  --ac-fill-light: #4f46e5;
+  --ac-text-light: #4338ca;
+  --ac-fg-light: #ffffff;
+}
+
+#stm-panel[data-accent="teal"] {
+  --ac-fill-dark: #0d9488;
+  --ac-text-dark: #5eead4;
+  --ac-fg-dark: #ffffff;
+  --ac-fill-light: #0d9488;
+  --ac-text-light: #0f766e;
+  --ac-fg-light: #ffffff;
+}
+
+#stm-panel[data-accent="neutral"] {
+  --ac-fill-dark: #fafafa;
+  --ac-text-dark: #fafafa;
+  --ac-fg-dark: #09090b;
+  --ac-fill-light: #18181b;
+  --ac-text-light: #18181b;
+  --ac-fg-light: #ffffff;
+}
+
+/* 预置 → 面板语义令牌映射（深色取 *-dark；浅色主题块里取 *-light 覆盖） */
+#stm-panel {
+  --stm-accent: var(--ac-fill-dark, #0d9488);
+  --stm-accent-text: var(--ac-text-dark, #5eead4);
+  --stm-accent-fg: var(--ac-fg-dark, #ffffff);
 }
 
 /* 楼层跳转高亮（证据楼层 chip 的底层反馈）：ST 消息块 `.mes[mesid="N"]` 临时描边。

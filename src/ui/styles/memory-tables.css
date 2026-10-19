@@ -8,11 +8,12 @@
 .stm-button--primary {
   background: var(--stm-accent);
   border-color: var(--stm-accent);
-  color: var(--stm-ink-bg);
+  color: var(--stm-accent-fg);
   font-weight: 600;
 }
 
 .stm-button--primary:hover {
+  background: var(--stm-accent);
   border-color: var(--stm-accent);
   filter: brightness(1.08);
 }
@@ -305,14 +306,20 @@
   width: 100%;
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-input-bg);
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
-  font-size: 14px;
+  border-radius: var(--stm-radius);
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-md);
   font-family: var(--stm-font);
   resize: vertical;
   line-height: 1.5;
+}
+
+.stm-textarea:focus {
+  outline: none;
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
 }
 
 .stm-textarea:disabled {
@@ -322,15 +329,21 @@
 .stm-select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--stm-control-h);
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-input-bg);
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
-  font-size: 14px;
+  border-radius: var(--stm-radius);
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-md);
   font-family: var(--stm-font);
+}
+
+.stm-select:focus {
+  outline: none;
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
 }
 
 .stm-select:disabled {

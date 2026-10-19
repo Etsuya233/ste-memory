@@ -15,7 +15,11 @@ import {
 import { downloadTextFile, saveTextFile } from "../../infrastructure/browser/download.ts";
 import type { MemorySpaceId, MemoryTableId } from "../../features/memory/index.ts";
 import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
-import type { EntryPlacement, PluginSettings } from "../../features/settings/plugin-settings.ts";
+import type {
+  AppearanceSettings,
+  EntryPlacement,
+  PluginSettings,
+} from "../../features/settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import { executeSpaceImport, planSpaceImport } from "../../features/chat-binding/space-import.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
@@ -62,6 +66,17 @@ import {
   reportWarning,
 } from "../shell/ui-helpers.tsx";
 import { safeLocalStorage } from "../shell/panel-window.ts";
+import {
+  APPEARANCE_ACCENT_LABELS,
+  APPEARANCE_ACCENT_OPTIONS,
+  APPEARANCE_FONT_LABELS,
+  APPEARANCE_FONT_OPTIONS,
+  APPEARANCE_SIZE_LABELS,
+  APPEARANCE_SIZE_OPTIONS,
+  APPEARANCE_THEME_LABELS,
+  APPEARANCE_THEME_OPTIONS,
+  appearanceSummary,
+} from "../shell/appearance-model.ts";
 import { mirrorStatusSummary, runtimeStatusLabel } from "../shell/space-info.ts";
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import { AgentConnectionManager } from "./agent-connection-manager.tsx";
@@ -511,6 +526,11 @@ export function SettingsTab(props: {
     props.entryMount?.replan();
   }
 
+  /** 改外观旋钮：整组写插件设置；PanelShell 把四值写到 #stm-panel 的 data-* 即时生效 */
+  function updateAppearance(change: Partial<AppearanceSettings>): void {
+    saveSettings({ ...props.settings, appearance: { ...props.settings.appearance, ...change } });
+  }
+
   return (
     <>
       {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
@@ -530,6 +550,112 @@ export function SettingsTab(props: {
             <span className="stm-switch-track" aria-hidden="true"></span>
           </label>
         </div>
+      </div>
+
+      {/* 外观：主题/强调色/字体/字号四个旋钮（spec 墨灰主题；紧跟插件总开关） */}
+      <div className="stm-setting-group stm-setting-group--collapsible" data-group="appearance">
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="appearance"
+          aria-expanded={isSettingsGroupExpanded(expandedGroups, "appearance")}
+          onClick={() => toggleGroup("appearance")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title stm-setting-group-title--collapsible">外观</div>
+            <div className="stm-setting-group-summary">
+              {appearanceSummary(props.settings.appearance)}
+            </div>
+          </div>
+          <i
+            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "appearance") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isSettingsGroupExpanded(expandedGroups, "appearance") && (
+          <div className="stm-setting-group-body">
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">主题</div>
+              <div className="stm-segmented" role="group" aria-label="主题">
+                {APPEARANCE_THEME_OPTIONS.map((theme) => (
+                  <button
+                    key={theme}
+                    type="button"
+                    data-action="set-appearance"
+                    data-key="theme"
+                    data-value={theme}
+                    aria-pressed={props.settings.appearance.theme === theme}
+                    onClick={() => updateAppearance({ theme })}
+                  >
+                    {APPEARANCE_THEME_LABELS[theme]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">强调色</div>
+              <div className="stm-accent-swatches" role="group" aria-label="强调色">
+                {APPEARANCE_ACCENT_OPTIONS.map((accent) => (
+                  <button
+                    key={accent}
+                    type="button"
+                    className={
+                      props.settings.appearance.accent === accent
+                        ? "stm-accent-swatch stm-accent-swatch--active"
+                        : "stm-accent-swatch"
+                    }
+                    data-action="set-appearance"
+                    data-key="accent"
+                    data-value={accent}
+                    aria-label={APPEARANCE_ACCENT_LABELS[accent]}
+                    aria-pressed={props.settings.appearance.accent === accent}
+                    onClick={() => updateAppearance({ accent })}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-label">
+                <div className="stm-setting-name">字体</div>
+                <div className="stm-setting-hint">系统 / 衬线（宋体风）</div>
+              </div>
+              <div className="stm-segmented" role="group" aria-label="字体">
+                {APPEARANCE_FONT_OPTIONS.map((font) => (
+                  <button
+                    key={font}
+                    type="button"
+                    data-action="set-appearance"
+                    data-key="font"
+                    data-value={font}
+                    aria-pressed={props.settings.appearance.font === font}
+                    onClick={() => updateAppearance({ font })}
+                  >
+                    {APPEARANCE_FONT_LABELS[font]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="stm-setting-row">
+              <div className="stm-setting-name">字号</div>
+              <div className="stm-segmented" role="group" aria-label="字号">
+                {APPEARANCE_SIZE_OPTIONS.map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    data-action="set-appearance"
+                    data-key="size"
+                    data-value={size}
+                    aria-pressed={props.settings.appearance.size === size}
+                    onClick={() => updateAppearance({ size })}
+                  >
+                    {APPEARANCE_SIZE_LABELS[size]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="stm-setting-group stm-setting-group--collapsible" data-group="auto-fill">
