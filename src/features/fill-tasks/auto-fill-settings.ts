@@ -31,6 +31,7 @@ export interface StagedFillTask {
 }
 
 export interface AutoFillChatState {
+  /** 旧版本状态，仅用于首次转入统一任务队列。 */
   readonly stagedTasks?: readonly StagedFillTask[];
   readonly inFlightTask?: StagedFillTask;
   readonly lastScheduled?: {

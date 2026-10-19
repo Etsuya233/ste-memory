@@ -99,7 +99,6 @@ export function AutoFillControls(props: {
 }) {
   const [, update] = useState(0);
   const [progress, setProgress] = useState("");
-  const [cancelling, setCancelling] = useState(false);
   useEffect(() => {
     let disposed = false;
     const refresh = async () => {
@@ -123,7 +122,6 @@ export function AutoFillControls(props: {
     };
   }, [props.tasks, props.spaceId]);
   const state = props.service.read();
-  const stagedTasks = state.stagedTasks ?? [];
   return (
     <div className="stm-task-card" data-stm-section="auto-fill">
       <div className="stm-task-card-title">自动填表</div>
@@ -145,50 +143,6 @@ export function AutoFillControls(props: {
       {progress && (
         <div className="stm-task-hint" role="status">
           {progress}
-        </div>
-      )}
-      {stagedTasks.length > 0 && (
-        <div className="stm-task-hint" data-stm-field="staged-fill-tasks">
-          <div>已暂存 {stagedTasks.length} 个任务，按顺序执行</div>
-          {stagedTasks.map((task) => (
-            <div key={`${task.memorySpaceId}:${task.from}:${task.to}`}>
-              楼层 #{task.from}–#{task.to} · 每批 {task.settings.blockSize} 层
-            </div>
-          ))}
-        </div>
-      )}
-      {state.pausedReason && (
-        <div role="status" className="stm-task-hint">
-          已暂停：{state.pausedReason}{" "}
-          <button
-            type="button"
-            className="stm-button"
-            data-action="resume-auto-fill"
-            onClick={() => {
-              void props.service
-                .resume()
-                .then(() => update((value) => value + 1))
-                .catch(reportError);
-            }}
-          >
-            继续填表
-          </button>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="cancel-paused-fill-task"
-            disabled={cancelling}
-            onClick={() => {
-              setCancelling(true);
-              void props.service
-                .cancelPausedTask()
-                .then(() => update((value) => value + 1))
-                .catch(reportError)
-                .finally(() => setCancelling(false));
-            }}
-          >
-            取消本次任务
-          </button>
         </div>
       )}
     </div>

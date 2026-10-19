@@ -106,6 +106,7 @@ export interface PanelRuntime {
     | "cancel"
     | "retry"
     | "activeTask"
+    | "pendingTasks"
     | "recentTasks"
     | "ledgerStatuses"
     | "markFloorStatuses"

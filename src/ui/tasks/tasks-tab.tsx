@@ -58,6 +58,7 @@ export interface TasksTabRuntime {
     | "cancel"
     | "retry"
     | "activeTask"
+    | "pendingTasks"
     | "recentTasks"
     | "ledgerStatuses"
     | "markFloorStatuses"
@@ -105,18 +106,20 @@ export function TasksTab(props: {
     }
     try {
       const chatLength = props.runtime.st.chatMessageCount();
-      const [ledger, activeTask, recent] = await Promise.all([
+      const [ledger, activeTask, recent, pendingTasks] = await Promise.all([
         chatLength > 0
           ? props.runtime.tasks.ledgerStatuses(spaceId, 0, chatLength - 1)
           : Promise.resolve<readonly FloorLedgerEntry[]>([]),
         props.runtime.tasks.activeTask(spaceId),
         props.runtime.tasks.recentTasks(spaceId, TASK_HISTORY_LIMIT),
+        props.runtime.tasks.pendingTasks(spaceId),
       ]);
       const next = buildTasksTabViewModel({
         chatLength,
         ledger,
         activeTask,
         historyTasks: recent,
+        pendingTasks,
         cleaning: {
           selectedListId: props.runtime.cleaning.readSelection(),
           lists: props.settings.cleaningRuleLists,
@@ -259,7 +262,7 @@ export function TasksTab(props: {
         blockSize: batchValidation.value,
       });
       reportSuccess(
-        `已触发填表任务（楼层 ${rangeValidation.from}–${rangeValidation.to}，每批 ${batchValidation.value} 层）`,
+        `已加入填表队列（楼层 ${rangeValidation.from}–${rangeValidation.to}，每批 ${batchValidation.value} 层）`,
       );
       setReloadKey((key) => key + 1);
     } catch (error) {
@@ -272,9 +275,7 @@ export function TasksTab(props: {
     const runId = view?.activeTaskRunId;
     if (!runId) return;
     try {
-      const task = await props.runtime.tasks.activeTask(currentSpaceId);
-      if (task?.automatic && props.runtime.autoFill) await props.runtime.autoFill.cancel();
-      else await props.runtime.tasks.cancel(currentSpaceId, runId);
+      await props.runtime.tasks.cancel(currentSpaceId, runId);
       reportSuccess("已取消填表任务");
       setReloadKey((key) => key + 1);
     } catch (error) {
@@ -319,7 +320,7 @@ export function TasksTab(props: {
         memorySpaceId: currentSpaceId,
         text: initText,
       });
-      reportSuccess("已触发初始化填表");
+      reportSuccess("已加入初始化填表队列");
       setReloadKey((key) => key + 1);
     } catch (error) {
       reportError(error);
@@ -329,18 +330,8 @@ export function TasksTab(props: {
   /** 失败/中断任务重试：按原楼层范围重新提交为新任务（原任务保留在历史） */
   async function retryTask(runId: string): Promise<void> {
     try {
-      const task = (await props.runtime.tasks.recentTasks(currentSpaceId, TASK_HISTORY_LIMIT)).find(
-        (item) => item.runId === runId,
-      );
-      if (task?.automatic && props.runtime.autoFill) {
-        const submitted = await props.runtime.autoFill.retry(task);
-        if (!submitted) {
-          reportSuccess("此任务已无需重试");
-          setReloadKey((key) => key + 1);
-          return;
-        }
-      } else await props.runtime.tasks.retry(currentSpaceId, runId);
-      reportSuccess("已重新触发填表任务");
+      await props.runtime.tasks.retry(currentSpaceId, runId);
+      reportSuccess("已重新加入填表队列");
       setReloadKey((key) => key + 1);
     } catch (error) {
       reportError(error);
@@ -424,80 +415,126 @@ export function TasksTab(props: {
             </button>
           </div>
         </div>
-      ) : (
-        <div className="stm-task-card" data-stm-section="trigger">
-          <div className="stm-task-card-title">手动触发填表</div>
-          <div className="stm-task-hint" data-stm-field="cleaning-hint">
-            {view.cleaningHint}（在设置中配置）
-          </div>
-          {view.unprocessedHint ? (
-            <div className="stm-task-hint" data-stm-field="unprocessed-hint">
-              {view.unprocessedHint}
+      ) : null}
+      <div className="stm-task-card" data-stm-section="queue">
+        <div className="stm-task-card-title">填表队列</div>
+        {view.pendingTasks.length === 0 ? (
+          <div className="stm-task-hint">队列空闲</div>
+        ) : (
+          view.pendingTasks.map((task) => (
+            <div key={task.runId} className="stm-task-card-detail">
+              {task.automatic ? "自动" : "手动"} ·{" "}
+              {task.kind === "init" ? "初始化填表" : `楼层 #${task.from}–#${task.to}`} ·{" "}
+              {task.blocksQueue ? "已暂停" : task.status === "running" ? "运行中" : "等待中"}
+              {task.blocksQueue && (
+                <span>：{task.errorMessage ?? "对话切换或页面刷新后已中断"}</span>
+              )}
+              <div className="stm-task-actions">
+                {task.blocksQueue && (
+                  <button
+                    type="button"
+                    className="stm-button"
+                    onClick={() => {
+                      void props.runtime.tasks
+                        .retry(currentSpaceId, task.runId)
+                        .then(() => setReloadKey((key) => key + 1))
+                        .catch(reportError);
+                    }}
+                  >
+                    继续填表
+                  </button>
+                )}
+                {task.status !== "running" && (
+                  <button
+                    type="button"
+                    className="stm-button"
+                    onClick={() => {
+                      void props.runtime.tasks
+                        .cancel(currentSpaceId, task.runId)
+                        .then(() => setReloadKey((key) => key + 1))
+                        .catch(reportError);
+                    }}
+                  >
+                    {task.blocksQueue ? "取消本次任务" : "取消等待"}
+                  </button>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="stm-task-hint">全部楼层已处理；重新触发可覆盖旧数据</div>
-          )}
-          <div className="stm-task-form">
-            <label className="stm-task-field">
-              <span>楼层</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                data-stm-field="range-from"
-                value={fromText}
-                placeholder="起始（从 0 开始）"
-                onChange={(event) => {
-                  setFromText(event.target.value);
-                  setInputError(null);
-                }}
-              />
-            </label>
-            <span className="stm-task-range-sep">–</span>
-            <label className="stm-task-field">
-              <input
-                type="text"
-                inputMode="numeric"
-                data-stm-field="range-to"
-                value={toText}
-                placeholder="结束"
-                onChange={(event) => {
-                  setToText(event.target.value);
-                  setInputError(null);
-                }}
-              />
-            </label>
-            <label className="stm-task-field stm-task-field--batch">
-              <span>每批</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                data-stm-field="batch-size"
-                value={blockSizeText}
-                placeholder={`默认 ${DEFAULT_FILL_TASK_BLOCK_SIZE}`}
-                title="每批处理的楼层数（一次 Agent 调用 + 一个原子批次）"
-                onChange={(event) => {
-                  setBlockSizeText(event.target.value);
-                  setInputError(null);
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className="stm-button stm-button--primary"
-              data-action="trigger-fill-task"
-              disabled={!view.canTrigger}
-              onClick={() => void trigger()}
-            >
-              触发填表
-            </button>
-          </div>
-          {inputError ? (
-            <div className="stm-task-error" data-stm-field="range-error">
-              {inputError}
-            </div>
-          ) : null}
+          ))
+        )}
+      </div>
+      <div className="stm-task-card" data-stm-section="trigger">
+        <div className="stm-task-card-title">手动触发填表</div>
+        <div className="stm-task-hint" data-stm-field="cleaning-hint">
+          {view.cleaningHint}（在设置中配置）
         </div>
-      )}
+        {view.unprocessedHint ? (
+          <div className="stm-task-hint" data-stm-field="unprocessed-hint">
+            {view.unprocessedHint}
+          </div>
+        ) : (
+          <div className="stm-task-hint">全部楼层已处理；重新触发可覆盖旧数据</div>
+        )}
+        <div className="stm-task-form">
+          <label className="stm-task-field">
+            <span>楼层</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              data-stm-field="range-from"
+              value={fromText}
+              placeholder="起始（从 0 开始）"
+              onChange={(event) => {
+                setFromText(event.target.value);
+                setInputError(null);
+              }}
+            />
+          </label>
+          <span className="stm-task-range-sep">–</span>
+          <label className="stm-task-field">
+            <input
+              type="text"
+              inputMode="numeric"
+              data-stm-field="range-to"
+              value={toText}
+              placeholder="结束"
+              onChange={(event) => {
+                setToText(event.target.value);
+                setInputError(null);
+              }}
+            />
+          </label>
+          <label className="stm-task-field stm-task-field--batch">
+            <span>每批</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              data-stm-field="batch-size"
+              value={blockSizeText}
+              placeholder={`默认 ${DEFAULT_FILL_TASK_BLOCK_SIZE}`}
+              title="每批处理的楼层数（一次 Agent 调用 + 一个原子批次）"
+              onChange={(event) => {
+                setBlockSizeText(event.target.value);
+                setInputError(null);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="stm-button stm-button--primary"
+            data-action="trigger-fill-task"
+            disabled={!view.canTrigger}
+            onClick={() => void trigger()}
+          >
+            加入队列
+          </button>
+        </div>
+        {inputError ? (
+          <div className="stm-task-error" data-stm-field="range-error">
+            {inputError}
+          </div>
+        ) : null}
+      </div>
       <div className="stm-task-card" data-stm-section="mark-ledger">
         <div
           className="stm-task-card-title stm-task-card-title--foldable"
@@ -563,7 +600,7 @@ export function TasksTab(props: {
                 type="button"
                 className="stm-button"
                 data-action="mark-floor-statuses"
-                disabled={!view.canTrigger}
+                disabled={view.pendingTasks.length > 0}
                 onClick={() => void markFloorStatus()}
               >
                 标记

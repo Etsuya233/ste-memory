@@ -335,10 +335,7 @@ export async function startSteMemory(
     },
   });
   const presetApply = new TablePresetApplyService({
-    cancelActiveTask: async (id) => {
-      const active = await tasks.activeTask(id);
-      if (active) await tasks.cancel(id, active.runId);
-    },
+    cancelActiveTask: (id) => tasks.cancelAll(id),
     rebuild: spaceStructureRebuild,
     defaultPreset: () =>
       resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET),
@@ -390,15 +387,12 @@ export async function startSteMemory(
   // 表格预设的应用流程（TablePresetApplyService）。
   const spaceMaintenance = new SpaceMaintenanceService({
     clearRecords: (id) => spaces.clearRecords(id),
-    cancelActiveTask: async (id) => {
-      const active = await tasks.activeTask(id);
-      if (active) await tasks.cancel(id, active.runId);
-    },
+    cancelActiveTask: (id) => tasks.cancelAll(id),
     clearTasks: (id) => fillTaskRepository.clear(id),
     clearLedger: (id) => floorLedgerRepository.clear(id),
   });
 
-  // 页面/浏览器重开：所有非终态填表任务标记 interrupted，不自动重放（关页语义）
+  // 页面/浏览器重开：运行项标记 interrupted 并暂停队列，等待项保留
   await tasks.markInterruptedOnStartup();
   // 镜像同步启动：本地变更在轮询中回填进对话文件（文件自洽）
   await mirror.start();

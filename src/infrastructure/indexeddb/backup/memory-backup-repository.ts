@@ -30,7 +30,9 @@ import { toDomainEvidence, toEvidenceRow } from "../memory/evidence-conversion.t
 
 /** 复制出的任务没有原来的执行循环，活动状态必须结束，历史字段仍保留。 */
 function taskWithoutExecutor(task: FillTask): FillTask {
-  return isFillTaskTerminal(task.status) ? task : { ...task, status: "interrupted" };
+  return isFillTaskTerminal(task.status)
+    ? task
+    : { ...task, status: "interrupted", blocksQueue: true };
 }
 
 /**

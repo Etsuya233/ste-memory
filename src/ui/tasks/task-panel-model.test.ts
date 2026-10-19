@@ -310,13 +310,13 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
     });
   });
 
-  it("有活动任务：不可触发，展示运行中状态与范围，覆盖视图含任务中类别", () => {
+  it("有活动任务：可继续入队，展示运行中状态与范围，覆盖视图含任务中类别", () => {
     const view = buildTasksTabViewModel({
       ...base,
       activeTask: task({ from: 2, to: 7, processedCount: 3, totalCount: 6 }),
     });
     expect(view).toMatchObject({
-      canTrigger: false,
+      canTrigger: true,
       hasActiveTask: true,
       activeTaskRunId: "run-1",
       activeTaskLabel: "运行中",
@@ -465,8 +465,8 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       activeTaskLabel: "运行中",
       activeTaskDetail: "正在初始化…",
       activeRange: "初始化填表",
-      canTrigger: false,
-      canTriggerInit: false,
+      canTrigger: true,
+      canTriggerInit: true,
     });
   });
 
@@ -519,4 +519,27 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       progressText: "已处理 4/10 层",
     });
   });
+});
+
+it("等待队列的楼层纳入任务中覆盖，初始化任务不占用楼层", () => {
+  const queued = task({ runId: "queued", status: "queued", from: 2, to: 4 });
+  const init: FillTaskView = {
+    ...task(),
+    runId: "init",
+    kind: "init",
+    initText: "设定",
+    from: 0,
+    to: 0,
+  };
+  const view = buildTasksTabViewModel({
+    chatLength: 6,
+    ledger: [],
+    activeTask: init,
+    pendingTasks: [init, queued],
+    historyTasks: [],
+    cleaning: { selectedListId: undefined, lists: [] },
+  });
+  expect(view.coverage).toMatchObject({ runningCount: 3, untrackedCount: 3 });
+  expect(view.pendingTasks).toEqual([init, queued]);
+  expect(taskStatusViewModel(queued).label).toBe("等待中");
 });

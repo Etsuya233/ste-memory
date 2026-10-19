@@ -5,7 +5,6 @@ import type {
   FloorLedgerEntry,
   FloorLedgerRepository,
 } from "../../../features/fill-tasks/fill-task.ts";
-import { isFillTaskTerminal } from "../../../features/fill-tasks/fill-task.ts";
 import type { FloorLedgerRow, SteMemoryDatabase } from "../database.ts";
 
 /**
@@ -124,17 +123,67 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     await this.#db.memoryFillTasks.add(task);
   }
 
-  async createIfIdle(memorySpaceId: MemorySpaceId, task: FillTask): Promise<FillTask | undefined> {
-    let conflict: FillTask | undefined;
-    await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
-      const active = await this.findActive(memorySpaceId);
-      if (active) {
-        conflict = active;
-        return;
-      }
-      await this.#db.memoryFillTasks.add(task);
+  async enqueue(task: FillTask, replaces?: string): Promise<FillTask> {
+    return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const rows = await this.#db.memoryFillTasks
+        .where("memorySpaceId")
+        .equals(task.memorySpaceId)
+        .toArray();
+      const previous = replaces ? rows.find((row) => row.runId === replaces) : undefined;
+      if (replaces && !previous?.blocksQueue) throw new Error("待重试任务已处理，请刷新任务列表");
+      const queuePosition =
+        previous?.queuePosition ??
+        rows.reduce((max, row) => Math.max(max, row.queuePosition ?? 0), 0) + 1;
+      if (previous) await this.#db.memoryFillTasks.update(previous.runId, { blocksQueue: false });
+      const queued = { ...task, queuePosition };
+      await this.#db.memoryFillTasks.add(queued);
+      return queued;
     });
-    return conflict;
+  }
+
+  async pending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]> {
+    const rows = await this.#db.memoryFillTasks
+      .where("memorySpaceId")
+      .equals(memorySpaceId)
+      .toArray();
+    return rows
+      .map(normalizeTaskRow)
+      .filter((row) => row.status === "queued" || row.status === "running" || row.blocksQueue)
+      .sort(
+        (left, right) =>
+          (left.queuePosition ?? 0) - (right.queuePosition ?? 0) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.runId.localeCompare(right.runId),
+      );
+  }
+
+  async markRunning(runId: string): Promise<boolean> {
+    return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const task = await this.#db.memoryFillTasks.get(runId);
+      if (task?.status !== "queued") return false;
+      const head = (await this.pending(task.memorySpaceId))[0];
+      if (head?.runId !== runId) return false;
+      await this.#db.memoryFillTasks.update(runId, { status: "running", updatedAt: this.#now() });
+      return true;
+    });
+  }
+
+  async release(runId: string): Promise<void> {
+    await this.#db.memoryFillTasks.update(runId, { blocksQueue: false });
+  }
+
+  async interruptPending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]> {
+    return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const pending = await this.pending(memorySpaceId);
+      for (const task of pending) {
+        await this.#db.memoryFillTasks.update(task.runId, {
+          status: task.status === "failed" ? "failed" : "interrupted",
+          blocksQueue: false,
+          updatedAt: this.#now(),
+        });
+      }
+      return pending;
+    });
   }
 
   async findActive(memorySpaceId: MemorySpaceId): Promise<FillTask | undefined> {
@@ -144,7 +193,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       .toArray();
     const active = rows
       .map(normalizeTaskRow)
-      .filter((row) => !isFillTaskTerminal(row.status))
+      .filter((row) => row.status === "running")
       .sort(byCreatedAtDesc);
     return active[0];
   }
@@ -166,17 +215,18 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "interrupted", null, reason);
   }
 
-  /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
+  /** 启动时把 running 任务标记 interrupted 并阻塞，queued 任务保留，
    *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
   async markInterruptedOnStartup(): Promise<readonly FillTask[]> {
     const interrupted: FillTask[] = [];
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
-        if (isFillTaskTerminal(row.status)) continue;
+        if (row.status !== "running") continue;
         const updated = {
           ...normalizeTaskRow(row),
           status: "interrupted" as const,
+          blocksQueue: true,
           updatedAt: this.#now(),
         };
         await this.#db.memoryFillTasks.put(updated);
@@ -209,11 +259,16 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     let applied = false;
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const row = await this.#db.memoryFillTasks.get(runId);
-      if (!row || row.status !== "running") return;
+      if (
+        !row ||
+        (row.status !== "running" && !(status === "interrupted" && row.status === "queued"))
+      )
+        return;
       await this.#db.memoryFillTasks.put({
         ...normalizeTaskRow(row),
         ...(interruptionReason ? { interruptionReason } : {}),
         status,
+        blocksQueue: status === "failed" || interruptionReason === "chat-changed",
         errorMessage,
         updatedAt: this.#now(),
       });

@@ -96,6 +96,7 @@ function fakeRuntime(): PanelRuntime {
       cancel: vi.fn(async () => ({}) as never),
       retry: vi.fn(async () => ({}) as never),
       activeTask: vi.fn(async () => undefined),
+      pendingTasks: vi.fn(async () => []),
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
       markFloorStatuses: vi.fn(async () => undefined),

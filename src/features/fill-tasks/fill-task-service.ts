@@ -1,19 +1,7 @@
 /**
- * FillTaskService：填表后台任务（ticket 13）的应用层编排（浏览器侧）。
- *
- * 浏览器侧状态机
- * 按本票简化：无 queued/pause/cancel_requested，取消与关页同态落 interrupted）：
- * - 提交任务 = { memorySpaceId, [from, to] 闭区间（同步楼层，0 基）, blockSize? }，
- *   默认块大小 20；单空间单活动任务守卫（原子 createIfIdle，冲突携带当前任务）；
- * - 分批循环：每块注入块消息为证据 + 块范围为 messageRange → 组装模块
- *   （src/agent/fill-agent-runner，ADR 0024）→ 批次与台账 markProcessed 同一事务
- *   原子提交（失败整批回滚）→ 下一块；
- *   空提案（Agent 确认无需变更）按成功处理（仅 markProcessed）；
- * - 任何块失败：出错块楼层 markError（可重试）、任务 failed 并停止，失败原因可读；
- * - 安全点（块开始前、块提交前）：检查任务行——用户取消（markInterrupted）或
- *   页面重开（启动标记）后循环在安全点停止，丢弃未提交提案、楼层不标记；
- * - 任务输入 = 原始消息内容；注入 resolveCleaningRules 时按清洗规则列表清洗
- *   （ticket 22 / ADR 0011，块处理时实时读取，改规则追溯生效），缺省不清洗。
+ * 自动、手动与初始化填表共用持久化队列，按空间内入队顺序串行执行。
+ * queued → running → succeeded / failed / interrupted；失败和切换对话保留阻塞项，
+ * 重试沿用原队列位置，取消后释放。任务执行与批次提交保持同一套事务和日志规则。
  */
 import type { MemoryEvidenceId, MemoryRecordService, MemorySpaceId } from "../memory/index.ts";
 import type { MemoryEvidenceRepository, MemoryProposalPorts } from "../memory/index.ts";
@@ -78,7 +66,7 @@ function fillAgentInputTextOf(message: AgentMessage): FillAgentContextText {
 }
 
 /**
- * 填表任务编排上下文（ADR 0024 组装迁移）：**纯数据**，宿主在任务提交时构造
+ * 填表任务编排上下文（ADR 0024 组装迁移）：**纯数据**，宿主在任务开始执行时构造
  * 一次（预设解析 + 世界书扫描 + ST 上下文快照，归属 runtime 装配），块处理时
  * 由 service 直接展开编排消息——无方法，不含块级状态（{{msg}} 按块注入）。
  */
@@ -95,6 +83,7 @@ export interface FillTaskSubmitInput {
   readonly from: number;
   readonly to: number;
   readonly blockSize?: number;
+  readonly retryOf?: string;
   readonly automatic?: {
     readonly retries: number;
     readonly delaySeconds: number;
@@ -109,6 +98,7 @@ export interface FillTaskInitInput {
   readonly memorySpaceId: MemorySpaceId;
   /** 初始化输入文本（允许为空串：仅凭预设内容初始化；trim 后为空不拦截）。 */
   readonly text: string;
+  readonly retryOf?: string;
 }
 
 export interface FillTaskServiceOptions {
@@ -132,7 +122,7 @@ export interface FillTaskServiceOptions {
   /** LLM 端口工厂：任务开始时读 ST 当前配置构造一次（模型+参数快照） */
   readonly createLlm: () => LlmPort;
   /**
-   * 编排上下文工厂（ADR 0024 组装迁移）：任务提交时构造一次，返回**纯数据**
+   * 编排上下文工厂（ADR 0024 组装迁移）：任务开始执行时构造一次，返回**纯数据**
    * （活动预设 + 占位符展开快照，无方法）；接收任务范围合并剧情文本
    * （{{worldbook}} 扫描输入）；块处理时由 service 直接展开编排消息。
    * 缺省/返回 undefined = 系统默认预设（核心默认提示词）。
@@ -153,6 +143,13 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  #suspended = false;
+  #worker: Promise<void> | undefined;
+  #requestedSpace: MemorySpaceId | undefined;
+  #currentSpace: MemorySpaceId | undefined;
+  #submissions: Promise<unknown> = Promise.resolve();
+  readonly #policies = new Map<string, FillTaskSubmitInput["automatic"]>();
+
   readonly retryStates = new Map<
     string,
     { from: number; to: number; attempt: number; retryAt: number }
@@ -195,12 +192,87 @@ export class FillTaskService {
     this.#logError = options.logError ?? (() => undefined);
   }
 
-  /**
-   * 手动触发填表任务：校验（楼层范围 / 单任务 / LLM 配置）通过后持久化任务行
-   * 并启动后台分批循环，立即返回任务视图（状态 running）。
-   */
-  async submit(input: FillTaskSubmitInput): Promise<FillTaskView> {
-    const submittedChatId = this.#source.chatId();
+  /** 暂停启动后续任务；正在执行的批仍通过任务状态检查退出。 */
+  suspend(): void {
+    this.#suspended = true;
+  }
+
+  kick(memorySpaceId: MemorySpaceId): void {
+    this.#suspended = false;
+    this.#requestedSpace = memorySpaceId;
+    this.#currentSpace = memorySpaceId;
+    if (this.#worker) return;
+    this.#worker = this.#drain()
+      .catch((error) => this.#logError("填表队列执行失败", error))
+      .finally(() => {
+        this.#worker = undefined;
+        const pending = this.#requestedSpace;
+        if (pending && !this.#suspended) this.kick(pending);
+      });
+  }
+
+  async pendingTasks(memorySpaceId: MemorySpaceId): Promise<readonly FillTaskView[]> {
+    return Promise.all(
+      (await this.#tasks.pending(memorySpaceId)).map((task) => this.#toView(task)),
+    );
+  }
+
+  async #drain(): Promise<void> {
+    while (!this.#suspended && this.#requestedSpace) {
+      const spaceId = this.#requestedSpace;
+      this.#requestedSpace = undefined;
+      while (!this.#suspended && this.#currentSpace === spaceId) {
+        const task = (await this.#tasks.pending(spaceId))[0];
+        if (this.#suspended || this.#currentSpace !== spaceId || !task || task.status !== "queued")
+          break;
+        if (!(await this.#tasks.markRunning(task.runId))) break;
+        const running: FillTask = { ...task, status: "running" };
+        try {
+          if (!(await this.#chatUnchanged(running))) {
+            await this.cancel(spaceId, task.runId, "chat-changed");
+            break;
+          }
+          const llm = this.#createLlm();
+          const promptContext = await this.#createPromptContext?.(
+            task.kind === "init"
+              ? task.initText
+              : buildMergedStoryText(this.#source.messagesInRange(task.from, task.to)),
+          );
+          const automatic =
+            this.#policies.get(task.runId) ??
+            (task.retryPolicy
+              ? {
+                  ...task.retryPolicy,
+                  canContinue: () => this.#source.chatId() === (task.chatId ?? undefined),
+                  interruptionReason: () => "chat-changed" as const,
+                }
+              : undefined);
+          await this.#appendLog(
+            fillTaskStartLog(running),
+            `填表任务 ${task.runId} 开始日志写入失败`,
+          );
+          await this.#runTask(running, llm, promptContext, automatic);
+        } catch (error) {
+          await this.#failTask(running, undefined, error);
+        } finally {
+          this.#policies.delete(task.runId);
+        }
+      }
+    }
+  }
+
+  /** 校验楼层范围并入队；返回 queued 视图，配置与编排上下文在执行时读取。 */
+  submit(input: FillTaskSubmitInput): Promise<FillTaskView> {
+    const chatId = this.#source.chatId();
+    const submitted = this.#submissions.then(async () => {
+      if (this.#source.chatId() !== chatId) throw new Error("对话已切换，请重新提交");
+      return this.#submitFloor(input);
+    });
+    this.#submissions = submitted.catch(() => undefined);
+    return submitted;
+  }
+
+  async #submitFloor(input: FillTaskSubmitInput): Promise<FillTaskView> {
     const chatLength = this.#source.chatMessageCount();
     const blockSize = input.blockSize ?? DEFAULT_FILL_TASK_BLOCK_SIZE;
     if (
@@ -216,31 +288,19 @@ export class FillTaskService {
         `消息楼层范围无效：请选择 [0, ${Math.max(chatLength - 1, 0)}] 内的闭区间（同步楼层从 0 开始），分块大小必须 >= 1`,
       );
     }
-    // 单空间单活动任务守卫——与 api 基线一致：冲突先于 LLM 配置检查
-    // （两者都失败时用户看到冲突原因）；预检只决定报错优先级，
-    // 真正防并发的是下面 createIfIdle 的原子检查 + 创建。
-    const active = await this.#tasks.findActive(input.memorySpaceId);
-    if (active) throw new FillTaskConflictError(active);
-    // 配置缺失在提交时立即失败（createLlm 读 ST 当前配置，缺失抛中文错误），
-    // 而不是等后台循环启动后才失败。
-    const llm = this.#createLlm();
-    // 合并剧情文本（世界书扫描输入，ADR 0007）：仅当宿主注入编排上下文工厂时
-    // 才构建（缺省 = 系统默认预设 → 核心默认提示词，无扫描无构建）。
-    const promptContext =
-      this.#createPromptContext === undefined
-        ? undefined
-        : await this.#createPromptContext(
-            buildMergedStoryText(this.#source.messagesInRange(input.from, input.to)),
-          );
-
-    if (
-      this.#source.chatId() !== submittedChatId ||
-      (input.automatic && !input.automatic.canContinue())
-    )
+    if (input.automatic && !input.automatic.canContinue())
       throw new Error("对话或自动填表模式已变化，请重新触发");
     const now = this.#now();
     const task: FillTask = {
-      ...(input.automatic ? { automatic: true } : {}),
+      ...(input.automatic
+        ? {
+            automatic: true,
+            retryPolicy: {
+              retries: input.automatic.retries,
+              delaySeconds: input.automatic.delaySeconds,
+            },
+          }
+        : {}),
       runId: this.#createRunId(),
       memorySpaceId: input.memorySpaceId,
       from: input.from,
@@ -250,21 +310,15 @@ export class FillTaskService {
       initText: null,
       // 对话身份快照：块开始前检测对话切换（防止把新对话的消息写进旧空间）
       chatId: this.#source.chatId() ?? null,
-      status: "running",
+      status: "queued",
       errorMessage: null,
       createdAt: now,
       updatedAt: now,
     };
-    // 原子守卫创建（并发双提交兜底）：预检与写入之间被抢占时仍拒绝
-    const conflict = await this.#tasks.createIfIdle(input.memorySpaceId, task);
-    if (conflict) throw new FillTaskConflictError(conflict);
-
-    // 任务开始行先落库（best-effort），再启动后台循环：日志按时间序呈现任务起点。
-    await this.#appendLog(fillTaskStartLog(task), `填表任务 ${task.runId} 开始日志写入失败`);
-
-    // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
-    void this.#runTask(task, llm, promptContext, input.automatic);
-    return this.#toView(task);
+    const queued = await this.#tasks.enqueue(task, input.retryOf);
+    this.#policies.set(task.runId, input.automatic);
+    if (!this.#suspended) this.kick(task.memorySpaceId);
+    return this.#toView(queued);
   }
 
   /** 用户取消：立即置 interrupted（与关 tab 同态），写入任务中断结束行；
@@ -275,6 +329,11 @@ export class FillTaskService {
     reason?: "chat-changed",
   ): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
+    if (task.blocksQueue && isFillTaskTerminal(task.status)) {
+      await this.#tasks.release(runId);
+      if (!this.#suspended) this.kick(memorySpaceId);
+      return this.#toView({ ...task, blocksQueue: false });
+    }
     const applied = await this.#tasks.markInterrupted(runId, reason);
     this.#retryWakeups.get(runId)?.();
     if (!applied) {
@@ -288,6 +347,8 @@ export class FillTaskService {
       fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
       `填表任务 ${task.runId} 结束日志写入失败`,
     );
+    this.#policies.delete(runId);
+    if (!this.#suspended && !reason) this.kick(memorySpaceId);
     return this.#toView({
       ...task,
       status: "interrupted",
@@ -295,23 +356,32 @@ export class FillTaskService {
     });
   }
 
-  /**
-   * 初始化填表提交（spec init-fill）：输入 = 初始化文本框内容（作为 {{msg}}
-   * 语义的 msg，无楼层）。与楼层任务共享单空间单活动任务守卫与 LLM 配置预检；
-   * 任务行持久化 initText（retry 依赖）；无楼层校验、不做任何状态干预。
-   */
-  async submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
-    // 单空间单活动任务守卫——与 submit 同语义（init 与楼层任务互斥）
-    const active = await this.#tasks.findActive(input.memorySpaceId);
-    if (active) throw new FillTaskConflictError(active);
-    // 配置缺失在提交时立即失败（同 submit）
-    const llm = this.#createLlm();
-    // 世界书扫描输入 = 初始化文本（{{worldbook}} 展开源，同 submit 的合并剧情文本）
-    const promptContext =
-      this.#createPromptContext === undefined
-        ? undefined
-        : await this.#createPromptContext(input.text);
+  /** 空间清理前原子取消全部待处理项，避免取消运行项后启动等待项。 */
+  async cancelAll(memorySpaceId: MemorySpaceId): Promise<void> {
+    const pending = await this.#tasks.interruptPending(memorySpaceId);
+    for (const task of pending) {
+      this.#retryWakeups.get(task.runId)?.();
+      this.#policies.delete(task.runId);
+      if (isFillTaskTerminal(task.status)) continue;
+      await this.#appendLog(
+        fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
+        `填表任务 ${task.runId} 结束日志写入失败`,
+      );
+    }
+  }
 
+  /** 初始化文本与楼层任务共用队列；文本持久化，供后续执行和重试。 */
+  submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
+    const chatId = this.#source.chatId();
+    const submitted = this.#submissions.then(async () => {
+      if (this.#source.chatId() !== chatId) throw new Error("对话已切换，请重新提交");
+      return this.#submitInit(input);
+    });
+    this.#submissions = submitted.catch(() => undefined);
+    return submitted;
+  }
+
+  async #submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
     const now = this.#now();
     const task: FillTask = {
       runId: this.#createRunId(),
@@ -323,43 +393,59 @@ export class FillTaskService {
       initText: input.text,
       // 对话身份快照：与楼层任务同语义（块开始前检测对话切换）
       chatId: this.#source.chatId() ?? null,
-      status: "running",
+      status: "queued",
       errorMessage: null,
       createdAt: now,
       updatedAt: now,
     };
-    // 原子守卫创建（并发双提交兜底，同 submit）
-    const conflict = await this.#tasks.createIfIdle(input.memorySpaceId, task);
-    if (conflict) throw new FillTaskConflictError(conflict);
-
-    await this.#appendLog(fillTaskStartLog(task), `填表任务 ${task.runId} 开始日志写入失败`);
-
-    void this.#runTask(task, llm, promptContext);
-    return this.#toView(task);
+    const queued = await this.#tasks.enqueue(task, input.retryOf);
+    if (!this.#suspended) this.kick(task.memorySpaceId);
+    return this.#toView(queued);
   }
 
-  /**
-   * 任务重试（ticket 14）：把任务的楼层范围与分块大小重新提交为新任务——
-   * 失败/中断任务的历史条目由此回到运行中；原任务保持终态留在历史列表。
-   * 重试运行中任务被活动任务守卫拒绝（冲突原因可读，快速双击重试时第二次
-   * 提交落在新任务的活动名额上，不会产生双任务）；重试已成功任务等同于手动
-   * 重新触发同一范围（触发 UI 不提供该入口）。
-   * 初始化任务（kind=init）重试复用持久化的 initText 走 submitInit。
-   */
+  /** 重试生成新任务并保留历史；阻塞项沿用原位置，自动任务跳过已完成楼层。 */
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
+    if (!isFillTaskTerminal(task.status)) throw new FillTaskStateError(task);
+    const retryOf = task.blocksQueue ? task.runId : undefined;
     if (task.kind === "init") {
-      return this.submitInit({ memorySpaceId, text: task.initText });
+      return this.submitInit({ memorySpaceId, text: task.initText, retryOf });
+    }
+    let from = task.from;
+    const to = task.automatic ? Math.min(task.to, this.#source.chatMessageCount() - 1) : task.to;
+    if (task.automatic) {
+      const ledger = await this.#ledger.statuses(
+        memorySpaceId,
+        0,
+        this.#source.chatMessageCount() - 1,
+      );
+      from = ledger.reduce(
+        (first, entry) => (entry.status === "processed" ? Math.max(first, entry.floor + 1) : first),
+        from,
+      );
+      if (from > to) {
+        if (task.blocksQueue) await this.#tasks.release(runId);
+        if (!this.#suspended) this.kick(memorySpaceId);
+        return this.#toView({ ...task, blocksQueue: false });
+      }
     }
     return this.submit({
       memorySpaceId,
-      from: task.from,
-      to: task.to,
+      from,
+      to,
       blockSize: task.blockSize,
+      retryOf,
+      automatic: task.retryPolicy
+        ? {
+            ...task.retryPolicy,
+            canContinue: () => this.#source.chatId() === (task.chatId ?? undefined),
+            interruptionReason: () => "chat-changed",
+          }
+        : undefined,
     });
   }
 
-  /** 当前非终态任务视图（无则 undefined；单空间单活动任务守卫的 UI 侧查询）。 */
+  /** 当前 running 任务视图（无则 undefined）。 */
   async activeTask(memorySpaceId: MemorySpaceId): Promise<FillTaskView | undefined> {
     const task = await this.#tasks.findActive(memorySpaceId);
     return task ? this.#toView(task) : undefined;
@@ -371,7 +457,7 @@ export class FillTaskService {
     return Promise.all(tasks.map((task) => this.#toView(task)));
   }
 
-  /** 启动时调用（页面/浏览器重开）：所有非终态任务标记 interrupted，不自动重放。
+  /** 启动时调用（页面/浏览器重开）：运行项标记 interrupted 并阻塞队列，等待项保留。
    *  每个被中断的任务写入中断结束行（结束时刻 = 标记时刻，best-effort）。 */
   async markInterruptedOnStartup(): Promise<void> {
     const interrupted = await this.#tasks.markInterruptedOnStartup();
@@ -405,7 +491,7 @@ export class FillTaskService {
     status: "processed" | "untracked" | "error",
   ): Promise<void> {
     // 运行中任务守卫（与 submit 同语义）
-    const active = await this.#tasks.findActive(memorySpaceId);
+    const active = (await this.#tasks.pending(memorySpaceId))[0];
     if (active) throw new FillTaskConflictError(active);
     // 范围校验（与 submit 一致）
     const chatLength = this.#source.chatMessageCount();
