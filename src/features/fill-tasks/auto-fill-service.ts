@@ -72,8 +72,9 @@ export class AutoFillService {
 
   async resume(): Promise<void> {
     const state = this.read();
-    if (state.pendingResumeTask) {
-      await this.retry(state.pendingResumeTask);
+    const task = state.pendingResumeTask ?? state.pausedTask;
+    if (task) {
+      await this.retry(task);
       return;
     }
     this.#ports.chatStore.write({ ...state, pausedReason: null });
@@ -83,9 +84,62 @@ export class AutoFillService {
   async cancel(): Promise<void> {
     const current = this.#ports.current();
     if (!current) return;
-    this.#ports.chatStore.write({ ...this.read(), pausedReason: "用户已取消自动填表" });
     const active = await this.#ports.tasks.activeTask(current.spaceId);
-    if (active?.automatic) await this.#ports.tasks.cancel(current.spaceId, active.runId);
+    if (this.#ports.current()?.identity !== current.identity) throw new Error("对话已切换");
+    if (!active?.automatic) throw new Error("当前没有正在执行的自动填表任务");
+    this.#job = undefined;
+    await this.#ports.tasks.cancel(current.spaceId, active.runId);
+    if (this.#ports.current()?.identity !== current.identity) return;
+    this.#ports.chatStore.write({
+      ...this.read(),
+      pausedReason: null,
+      pausedTask: undefined,
+      pendingResumeTask: undefined,
+      inFlightTask: undefined,
+      acknowledgedInterruptionRunId: active.runId,
+      lastScheduled: {
+        memorySpaceId: current.spaceId,
+        to: current.aiFloor - (this.settings().includeCurrent ? 0 : 1),
+      },
+    });
+    this.kick();
+  }
+
+  async cancelPausedTask(): Promise<void> {
+    const current = this.#ports.current();
+    if (!current) throw new Error("当前对话未就绪");
+    const state = this.read();
+    if (!state.pausedReason) throw new Error("当前没有暂停的填表任务");
+    const task = state.pendingResumeTask ?? state.pausedTask ?? this.#job?.task;
+    const active = await this.#ports.tasks.activeTask(current.spaceId);
+    if (this.#ports.current()?.identity !== current.identity) throw new Error("对话已切换");
+    if (active?.automatic && active.runId === task?.runId)
+      await this.#ports.tasks.cancel(current.spaceId, active.runId);
+    if (this.#ports.current()?.identity !== current.identity) return;
+    const latest = this.read();
+    this.#job = undefined;
+    this.#ports.chatStore.write({
+      ...latest,
+      pausedReason: null,
+      pausedTask: undefined,
+      pendingResumeTask: undefined,
+      inFlightTask: undefined,
+      acknowledgedInterruptionRunId:
+        state.pendingResumeTask?.runId ?? latest.acknowledgedInterruptionRunId,
+      lastScheduled: {
+        memorySpaceId: current.spaceId,
+        to: current.aiFloor - (this.settings().includeCurrent ? 0 : 1),
+      },
+      stagedTasks: task
+        ? latest.stagedTasks?.filter(
+            (item) =>
+              item.memorySpaceId !== task.memorySpaceId ||
+              item.to !== task.to ||
+              item.from > task.from,
+          )
+        : latest.stagedTasks?.slice(1),
+    });
+    this.kick();
   }
 
   async retry(task: PendingFillContinuation): Promise<boolean> {
@@ -101,12 +155,20 @@ export class AutoFillService {
     const range = autoFillRange(ledger, current.chatLength - 1, true);
     const from = Math.max(task.from, range?.from ?? current.chatLength);
     const to = Math.min(task.to, current.chatLength - 1);
-    const pending = this.read().pendingResumeTask;
+    const state = this.read();
+    const pending = state.pendingResumeTask ?? state.pausedTask;
     if (pending?.runId === task.runId)
       this.#ports.chatStore.write({
         ...this.read(),
         pausedReason: null,
         pendingResumeTask: undefined,
+        pausedTask: undefined,
+        stagedTasks: state.stagedTasks?.filter(
+          (item) =>
+            item.memorySpaceId !== task.memorySpaceId ||
+            item.to !== task.to ||
+            item.from > task.from,
+        ),
       });
     try {
       if (from <= to)
@@ -116,7 +178,8 @@ export class AutoFillService {
         this.#ports.chatStore.write({
           ...this.read(),
           pausedReason: error instanceof Error ? error.message : String(error),
-          pendingResumeTask: pending,
+          pendingResumeTask: state.pendingResumeTask,
+          pausedTask: state.pausedTask,
         });
       throw error;
     }
@@ -238,6 +301,97 @@ export class AutoFillService {
         });
       }
     }
+    if (this.#job?.identity === current.identity) {
+      if (settings.mode !== this.#job.mode) {
+        const job = this.#job;
+        this.#job = undefined;
+        if (active?.runId === job.task.runId)
+          await this.#ports.tasks.cancel(active.memorySpaceId, active.runId);
+        return;
+      }
+      if (active?.runId !== this.#job.task.runId) {
+        const job = this.#job;
+        this.#job = undefined;
+        const recent = await this.#ports.tasks.recentTasks(current.spaceId, 20);
+        if (this.#ports.current()?.identity !== current.identity) return;
+        const finished = recent.find((task) => task.runId === job.task.runId);
+        if (finished?.status === "failed" || finished?.status === "interrupted") {
+          const reason = finished.errorMessage ?? "自动填表已中断";
+          const { runId, memorySpaceId, from, to, blockSize } = job.task;
+          this.#ports.chatStore.write({
+            ...this.read(),
+            pausedReason: reason,
+            pausedTask: { runId, memorySpaceId, from, to, blockSize },
+          });
+          this.#ports.notify({
+            kind: "failed",
+            identity: current.identity,
+            message: `自动填表 #${job.task.from}–#${job.task.to} 停止：${reason}`,
+          });
+        }
+        if (finished?.status === "succeeded") {
+          this.#ports.chatStore.write({ ...this.read(), inFlightTask: undefined });
+          this.#ports.notify({
+            kind: "completed",
+            identity: current.identity,
+            message: `自动填表 #${job.task.from}–#${job.task.to} 已完成`,
+          });
+        }
+      }
+    }
+    if (this.#suspended) return;
+    const saved = this.read();
+    if (
+      !active &&
+      !this.#job &&
+      !saved.pausedReason &&
+      !saved.pendingResumeTask &&
+      saved.inFlightTask
+    ) {
+      this.#ports.chatStore.write({
+        ...saved,
+        inFlightTask: undefined,
+        stagedTasks: [saved.inFlightTask, ...(saved.stagedTasks ?? [])],
+      });
+    }
+    const range = await this.range();
+    if (
+      this.#ports.current()?.identity !== current.identity ||
+      this.#suspended ||
+      this.#epoch !== epoch
+    )
+      return;
+    if (settings.mode === "auto" && range) {
+      const state = this.read();
+      const reserved = [
+        active?.kind === "floor" ? active : undefined,
+        this.#job?.task,
+        state.pendingResumeTask,
+        state.pausedTask,
+        state.inFlightTask,
+        ...(state.stagedTasks ?? []),
+      ];
+      const reservedThrough = reserved.reduce(
+        (highest, task) =>
+          task?.memorySpaceId === current.spaceId ? Math.max(highest, task.to) : highest,
+        -1,
+      );
+      const from = Math.max(range.from, reservedThrough + 1);
+      if (
+        range.to - from + 1 >= settings.interval &&
+        (state.lastScheduled?.memorySpaceId !== current.spaceId ||
+          state.lastScheduled.to !== range.to)
+      ) {
+        this.#ports.chatStore.write({
+          ...state,
+          stagedTasks: [
+            ...(state.stagedTasks ?? []),
+            { memorySpaceId: current.spaceId, from, to: range.to, settings: { ...settings } },
+          ],
+          lastScheduled: { memorySpaceId: current.spaceId, to: range.to },
+        });
+      }
+    }
     const pendingResumeTask = this.read().pendingResumeTask;
     if (pendingResumeTask) {
       const promptKey = `${current.identity}:${pendingResumeTask.runId}`;
@@ -260,52 +414,13 @@ export class AutoFillService {
       }
       return;
     }
-    if (this.#job?.identity === current.identity) {
-      if (settings.mode !== this.#job.mode) {
-        const job = this.#job;
-        this.#job = undefined;
-        if (active?.runId === job.task.runId)
-          await this.#ports.tasks.cancel(active.memorySpaceId, active.runId);
-        return;
-      }
-      if (active?.runId === this.#job.task.runId) return;
-      const job = this.#job;
-      this.#job = undefined;
-      const recent = await this.#ports.tasks.recentTasks(current.spaceId, 20);
-      if (this.#ports.current()?.identity !== current.identity) return;
-      const finished = recent.find((task) => task.runId === job.task.runId);
-      if (finished?.status === "failed" || finished?.status === "interrupted") {
-        const reason = finished.errorMessage ?? "自动填表已中断";
-        this.#ports.chatStore.write({ ...this.read(), pausedReason: reason });
-        this.#ports.notify({
-          kind: "failed",
-          identity: current.identity,
-          message: `自动填表 #${job.task.from}–#${job.task.to} 停止：${reason}`,
-        });
-        return;
-      }
-      if (finished?.status === "succeeded")
-        this.#ports.notify({
-          kind: "completed",
-          identity: current.identity,
-          message: `自动填表 #${job.task.from}–#${job.task.to} 已完成`,
-        });
-    }
-    if (
-      this.#suspended ||
-      active ||
-      settings.mode === "off" ||
-      (settings.mode === "auto" && this.read().pausedReason)
-    )
-      return;
-    const range = await this.range();
-    if (this.#ports.current()?.identity !== current.identity || this.#suspended) return;
-    if (!range || range.to - range.from + 1 < settings.interval) {
-      this.#ports.dismissReminder();
-      this.#reminded = undefined;
-      return;
-    }
+    if (active || settings.mode === "off" || this.read().pausedReason) return;
     if (settings.mode === "remind") {
+      if (!range || range.to - range.from + 1 < settings.interval) {
+        this.#ports.dismissReminder();
+        this.#reminded = undefined;
+        return;
+      }
       const key = `${current.identity}:${range.from}:${range.to}`;
       if (this.#reminded !== key) {
         this.#reminded = key;
@@ -317,8 +432,31 @@ export class AutoFillService {
       }
       return;
     }
+    const staged = this.read().stagedTasks?.[0];
+    if (!staged) return;
+    if (staged.memorySpaceId !== current.spaceId)
+      throw new Error("暂存任务所属记忆空间已变化，请先处理该任务");
+    const from = Math.max(staged.from, range?.from ?? current.chatLength);
+    if (from > staged.to) {
+      this.#ports.chatStore.write({
+        ...this.read(),
+        stagedTasks: this.read().stagedTasks!.slice(1),
+      });
+      this.kick();
+      return;
+    }
     try {
-      await this.#submit(current, range.from, range.to, settings);
+      await this.#submit(current, from, staged.to, staged.settings);
+      if (this.#ports.current()?.identity !== current.identity || this.#epoch !== epoch) return;
+      this.#ports.chatStore.write({
+        ...this.read(),
+        stagedTasks: this.read().stagedTasks?.filter(
+          (item) =>
+            item.memorySpaceId !== staged.memorySpaceId ||
+            item.from !== staged.from ||
+            item.to !== staged.to,
+        ),
+      });
     } catch (error) {
       if (
         this.#epoch !== epoch ||
@@ -380,6 +518,10 @@ export class AutoFillService {
       await this.#ports.tasks.cancel(task.memorySpaceId, task.runId, "chat-changed");
       return;
     }
+    this.#ports.chatStore.write({
+      ...this.read(),
+      inFlightTask: { memorySpaceId: current.spaceId, from, to, settings: { ...settings } },
+    });
     this.#job = { identity: current.identity, task, mode: settings.mode };
     this.#ports.notify({
       kind: "started",

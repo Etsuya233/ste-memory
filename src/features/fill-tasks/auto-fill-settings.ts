@@ -23,7 +23,21 @@ export type PendingFillContinuation = Pick<
   "runId" | "memorySpaceId" | "from" | "to" | "blockSize"
 >;
 
+export interface StagedFillTask {
+  readonly memorySpaceId: FillTaskView["memorySpaceId"];
+  readonly from: number;
+  readonly to: number;
+  readonly settings: AutoFillSettings;
+}
+
 export interface AutoFillChatState {
+  readonly stagedTasks?: readonly StagedFillTask[];
+  readonly inFlightTask?: StagedFillTask;
+  readonly lastScheduled?: {
+    readonly memorySpaceId: FillTaskView["memorySpaceId"];
+    readonly to: number;
+  };
+  readonly pausedTask?: PendingFillContinuation;
   readonly pendingResumeTask?: PendingFillContinuation;
   readonly acknowledgedInterruptionRunId?: string;
   readonly overrides: Partial<AutoFillSettings>;

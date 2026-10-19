@@ -22,6 +22,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     { identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 32, aiFloor: 31 };
   let active: FillTaskView | undefined;
   let recent: FillTaskView[] = [];
+  let runSequence = 0;
   let ledger: FloorLedgerEntry[] = [{ floor: 20, status: "processed" }];
   const tasks = {
     submit: vi.fn(async (input: FillTaskSubmitInput) => {
@@ -29,7 +30,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
         ...input,
         blockSize: input.blockSize!,
         automatic: true,
-        runId: "run",
+        runId: runSequence++ === 0 ? "run" : `run-${runSequence}`,
         kind: "floor",
         initText: null,
         chatId: "a",
@@ -59,11 +60,11 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
   const notify = vi.fn();
   const confirmResume = vi.fn(async () => false);
   const reportError = vi.fn();
-  const service = new AutoFillService({
+  const ports = {
     tasks,
     chatStore: {
       read: () => state,
-      write: (value) => {
+      write: (value: AutoFillChatState) => {
         state = value;
       },
     },
@@ -73,8 +74,10 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     confirmResume,
     dismissReminder: vi.fn(),
     reportError,
-  });
+  };
+  const service = new AutoFillService(ports);
   return {
+    reopen: () => new AutoFillService(ports),
     service,
     tasks,
     notify,
@@ -90,7 +93,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}) {
     setLedger: (value: FloorLedgerEntry[]) => {
       ledger = value;
     },
-    finish: (status: "failed" | "succeeded") => {
+    finish: (status: "failed" | "succeeded" | "interrupted") => {
       recent = [{ ...active!, status, errorMessage: status === "failed" ? "失败原因" : null }];
       active = undefined;
     },
@@ -271,5 +274,98 @@ describe("自动填表调度", () => {
     h.service.kick();
     await vi.waitFor(() => expect(h.tasks.activeTask.mock.calls.length).toBeGreaterThan(4));
     expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("暂停期间暂存后续任务，取消当前任务后按顺序执行，保留任务参数和配置", async () => {
+    const h = setup({ blockSize: 4 });
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    h.setLedger([{ floor: 25, status: "processed" }]);
+    await h.service.chatChanged();
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledTimes(1));
+    h.setCurrent({ identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 42, aiFloor: 41 });
+    h.service.generationEnded();
+    await vi.waitFor(() => expect(h.state().stagedTasks).toHaveLength(1));
+    h.setCurrent({ identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 52, aiFloor: 51 });
+    h.service.generationEnded();
+    await vi.waitFor(() => expect(h.state().stagedTasks).toHaveLength(2));
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+    expect(h.state().stagedTasks?.map((task) => [task.from, task.to])).toEqual([
+      [31, 40],
+      [41, 50],
+    ]);
+    h.setGlobal({ blockSize: 8 });
+    const config = structuredClone(h.service.settings());
+    await h.service.cancelPausedTask();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(2));
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 31, to: 40, blockSize: 4 });
+    expect(h.service.settings()).toEqual(config);
+    expect(h.state().overrides).toEqual({});
+    expect(h.state().pendingResumeTask).toBeUndefined();
+    h.setLedger([{ floor: 40, status: "processed" }]);
+    h.finish("succeeded");
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(3));
+    expect(h.tasks.submit.mock.calls[2]![0]).toMatchObject({ from: 41, to: 50, blockSize: 4 });
+  });
+
+  it("没有暂存任务时取消只回到空闲，重复检查与重新进入不重建旧任务", async () => {
+    const h = setup();
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    await h.service.chatChanged();
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledTimes(1));
+    await h.service.cancelPausedTask();
+    h.service.kick();
+    await h.service.chatChanged();
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.tasks.recentTasks.mock.calls.length).toBeGreaterThan(2));
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+    expect(h.confirmResume).toHaveBeenCalledTimes(1);
+    expect(h.state().pausedReason).toBeNull();
+  });
+
+  it("取消运行中任务会启动已暂存的下一个任务", async () => {
+    const h = setup();
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    h.setCurrent({ identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 42, aiFloor: 41 });
+    h.service.generationEnded();
+    await vi.waitFor(() => expect(h.state().stagedTasks).toHaveLength(1));
+    await h.service.cancel();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(2));
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 31, to: 40 });
+    expect(h.state().pausedReason).toBeNull();
+  });
+  it("刷新后保留运行快照与暂存队列，只续跑未完成楼层", async () => {
+    const h = setup({ blockSize: 4 });
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(1));
+    h.setCurrent({ identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 42, aiFloor: 41 });
+    h.service.generationEnded();
+    await vi.waitFor(() => expect(h.state().stagedTasks).toHaveLength(1));
+    h.setLedger([{ floor: 25, status: "processed" }]);
+    h.finish("interrupted");
+    const reopened = h.reopen();
+    reopened.kick();
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledTimes(2));
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 26, to: 30, blockSize: 4 });
+    expect(h.state().stagedTasks?.map((task) => [task.from, task.to])).toEqual([[31, 40]]);
+  });
+
+  it("启动失败的暂存任务也能取消，取消后不立即重复提交", async () => {
+    const h = setup();
+    h.tasks.submit.mockRejectedValue(new Error("连接缺失"));
+    h.service.kick();
+    await vi.waitFor(() => expect(h.state().pausedReason).toBe("连接缺失"));
+    expect(h.state().stagedTasks).toHaveLength(1);
+    await h.service.cancelPausedTask();
+    h.service.kick();
+    await vi.waitFor(() => expect(h.tasks.activeTask.mock.calls.length).toBeGreaterThan(2));
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+    expect(h.state().stagedTasks).toHaveLength(0);
+    expect(h.state().pausedReason).toBeNull();
   });
 });
