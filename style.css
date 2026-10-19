@@ -1,3 +1,5 @@
+/* ---------- 设计令牌与基础重置（面板整体色板/字体/尺寸变量） ---------- */
+
 /*
  * STE Memory 设计令牌 —— 全插件唯一的色板/字体定义处（spec「记忆账本」风格契约）。
  * 后续调色、浅色模式、主题设置都只改这一块；组件类名前缀 stm- 隔离，不依赖 ST 主题变量。
@@ -47,6 +49,8 @@
   }
 }
 
+/* ---------- 面板骨架：顶部按钮 + 抽屉/浮动窗口 + Tab + 设置分组 ---------- */
+
 /* ============================================================
  * 面板骨架（ticket 06）：顶部按钮 + 抽屉/浮动面板 + 底部 Tab
  * 移动端优先：默认 = 全屏底部抽屉；桌面（≥1001px，与 ST 移动断点一致）
@@ -85,6 +89,34 @@
 .stm-toolbar-button[aria-pressed="true"] {
   color: var(--stm-accent);
   opacity: 1;
+}
+
+/* 魔法棒入口项：随 ST 菜单原生样式（list-group-item），只补按压/展开态与焦点 */
+.stm-wand-entry {
+  cursor: pointer;
+  user-select: none;
+}
+
+.stm-wand-entry .extensionsMenuExtensionButton {
+  color: var(--stm-ink-secondary);
+}
+
+.stm-wand-entry:hover .extensionsMenuExtensionButton,
+.stm-wand-entry:focus-visible .extensionsMenuExtensionButton {
+  color: var(--stm-ink);
+}
+
+.stm-wand-entry:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: -2px;
+}
+
+.stm-wand-entry[aria-pressed="true"] .extensionsMenuExtensionButton {
+  color: var(--stm-accent);
+}
+
+.stm-wand-entry[aria-pressed="true"] {
+  background: var(--stm-success-dim);
 }
 
 /* 面板：移动端 = 全屏底部抽屉（默认态，移动优先）。
@@ -593,6 +625,29 @@
   color: var(--stm-ink-secondary);
 }
 
+/* 面板入口三选一按钮（设置分组内） */
+.stm-entry-option {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--stm-ink-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  color: var(--stm-ink-secondary);
+  font-size: 13px;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-entry-option:hover {
+  color: var(--stm-ink);
+}
+
+.stm-entry-option--active {
+  border-color: var(--stm-accent);
+  color: var(--stm-accent);
+}
+
 /* 面板安全区：四边输入 2×2 网格；面板内缩变量（--stm-safe-*）由面板宿主设置，
  * 仅移动媒体查询消费——桌面查询显式覆盖 left/top/right/height，这些变量对桌面惰性。 */
 .stm-safe-area-grid {
@@ -683,13 +738,7 @@
   font-family: var(--stm-font-mono);
 }
 
-/* 同步失败提示（设置面板「同步状态」组）：危险色 + 允许折行 */
-.stm-sync-error {
-  color: var(--stm-danger);
-  line-height: 1.5;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
+/* ---------- 表格/字段编辑器与卡片操作 ---------- */
 
 /* ============================================================
  * 表格/字段编辑器与卡片操作（ticket 09）
@@ -1105,6 +1154,8 @@
     transition: none;
   }
 }
+
+/* ---------- 记录视图：列表/详情/表单/证据楼层 chip ---------- */
 
 /* ============================================================
  * 记录视图（ticket 11）：列表/详情/表单/证据楼层 chip
@@ -1707,6 +1758,8 @@
   overflow-y: auto;
 }
 
+/* ---------- 任务 Tab：触发表单 + 活动任务 + 楼层覆盖 + 任务历史 ---------- */
+
 /* ============================================================
  * 任务 Tab（ticket 13）：手动触发表单 + 活动任务 + 最近结果
  * ticket 14：楼层覆盖视图 + 任务历史列表
@@ -1994,6 +2047,8 @@
   min-height: 36px;
 }
 
+/* ---------- Agent 提示词预设编辑 ---------- */
+
 /* ===== Agent 提示词预设（ticket 17 / ADR 0006） ===== */
 .stm-preset-builtin {
   display: flex;
@@ -2273,7 +2328,9 @@
   flex: none;
 }
 
-/* ---- 日志 Tab（ADR 0008：通用日志浏览与运行记录详情） ---- */
+/* ---------- 日志 Tab：过滤 + 原样文本展示 ---------- */
+
+/* ---- 日志 Tab（ADR 0015：独立日志查询——过滤 + 原样文本展示） ---- */
 
 .stm-log-list {
   list-style: none;
@@ -2330,18 +2387,16 @@
   border-color: var(--stm-danger, #e5534b);
 }
 
-.stm-log-key {
-  font-family: var(--stm-mono, monospace);
+.stm-log-type {
+  flex: none;
+  color: var(--stm-ink-secondary);
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.stm-log-summary {
+.stm-log-key {
   flex: 1;
   min-width: 0;
-  color: var(--stm-ink-secondary);
+  font-family: var(--stm-mono, monospace);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2359,26 +2414,6 @@
   padding: 8px 10px;
 }
 
-.stm-log-run-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.stm-log-details {
-  margin: 4px 0;
-  font-size: 12px;
-}
-
-.stm-log-details summary {
-  cursor: pointer;
-  color: var(--stm-ink-secondary);
-  user-select: none;
-}
-
 .stm-log-pre {
   margin: 4px 0;
   padding: 6px 8px;
@@ -2391,35 +2426,7 @@
   word-break: break-word;
 }
 
-.stm-log-round {
-  border: 1px solid var(--stm-border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  margin: 6px 0;
-}
-
-.stm-log-round-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.stm-log-tool-results {
-  list-style: none;
-  margin: 4px 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stm-log-tool-results code {
-  font-size: 11px;
-  margin-left: 6px;
-}
+/* ---------- 问答 Tab：模式切换/气泡/Agent 卡片/输入行 ---------- */
 
 /* ============================================================
  * 问答 Tab（ticket 20 / ADR 0009 + ADR 0013）：与 Agent 聊天——模式切换、用户气泡、
@@ -2885,6 +2892,8 @@
   cursor: default;
 }
 
+/* ---------- Agent API 连接：连接列表与测试结果 ---------- */
+
 /* ---- Agent API 连接（ADR 0010）：连接列表行 / 编辑表单 / 测试结果 ---- */
 .stm-connection-list {
   display: flex;
@@ -2992,6 +3001,161 @@
   background: var(--SmartThemeAlertColor, #d33) 1a;
   word-break: break-all;
 }
+
+/* ---------- 表格预设（spec table-presets）：默认设置 / 应用区 / 预设库 ---------- */
+
+.stm-preset-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 选择器行：下拉占满剩余宽度，按钮按内容宽度 */
+.stm-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.stm-preset-row .stm-select {
+  flex: 1;
+  width: auto;
+  min-width: 120px;
+  margin: 0;
+}
+
+.stm-preset-row .stm-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ---- 预设库列表 ---- */
+
+.stm-preset-list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stm-preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--SmartThemeBorderColor, #8882);
+  border-radius: 6px;
+}
+
+.stm-preset-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stm-preset-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+
+.stm-preset-card-meta {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-left: 6px;
+}
+
+.stm-preset-card-description {
+  margin-left: 0;
+}
+
+.stm-preset-badge {
+  padding: 0 6px;
+  border: 1px solid var(--SmartThemeBorderColor, #8884);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.stm-preset-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin: 6px 0;
+  border: 1px dashed var(--SmartThemeBorderColor, #8884);
+  border-radius: 6px;
+}
+
+/* 表单行内输入与按钮不互相挤压（与 Agent 连接表单同款） */
+.stm-preset-editor .stm-input {
+  width: auto;
+  margin: 0;
+}
+
+/* ---- 结构预览（只读） ---- */
+
+.stm-preset-preview {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 8px;
+  margin: 4px 0;
+  border: 1px solid var(--SmartThemeBorderColor, #8882);
+  border-radius: 6px;
+  background: rgb(0 0 0 / 8%);
+}
+
+.stm-preset-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stm-preset-preview-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stm-preset-preview-title {
+  font-weight: 600;
+}
+
+.stm-preset-preview-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stm-preset-preview-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.stm-preset-preview-field-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 应用确认弹窗内的错误提示与弹窗正文对齐 */
+.stm-modal-body .stm-form-error {
+  margin-top: 6px;
+}
+
+/* ---------- 预设预览与展开内容模态框 ---------- */
 
 /* ---------- 预设预览（issue 01）：内嵌只读面板 ---------- */
 .stm-preset-preview {
