@@ -730,7 +730,17 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
 
     // 放行块 2：Agent 完成后在提交前检查到中断，提案被丢弃、楼层不标记
     streamFn.gate.open();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.waitFor(async () => {
+      const rows = lifecycleRows(await logRowsByKey(harness, view.runId));
+      expect(
+        rows.some(
+          (row) =>
+            row.type === "fill-run" &&
+            payloadOf(row).batch === 2 &&
+            payloadOf(row).status === "interrupted",
+        ),
+      ).toBe(true);
+    });
     expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
     expect(await floorStatuses(harness)).toEqual([
       "processed",
@@ -2266,5 +2276,62 @@ describe("FillTaskService 标记楼层进度（ticket 25）", () => {
       "untracked",
       "untracked",
     ]);
+  });
+});
+
+describe("自动填表批内重试", () => {
+  it("耗尽配置次数后失败，并在任务终态前通知持久化暂停", async () => {
+    const streamFn = failingAgent();
+    const harness = await createHarness({ streamFn });
+    const onFailure = vi.fn();
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 1, delaySeconds: 1, canContinue: () => true, onFailure },
+    });
+    expect((await waitForTerminal(harness, task.runId)).status).toBe("failed");
+    expect(streamFn.calls.count).toBe(2);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("模型炸了"));
+    expect(harness.service.retryStates.size).toBe(0);
+  });
+
+  it("每批独立重试且不重放成功批次", async () => {
+    let calls = 0;
+    const streamFn = scriptedStreamFn(() => {
+      calls += 1;
+      return calls === 2 || calls === 4
+        ? assistantMessage([textMessage("失败")], "error", "失败")
+        : assistantMessage([textMessage("无需变更")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 5,
+      blockSize: 2,
+      automatic: { retries: 1, delaySeconds: 1, canContinue: () => true },
+    });
+    expect((await waitForTerminal(harness, task.runId, 10000)).status).toBe("succeeded");
+    expect(calls).toBe(5);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 5)).toBe(6);
+    expect(harness.service.retryStates.size).toBe(0);
+  });
+
+  it("取消等待立即停止倒计时，不继续尝试", async () => {
+    const streamFn = failingAgent();
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 2, delaySeconds: 10, canContinue: () => true },
+    });
+    await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+    await harness.service.cancel(harness.spaceId, task.runId);
+    await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(false));
+    expect((await harness.tasks.find(task.runId))?.status).toBe("interrupted");
+    expect(streamFn.calls.count).toBe(1);
   });
 });

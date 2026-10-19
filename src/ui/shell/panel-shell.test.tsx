@@ -92,6 +92,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       kick: vi.fn(async () => {}),
     },
     tasks: {
+      retryStates: new Map(),
       submit: vi.fn(async () => ({}) as never),
       submitInit: vi.fn(async () => ({}) as never),
       cancel: vi.fn(async () => ({}) as never),

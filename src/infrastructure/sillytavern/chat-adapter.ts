@@ -1,4 +1,8 @@
 import type {
+  AutoFillChatStore,
+  AutoFillChatState,
+} from "../../features/fill-tasks/auto-fill-settings.ts";
+import type {
   ChatBindingStore,
   ChatBindingStoreRead,
   ChatSnapshot,
@@ -109,6 +113,8 @@ export interface StContext {
     readonly CHAT_CHANGED: string;
     readonly MESSAGE_SENT: string;
     readonly MESSAGE_RECEIVED: string;
+    readonly GENERATION_STARTED?: string;
+    readonly GENERATION_ENDED?: string;
   };
   /** ST 通用弹窗 API（public/scripts/popup.js 已核实） */
   callGenericPopup?: (
@@ -173,11 +179,14 @@ export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
-/** ST 事件桥（ticket 05）：CHAT_CHANGED 切换空间上下文；消息事件仅注册为未来触发点 */
+/** ST 事件桥：切换空间上下文，完整生成结束后检查自动填表。 */
 export interface StEventBridge {
   /** CHAT_CHANGED：切换对话 → 重新同步空间上下文 */
   onChatChanged(): void | Promise<void>;
-  /** MESSAGE_SENT / MESSAGE_RECEIVED：未来自动填表的触发点（ticket 13），当前无消费方 */
+  /** 自动填表在生成过程中暂停调度，避免读取流式输出。 */
+  onGenerationStarted?(): void;
+  onGenerationEnded?(): void;
+  /** 原始消息事件保留给消息级消费方，自动填表使用生成结束事件。 */
   onMessageEvent(kind: "message_sent" | "message_received"): void;
 }
 
@@ -212,6 +221,38 @@ export class StChatAdapter {
 
   constructor(getContext: () => StContext) {
     this.#getContext = getContext;
+  }
+
+  get autoFillStore(): AutoFillChatStore {
+    return {
+      read: () => {
+        const raw = this.#getContext().chatMetadata?.steMemoryAutoFill;
+        return raw === undefined
+          ? { overrides: {}, pausedReason: null }
+          : (raw as AutoFillChatState);
+      },
+      write: (state) => {
+        const context = this.#getContext();
+        if (!context.chatMetadata) throw new Error("当前聊天元数据尚未就绪");
+        context.chatMetadata.steMemoryAutoFill = state;
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  latestAiFloor(): number {
+    const chat = this.#getContext().chat ?? [];
+    for (let floor = chat.length - 1; floor >= 0; floor -= 1) {
+      const message = chat[floor] as { is_user?: boolean; is_system?: boolean; mes?: string };
+      if (
+        !message.is_user &&
+        !message.is_system &&
+        typeof message.mes === "string" &&
+        message.mes.trim() !== ""
+      )
+        return floor;
+    }
+    return -1;
   }
 
   /** 当前对话快照（空串 chatId 按未保存处理） */
@@ -438,7 +479,7 @@ export class StChatAdapter {
     };
   }
 
-  /** 注册事件桥：CHAT_CHANGED 用于切换空间上下文；消息事件仅注册（未来触发点） */
+  /** 注册宿主事件；dry-run 预览不改变自动填表的生成状态。 */
   registerEventBridge(bridge: StEventBridge): void {
     const context = this.#getContext();
     const source = context.eventSource;
@@ -447,6 +488,12 @@ export class StChatAdapter {
     source.on(types.CHAT_CHANGED, () => void bridge.onChatChanged());
     source.on(types.MESSAGE_SENT, () => bridge.onMessageEvent("message_sent"));
     source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
+    if (types.GENERATION_STARTED)
+      source.on(types.GENERATION_STARTED, (_type, _options, dryRun) => {
+        if (!dryRun) bridge.onGenerationStarted?.();
+      });
+    if (types.GENERATION_ENDED)
+      source.on(types.GENERATION_ENDED, () => bridge.onGenerationEnded?.());
   }
 
   /**

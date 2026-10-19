@@ -95,6 +95,12 @@ export interface FillTaskSubmitInput {
   readonly from: number;
   readonly to: number;
   readonly blockSize?: number;
+  readonly automatic?: {
+    readonly retries: number;
+    readonly delaySeconds: number;
+    readonly canContinue: () => boolean;
+    readonly onFailure?: (message: string) => void;
+  };
 }
 
 /** 初始化填表提交输入（spec init-fill）：输入 = 用户初始化文本框内容，无楼层。 */
@@ -146,6 +152,11 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  readonly retryStates = new Map<
+    string,
+    { from: number; to: number; attempt: number; retryAt: number }
+  >();
+  readonly #retryWakeups = new Map<string, () => void>();
   readonly #tasks: FillTaskRepository;
   readonly #ledger: FloorLedgerRepository;
   readonly #source: FillTaskSource;
@@ -188,6 +199,7 @@ export class FillTaskService {
    * 并启动后台分批循环，立即返回任务视图（状态 running）。
    */
   async submit(input: FillTaskSubmitInput): Promise<FillTaskView> {
+    const submittedChatId = this.#source.chatId();
     const chatLength = this.#source.chatMessageCount();
     const blockSize = input.blockSize ?? DEFAULT_FILL_TASK_BLOCK_SIZE;
     if (
@@ -220,8 +232,14 @@ export class FillTaskService {
             buildMergedStoryText(this.#source.messagesInRange(input.from, input.to)),
           );
 
+    if (
+      this.#source.chatId() !== submittedChatId ||
+      (input.automatic && !input.automatic.canContinue())
+    )
+      throw new Error("对话或自动填表模式已变化，请重新触发");
     const now = this.#now();
     const task: FillTask = {
+      ...(input.automatic ? { automatic: true } : {}),
       runId: this.#createRunId(),
       memorySpaceId: input.memorySpaceId,
       from: input.from,
@@ -244,7 +262,7 @@ export class FillTaskService {
     await this.#appendLog(fillTaskStartLog(task), `填表任务 ${task.runId} 开始日志写入失败`);
 
     // 后台循环不阻塞提交请求；所有异常在循环内部收口为任务失败。
-    void this.#runTask(task, llm, promptContext);
+    void this.#runTask(task, llm, promptContext, input.automatic);
     return this.#toView(task);
   }
 
@@ -253,6 +271,7 @@ export class FillTaskService {
   async cancel(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
     const applied = await this.#tasks.markInterrupted(runId);
+    this.#retryWakeups.get(runId)?.();
     if (!applied) throw new FillTaskStateError(task);
     // 中断结束行在取消落地后立即写入（循环不再负责，避免重复）；
     // 正在运行的批由循环在安全点补写批中断结束行。
@@ -438,12 +457,17 @@ export class FillTaskService {
     task: FillTask,
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
+    automatic?: FillTaskSubmitInput["automatic"],
   ): Promise<void> {
     let failingBlock: { readonly from: number; readonly to: number } | undefined;
     try {
       for (let blockFrom = task.from; blockFrom <= task.to; blockFrom += task.blockSize) {
         // 安全点 1：块开始前。用户取消/启动中断已落库 → 直接停止。
         if (await this.#isStopped(task.runId)) return;
+        if (automatic && !automatic.canContinue()) {
+          await this.cancel(task.memorySpaceId, task.runId);
+          return;
+        }
         // 安全点 1b：对话已切换（楼层归属的对话变了）→ 失败停止，楼层不标记。
         if (!(await this.#chatUnchanged(task))) {
           await this.#failTask(
@@ -456,7 +480,51 @@ export class FillTaskService {
         const blockTo = Math.min(blockFrom + task.blockSize - 1, task.to);
         failingBlock = { from: blockFrom, to: blockTo };
         const batch = (blockFrom - task.from) / task.blockSize + 1;
-        await this.#processBlock(llm, promptContext, task, batch, blockFrom, blockTo);
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await this.#processBlock(
+              llm,
+              promptContext,
+              task,
+              batch,
+              blockFrom,
+              blockTo,
+              automatic?.canContinue,
+            );
+            if (automatic && !automatic.canContinue() && !(await this.#isStopped(task.runId))) {
+              await this.cancel(task.memorySpaceId, task.runId);
+              return;
+            }
+            break;
+          } catch (error) {
+            if (await this.#isStopped(task.runId)) return;
+            if (automatic && !automatic.canContinue()) {
+              await this.cancel(task.memorySpaceId, task.runId);
+              return;
+            }
+            if (!automatic || attempt >= automatic.retries) throw error;
+            this.retryStates.set(task.runId, {
+              from: blockFrom,
+              to: blockTo,
+              attempt: attempt + 1,
+              retryAt: Date.now() + automatic.delaySeconds * 1000,
+            });
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, automatic.delaySeconds * 1000);
+              this.#retryWakeups.set(task.runId, () => {
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+            this.retryStates.delete(task.runId);
+            this.#retryWakeups.delete(task.runId);
+            if (await this.#isStopped(task.runId)) return;
+            if (!automatic.canContinue()) {
+              await this.cancel(task.memorySpaceId, task.runId);
+              return;
+            }
+          }
+        }
         // 本块已成功提交：后续失败（如终态标记）不得再把它标记为 error。
         failingBlock = undefined;
       }
@@ -477,6 +545,7 @@ export class FillTaskService {
       try {
         const current = await this.#tasks.find(task.runId);
         if (current === undefined || isFillTaskTerminal(current.status)) return;
+        automatic?.onFailure?.(error instanceof Error ? error.message : String(error));
         await this.#failTask(task, failingBlock, error);
       } catch (teardownError) {
         this.#logError(`填表任务 ${task.runId} 失败收口出错`, teardownError);
@@ -515,6 +584,7 @@ export class FillTaskService {
     batch: number,
     from: number,
     to: number,
+    canContinue?: () => boolean,
   ): Promise<void> {
     // 批开始行在块处理前先落库（边跑边写）：运行中查询即可见已完成/进行中批。
     const startedAt = this.#now();
@@ -636,6 +706,9 @@ export class FillTaskService {
       }
       // 安全点 2：提交前。用户取消已落地 → 丢弃未提交提案（楼层不标记，供重试），
       // 批以 interrupted 收尾（进行中的批也有完整的开始/结束行）。
+      if (canContinue && !canContinue()) {
+        if (!(await this.#isStopped(task.runId))) await this.cancel(task.memorySpaceId, task.runId);
+      }
       if (await this.#isStopped(task.runId)) {
         await this.#appendLog(
           fillRunEndLog({
@@ -662,7 +735,7 @@ export class FillTaskService {
         // 批次提交与台账标记同一事务：提交失败回滚时状态也不落库。
         // 初始化任务无楼层：只提交批次，不标记台账。
         await this.#runInTransaction(async () => {
-          if (!(await this.#isRunning(task.runId))) return;
+          if (!(await this.#isRunning(task.runId)) || (canContinue && !canContinue())) return;
           await this.#recordWriter.commitProposal(task.memorySpaceId, result.proposal!, "agent");
           if (task.kind !== "init") {
             await this.#ledger.markProcessed(
@@ -675,7 +748,7 @@ export class FillTaskService {
       } else {
         // 空提案：Agent 确认无需变更，本块按成功处理（可再次提交任务重试）。
         await this.#runInTransaction(async () => {
-          if (!(await this.#isRunning(task.runId))) return;
+          if (!(await this.#isRunning(task.runId)) || (canContinue && !canContinue())) return;
           if (task.kind !== "init") {
             await this.#ledger.markProcessed(
               task.memorySpaceId,

@@ -1,3 +1,8 @@
+import { AutoFillFields } from "../tasks/auto-fill-controls.tsx";
+import {
+  validateAutoFillSettings,
+  type AutoFillSettings,
+} from "../../features/fill-tasks/auto-fill-settings.ts";
 import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createBackupFile, serializeBackupFile } from "../../features/backup/index.ts";
 import {
@@ -525,6 +530,22 @@ export function SettingsTab(props: {
             <span className="stm-switch-track" aria-hidden="true"></span>
           </label>
         </div>
+      </div>
+
+      <div className="stm-setting-group" data-group="auto-fill">
+        <div className="stm-setting-name">自动填表 · 全局设置</div>
+        <AutoFillFields
+          values={props.settings.autoFill}
+          onChange={(values) => {
+            try {
+              const autoFill = values as AutoFillSettings;
+              validateAutoFillSettings(autoFill);
+              saveSettings({ ...props.settings, autoFill });
+            } catch (error) {
+              reportError(error);
+            }
+          }}
+        />
       </div>
 
       {/* 记忆宏：常用首位 */}

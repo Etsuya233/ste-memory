@@ -1,3 +1,5 @@
+import { AutoFillControls } from "./auto-fill-controls.tsx";
+import type { AutoFillService } from "../../features/fill-tasks/auto-fill-service.ts";
 /**
  * 任务 Tab（ticket 13 触发 UI + ticket 14 任务面板）：手动指定楼层范围触发填表任务、
  * 逐消息覆盖视图、运行中任务取消、失败/中断任务重试、任务历史列表。
@@ -47,8 +49,10 @@ const COVERAGE_LEGEND_ITEMS: readonly {
 ];
 
 export interface TasksTabRuntime {
+  readonly autoFill?: AutoFillService;
   readonly tasks: Pick<
     FillTaskService,
+    | "retryStates"
     | "submit"
     | "submitInit"
     | "cancel"
@@ -71,6 +75,7 @@ export function TasksTab(props: {
   readonly settings: PluginSettings;
   readonly onSettingsChange: (settings: PluginSettings) => void;
   /** 跳转到日志 Tab 并按该任务 runId 过滤（ADR 0015） */
+  readonly autoFillFocus?: { from: number; to: number; key: number };
   readonly onViewLogs?: (runId: string) => void;
 }) {
   const active = activeStatus(props.status);
@@ -137,6 +142,16 @@ export function TasksTab(props: {
     }
   }, [props.runtime, spaceId]);
 
+  useEffect(() => {
+    if (props.autoFillFocus) {
+      prefilledSpaceRef.current = spaceId;
+      setFromText(String(props.autoFillFocus.from));
+      setToText(String(props.autoFillFocus.to));
+      if (props.runtime.autoFill)
+        setBlockSizeText(String(props.runtime.autoFill.settings().blockSize));
+    }
+  }, [props.autoFillFocus]);
+
   // 标记楼层进度事件订阅（ticket 25）：操作完成后刷新视图
   useEffect(() => {
     const handler = () => setReloadKey((k) => k + 1);
@@ -155,12 +170,12 @@ export function TasksTab(props: {
 
   useEffect(() => {
     if (pollRef.current !== undefined) clearInterval(pollRef.current);
-    if (view?.hasActiveTask) {
+    if (spaceId) {
       pollRef.current = setInterval(() => void refresh(), TASK_POLL_INTERVAL_MS);
     } else {
       pollRef.current = undefined;
     }
-  }, [view?.hasActiveTask, refresh]);
+  }, [spaceId, refresh]);
 
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复任务触发" />;
@@ -257,7 +272,9 @@ export function TasksTab(props: {
     const runId = view?.activeTaskRunId;
     if (!runId) return;
     try {
-      await props.runtime.tasks.cancel(currentSpaceId, runId);
+      const task = await props.runtime.tasks.activeTask(currentSpaceId);
+      if (task?.automatic && props.runtime.autoFill) await props.runtime.autoFill.cancel();
+      else await props.runtime.tasks.cancel(currentSpaceId, runId);
       reportSuccess("已取消填表任务");
       setReloadKey((key) => key + 1);
     } catch (error) {
@@ -312,7 +329,11 @@ export function TasksTab(props: {
   /** 失败/中断任务重试：按原楼层范围重新提交为新任务（原任务保留在历史） */
   async function retryTask(runId: string): Promise<void> {
     try {
-      await props.runtime.tasks.retry(currentSpaceId, runId);
+      const task = (await props.runtime.tasks.recentTasks(currentSpaceId, TASK_HISTORY_LIMIT)).find(
+        (item) => item.runId === runId,
+      );
+      if (task?.automatic && props.runtime.autoFill) await props.runtime.autoFill.retry(task);
+      else await props.runtime.tasks.retry(currentSpaceId, runId);
       reportSuccess("已重新触发填表任务");
       setReloadKey((key) => key + 1);
     } catch (error) {
@@ -323,6 +344,14 @@ export function TasksTab(props: {
   return (
     <div className="stm-task-tab">
       {presetSwitcher}
+      {props.runtime.autoFill && (
+        <AutoFillControls
+          service={props.runtime.autoFill}
+          tasks={props.runtime.tasks}
+          defaults={props.settings.autoFill}
+          spaceId={currentSpaceId}
+        />
+      )}
       {view.coverage.totalCount > 0 ? (
         <div className="stm-task-card" data-stm-section="coverage">
           <div className="stm-task-card-title">楼层覆盖</div>

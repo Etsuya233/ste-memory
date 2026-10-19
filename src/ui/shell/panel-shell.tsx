@@ -1,3 +1,4 @@
+import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 /**
  * 面板外壳（ADR 0005：UI 渲染层采用 React，随 esbuild 打进单文件 bundle）。
  *
@@ -48,6 +49,7 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  * 结构满足该端口，组合根直接传入。
  */
 export interface PanelRuntime {
+  readonly autoFill?: SteMemoryRuntime["autoFill"];
   readonly manager: Pick<
     SteMemoryRuntime["manager"],
     "getStatus" | "onStatusChange" | "syncToCurrentChat" | "resolveBranch" | "importSpace"
@@ -98,6 +100,7 @@ export interface PanelRuntime {
   /** 填表任务（ticket 13 触发/取消 + ticket 14 重试/历史/覆盖）：手动楼层范围触发 + 取消 + 重试 + 状态/进度/历史 */
   readonly tasks: Pick<
     FillTaskService,
+    | "retryStates"
     | "submit"
     | "submitInit"
     | "cancel"
@@ -257,6 +260,11 @@ export function PanelShell(props: {
   );
   // 设置只经本面板的开关写入（唯一写入口），组件本地 state 即最新值
   const [settings, setSettings] = useState<PluginSettings>(() => props.runtime.settings.read());
+  // 提醒点击后预填范围；聊天切换后清除，避免带入其他对话。
+  const [autoFillFocus, setAutoFillFocus] = useState<{ from: number; to: number; key: number }>();
+  useEffect(() => {
+    setAutoFillFocus(undefined);
+  }, [status]);
   // 日志定位（ADR 0015）：任务面板「日志」跳转到日志 Tab 时携带的目标 runId
   const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
   // 问答聊天历史/run 状态的页面内存存储（ticket 20）：挂在面板壳上，跨 Tab 切换存活；
@@ -325,6 +333,35 @@ export function PanelShell(props: {
     const guard = guardRef.current;
     return guard ? guard() : true;
   }
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const notice = (event as CustomEvent<{ identity: string; kind: string }>).detail;
+      if (
+        !props.runtime.adapter ||
+        chatIdentityKey(props.runtime.adapter.getChatSnapshot()) !== notice.identity
+      ) {
+        reportError(new Error("请回到通知所属对话查看任务"));
+        return;
+      }
+      if (!confirmLeaveRecordsTab()) return;
+      props.model.setTab("tasks");
+      props.model.open();
+      if (notice.kind === "reminder")
+        void props.runtime.autoFill
+          ?.range()
+          .then((range) => {
+            if (
+              range &&
+              props.runtime.adapter &&
+              chatIdentityKey(props.runtime.adapter.getChatSnapshot()) === notice.identity
+            )
+              setAutoFillFocus({ ...range, key: Date.now() });
+          })
+          .catch(reportError);
+    };
+    document.addEventListener("ste-memory:open-tasks", handler);
+    return () => document.removeEventListener("ste-memory:open-tasks", handler);
+  }, [props.runtime, props.model, state.tab]);
   const geometryRef = useRef<PanelGeometry | null>(null);
 
   /** 读取当前几何；首次交互时以实际盒子尺寸为基准（尺寸用像素固化，之后不再回退 CSS 默认） */
@@ -534,6 +571,7 @@ export function PanelShell(props: {
         {state.tab === "tasks" && (
           <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
             <TasksTab
+              autoFillFocus={autoFillFocus}
               runtime={props.runtime}
               status={status}
               settings={settings}

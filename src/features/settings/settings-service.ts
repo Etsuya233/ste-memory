@@ -8,6 +8,7 @@ interface SettingsDependencies {
   readonly refreshAgentMacros: () => Promise<void>;
   readonly refreshMirror: () => Promise<void>;
   readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
+  readonly refreshAutoFill?: () => void;
 }
 
 export class SettingsService {
@@ -23,6 +24,7 @@ export class SettingsService {
 
   save(settings: PluginSettings): void {
     this.dependencies.store.write(settings);
+    this.dependencies.refreshAutoFill?.();
   }
 
   async setPluginEnabled(enabled: boolean): Promise<void> {

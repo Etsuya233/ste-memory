@@ -1,3 +1,5 @@
+import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
+import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import {
   MemoryFieldService,
   MemoryRecordQueryService,
@@ -96,6 +98,7 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
+  readonly autoFill: AutoFillService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
@@ -433,16 +436,50 @@ export async function startSteMemory(
     },
   });
 
+  const autoFill = new AutoFillService({
+    tasks,
+    chatStore: adapter.autoFillStore,
+    globalSettings: () => settings.read().autoFill,
+    current: () => {
+      const status = manager.getStatus();
+      const snapshot = adapter.getChatSnapshot();
+      const identity = chatIdentityKey(snapshot);
+      if (!settings.read().enabled || status?.kind !== "active" || !identity) return undefined;
+      const binding = adapter.bindingStore.read();
+      if (binding.kind !== "bound" || binding.binding.spaceId !== status.space.id) return undefined;
+      if (binding.binding.version === 2 && binding.binding.chatIdentity !== identity)
+        return undefined;
+      return {
+        identity,
+        spaceId: status.space.id,
+        chatLength: adapter.chatMessageCount(),
+        aiFloor: adapter.latestAiFloor(),
+      };
+    },
+    notify: showAutoFillNotification,
+    dismissReminder: () => {
+      if (typeof document !== "undefined")
+        document.getElementById("stm-auto-fill-reminder")?.remove();
+    },
+    reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
+  });
+
   adapter.registerEventBridge({
-    onChatChanged: () => {
+    onChatChanged: async () => {
+      await autoFill.chatChanged();
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
       if (!settings.read().enabled) return;
-      void manager.syncToCurrentChat().catch((error) => {
-        log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
-      });
+      await manager
+        .syncToCurrentChat()
+        .then(() => autoFill.chatReady())
+        .catch((error) => {
+          log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
+        });
     },
     // MESSAGE_SENT / MESSAGE_RECEIVED：未来自动填表的触发点（ticket 13），当前无消费方
     onMessageEvent: () => {},
+    onGenerationStarted: () => autoFill.generationStarted(),
+    onGenerationEnded: () => autoFill.generationEnded(),
   });
 
   // Agent 预设宏（ticket 17 / ADR 0006）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 +
@@ -469,11 +506,13 @@ export async function startSteMemory(
   }
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
+  autoFill.start();
   await macro.start();
   await agentMacro.start();
   // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
   // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
   manager.onStatusChange(() => {
+    autoFill.kick();
     void macro.kick().catch((error) => {
       log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
     });
@@ -483,6 +522,7 @@ export async function startSteMemory(
   });
   const settingsService = new SettingsService({
     store: settings,
+    refreshAutoFill: () => autoFill.kick(),
     syncToCurrentChat: () => manager.syncToCurrentChat(),
     refreshMemoryMacros: () => macro.kick(),
     refreshAgentMacros: () => agentMacro.kick(),
@@ -502,6 +542,7 @@ export async function startSteMemory(
     settingsService,
     mirror,
     tasks,
+    autoFill,
     spaceMaintenance,
     presetApply,
     logs,

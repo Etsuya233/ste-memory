@@ -40,6 +40,7 @@ export function isFillTaskTerminal(status: FillTaskStatus): boolean {
 export type FillTaskKind = "floor" | "init";
 
 interface FillTaskBase {
+  readonly automatic?: boolean;
   readonly runId: string;
   readonly memorySpaceId: MemorySpaceId;
   /**

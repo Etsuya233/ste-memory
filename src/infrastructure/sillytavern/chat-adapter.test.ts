@@ -568,3 +568,64 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
     expect(stableAdapter({ chat: undefined }).adapter.recentMessages(10)).toEqual([]);
   });
 });
+
+describe("自动填表聊天适配", () => {
+  it("会话覆盖与暂停随聊天元数据独立保存，切换后读取当前聊天", () => {
+    const first = fakeContext({ saveMetadataDebounced: vi.fn() });
+    const second = fakeContext({ chatId: "second", saveMetadataDebounced: vi.fn() });
+    let current = first;
+    const adapter = new StChatAdapter(() => current);
+    expect(adapter.autoFillStore.read()).toEqual({ overrides: {}, pausedReason: null });
+    adapter.autoFillStore.write({
+      overrides: { mode: "off", includeCurrent: false },
+      pausedReason: "用户取消",
+    });
+    current = second;
+    expect(adapter.autoFillStore.read()).toEqual({ overrides: {}, pausedReason: null });
+    adapter.autoFillStore.write({ overrides: { blockSize: 4 }, pausedReason: null });
+    current = first;
+    expect(adapter.autoFillStore.read()).toEqual({
+      overrides: { mode: "off", includeCurrent: false },
+      pausedReason: "用户取消",
+    });
+    expect(first.saveMetadataDebounced).toHaveBeenCalledTimes(1);
+    expect(second.saveMetadataDebounced).toHaveBeenCalledTimes(1);
+  });
+
+  it("完整生成事件接线，dry-run 不暂停，用户及系统消息不作为最新 AI 楼层", () => {
+    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const { adapter } = stableAdapter({
+      chat: [
+        { is_user: false, mes: "欢迎" },
+        { is_user: true, mes: "用户" },
+        { is_user: false, is_system: true, mes: "系统" },
+      ],
+      eventTypes: {
+        CHAT_CHANGED: "chat",
+        MESSAGE_SENT: "sent",
+        MESSAGE_RECEIVED: "received",
+        GENERATION_STARTED: "start",
+        GENERATION_ENDED: "end",
+      },
+      eventSource: {
+        on: (name, handler) => {
+          handlers.set(name, handler);
+        },
+      },
+    });
+    const bridge = {
+      onChatChanged: vi.fn(),
+      onMessageEvent: vi.fn(),
+      onGenerationStarted: vi.fn(),
+      onGenerationEnded: vi.fn(),
+    };
+    adapter.registerEventBridge(bridge);
+    handlers.get("start")!("normal", {}, true);
+    expect(bridge.onGenerationStarted).not.toHaveBeenCalled();
+    handlers.get("start")!("normal", {}, false);
+    handlers.get("end")!();
+    expect(bridge.onGenerationStarted).toHaveBeenCalledTimes(1);
+    expect(bridge.onGenerationEnded).toHaveBeenCalledTimes(1);
+    expect(adapter.latestAiFloor()).toBe(0);
+  });
+});
