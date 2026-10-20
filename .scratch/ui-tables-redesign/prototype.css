@@ -35,6 +35,7 @@
   --stm-radius: 10px;
   --stm-radius-card: 14px;
   --stm-control-h: 44px;
+  --stm-bar-h: 54px;
 
   --stm-font:
     system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -571,28 +572,119 @@ button { color: inherit; }
   overflow: hidden;
 }
 
-.app-topbar {
+/* ---------- 顶栏 ----------
+ * 一级页和二级详情共用 .panel-bar；材质集中在 --panel-bar-* 三个变量里。
+ */
+.panel-bar {
+  --panel-bar-bg: var(--stm-bg);
+  --panel-bar-filter: none;
+  --panel-bar-border: var(--stm-border);
+  position: relative;
+  z-index: 12;
   flex: none;
-  height: 54px;
+  height: var(--stm-bar-h);
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--stm-border);
-  background: var(--stm-bg);
-  z-index: 12;
+  border-bottom: 1px solid var(--panel-bar-border);
+  background: var(--panel-bar-bg);
+  -webkit-backdrop-filter: var(--panel-bar-filter);
+  backdrop-filter: var(--panel-bar-filter);
 }
 
-.app-title {
+.panel-bar--detail {
+  --panel-bar-bg: color-mix(in srgb, var(--stm-bg) 70%, transparent);
+  --panel-bar-filter: blur(18px) saturate(1.6);
+  --panel-bar-border: color-mix(in srgb, var(--stm-border) 62%, transparent);
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 20;
+  padding: 0 4px;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .panel-bar--detail { --panel-bar-bg: var(--stm-bg); }
+}
+
+.panel-bar-leading,
+.panel-bar-trailing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.panel-bar-trailing { margin-left: auto; }
+
+.panel-bar-title {
   flex: 1;
   min-width: 0;
   padding-left: 2px;
-  font-size: var(--stm-fs-lg);
-  font-weight: 650;
-  letter-spacing: -0.015em;
+}
+
+.panel-bar-title-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--stm-fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.panel-bar-title-sub { display: none; }
+
+.panel-bar--detail .panel-bar-title {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  flex: none;
+  width: max-content;
+  max-width: calc(100% - 196px);
+  padding-left: 0;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.panel-bar--detail .panel-bar-title-text {
+  font-size: var(--stm-fs-md);
+  letter-spacing: -0.01em;
+}
+
+.panel-bar--detail .panel-bar-title-sub {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--stm-mono);
+  font-size: 10px;
+  color: var(--stm-fg-3);
+}
+
+.panel-bar-back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 40px;
+  padding: 0 9px 0 3px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--stm-accent-text);
+  font-size: var(--stm-fs-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.panel-bar-back .ic { width: 20px; height: 20px; }
+.panel-bar-back:hover { background: var(--stm-hover); }
+.panel-bar-back:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: -2px;
 }
 
 .app-sync {
@@ -619,6 +711,29 @@ button { color: inherit; }
   flex: 1;
   min-height: 0;
   position: relative;
+}
+
+/* ---------- 二级页面容器 ----------
+ * 标题栏和内容属于同一个 .screen。标题栏绝对定位覆盖在内容之上，
+ * 内容滚动时从标题栏下方经过。
+ */
+.app > .screen { flex: 1; }
+
+.screen {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--stm-bg);
+}
+
+.screen-body {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: var(--stm-bar-h);
+  scrollbar-width: thin;
 }
 
 .icon-btn {
@@ -1029,6 +1144,18 @@ button { color: inherit; }
 
 .detail-head { flex: none; padding: 14px 16px 0; }
 
+/* 手机二级页面：名称/Key/开关都在标题栏，内容从描述开始，整页随 .screen-body 滚动。 */
+.detail--mobile { height: auto; min-height: 100%; }
+
+.detail-head--mobile { padding: 16px 16px 0; }
+.detail-head--mobile .detail-desc { margin-top: 0; }
+
+.detail--mobile .detail-body {
+  flex: none;
+  overflow: visible;
+  padding: 11px 16px calc(24px + env(safe-area-inset-bottom));
+}
+
 .detail-title-row {
   display: flex;
   align-items: flex-start;
@@ -1088,28 +1215,6 @@ button { color: inherit; }
   scrollbar-width: thin;
 }
 
-.mobile-subbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px 0;
-}
-
-.mobile-subbar .btn-ghost {
-  padding: 0 8px;
-  color: var(--stm-fg-2);
-  font-size: var(--stm-fs-sm);
-}
-
-.subbar-spacer { flex: 1; }
-
-.subbar-meta {
-  padding-right: 8px;
-  font-size: var(--stm-fs-xs);
-  color: var(--stm-fg-3);
-}
-
 .fields-toolbar {
   display: flex;
   align-items: center;
@@ -1136,21 +1241,20 @@ button { color: inherit; }
 }
 .fields-title .muted { font-size: var(--stm-fs-xs); font-weight: 400; }
 
-.fields-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-
-.manage-banner {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--stm-accent-soft);
-  border-radius: 9px;
-  background: var(--stm-accent-tint);
-  color: var(--stm-accent-text);
+.fields-enabled {
+  margin-left: 1px;
   font-size: var(--stm-fs-xs);
-  line-height: 1.45;
+  font-weight: 400;
+  color: var(--stm-fg-3);
 }
+
+.fields-enabled::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--stm-fg-3);
+}
+
+.fields-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 .field-list {
   background: var(--stm-surface);
@@ -1226,13 +1330,6 @@ button { color: inherit; }
 .row-icon-btn:disabled { opacity: 0.28; cursor: default; }
 .row-icon-btn--danger { color: var(--stm-danger); }
 .row-icon-btn--danger:hover:not(:disabled) { color: var(--stm-danger); background: var(--stm-danger-dim); }
-
-.fields-note {
-  margin-top: 8px;
-  padding: 0 2px;
-  font-size: 10px;
-  color: var(--stm-fg-3);
-}
 
 .strategy-intro {
   margin-bottom: 10px;
@@ -1798,6 +1895,7 @@ button { color: inherit; }
 .form-checks { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 
 .form-check {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1808,7 +1906,54 @@ button { color: inherit; }
   user-select: none;
 }
 
-.form-check input { width: 16px; height: 16px; accent-color: var(--stm-accent); cursor: pointer; }
+.form-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.check-box {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--stm-border);
+  border-radius: 5px;
+  background: var(--stm-input-bg);
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.check-box::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  margin-top: -1px;
+  border-left: 2px solid var(--stm-accent-fg);
+  border-bottom: 2px solid var(--stm-accent-fg);
+  transform: rotate(-45deg) scale(0);
+  transition: transform 0.12s ease;
+}
+
+.form-check:hover input:not(:disabled) + .check-box { border-color: var(--stm-fg-3); }
+
+.form-check input:checked + .check-box {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent);
+}
+
+.form-check input:checked + .check-box::after { transform: rotate(-45deg) scale(1); }
+
+.form-check input:focus-visible + .check-box {
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
+}
+
+.form-check input:disabled + .check-box { opacity: 0.45; }
+.form-check.is-disabled { cursor: not-allowed; opacity: 0.55; }
 
 .form-actions {
   display: flex;

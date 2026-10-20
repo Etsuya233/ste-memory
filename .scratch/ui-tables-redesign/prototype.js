@@ -257,7 +257,7 @@
       mini: "split",
       why: [
         "一屏只展开一张表，页面高度不再随表格数量增长。",
-        "表级操作收进详情页签与「⋯」，字段操作收进「管理字段」。",
+        "表级操作收进详情页签，字段操作收进「排序」。",
         "桌面左右独立滚动；手机列表 → 详情钻取，永远不会出现八张表同时展开。",
       ],
       path: ["表索引", "选择表格", "字段 / 信息 / 策略", "点字段行编辑"],
@@ -428,14 +428,26 @@
    * 渲染：外壳
    * ============================================================ */
 
-  function renderTopbar() {
+  function renderPanelBar({ variant = "root", leading = "", title = "", subtitle = "", trailing = "" }) {
     return `
-      <header class="app-topbar">
-        <button type="button" class="icon-btn" data-action="nav-hint" aria-label="打开导航">${icon("menu")}</button>
-        <div class="app-title">表格</div>
-        <div class="app-sync"><i class="dot"></i><span>已同步</span></div>
-        <button type="button" class="icon-btn" data-action="close-hint" aria-label="收起面板">${icon("x")}</button>
+      <header class="panel-bar panel-bar--${variant}">
+        <div class="panel-bar-leading">${leading}</div>
+        <div class="panel-bar-title">
+          <div class="panel-bar-title-text">${esc(title)}</div>
+          ${subtitle ? `<div class="panel-bar-title-sub">${esc(subtitle)}</div>` : ""}
+        </div>
+        <div class="panel-bar-trailing">${trailing}</div>
       </header>`;
+  }
+
+  function renderTopbar() {
+    return renderPanelBar({
+      leading: `<button type="button" class="icon-btn" data-action="nav-hint" aria-label="打开导航">${icon("menu")}</button>`,
+      title: "表格",
+      trailing: `
+        <div class="app-sync"><i class="dot"></i><span>已同步</span></div>
+        <button type="button" class="icon-btn" data-action="close-hint" aria-label="收起面板">${icon("x")}</button>`,
+    });
   }
 
   function renderApp() {
@@ -443,10 +455,20 @@
     if (!device) return;
     device.dataset.viewport = state.viewport;
 
+    /* 手机详情是独立的二级页面：标题栏由该页面自己提供，不再叠加全局标题栏。 */
+    const standaloneScreen =
+      state.concept === "workbench" &&
+      state.viewport === "mobile" &&
+      state.mobileView === "detail" &&
+      Boolean(getTable());
+
     device.innerHTML = `
       <div class="app">
-        ${renderTopbar()}
-        <div class="app-content">${renderConcept()}</div>
+        ${
+          standaloneScreen
+            ? renderConcept()
+            : `${renderTopbar()}<div class="app-content">${renderConcept()}</div>`
+        }
         ${state.toast ? `<div class="toast">${icon("check")}${esc(state.toast)}</div>` : ""}
         ${state.modal ? renderModal() : ""}
       </div>`;
@@ -492,13 +514,19 @@
 
     if (state.mobileView === "detail") {
       return `
-        <div class="wb-mobile">
-          <div class="mobile-subbar">
-            <button type="button" class="btn btn-ghost btn-xs" data-action="back-to-list">${icon("chevron-left")}全部表格</button>
-            <span class="subbar-spacer"></span>
-            <span class="subbar-meta">${table.fields.length} 字段 · ${enabledFieldCount(table)} 启用</span>
-          </div>
-          ${renderDetail(table)}
+        <div class="screen">
+          ${renderPanelBar({
+            variant: "detail",
+            leading: `<button type="button" class="panel-bar-back" data-action="back-to-list" aria-label="返回表格索引">
+              ${icon("chevron-left")}<span>表格</span>
+            </button>`,
+            title: table.name,
+            subtitle: table.key,
+            trailing: renderSwitch(table.enabled, "toggle-table", `data-table-id="${table.id}"`, {
+              label: `启用 ${table.name}`,
+            }),
+          })}
+          <div class="screen-body">${renderDetail(table, { mobile: true })}</div>
         </div>`;
     }
 
@@ -522,7 +550,7 @@
                         <span class="table-glyph">${esc(initialOf(table))}</span>
                         <span class="wb-table-row-main">
                           <span class="wb-table-row-name">${esc(table.name)}</span>
-                          <span class="wb-table-row-meta">${table.fields.length} 字段 · ${enabledFieldCount(table)} 启用</span>
+                          <span class="wb-table-row-meta">${table.fields.length} 字段</span>
                         </span>
                         <span class="dot${table.enabled ? "" : " dot--off"}"></span>
                         ${mobile ? `<span class="wb-row-chevron">${icon("chevron-right")}</span>` : ""}
@@ -556,20 +584,27 @@
   }
 
   function renderDetail(table, options = {}) {
-    return `<div class="detail">${renderDetailInner(table, options)}</div>`;
+    const classes = `detail${options.mobile ? " detail--mobile" : ""}`;
+    return `<div class="${classes}">${renderDetailInner(table, options)}</div>`;
   }
 
   function renderDetailInner(table, options = {}) {
-    const showMore = options.showMore !== false;
+    const mobile = options.mobile === true;
     const tabs = [
       { id: "fields", label: `字段 ${table.fields.length}` },
       { id: "info", label: "表格信息" },
       { id: "strategy", label: "显示策略" },
     ];
+    const stats = `
+        <div class="detail-stats">
+          <span class="badge badge--soft">${table.system ? "系统表" : "自定义表"}</span>
+          <span class="dot-sep">·</span>
+          <span>${strategySummary(table)}</span>
+        </div>`;
 
-    return `
-      <div class="detail-head">
-        <div class="detail-title-row">
+    const titleRow = mobile
+      ? ""
+      : `<div class="detail-title-row">
           <span class="table-glyph table-glyph--lg">${esc(initialOf(table))}</span>
           <div class="detail-title-main">
             <div class="detail-name">${esc(table.name)}</div>
@@ -579,18 +614,14 @@
             ${renderSwitch(table.enabled, "toggle-table", `data-table-id="${table.id}"`, {
               label: `启用 ${table.name}`,
             })}
-            ${showMore ? `<button type="button" class="icon-btn icon-btn--sm" data-action="open-table-actions" data-table-id="${table.id}" aria-label="更多表格操作">${icon("more")}</button>` : ""}
           </div>
-        </div>
+        </div>`;
+
+    return `
+      <div class="detail-head${mobile ? " detail-head--mobile" : ""}">
+        ${titleRow}
         <div class="detail-desc">${esc(table.description || "暂无描述")}</div>
-        <div class="detail-stats">
-          <span class="badge badge--soft">${table.system ? "系统表" : "自定义表"}</span>
-          <span>${table.fields.length} 字段</span>
-          <span class="dot-sep">·</span>
-          <span>${enabledFieldCount(table)} 启用</span>
-          <span class="dot-sep">·</span>
-          <span>${strategySummary(table)}</span>
-        </div>
+        ${stats}
       </div>
       <div class="detail-tabs">
         <div class="segmented" role="tablist" aria-label="表格详情">
@@ -613,6 +644,7 @@
 
   function renderFieldsPanel(table) {
     const enabled = enabledFieldCount(table);
+    const enabledLabel = table.fields.length && enabled === table.fields.length ? "全部启用" : `已启用 ${enabled}`;
     const content = table.fields.length
       ? `<div class="field-list">${table.fields.map((item) => renderFieldRow(table, item)).join("")}</div>`
       : `
@@ -626,15 +658,13 @@
     return `
       <div class="fields-panel">
         <div class="fields-toolbar">
-          <div class="fields-title">字段 <span class="count">${table.fields.length}</span><span class="muted">${enabled} 启用</span></div>
+          <div class="fields-title">字段<span class="fields-enabled">${enabledLabel}</span></div>
           <div class="fields-actions">
-            ${table.fields.length ? `<button type="button" class="btn btn-ghost btn-xs" data-action="toggle-field-mode">${state.fieldMode ? "完成" : "管理字段"}</button>` : ""}
+            ${table.fields.length ? `<button type="button" class="btn btn-ghost btn-xs" data-action="toggle-field-mode">${state.fieldMode ? "完成" : "排序"}</button>` : ""}
             <button type="button" class="btn btn-primary btn-xs" data-action="new-field" data-table-id="${table.id}">${icon("plus")} 新增字段</button>
           </div>
         </div>
-        ${state.fieldMode ? `<div class="manage-banner">${icon("grip")}<span>排序模式：用箭头调整字段顺序；点击字段行可编辑或删除。</span></div>` : ""}
         ${content}
-        ${table.fields.length ? `<div class="fields-note">点击字段行编辑；开关只控制是否启用。</div>` : ""}
       </div>`;
   }
 
@@ -839,7 +869,7 @@
             <div class="inspector-title">表格详情</div>
             <button type="button" class="icon-btn icon-btn--sm" data-action="open-table-actions" data-table-id="${table.id}" aria-label="更多表格操作">${icon("more")}</button>
           </div>
-          ${renderDetail(table, { showMore: false })}
+          ${renderDetail(table)}
         </aside>
       </div>`;
   }
@@ -1036,8 +1066,8 @@
             </label>
             <label class="form-row"><span class="form-label">字段 Prompt</span><textarea class="form-textarea" name="prompt" rows="3" placeholder="给 Agent 的填值指引（可选）">${esc(current.prompt || "")}</textarea></label>
             <div class="form-checks">
-              <label class="form-check"><input type="checkbox" name="required" ${current.required ? "checked" : ""}> 必填</label>
-              <label class="form-check"><input type="checkbox" name="enabled" ${current.enabled ? "checked" : ""} ${current.dep ? "disabled" : ""}> 启用</label>
+              <label class="form-check"><input type="checkbox" name="required" ${current.required ? "checked" : ""}><span class="check-box" aria-hidden="true"></span><span>必填</span></label>
+              <label class="form-check${current.dep ? " is-disabled" : ""}"><input type="checkbox" name="enabled" ${current.enabled ? "checked" : ""} ${current.dep ? "disabled" : ""}><span class="check-box" aria-hidden="true"></span><span>启用</span></label>
             </div>
             ${current.dep ? '<div class="form-hint">该字段被显示策略依赖，不能停用或删除；请先修改显示策略。</div>' : ""}
             ${editing ? `
@@ -1164,7 +1194,7 @@
    * ============================================================ */
 
   const STAGE_TIPS = {
-    workbench: "点左侧表格切换；点字段行编辑；「管理字段」显示排序按钮。",
+    workbench: "点左侧表格切换；点字段行编辑；「排序」显示排序按钮。",
     library: "点卡片打开检视器；卡片右下角「⋯」是表格操作；开关只控制启用。",
     focus: "点表名切换表格；点字段行编辑；「⋯」里是信息 / 策略 / 删除。",
   };
