@@ -169,6 +169,7 @@ describe("resolveViewReferenceLabels（引用解析补充查询）", () => {
 
   it("投影含引用字段：按目标表 $record_id in 查询，收集 id → 显示文本", async () => {
     const reader: MemorySpaceReader = {
+      getSpace: async () => undefined,
       listTables: vi.fn(),
       listFields: vi.fn(),
       queryRecords: vi.fn(async () => ({
@@ -207,6 +208,7 @@ describe("resolveViewReferenceLabels（引用解析补充查询）", () => {
 
   it("目标表缺失/停用：跳过该字段（不查询，渲染层兜底显示原 id）", async () => {
     const reader: MemorySpaceReader = {
+      getSpace: async () => undefined,
       listTables: vi.fn(),
       listFields: vi.fn(),
       queryRecords: vi.fn(),
@@ -237,6 +239,7 @@ describe("resolveViewReferenceLabels（引用解析补充查询）", () => {
 
   it("多引用字段：数组值收集；引用 id 去重", async () => {
     const reader: MemorySpaceReader = {
+      getSpace: async () => undefined,
       listTables: vi.fn(),
       listFields: vi.fn(),
       queryRecords: vi.fn(async () => ({
@@ -269,6 +272,7 @@ describe("resolveViewReferenceLabels（引用解析补充查询）", () => {
 
   it("引用 id 超 100：按契约 pageSize 上限分片查询", async () => {
     const reader: MemorySpaceReader = {
+      getSpace: async () => undefined,
       listTables: vi.fn(),
       listFields: vi.fn(),
       queryRecords: vi.fn(async () => ({

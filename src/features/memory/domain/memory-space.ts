@@ -16,6 +16,8 @@ export interface MemorySpaceInitializationSource {
 }
 
 export interface MemorySpace {
+  /** 复制自表格预设的通用填写规则；旧空间缺省为空。 */
+  readonly prompt?: string;
   readonly id: MemorySpaceId;
   readonly name: string;
   /** 初始化来源；未记录（升级前创建的空间）为 null */

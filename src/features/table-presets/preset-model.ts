@@ -1,3 +1,4 @@
+import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
 import { DomainError, type MemoryFieldType } from "../memory/index.ts";
 
 /**
@@ -52,6 +53,8 @@ export interface TablePresetField {
 
 /** 预设结构（系统预设与用户预设共用形态）。 */
 export interface TablePresetStructure {
+  /** 跨表填写规则；早期预设缺省为空。 */
+  readonly prompt?: string;
   readonly tables: readonly TablePresetTable[];
 }
 
@@ -92,10 +95,12 @@ export function listTablePresets(
 ): readonly ResolvedTablePreset[] {
   return [
     systemPreset,
+    STORY_MEMORY_PRESET,
     ...settings.userPresets.map((preset) => ({
       id: preset.id,
       name: preset.name,
       description: preset.description,
+      prompt: preset.prompt,
       tables: preset.tables,
       builtIn: false,
     })),
@@ -109,6 +114,7 @@ export function resolveTablePreset(
   presetId: string,
 ): ResolvedTablePreset {
   if (presetId === systemPreset.id) return systemPreset;
+  if (presetId === STORY_MEMORY_PRESET.id) return STORY_MEMORY_PRESET;
   const userPreset = settings.userPresets.find((preset) => preset.id === presetId);
   if (!userPreset) {
     throw new DomainError({
@@ -120,6 +126,7 @@ export function resolveTablePreset(
     id: userPreset.id,
     name: userPreset.name,
     description: userPreset.description,
+    prompt: userPreset.prompt,
     tables: userPreset.tables,
     builtIn: false,
   };
@@ -149,10 +156,10 @@ export function tablePresetName(value: string): string {
       humanMsg: "预设名称不能超过 120 个字符",
     });
   }
-  if (name === SYSTEM_TABLE_PRESET_NAME) {
+  if ([SYSTEM_TABLE_PRESET_NAME, STORY_MEMORY_PRESET.name].includes(name)) {
     throw new DomainError({
       type: "table_preset_name_reserved",
-      humanMsg: `「${SYSTEM_TABLE_PRESET_NAME}」是系统自带预设名称，请改用其他名称`,
+      humanMsg: `「${name}」是系统自带预设名称，请改用其他名称`,
     });
   }
   return name;
@@ -183,6 +190,7 @@ export function mergeTablePresetSettings(raw: unknown): TablePresetSettings {
   const defaultPresetId =
     typeof source.defaultPresetId === "string" &&
     (source.defaultPresetId === SYSTEM_TABLE_PRESET_ID ||
+      source.defaultPresetId === STORY_MEMORY_PRESET.id ||
       userPresets.some((preset) => preset.id === source.defaultPresetId))
       ? source.defaultPresetId
       : SYSTEM_TABLE_PRESET_ID;
@@ -194,6 +202,8 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
     !isRecord(raw) ||
     typeof raw.id !== "string" ||
     raw.id === "" ||
+    raw.id === SYSTEM_TABLE_PRESET_ID ||
+    raw.id === STORY_MEMORY_PRESET.id ||
     typeof raw.name !== "string" ||
     !Array.isArray(raw.tables)
   ) {
@@ -206,6 +216,7 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
   }
   return {
     id: raw.id,
+    prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     name: raw.name,
     description: typeof raw.description === "string" ? raw.description : "",
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",

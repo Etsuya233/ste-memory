@@ -17,6 +17,11 @@ import {
   type TablePresetStructure,
 } from "../../features/table-presets/preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
+import {
+  importTablePreset,
+  parseTablePresetExport,
+  serializeTablePresetExport,
+} from "../../features/table-presets/preset-transfer.ts";
 import { createUiId, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
 import {
   BUILTIN_PRESET_READONLY_HINT,
@@ -104,6 +109,7 @@ export function TablePresetManager(props: {
   >(undefined);
   const [busy, setBusy] = useState(false);
   const operationRunning = useRef(false);
+  const importInput = useRef<HTMLInputElement>(null);
 
   const targetExists = options.some((option) => option.id === applyTargetId);
   const applyTarget = targetExists
@@ -117,6 +123,35 @@ export function TablePresetManager(props: {
 
   function changePresets(next: TablePresetSettings): void {
     props.onPresetsChange(next);
+  }
+
+  async function importPresetFile(file: File): Promise<void> {
+    setBusy(true);
+    try {
+      const imported = parseTablePresetExport(await file.text());
+      const { settings, preset } = importTablePreset(props.presets, SYSTEM_TABLE_PRESET, imported, {
+        id: createUiId(),
+        now: new Date().toISOString(),
+      });
+      changePresets(settings);
+      setPreviewPresetId(preset.id);
+      reportSuccess(`已导入「${preset.name}」，默认选择保持不变`);
+    } catch (error) {
+      reportError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportPreset(preset: ResolvedTablePreset): void {
+    const text = serializeTablePresetExport(preset, new Date().toISOString());
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `table-preset-${preset.name.replace(/[\\/:*?"<>|]/g, "_")}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    reportSuccess(`已导出「${preset.name}」`);
   }
 
   function saveDefaultPreset(): void {
@@ -376,6 +411,32 @@ export function TablePresetManager(props: {
       {/* 预设管理区 */}
       <div className="stm-setting-subgroup" data-stm-section="preset-library">
         <div className="stm-setting-name">预设管理</div>
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="import-table-preset"
+            disabled={busy}
+            onClick={() => importInput.current!.click()}
+          >
+            导入表格预设
+          </button>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            data-stm-field="table-preset-import-file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void importPresetFile(file);
+            }}
+          />
+        </div>
+        <div className="stm-setting-hint">
+          导入会新增用户预设，不更改默认选择或当前空间；同名自动编号。
+        </div>
         <ul className="stm-preset-list">
           {rows.map((row) => {
             const preset = resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, row.id);
@@ -399,6 +460,16 @@ export function TablePresetManager(props: {
                   )}
                 </div>
                 <div className="stm-table-actions">
+                  <button
+                    type="button"
+                    className="stm-table-action"
+                    data-action="export-table-preset"
+                    data-preset-id={row.id}
+                    disabled={busy}
+                    onClick={() => exportPreset(preset)}
+                  >
+                    导出
+                  </button>
                   <button
                     type="button"
                     className="stm-table-action"
@@ -618,6 +689,11 @@ function PresetStructurePreview(props: { readonly preset: ResolvedTablePreset })
   return (
     <div className="stm-preset-preview-body">
       {preview.description && <div className="stm-setting-hint">{preview.description}</div>}
+      {props.preset.prompt && (
+        <div className="stm-setting-hint" data-stm-field="preset-shared-prompt">
+          通用填写规则：{props.preset.prompt}
+        </div>
+      )}
       {preview.tables.map((table) => (
         <div key={table.key} className="stm-preset-preview-table">
           <div className="stm-preset-preview-title">
@@ -628,6 +704,7 @@ function PresetStructurePreview(props: { readonly preset: ResolvedTablePreset })
             </span>
           </div>
           {table.description && <div className="stm-setting-hint">{table.description}</div>}
+          {table.prompt && <div className="stm-setting-hint">{table.prompt}</div>}
           <ul className="stm-preset-preview-fields">
             {table.fields.map((field) => (
               <li key={field.key} className="stm-preset-preview-field">

@@ -16,6 +16,7 @@ import type { MemorySpaceReader } from "../memory/index.ts";
  * 目标表 key 供模型理解值含义）；`id` 仅用于工具内部 key→id 映射，不进提示词。
  */
 export interface MemoryFieldDigest {
+  readonly prompt?: string;
   readonly id: MemoryFieldId;
   readonly key: MemoryFieldKey;
   readonly name: string;
@@ -31,6 +32,7 @@ export interface MemoryFieldDigest {
 
 /** 单个启用表的 schema 摘要；`id` 仅用于工具内部 key→id 映射，不进提示词。 */
 export interface MemoryTableDigest {
+  readonly prompt?: string;
   readonly id: MemoryTableId;
   readonly key: MemoryTableKey;
   readonly name: string;
@@ -44,6 +46,7 @@ export interface MemoryTableDigest {
  * 保证模型看到的表/字段与工具实际接受的完全一致。
  */
 export interface MemorySpaceTableDigest {
+  readonly prompt?: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tables: readonly MemoryTableDigest[];
 }
@@ -56,7 +59,10 @@ export async function buildMemorySpaceTableDigest(
   reader: MemorySpaceReader,
   memorySpaceId: MemorySpaceId,
 ): Promise<MemorySpaceTableDigest> {
-  const tables = await reader.listTables(memorySpaceId);
+  const [space, tables] = await Promise.all([
+    reader.getSpace(memorySpaceId),
+    reader.listTables(memorySpaceId),
+  ]);
   const tableKeyById = new Map(tables.map((table) => [table.id, table.key]));
 
   const digests = await Promise.all(
@@ -64,7 +70,7 @@ export async function buildMemorySpaceTableDigest(
       .filter((table) => table.enabled)
       .map(async (table) => digestTable(reader, table, tableKeyById)),
   );
-  return { memorySpaceId, tables: digests };
+  return { memorySpaceId, prompt: space?.prompt, tables: digests };
 }
 
 async function digestTable(
@@ -78,6 +84,7 @@ async function digestTable(
     key: table.key,
     name: table.name,
     description: table.description,
+    prompt: table.prompt,
     fields: fields
       .filter((field) => field.enabled)
       .map((field) => digestField(field, tableKeyById)),
@@ -94,6 +101,7 @@ function digestField(
     name: field.name,
     type: field.type,
     required: field.required,
+    prompt: field.prompt,
     options: field.options,
     referenceTableKey: field.referenceTableId
       ? (tableKeyById.get(field.referenceTableId) ?? null)

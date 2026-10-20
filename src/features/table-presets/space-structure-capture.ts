@@ -28,6 +28,7 @@ export interface SpaceStructureReader {
 export async function captureSpaceStructure(
   reader: SpaceStructureReader,
   memorySpaceId: MemorySpaceId,
+  prompt?: string,
 ): Promise<TablePresetStructure> {
   const tables = await reader.listTables(memorySpaceId);
   const tableKeyById = new Map<string, string>(tables.map((table) => [table.id, table.key]));
@@ -37,6 +38,7 @@ export async function captureSpaceStructure(
   }
 
   return {
+    prompt,
     tables: tables.map((table) => {
       const fields = fieldsByTableId.get(table.id) ?? [];
       const fieldKeyById = new Map<string, string>(fields.map((field) => [field.id, field.key]));

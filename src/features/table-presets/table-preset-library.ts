@@ -1,6 +1,7 @@
 import { DomainError } from "../memory/index.ts";
 import {
   SYSTEM_TABLE_PRESET_ID,
+  listTablePresets,
   tablePresetName,
   tablePresetNameAvailable,
   type ResolvedTablePreset,
@@ -63,6 +64,7 @@ export function saveUserTablePreset(
     description: input.description.trim(),
     createdAt: input.now,
     updatedAt: input.now,
+    prompt: input.structure.prompt,
     tables: input.structure.tables,
   };
   return { settings: { ...settings, userPresets: [...settings.userPresets, preset] }, preset };
@@ -98,6 +100,7 @@ export function overwriteUserTablePreset(
   const preset = requireUserPreset(settings, presetId);
   const updated: TablePreset = {
     ...preset,
+    prompt: input.structure.prompt,
     tables: input.structure.tables,
     updatedAt: input.now,
   };
@@ -137,6 +140,7 @@ export function copyTablePresetAsUserPreset(
     description: source.description,
     createdAt: input.now,
     updatedAt: input.now,
+    prompt: source.prompt,
     tables: source.tables,
   };
   return { settings: { ...settings, userPresets: [...settings.userPresets, preset] }, preset };
@@ -148,10 +152,7 @@ export function setDefaultTablePreset(
   systemPreset: ResolvedTablePreset,
   presetId: string,
 ): TablePresetSettings {
-  if (
-    presetId !== systemPreset.id &&
-    !settings.userPresets.some((preset) => preset.id === presetId)
-  ) {
+  if (!listTablePresets(settings, systemPreset).some((preset) => preset.id === presetId)) {
     throw new DomainError({
       type: "table_preset_not_found",
       humanMsg: "选择的预设不存在，请刷新后重试",

@@ -297,7 +297,7 @@ export class MemoryRecordQueryService {
       case "$updated_at":
         return record.updatedAt;
       default:
-        return record.payload[fieldId];
+        return record.payload[fieldId] ?? null;
     }
   }
 

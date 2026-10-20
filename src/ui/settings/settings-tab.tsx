@@ -395,6 +395,7 @@ export function SettingsTab(props: {
         listFields: (spaceId, tableId) => props.fields.list(spaceId, tableId),
       },
       active.space.id,
+      active.space.prompt,
     );
   }
 

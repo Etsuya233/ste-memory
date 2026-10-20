@@ -234,6 +234,7 @@ export async function startSteMemory(
   // repository；批次提交 + 台账标记包在同一个 Dexie 事务（失败回滚不产生半批数据/半批状态）。
   const adapter = new StChatAdapter(() => getContext() as StContext);
   const reader: MemorySpaceReader = {
+    getSpace: (id) => spaces.find(id),
     listTables: (memorySpaceId) => tables.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fields.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) =>

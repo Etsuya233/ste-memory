@@ -107,12 +107,14 @@ describe("TablePresetManager（设置 Tab 表格预设分组冒烟）", () => {
     const systemCopy = html.match(/<button[^>]*data-action="copy-preset"[^>]*>/)?.[0] ?? "";
     expect(systemCopy).not.toContain("disabled");
     const renameButtons = html.match(/<button[^>]*data-action="rename-preset"[^>]*>/g) ?? [];
-    expect(renameButtons).toHaveLength(2);
+    expect(renameButtons).toHaveLength(3);
     expect(renameButtons[0]).toContain("disabled"); // 系统自带
-    expect(renameButtons[1]).not.toContain("disabled");
+    expect(renameButtons[1]).toContain("disabled");
+    expect(renameButtons[2]).not.toContain("disabled");
     const deleteButtons = html.match(/<button[^>]*data-action="delete-preset"[^>]*>/g) ?? [];
     expect(deleteButtons[0]).toContain("disabled");
-    expect(deleteButtons[1]).not.toContain("disabled");
+    expect(deleteButtons[1]).toContain("disabled");
+    expect(deleteButtons[2]).not.toContain("disabled");
     expect(html).toContain("系统自带");
     expect(html).toContain("新空间默认");
     expect(html).toContain("另存为预设");

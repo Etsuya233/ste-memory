@@ -133,6 +133,7 @@ export function createTestMemorySpace(): TestMemorySpace {
   );
   const queryService = new MemoryRecordQueryService(tablesRepo, fieldsRepo, recordsRepo);
   const reader: MemorySpaceReader = {
+    getSpace: (id) => spacesRepo.find(id),
     listTables: (memorySpaceId) => tableService.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fieldService.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) => queryService.query(memorySpaceId, input),

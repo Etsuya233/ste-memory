@@ -80,6 +80,7 @@ const memorySpaceInitializationSourceSchema = Type.Object({
 });
 
 const memorySpaceSchema = Type.Object({
+  prompt: Type.Optional(Type.String()),
   id: Type.String(),
   name: Type.String(),
   // 表格预设之前的备份文件（v1 早期）没有该键：解码时归一化为 null

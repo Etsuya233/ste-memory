@@ -91,3 +91,23 @@ describe("composeProposalAgentMessages（消息编排缺省组合器）", () => 
     expect(messages[0]!.text).toContain("characters");
   });
 });
+
+it("填写上下文携带通用、表级、字段级规则，查询上下文不接收填写指令", () => {
+  const table = DIGEST.tables[0]!;
+  const digest = {
+    ...DIGEST,
+    prompt: "共用测试规则",
+    tables: [
+      {
+        ...table,
+        prompt: "表级测试规则",
+        fields: [{ ...table.fields[0]!, prompt: "字段测试规则" }],
+      },
+    ],
+  };
+  const fill = composeProposalAgentSystemPrompt(digest);
+  for (const rule of ["共用测试规则", "表级测试规则", "字段测试规则"]) {
+    expect(fill.split(rule)).toHaveLength(2);
+    expect(composeQueryAgentSystemPrompt(digest)).not.toContain(rule);
+  }
+});

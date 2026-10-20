@@ -471,6 +471,7 @@ function relationshipsSpace(): TestMemorySpace {
   );
   const queryService = new MemoryRecordQueryService(tablesRepo, fieldsRepo, recordsRepo);
   const reader: MemorySpaceReader = {
+    getSpace: async () => undefined,
     listTables: (memorySpaceId) => tableService.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fieldService.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) => queryService.query(memorySpaceId, input),
