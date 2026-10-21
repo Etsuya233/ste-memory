@@ -70,7 +70,7 @@ export interface PluginSettings {
 export const SETTINGS_KEY = "steMemory";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  fillAgentTimeoutSeconds: 300,
+  fillAgentTimeoutSeconds: 600,
   enabled: true,
   macroName: "{{ste}}",
   macroLimit: 2000,

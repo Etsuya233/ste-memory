@@ -9,6 +9,12 @@ export interface MemorySummaryRule {
   readonly referenceFieldKey: string;
   readonly groupSize: number;
   readonly retainCount: number;
+  readonly timeRange?: {
+    readonly sourceStartFieldKey: string;
+    readonly sourceEndFieldKey: string;
+    readonly targetStartFieldKey: string;
+    readonly targetEndFieldKey: string;
+  };
 }
 
 export function memorySummaryRules(value: unknown): readonly MemorySummaryRule[] {
@@ -42,12 +48,40 @@ export function memorySummaryRules(value: unknown): readonly MemorySummaryRule[]
       throw new Error("总结规则的表/字段 Key、组大小或保留条数无效，来源表不可重复");
     }
     sources.add(rule.sourceTableKey);
+    let timeRange: MemorySummaryRule["timeRange"];
+    if ("timeRange" in rule) {
+      const range = rule.timeRange;
+      if (
+        typeof range !== "object" ||
+        range === null ||
+        !("sourceStartFieldKey" in range) ||
+        typeof range.sourceStartFieldKey !== "string" ||
+        !range.sourceStartFieldKey ||
+        !("sourceEndFieldKey" in range) ||
+        typeof range.sourceEndFieldKey !== "string" ||
+        !range.sourceEndFieldKey ||
+        !("targetStartFieldKey" in range) ||
+        typeof range.targetStartFieldKey !== "string" ||
+        !range.targetStartFieldKey ||
+        !("targetEndFieldKey" in range) ||
+        typeof range.targetEndFieldKey !== "string" ||
+        !range.targetEndFieldKey
+      )
+        throw new Error("总结时间范围须指定来源与总结的起止字段 Key");
+      timeRange = {
+        sourceStartFieldKey: range.sourceStartFieldKey,
+        sourceEndFieldKey: range.sourceEndFieldKey,
+        targetStartFieldKey: range.targetStartFieldKey,
+        targetEndFieldKey: range.targetEndFieldKey,
+      };
+    }
     return {
       sourceTableKey: rule.sourceTableKey,
       targetTableKey: rule.targetTableKey,
       referenceFieldKey: rule.referenceFieldKey,
       groupSize: rule.groupSize,
       retainCount: rule.retainCount,
+      ...(timeRange ? { timeRange } : {}),
     };
   });
 }

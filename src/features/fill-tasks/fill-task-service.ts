@@ -63,8 +63,8 @@ import {
 /** 任务默认分块大小：每块楼层数 = 一次 Agent 调用 + 一个原子批次（api 同值）。 */
 export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
 
-/** 单块 Agent run 的总超时（对齐 ProposalAgent 默认 5 分钟）。 */
-const BLOCK_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+/** 单块填写 Agent 的默认总超时。 */
+const BLOCK_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** 本轮输入消息 → 上下文行载荷（文本块拼接为单条文本；runMessages 由本模块构造，必为 user 文本消息）。 */
 function fillAgentInputTextOf(message: AgentMessage): FillAgentContextText {

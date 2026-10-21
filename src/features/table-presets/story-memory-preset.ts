@@ -14,6 +14,12 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
       referenceFieldKey: "plot_summary",
       groupSize: 15,
       retainCount: 5,
+      timeRange: {
+        sourceStartFieldKey: "start_time",
+        sourceEndFieldKey: "end_time",
+        targetStartFieldKey: "start_time",
+        targetEndFieldKey: "end_time",
+      },
     },
   ],
   prompt:

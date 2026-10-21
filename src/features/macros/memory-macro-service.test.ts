@@ -338,6 +338,10 @@ describe("MemoryMacroService 注册生命周期", () => {
     expect(h.data.recordsByTable.get(notes.id)).toHaveLength(2);
     expect(h.service.builtinSnapshotNames()).toContain("compact");
     expect(h.errors).toEqual([]);
+    h.setSettings({ macroLimit: 30 });
+    await h.service.kick();
+    expect(h.invokeHandler("memoryContext", ["compact"])).toContain("## 总结");
+    expect(h.invokeHandler("memoryContext", ["full"])).toContain("## 纪要");
   });
   it("start：带花括号的配置名解析为裸标识符注册；handler 同步返回快照", async () => {
     const h = createHarness();

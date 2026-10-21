@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, mergeSettings, type PluginSettings } from "./plugin-settings.ts";
 
 describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容）", () => {
-  it("旧设置默认五分钟，自定义时限保留，非法时限尽早报错", () => {
-    expect(mergeSettings({}).fillAgentTimeoutSeconds).toBe(300);
+  it("旧设置默认十分钟，自定义时限保留，非法时限尽早报错", () => {
+    expect(mergeSettings({}).fillAgentTimeoutSeconds).toBe(600);
+    expect(mergeSettings({ fillAgentTimeoutSeconds: 300 }).fillAgentTimeoutSeconds).toBe(300);
     expect(mergeSettings({ fillAgentTimeoutSeconds: 900 }).fillAgentTimeoutSeconds).toBe(900);
     for (const seconds of [0, 29, 1801, 1.5, "900"]) {
       expect(() => mergeSettings({ fillAgentTimeoutSeconds: seconds })).toThrow(/30–1800/);

@@ -495,7 +495,7 @@ export class MemoryMacroService {
         }[];
       }[] = [];
       const perTable = new Map<string, string>();
-      const compactInputs: typeof tableInputs = [];
+      const compactInputs: { priority: number; input: (typeof tableInputs)[number] }[] = [];
       for (const table of enabledTables) {
         const fields = await this.#ports.reader.listFields(spaceId, table.id);
         const enabledFields = fields.filter((field) => field.enabled);
@@ -532,20 +532,37 @@ export class MemoryMacroService {
             (recordsByTable.get(target.id) ?? []).map((record) => record.id),
           );
           compactInputs.push({
-            ...input,
-            records: recordsWithDisplay.filter(
-              (_, index) =>
-                !summaryIds.has(records[index]!.payload[reference.id] as MemoryRecord["id"]),
-            ),
+            priority: 1,
+            input: {
+              ...input,
+              records: recordsWithDisplay.filter(
+                (_, index) =>
+                  !summaryIds.has(records[index]!.payload[reference.id] as MemoryRecord["id"]),
+              ),
+            },
           });
         } else {
-          compactInputs.push(input);
+          compactInputs.push({
+            priority: digest.summaryRules?.some(
+              (candidate) => candidate.targetTableKey === table.key,
+            )
+              ? 0
+              : 2,
+            input,
+          });
         }
         perTable.set(table.key, renderMemoryFullSnapshot({ tables: [input], limit: macroLimit }));
       }
       return {
         ...(digest.summaryRules?.length
-          ? { compact: renderMemoryFullSnapshot({ tables: compactInputs, limit: macroLimit }) }
+          ? {
+              compact: renderMemoryFullSnapshot({
+                tables: compactInputs
+                  .sort((a, b) => a.priority - b.priority)
+                  .map(({ input }) => input),
+                limit: macroLimit,
+              }),
+            }
           : {}),
         full: renderMemoryFullSnapshot({ tables: tableInputs, limit: macroLimit }),
         perTable,

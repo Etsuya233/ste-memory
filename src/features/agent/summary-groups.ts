@@ -37,11 +37,24 @@ export async function prepareSummaryGroups(
       const records = (await ports.records.list(spaceId, source.id))
         .filter((record) => record.payload[reference.id] == null)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      const range = rule.timeRange;
+      const rangeFields = range
+        ? {
+            sourceStart: findFieldInDigest(source, range.sourceStartFieldKey),
+            sourceEnd: findFieldInDigest(source, range.sourceEndFieldKey),
+            targetStart: findFieldInDigest(target, range.targetStartFieldKey),
+            targetEnd: findFieldInDigest(target, range.targetEndFieldKey),
+          }
+        : undefined;
+      if (rangeFields && Object.values(rangeFields).some((field) => field?.type !== "datetime")) {
+        throw new Error("总结时间范围必须引用启用的日期时间字段");
+      }
       return {
         rule,
         source,
         target,
         reference,
+        rangeFields,
         records,
         ids: records.slice(0, rule.groupSize).map((record) => record.id),
       };
@@ -60,7 +73,7 @@ export async function prepareSummaryGroups(
       .join("\n"),
     validate(operations) {
       const errors: MemoryProposalError[] = [];
-      for (const { rule, source, target, reference, records, ids } of groups) {
+      for (const { rule, source, target, reference, records, ids, rangeFields } of groups) {
         const creates = operations.filter(
           (operation): operation is Extract<MemoryProposalOperation, { type: "create" }> =>
             operation.tableId === target.id && operation.type === "create",
@@ -81,6 +94,43 @@ export async function prepareSummaryGroups(
           continue;
         }
         const summary = creates[0]!;
+        if (rangeFields) {
+          const payloads = records.slice(0, rule.groupSize).map((record) => {
+            const update = operations.find(
+              (operation) =>
+                operation.type === "update" &&
+                operation.tableId === source.id &&
+                operation.recordId === record.id,
+            );
+            const payload: typeof record.payload = {
+              ...record.payload,
+              ...(update?.type === "update" ? update.patch : {}),
+            };
+            return payload;
+          });
+          const starts = payloads
+            .map((payload) => payload[rangeFields.sourceStart!.id])
+            .filter((value): value is string => typeof value === "string")
+            .sort();
+          const ends = payloads
+            .map(
+              (payload) =>
+                payload[rangeFields.sourceEnd!.id] ?? payload[rangeFields.sourceStart!.id],
+            )
+            .filter((value): value is string => typeof value === "string")
+            .sort();
+          const expectedStart = starts[0] ?? null;
+          const expectedEnd = ends.at(-1) ?? null;
+          if (
+            (summary.patch[rangeFields.targetStart!.id] ?? null) !== expectedStart ||
+            (summary.patch[rangeFields.targetEnd!.id] ?? null) !== expectedEnd
+          ) {
+            errors.push({
+              externalId: summary.externalId,
+              message: `总结时间范围须覆盖关联来源：${rule.timeRange!.targetStartFieldKey} 应为 ${JSON.stringify(expectedStart)}，${rule.timeRange!.targetEndFieldKey} 应为 ${JSON.stringify(expectedEnd)}`,
+            });
+          }
+        }
         const linked = operations.filter(
           (operation) =>
             operation.tableId === source.id &&

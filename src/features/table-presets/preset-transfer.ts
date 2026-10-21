@@ -68,6 +68,14 @@ const presetSchema = Type.Object(
             referenceFieldKey: Type.String(),
             groupSize: Type.Integer({ minimum: 1 }),
             retainCount: Type.Integer({ minimum: 0 }),
+            timeRange: Type.Optional(
+              Type.Object({
+                sourceStartFieldKey: Type.String({ minLength: 1 }),
+                sourceEndFieldKey: Type.String({ minLength: 1 }),
+                targetStartFieldKey: Type.String({ minLength: 1 }),
+                targetEndFieldKey: Type.String({ minLength: 1 }),
+              }),
+            ),
           },
           { additionalProperties: false },
         ),

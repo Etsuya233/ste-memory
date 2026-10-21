@@ -748,7 +748,7 @@ export function SettingsTab(props: {
               </select>
             </label>
             <div className="stm-setting-hint">
-              每批独立计时，超时中止且不提交该批；默认 300 秒。
+              每批独立计时，超时中止且不提交该批；默认 600 秒。
             </div>
           </div>
         )}
