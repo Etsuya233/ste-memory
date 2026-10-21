@@ -152,6 +152,9 @@ class FakeRegistrar implements MemoryMacroRegistrationPort {
 
 /** 视图查询端口：digest 构建（listTables/listFields）+ queryRecords 结果/错误可配置 */
 class FakeReader implements MemorySpaceReader {
+  async getSpace() {
+    return undefined;
+  }
   tables: readonly MemoryTable[] = [plotsTable()];
   fieldsByTable = new Map<MemoryTableId, readonly MemoryField[]>([
     [

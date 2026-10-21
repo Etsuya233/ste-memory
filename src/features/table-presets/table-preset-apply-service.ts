@@ -123,6 +123,7 @@ export class TablePresetApplyService {
     const structure = instantiateTablePreset(preset, memorySpaceId, this.#ports.createIds, now);
     return this.#ports.rebuild.rebuild({
       memorySpaceId,
+      prompt: preset.prompt ?? "",
       tables: structure.tables,
       fields: structure.fields,
       initializationSource: { presetId: preset.id, presetName: preset.name, appliedAt: now },

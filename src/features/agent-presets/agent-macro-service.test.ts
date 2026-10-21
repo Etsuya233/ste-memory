@@ -78,6 +78,9 @@ function field(id: string, key: string): MemoryField {
 }
 
 class FakeReader implements MemorySpaceReader {
+  async getSpace() {
+    return undefined;
+  }
   tables: readonly MemoryTable[] = [];
   fieldsByTable = new Map<MemoryTableId, readonly MemoryField[]>();
   async listTables(_memorySpaceId: MemorySpaceId) {

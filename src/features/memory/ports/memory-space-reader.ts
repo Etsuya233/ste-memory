@@ -1,4 +1,10 @@
-import type { MemoryField, MemorySpaceId, MemoryTable, MemoryTableId } from "../domain/index.ts";
+import type {
+  MemorySpace,
+  MemoryField,
+  MemorySpaceId,
+  MemoryTable,
+  MemoryTableId,
+} from "../domain/index.ts";
 import type { QueryRecordsInput, QueryRecordsPage } from "../record-query-contract.ts";
 
 /**
@@ -8,6 +14,7 @@ import type { QueryRecordsInput, QueryRecordsPage } from "../record-query-contra
  * 实现由宿主（runtime）用 Memory 服务装配。
  */
 export interface MemorySpaceReader {
+  getSpace(memorySpaceId: MemorySpaceId): Promise<MemorySpace | undefined>;
   listTables(memorySpaceId: MemorySpaceId): Promise<readonly MemoryTable[]>;
   listFields(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<readonly MemoryField[]>;
   queryRecords(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage>;

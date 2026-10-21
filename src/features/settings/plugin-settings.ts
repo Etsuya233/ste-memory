@@ -37,6 +37,8 @@ export interface ChatMirrorSettings {
 export type EntryPlacement = "top" | "wand" | "both";
 
 export interface PluginSettings {
+  /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
+  readonly fillAgentTimeoutSeconds: number;
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
   readonly enabled: boolean;
   /** 记忆宏全局前缀（ticket 15 生效；默认建议 {{ste}}，用户可直接粘贴进提示词预设）：
@@ -68,6 +70,7 @@ export interface PluginSettings {
 export const SETTINGS_KEY = "steMemory";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
+  fillAgentTimeoutSeconds: 600,
   enabled: true,
   macroName: "{{ste}}",
   macroLimit: 2000,
@@ -95,7 +98,20 @@ export interface SettingsStore {
 export function mergeSettings(raw: unknown): PluginSettings {
   const source = isRecord(raw) ? raw : {};
   const agentConnections = mergeAgentConnections(source.agentConnections);
+  if (
+    source.fillAgentTimeoutSeconds !== undefined &&
+    (typeof source.fillAgentTimeoutSeconds !== "number" ||
+      !Number.isInteger(source.fillAgentTimeoutSeconds) ||
+      source.fillAgentTimeoutSeconds < 30 ||
+      source.fillAgentTimeoutSeconds > 1800)
+  ) {
+    throw new Error("每批填写超时须为 30–1800 秒的整数");
+  }
   return {
+    fillAgentTimeoutSeconds:
+      source.fillAgentTimeoutSeconds === undefined
+        ? DEFAULT_SETTINGS.fillAgentTimeoutSeconds
+        : (source.fillAgentTimeoutSeconds as number),
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
     macroLimit:

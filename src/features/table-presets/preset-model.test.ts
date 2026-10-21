@@ -82,6 +82,7 @@ describe("表格预设模型（spec 表格预设）", () => {
     );
     expect(presets.map((preset) => [preset.id, preset.builtIn])).toEqual([
       [SYSTEM_TABLE_PRESET_ID, true],
+      ["storyMemory", true],
       ["p1", false],
     ]);
   });

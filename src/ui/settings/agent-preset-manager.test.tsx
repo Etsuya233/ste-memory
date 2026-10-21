@@ -48,6 +48,7 @@ function presetSettings(overrides: Partial<AgentPresetSettings> = {}): AgentPres
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
+    fillAgentTimeoutSeconds: 300,
     enabled: true,
     macroName: "{{memoryContext}}",
     macroLimit: 2000,

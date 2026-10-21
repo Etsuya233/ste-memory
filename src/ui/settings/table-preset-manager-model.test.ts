@@ -93,17 +93,18 @@ describe("表格预设设置区模型（spec 6）", () => {
     const rows = tablePresetRows(SETTINGS, SYSTEM_TABLE_PRESET);
     expect(rows.map((row) => [row.id, row.builtIn, row.isDefault])).toEqual([
       [SYSTEM_TABLE_PRESET_ID, true, false],
+      ["storyMemory", true, false],
       ["p1", false, true],
     ]);
     expect(rows[0]!.tableCount).toBe(8);
     expect(rows[0]!.fieldCount).toBe(48);
-    expect(rows[1]!.tableCount).toBe(1);
-    expect(rows[1]!.fieldCount).toBe(2);
+    expect(rows[2]!.tableCount).toBe(1);
+    expect(rows[2]!.fieldCount).toBe(2);
   });
 
   it("预设选项与摘要：默认预设名展示（无活动空间也可管理）", () => {
     expect(tablePresetOptions(SETTINGS, SYSTEM_TABLE_PRESET).map((option) => option.label)).toEqual(
-      ["系统默认（系统自带）", "我的结构"],
+      ["系统默认（系统自带）", "剧情记忆（系统自带）", "我的结构"],
     );
     expect(tablePresetsSummary(SETTINGS, SYSTEM_TABLE_PRESET)).toBe("1个用户预设 · 默认:我的结构");
     expect(

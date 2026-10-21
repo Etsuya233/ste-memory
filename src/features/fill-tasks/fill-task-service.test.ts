@@ -262,6 +262,7 @@ async function createHarness(
     } as const);
 
   const reader: MemorySpaceReader = {
+    getSpace: async () => undefined,
     listTables: (memorySpaceId) => tables.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fields.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) =>

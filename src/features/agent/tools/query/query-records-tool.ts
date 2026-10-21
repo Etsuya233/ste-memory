@@ -40,17 +40,18 @@ const queryRecordOperatorSchema = Type.Enum([
   "less_than_or_equal",
 ]);
 
-const queryRecordScalarValueSchema = Type.Union([
-  Type.String(),
-  Type.Number(),
-  Type.Boolean(),
-  Type.Null(),
-]);
+// pi 的 anyOf 分支会尝试类型转换；声明联合 type 保留合法 JSON 值的原始类型。
+const queryRecordValueSchema = Type.Unsafe<
+  string | number | boolean | null | (string | number | boolean | null)[]
+>({
+  type: ["string", "number", "boolean", "null", "array"],
+  items: { type: ["string", "number", "boolean", "null"] },
+});
 
 const queryRecordConditionSchema = Type.Object({
   field: Type.String(),
   op: queryRecordOperatorSchema,
-  value: Type.Union([queryRecordScalarValueSchema, Type.Array(queryRecordScalarValueSchema)]),
+  value: queryRecordValueSchema,
 });
 
 const queryRecordsParamsSchema = Type.Object({
@@ -129,7 +130,8 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "- 查询纪律：先用 conditions 缩小范围，不要无条件全表查询；fields 只投影用得到的列；",
   "  只需少量记录时 pageSize 取小；先查最相关的 1–2 张表、逐轮增量精化，不要一次并发查询全部表。",
   "- table：表 key，必填。可用表 key 见系统提示中的摘要；填错会报错并附带可用 key 列表。",
-  "- fields：返回的字段 key 列表；省略时返回该表全部启用字段。",
+  "- fields：仅填写表内字段 key；系统字段 $created_at/$updated_at 仅用于条件和排序，不能投影。省略时返回全部启用字段。",
+  '- 查空引用示例：conditions:[{field:"所属总结字段Key",op:"equals",value:null}]；null 无引号，空字符串不能代替空引用。',
   "- conditions：过滤条件列表，多个条件为 AND 语义（OR 请分多次查询）。",
   "  每项为 { field, op, value }：field 是字段 key 或系统字段（$record_id 支持 equals/not_equals/in/not_in，",
   "  $display_text 支持文本操作符，$created_at/$updated_at 支持有序操作符）；",

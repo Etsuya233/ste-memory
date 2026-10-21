@@ -395,6 +395,7 @@ export function SettingsTab(props: {
         listFields: (spaceId, tableId) => props.fields.list(spaceId, tableId),
       },
       active.space.id,
+      active.space.prompt,
     );
   }
 
@@ -709,6 +710,41 @@ export function SettingsTab(props: {
               }}
               onTestConnection={(connection) => testAgentConnection(connection)}
             />
+            <label className="stm-setting-row">
+              <span className="stm-setting-label">每批填写时限（秒）</span>
+              <select
+                className="stm-select"
+                value={props.settings.fillAgentTimeoutSeconds}
+                onChange={(event) =>
+                  saveSettings({
+                    ...props.settings,
+                    fillAgentTimeoutSeconds: Number(event.target.value),
+                  })
+                }
+              >
+                {[
+                  30,
+                  60,
+                  120,
+                  300,
+                  600,
+                  900,
+                  1800,
+                  ...([30, 60, 120, 300, 600, 900, 1800].includes(
+                    props.settings.fillAgentTimeoutSeconds,
+                  )
+                    ? []
+                    : [props.settings.fillAgentTimeoutSeconds]),
+                ].map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="stm-setting-hint">
+              每批独立计时，超时中止且不提交该批；默认 600 秒。
+            </div>
           </div>
         )}
       </div>

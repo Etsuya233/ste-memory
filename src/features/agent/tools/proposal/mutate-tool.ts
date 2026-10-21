@@ -128,7 +128,8 @@ const MUTATE_TOOL_DESCRIPTION = [
   "- delete：{ table, recordId, expectedRevisionId }。",
   "- recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId（update/delete 必填）。",
   "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
-  "- 同表同记录/同 tempId 的重复操作会直接覆盖旧操作（replaced 为 true，mutationId 不变）。",
+  "- 同记录连续 update 累计 patch，省略的已有提案字段保留，同字段后写覆盖，null 清空；replaced 为 true 表示 mutationId 沿用。create 重写与跨 op 仍替换旧操作。",
+  '- patch 只放表内字段，如 {op:"create",table:"characters",patch:{name:"甲"}}。tempId、recordId、expectedRevisionId 都不能放进 patch。',
   "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
   "变更是否正确以 proposal_preview 的整批校验为准。",
 ].join("\n");

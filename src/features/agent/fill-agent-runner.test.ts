@@ -75,6 +75,7 @@ async function createHarness(): Promise<Harness> {
   await installDefaultPreset(db, space.id);
   const spaceId = space.id;
   const reader: MemorySpaceReader = {
+    getSpace: async () => undefined,
     listTables: (memorySpaceId) => tables.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fields.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) =>

@@ -654,3 +654,31 @@ describe("MemoryRecordQueryService 读时显示文本", () => {
     expect(result.records[0]!.displayText).toBe(""); // 模板仅含环内引用，整条按未找到渲染为空
   });
 });
+
+describe("单条引用空值查询", () => {
+  it("省略字段与显式 null 都匹配 equals null，有效引用匹配 not_equals null", async () => {
+    const service = referenceQueryService({
+      records: [
+        refFixtureRecord("char-omitted", charTableId, { [charNameId]: "未归属" }, "未归属"),
+        refFixtureRecord(
+          "char-null",
+          charTableId,
+          { [charNameId]: "已清空", [charLocId]: null },
+          "已清空",
+        ),
+      ],
+    });
+    const empty = await service.query(spaceId, {
+      tableId: charTableId,
+      conditions: [{ fieldId: charLocId, operator: "equals", value: null }],
+      paging: { page: 1, pageSize: 20 },
+    });
+    expect(empty.records.map((record) => record.id).sort()).toEqual(["char-null", "char-omitted"]);
+    const assigned = await service.query(spaceId, {
+      tableId: charTableId,
+      conditions: [{ fieldId: charLocId, operator: "not_equals", value: null }],
+      paging: { page: 1, pageSize: 20 },
+    });
+    expect(assigned.records.map((record) => record.id)).toEqual(["char-1"]);
+  });
+});

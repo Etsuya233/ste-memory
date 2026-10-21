@@ -52,6 +52,43 @@ function captureQueries(space: TestMemorySpace) {
 }
 
 describe("query_records 参数 schema", () => {
+  it("空引用条件通过真实 pi 校验和查询工具执行，非空引用返回已有记录", async () => {
+    const tool = await toolWith();
+    for (const [op, total] of [
+      ["equals", 0],
+      ["not_equals", 3],
+    ] as const) {
+      const params = validateToolArguments(tool, {
+        type: "toolCall",
+        id: "null-reference",
+        name: QUERY_RECORDS_TOOL_NAME,
+        arguments: {
+          table: "characters",
+          fields: ["name"],
+          conditions: [{ field: "location", op, value: null }],
+        },
+      });
+      const result = await tool.execute(
+        "null-reference",
+        params as Parameters<typeof tool.execute>[1],
+      );
+      expect(textOf(result as Parameters<typeof textOf>[0]).total).toBe(total);
+    }
+  });
+  it("pi 校验保留空值、数字、布尔和数组成员的原始类型", async () => {
+    const tool = await toolWith();
+    for (const value of [null, "", 0, 1.5, false, true, "0", [null, 0, false, "x"]]) {
+      const args = { table: "characters", conditions: [{ field: "name", op: "equals", value }] };
+      expect(
+        validateToolArguments(tool, {
+          type: "toolCall",
+          id: "types",
+          name: QUERY_RECORDS_TOOL_NAME,
+          arguments: args,
+        }),
+      ).toEqual(args);
+    }
+  });
   it("合法参数通过 pi 校验（形状错误由引擎在 execute 前拦截）", async () => {
     const tool = await toolWith();
     const args = {
@@ -471,6 +508,7 @@ function relationshipsSpace(): TestMemorySpace {
   );
   const queryService = new MemoryRecordQueryService(tablesRepo, fieldsRepo, recordsRepo);
   const reader: MemorySpaceReader = {
+    getSpace: async () => undefined,
     listTables: (memorySpaceId) => tableService.list(memorySpaceId),
     listFields: (memorySpaceId, tableId) => fieldService.list(memorySpaceId, tableId),
     queryRecords: (memorySpaceId, input) => queryService.query(memorySpaceId, input),

@@ -1,3 +1,6 @@
+import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
+import { captureSpaceStructure } from "./space-structure-capture.ts";
+import { buildMemorySpaceTableDigest } from "../agent/digest.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { MemoryFieldId, MemorySpaceId, MemoryTableId } from "../memory/index.ts";
 import type { ResolvedTablePreset } from "./preset-model.ts";
@@ -492,4 +495,53 @@ describe("TablePresetApplyService（应用预设）", () => {
     expect(outcome).toEqual({ kind: "applied" });
     expect(clearChatScopeMacros).toHaveBeenCalledTimes(1);
   });
+});
+
+it("新预设保留共用规则与纪要归属引用，另存可往返，已有其他空间保持原样", async () => {
+  const { db, services, space, apply } = await setup();
+  const oldTables = await services.tables.list(space.id);
+  const fresh = await services.spaces.create("新预设空间");
+  await apply.applyPreset(fresh.id, STORY_MEMORY_PRESET, {
+    chatIdentity: "char:3:story",
+    refreshMacros: async () => undefined,
+    syncMirror: async () => undefined,
+  });
+  const stored = (await services.spaces.find(fresh.id))!;
+  expect(stored.prompt).toBe(STORY_MEMORY_PRESET.prompt);
+  const tables = await services.tables.list(fresh.id);
+  const fields = await db.memoryFields.where("memorySpaceId").equals(fresh.id).toArray();
+  expect(tables).toHaveLength(8);
+  expect(fields).toHaveLength(44);
+  const chronicle = tables.find((table) => table.key === "chronicle")!;
+  const summary = tables.find((table) => table.key === "plot_summaries")!;
+  expect(
+    fields.find((field) => field.tableId === chronicle.id && field.key === "plot_summary")
+      ?.referenceTableId,
+  ).toBe(summary.id);
+  expect(fields.filter((field) => field.type === "datetime")).toHaveLength(7);
+  const reader = {
+    getSpace: (id: typeof fresh.id) => services.spaces.find(id),
+    listTables: services.tables.list.bind(services.tables),
+    listFields: services.fields.list.bind(services.fields),
+  };
+  const captured = await captureSpaceStructure(reader, fresh.id, stored.prompt);
+  expect(captured).toEqual({
+    prompt: STORY_MEMORY_PRESET.prompt,
+    tables: STORY_MEMORY_PRESET.tables,
+  });
+  const digest = await buildMemorySpaceTableDigest(
+    {
+      ...reader,
+      queryRecords: async () => {
+        throw new Error("不应查询记录");
+      },
+    },
+    fresh.id,
+  );
+  expect(digest.prompt).toBe(STORY_MEMORY_PRESET.prompt);
+  expect(digest.tables[0]!.prompt).toBe(STORY_MEMORY_PRESET.tables[0]!.prompt);
+  expect(digest.tables[0]!.fields[0]!.prompt).toBe(
+    STORY_MEMORY_PRESET.tables[0]!.fields[0]!.prompt,
+  );
+  expect(await services.tables.list(space.id)).toEqual(oldTables);
 });

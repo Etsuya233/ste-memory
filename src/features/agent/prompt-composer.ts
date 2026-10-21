@@ -48,7 +48,7 @@ export function composeQueryAgentSystemPrompt(digest: MemorySpaceTableDigest): s
     "4. 用户问题不明确时，先用查询确认范围，再回答。",
     "5. 查询先窄后宽：先用 conditions 与 fields 投影缩小范围，结果不足再放宽，不要一次性全表查询。",
     "",
-    ...digestSummaryLines(digest),
+    ...digestSummaryLines(digest, false),
   ].join("\n");
 }
 
@@ -77,11 +77,11 @@ export const PROPOSAL_AGENT_BASE_INSTRUCTIONS = [
   "",
   "规则：",
   "- update/delete 的 recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId。",
-  "- 只查询与本块消息内容相关的表；块消息未提及的主题不要预查。查询时先用条件缩小范围，只投影需要的字段。",
+  "- 只查询与本块消息内容相关的表；仅为执行表格填写规则（如累计纪要总结）时可查询相关历史。查询时先用条件缩小范围，只投影需要的字段。",
   "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
   "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
   "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
-  "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+  "- 同记录连续 update 合并 patch，不同字段累计，同字段后写覆盖，null 清空；create 重写与跨 op 替换旧操作。",
   "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
   "- 消息内容中提到的信息不要编造；查不到或无法确定时不要强行填写。",
 ].join("\n");
@@ -121,7 +121,7 @@ export function composeInteractiveProposalAgentSystemPrompt(
     "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
     "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
     "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
-    "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+    "- 同记录连续 update 合并 patch，不同字段累计，同字段后写覆盖，null 清空；create 重写与跨 op 替换旧操作。",
     "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
     "- 变更内容要基于用户的指令与查询到的真实记录，不要编造；无法确定时先询问用户。",
     "",
@@ -129,26 +129,35 @@ export function composeInteractiveProposalAgentSystemPrompt(
   ].join("\n");
 }
 
-function digestSummaryLines(digest: MemorySpaceTableDigest): string[] {
+function digestSummaryLines(digest: MemorySpaceTableDigest, includePrompts = true): string[] {
   return [
+    ...(includePrompts && digest.prompt ? [`通用填写规则：\n${digest.prompt}`, ""] : []),
     "可用表与字段（key 是工具参数取值，只能使用下列 key；",
     "填错会报错，错误信息会附带可用 key 列表）：",
-    ...digest.tables.flatMap((table) => tableLines(table)),
+    ...digest.tables.flatMap((table) => tableLines(table, includePrompts)),
   ];
 }
 
-function tableLines(table: MemorySpaceTableDigest["tables"][number]): string[] {
+function tableLines(
+  table: MemorySpaceTableDigest["tables"][number],
+  includePrompts: boolean,
+): string[] {
   const lines = [`【${table.key}｜${table.name}】`];
+  if (includePrompts && table.prompt) lines.push(`填写规则：${table.prompt}`);
   if (table.description.length > 0) lines.push(`说明：${table.description}`);
   for (const field of table.fields)
-    lines.push(`- ${field.key}｜${field.name}：${field.type}${fieldLineSuffix(field)}`);
+    lines.push(
+      `- ${field.key}｜${field.name}：${field.type}${fieldLineSuffix(field, includePrompts)}`,
+    );
   return lines;
 }
 
 function fieldLineSuffix(
   field: MemorySpaceTableDigest["tables"][number]["fields"][number],
+  includePrompts: boolean,
 ): string {
   const parts: string[] = [];
+  if (includePrompts && field.prompt) parts.push(field.prompt);
   if (field.required) parts.push("必填");
   if (field.maxChars != null) parts.push(`≤${field.maxChars}字`);
   if (field.valuePatternMessage != null) parts.push(`格式：${field.valuePatternMessage}`);

@@ -63,8 +63,8 @@ import {
 /** 任务默认分块大小：每块楼层数 = 一次 Agent 调用 + 一个原子批次（api 同值）。 */
 export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
 
-/** 单块 Agent run 的总超时（对齐 ProposalAgent 默认 5 分钟）。 */
-const BLOCK_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+/** 单块填写 Agent 的默认总超时。 */
+const BLOCK_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** 本轮输入消息 → 上下文行载荷（文本块拼接为单条文本；runMessages 由本模块构造，必为 user 文本消息）。 */
 function fillAgentInputTextOf(message: AgentMessage): FillAgentContextText {
@@ -105,6 +105,7 @@ export interface FillTaskInitInput {
 }
 
 export interface FillTaskServiceOptions {
+  readonly readAgentTimeoutMs?: () => number;
   readonly tasks: FillTaskRepository;
   readonly ledger: FloorLedgerRepository;
   /** 消息来源（楼层 → 原文；同步楼层随时从 ST 对话实时读取） */
@@ -146,6 +147,7 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  readonly #readAgentTimeoutMs: () => number;
   readonly #tasks: FillTaskRepository;
   readonly #ledger: FloorLedgerRepository;
   readonly #source: FillTaskSource;
@@ -165,6 +167,7 @@ export class FillTaskService {
   readonly #logError: (message: string, error: unknown) => void;
 
   constructor(options: FillTaskServiceOptions) {
+    this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
     this.#ledger = options.ledger;
     this.#source = options.source;
@@ -626,7 +629,7 @@ export class FillTaskService {
         messages: runMessages,
         messageRange: { from, to },
         evidence,
-        timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
+        timeoutMs: this.#readAgentTimeoutMs(),
         onEvent: collector.listener,
       });
       // 轮次行已全部入队：批收尾行落库前等写入链清空（行序 = 批内时间序，best-effort 写入不抛）。
