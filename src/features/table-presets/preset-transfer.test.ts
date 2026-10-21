@@ -22,6 +22,7 @@ describe("表格预设导入导出", () => {
       name: STORY_MEMORY_PRESET.name,
       description: STORY_MEMORY_PRESET.description,
       prompt: STORY_MEMORY_PRESET.prompt,
+      summaryRules: STORY_MEMORY_PRESET.summaryRules,
       tables: STORY_MEMORY_PRESET.tables,
     });
     expect(parsed.tables.reduce((sum, table) => sum + table.fields.length, 0)).toBe(44);
@@ -46,6 +47,7 @@ describe("表格预设导入导出", () => {
     expect(reloaded.defaultPresetId).toBe("systemDefault");
     expect(reloaded.userPresets.map((preset) => preset.id)).toEqual(["import-1", "import-2"]);
     expect(reloaded.userPresets[0]!.prompt).toBe(STORY_MEMORY_PRESET.prompt);
+    expect(reloaded.userPresets[0]!.summaryRules).toEqual(STORY_MEMORY_PRESET.summaryRules);
   });
 
   it("旧设置默认选择保持不变，新增内置预设可设默认并在重载后解析", () => {

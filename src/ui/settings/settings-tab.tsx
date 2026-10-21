@@ -396,6 +396,7 @@ export function SettingsTab(props: {
       },
       active.space.id,
       active.space.prompt,
+      active.space.summaryRules,
     );
   }
 
@@ -575,6 +576,10 @@ export function SettingsTab(props: {
                 Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
             {macroScopeTab === "builtin" && (
               <BuiltinMacrosList
+                hasSummaryRules={
+                  props.status?.kind === "active" &&
+                  Boolean(props.status.space.summaryRules?.length)
+                }
                 prefix={props.settings.macroName.replace(/[{}]/g, "")}
                 spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                 readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
@@ -710,6 +715,41 @@ export function SettingsTab(props: {
               }}
               onTestConnection={(connection) => testAgentConnection(connection)}
             />
+            <label className="stm-setting-row">
+              <span className="stm-setting-label">每批填写时限（秒）</span>
+              <select
+                className="stm-select"
+                value={props.settings.fillAgentTimeoutSeconds}
+                onChange={(event) =>
+                  saveSettings({
+                    ...props.settings,
+                    fillAgentTimeoutSeconds: Number(event.target.value),
+                  })
+                }
+              >
+                {[
+                  30,
+                  60,
+                  120,
+                  300,
+                  600,
+                  900,
+                  1800,
+                  ...([30, 60, 120, 300, 600, 900, 1800].includes(
+                    props.settings.fillAgentTimeoutSeconds,
+                  )
+                    ? []
+                    : [props.settings.fillAgentTimeoutSeconds]),
+                ].map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="stm-setting-hint">
+              每批独立计时，超时中止且不提交该批；默认 300 秒。
+            </div>
           </div>
         )}
       </div>

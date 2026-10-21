@@ -124,6 +124,7 @@ export class TablePresetApplyService {
     return this.#ports.rebuild.rebuild({
       memorySpaceId,
       prompt: preset.prompt ?? "",
+      summaryRules: preset.summaryRules,
       tables: structure.tables,
       fields: structure.fields,
       initializationSource: { presetId: preset.id, presetName: preset.name, appliedAt: now },

@@ -30,7 +30,7 @@ export interface ProposalStateDropResult {
 /**
  * 提案会话 State（每 run 一个实例）：
  * - mutationId（M1/M2…）与 tempId（tmp:n）由引擎分配；
- * - 同表同标识（create 按 tempId、update/delete 按 recordId）重复操作直接覆盖，
+ * - 同表同记录连续 update 合并字段；create 重写与跨 op 操作替换，
  *   mutationId 保持不变（drop 依然有效），跨 op 也覆盖（delete 后 update = 取消删除）；
  * - submit 成功后锁定，任何修改/预览/重复提交都会被拒绝。
  */
@@ -82,11 +82,19 @@ export class ProposalState {
     const index = this.#operations.findIndex((operation) => identityOf(operation) === identityKey);
     if (index >= 0) {
       const existing = this.#operations[index]!;
-      this.#operations[index] = { ...input, mutationId: existing.mutationId };
+      const operation = {
+        ...input,
+        patch:
+          existing.op === "update" && input.op === "update"
+            ? { ...existing.patch, ...input.patch }
+            : input.patch,
+        mutationId: existing.mutationId,
+      };
+      this.#operations[index] = operation;
       return {
         mutationId: existing.mutationId,
         replaced: true,
-        summary: summarize(input),
+        summary: summarize(operation),
       };
     }
     const mutationId = `M${++this.#mutationCounter}`;

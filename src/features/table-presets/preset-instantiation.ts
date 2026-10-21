@@ -6,6 +6,7 @@ import {
   memoryFieldValuePattern,
   memoryTableKey,
   memoryTableName,
+  memorySummaryRules,
   type MemoryField,
   type MemoryFieldId,
   type MemorySpaceId,
@@ -105,6 +106,24 @@ export function instantiateTablePreset(
         createdAt: now,
         updatedAt: now,
       });
+    }
+  }
+  for (const rule of memorySummaryRules(preset.summaryRules)) {
+    const source = tables.find((table) => table.key === rule.sourceTableKey);
+    const target = tables.find((table) => table.key === rule.targetTableKey);
+    const field = fields.find(
+      (field) => field.tableId === source?.id && field.key === rule.referenceFieldKey,
+    );
+    if (
+      !source?.enabled ||
+      !target?.enabled ||
+      !field?.enabled ||
+      field.type !== "single_reference" ||
+      field.referenceTableId !== target.id
+    ) {
+      throw new Error(
+        `总结规则引用无效：${rule.sourceTableKey}.${rule.referenceFieldKey} → ${rule.targetTableKey}`,
+      );
     }
   }
   return { tables, fields };

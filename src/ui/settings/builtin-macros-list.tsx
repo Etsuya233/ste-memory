@@ -25,6 +25,7 @@ import { copyText, reportError, reportSuccess, reportWarning } from "../shell/ui
 import { PreviewModal } from "../memory/preview-modal.tsx";
 
 export function BuiltinMacrosList(props: {
+  readonly hasSummaryRules?: boolean;
   /** 全局前缀（裸标识符，如 ste；来自设置 macroName 去掉花括号） */
   readonly prefix: string;
   /** 活动空间 id；undefined = 无活动空间 */
@@ -102,6 +103,13 @@ export function BuiltinMacrosList(props: {
             summary="全部启用表 · 完整数据 · 受全局字符上限截断"
             onPreview={() => openPreview(`{{${props.prefix}::${BUILTIN_FULL_ARG}}}`)}
           />
+          {props.hasSummaryRules && (
+            <BuiltinMacroRow
+              name={`{{${props.prefix}::compact}}`}
+              summary="总结与未归组纪要 · 原始纪要保留可查 · 受全局字符上限截断"
+              onPreview={() => openPreview(`{{${props.prefix}::compact}}`)}
+            />
+          )}
           {enabledTables.map((table) => (
             <BuiltinMacroRow
               key={table.key}

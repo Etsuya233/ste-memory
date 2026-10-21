@@ -34,6 +34,17 @@ function remove(overrides: Partial<Parameters<ProposalState["apply"]>[0]> = {}) 
 }
 
 describe("ProposalState", () => {
+  it("连续 update 合并不同字段，同字段后写覆盖，null 明确清空", () => {
+    const state = new ProposalState();
+    state.apply(update({ patch: { current_status: "受伤", background: "旧经历" } }));
+    state.apply(update({ patch: { current_status: null, personality: "谨慎" } }));
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]!.patch).toEqual({
+      current_status: null,
+      background: "旧经历",
+      personality: "谨慎",
+    });
+  });
   it("分配 mutationId（M1 起）与 tempId（tmp:n 起，独立计数）", () => {
     const state = new ProposalState();
     expect(state.allocateTempId()).toBe("tmp:1");

@@ -278,6 +278,67 @@ async function tick() {
 }
 
 describe("MemoryMacroService 注册生命周期", () => {
+  it("compact 展开总结与未归组纪要，full 和原始记录仍保留全部来源", async () => {
+    const notes = table("notes", "纪要");
+    const summaries = table("summaries", "总结");
+    const title = { ...field("note-title", "title"), tableId: notes.id };
+    const reference = {
+      ...field("group", "group", "single_reference"),
+      tableId: notes.id,
+      referenceTableId: summaries.id,
+    };
+    const summaryTitle = { ...field("summary-title", "title"), tableId: summaries.id };
+    const reader: MemorySpaceReader = {
+      getSpace: async () => ({
+        id: "space-1" as MemorySpaceId,
+        name: "空间",
+        initializationSource: null,
+        createdAt: BASE,
+        updatedAt: BASE,
+        summaryRules: [
+          {
+            sourceTableKey: notes.key,
+            targetTableKey: summaries.key,
+            referenceFieldKey: reference.key,
+            groupSize: 15,
+            retainCount: 5,
+          },
+        ],
+      }),
+      listTables: async () => [notes, summaries],
+      listFields: async (_, id) => (id === notes.id ? [title, reference] : [summaryTitle]),
+      queryRecords: async () => {
+        throw new Error("此用例不使用视图查询");
+      },
+    };
+    const h = createHarness({ reader });
+    h.setSettings({ macroLimit: 10000 });
+    h.data.tables = [notes, summaries];
+    h.data.recordsByTable.set(notes.id, [
+      {
+        ...record("old", "已归组纪要"),
+        tableId: notes.id,
+        payload: { [title.id]: "已归组纪要", [reference.id]: "s1" },
+      },
+      { ...record("recent", "近期纪要"), tableId: notes.id, payload: { [title.id]: "近期纪要" } },
+    ]);
+    h.data.recordsByTable.set(summaries.id, [
+      {
+        ...record("s1", "阶段总结"),
+        tableId: summaries.id,
+        payload: { [summaryTitle.id]: "阶段总结" },
+      },
+    ]);
+    await h.service.start();
+    const compact = h.invokeHandler("memoryContext", ["compact"]);
+    expect(compact).toContain("阶段总结");
+    expect(compact).toContain("近期纪要");
+    expect(compact).not.toContain("已归组纪要");
+    expect(h.invokeHandler("memoryContext", ["full"])).toContain("已归组纪要");
+    expect(h.data.recordsByTable.get(notes.id)).toHaveLength(2);
+    expect(h.service.builtinSnapshotNames()).toContain("compact");
+    expect(h.errors).toEqual([]);
+  });
   it("start：带花括号的配置名解析为裸标识符注册；handler 同步返回快照", async () => {
     const h = createHarness();
     h.data.tables = [table("t1", "人物")];

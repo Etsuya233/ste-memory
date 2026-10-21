@@ -1,5 +1,10 @@
 import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
-import { DomainError, type MemoryFieldType } from "../memory/index.ts";
+import {
+  DomainError,
+  memorySummaryRules,
+  type MemorySummaryRule,
+  type MemoryFieldType,
+} from "../memory/index.ts";
 
 /**
  * 表格预设模型（spec 表格预设）：一整套可复用的表结构、字段、填写规则、引用
@@ -53,6 +58,7 @@ export interface TablePresetField {
 
 /** 预设结构（系统预设与用户预设共用形态）。 */
 export interface TablePresetStructure {
+  readonly summaryRules?: readonly MemorySummaryRule[];
   /** 跨表填写规则；早期预设缺省为空。 */
   readonly prompt?: string;
   readonly tables: readonly TablePresetTable[];
@@ -101,6 +107,7 @@ export function listTablePresets(
       name: preset.name,
       description: preset.description,
       prompt: preset.prompt,
+      summaryRules: preset.summaryRules,
       tables: preset.tables,
       builtIn: false,
     })),
@@ -127,6 +134,7 @@ export function resolveTablePreset(
     name: userPreset.name,
     description: userPreset.description,
     prompt: userPreset.prompt,
+    summaryRules: userPreset.summaryRules,
     tables: userPreset.tables,
     builtIn: false,
   };
@@ -217,6 +225,7 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
   return {
     id: raw.id,
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
+    summaryRules: memorySummaryRules(raw.summaryRules),
     name: raw.name,
     description: typeof raw.description === "string" ? raw.description : "",
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",

@@ -80,6 +80,17 @@ const memorySpaceInitializationSourceSchema = Type.Object({
 });
 
 const memorySpaceSchema = Type.Object({
+  summaryRules: Type.Optional(
+    Type.Array(
+      Type.Object({
+        sourceTableKey: Type.String(),
+        targetTableKey: Type.String(),
+        referenceFieldKey: Type.String(),
+        groupSize: Type.Integer({ minimum: 1 }),
+        retainCount: Type.Integer({ minimum: 0 }),
+      }),
+    ),
+  ),
   prompt: Type.Optional(Type.String()),
   id: Type.String(),
   name: Type.String(),

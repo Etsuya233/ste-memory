@@ -304,6 +304,7 @@ export async function startSteMemory(
     createLlm,
     createPromptContext,
     createRunId: () => createId("task"),
+    readAgentTimeoutMs: () => settings.read().fillAgentTimeoutSeconds * 1000,
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,
     logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),

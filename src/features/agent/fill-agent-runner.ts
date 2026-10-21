@@ -19,6 +19,7 @@
  *   （含冻结提案），proposal 取 `state.frozenProposal`。
  */
 import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { prepareSummaryGroups } from "./summary-groups.ts";
 import type { StopReason } from "@earendil-works/pi-ai";
 import {
   previewProposal,
@@ -162,14 +163,21 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
   const state = new ProposalState();
   const validateOperation = (operation: Parameters<typeof validateProposalOperation>[2]) =>
     validateProposalOperation(ports, memorySpaceId, operation);
-  const validateOperations = (operations: Parameters<typeof validateProposalOperations>[2]) =>
-    validateProposalOperations(ports, memorySpaceId, operations);
+  const summaryGroups = await prepareSummaryGroups(ports, memorySpaceId, digest);
+  const validateOperations = async (
+    operations: Parameters<typeof validateProposalOperations>[2],
+  ) => [
+    ...(await validateProposalOperations(ports, memorySpaceId, operations)),
+    ...summaryGroups.validate(operations),
+  ];
   const preview = (operations: Parameters<typeof previewProposal>[2]) =>
     previewProposal(ports, memorySpaceId, operations);
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: systemTextOf(composedMessages),
+      systemPrompt: [systemTextOf(composedMessages), summaryGroups.instructions]
+        .filter(Boolean)
+        .join("\n\n"),
       // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
       messages: toAgentPrefixMessages(prefix, llm.model.id),
       model: llm.model,

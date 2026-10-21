@@ -29,9 +29,10 @@ export type {
   MemoryTableId,
   MemoryTableKey,
 } from "./memory-table.ts";
-export { memorySpaceName } from "./memory-space.ts";
+export { memorySpaceName, memorySummaryRules } from "./memory-space.ts";
 export type {
   MemorySpace,
+  MemorySummaryRule,
   MemorySpaceId,
   MemorySpaceInitializationSource,
 } from "./memory-space.ts";

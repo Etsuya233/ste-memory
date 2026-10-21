@@ -105,6 +105,7 @@ export interface FillTaskInitInput {
 }
 
 export interface FillTaskServiceOptions {
+  readonly readAgentTimeoutMs?: () => number;
   readonly tasks: FillTaskRepository;
   readonly ledger: FloorLedgerRepository;
   /** 消息来源（楼层 → 原文；同步楼层随时从 ST 对话实时读取） */
@@ -146,6 +147,7 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  readonly #readAgentTimeoutMs: () => number;
   readonly #tasks: FillTaskRepository;
   readonly #ledger: FloorLedgerRepository;
   readonly #source: FillTaskSource;
@@ -165,6 +167,7 @@ export class FillTaskService {
   readonly #logError: (message: string, error: unknown) => void;
 
   constructor(options: FillTaskServiceOptions) {
+    this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
     this.#ledger = options.ledger;
     this.#source = options.source;
@@ -626,7 +629,7 @@ export class FillTaskService {
         messages: runMessages,
         messageRange: { from, to },
         evidence,
-        timeoutMs: BLOCK_AGENT_TIMEOUT_MS,
+        timeoutMs: this.#readAgentTimeoutMs(),
         onEvent: collector.listener,
       });
       // 轮次行已全部入队：批收尾行落库前等写入链清空（行序 = 批内时间序，best-effort 写入不抛）。

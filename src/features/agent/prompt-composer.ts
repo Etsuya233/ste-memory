@@ -81,7 +81,7 @@ export const PROPOSAL_AGENT_BASE_INSTRUCTIONS = [
   "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
   "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
   "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
-  "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+  "- 同记录连续 update 合并 patch，不同字段累计，同字段后写覆盖，null 清空；create 重写与跨 op 替换旧操作。",
   "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
   "- 消息内容中提到的信息不要编造；查不到或无法确定时不要强行填写。",
 ].join("\n");
@@ -121,7 +121,7 @@ export function composeInteractiveProposalAgentSystemPrompt(
     "- create 的临时 ID 由引擎分配（返回的 tempId，格式 tmp:n）；引用该记录或覆盖它时使用。",
     "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",
     "- 目标记录不存在的 update/delete 会报错；需要新建请用 create（禁止按名称 upsert）。",
-    "- 同表同记录的重复操作会直接覆盖（replaced 为 true），留意 mutate 返回的提示。",
+    "- 同记录连续 update 合并 patch，不同字段累计，同字段后写覆盖，null 清空；create 重写与跨 op 替换旧操作。",
     "- 删除记录前先确认它没有被其他记录引用；被引用时先更新引用方或放弃删除。",
     "- 变更内容要基于用户的指令与查询到的真实记录，不要编造；无法确定时先询问用户。",
     "",

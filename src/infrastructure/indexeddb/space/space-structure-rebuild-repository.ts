@@ -47,6 +47,7 @@ export class DexieSpaceStructureRebuild implements SpaceStructureRebuild {
         if (input.fields.length > 0) await this.#db.memoryFields.bulkAdd([...input.fields]);
         await this.#db.memorySpaces.update(memorySpaceId, {
           prompt: input.prompt ?? "",
+          summaryRules: input.summaryRules ?? [],
           initializationSource: input.initializationSource,
           updatedAt: input.initializationSource.appliedAt,
         });

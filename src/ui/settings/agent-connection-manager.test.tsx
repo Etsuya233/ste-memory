@@ -27,6 +27,7 @@ function connection(overrides: Partial<AgentConnection> = {}): AgentConnection {
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
+    fillAgentTimeoutSeconds: 300,
     enabled: true,
     macroName: "{{memoryContext}}",
     macroLimit: 2000,

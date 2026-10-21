@@ -59,6 +59,20 @@ const presetSchema = Type.Object(
     name: Type.String(),
     description: Type.String(),
     prompt: Type.Optional(Type.String()),
+    summaryRules: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            sourceTableKey: Type.String(),
+            targetTableKey: Type.String(),
+            referenceFieldKey: Type.String(),
+            groupSize: Type.Integer({ minimum: 1 }),
+            retainCount: Type.Integer({ minimum: 0 }),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
     tables: Type.Array(
       Type.Object(
         {
@@ -102,6 +116,7 @@ export function serializeTablePresetExport(
         name: preset.name,
         description: preset.description,
         prompt: preset.prompt ?? "",
+        summaryRules: preset.summaryRules,
         tables: preset.tables,
       },
     },
@@ -183,6 +198,10 @@ export function importTablePreset(
     ...input,
     name,
     description: imported.description,
-    structure: { prompt: imported.prompt, tables: imported.tables } satisfies TablePresetStructure,
+    structure: {
+      prompt: imported.prompt,
+      summaryRules: imported.summaryRules,
+      tables: imported.tables,
+    } satisfies TablePresetStructure,
   });
 }

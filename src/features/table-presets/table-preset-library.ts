@@ -65,6 +65,7 @@ export function saveUserTablePreset(
     createdAt: input.now,
     updatedAt: input.now,
     prompt: input.structure.prompt,
+    summaryRules: input.structure.summaryRules,
     tables: input.structure.tables,
   };
   return { settings: { ...settings, userPresets: [...settings.userPresets, preset] }, preset };
@@ -101,6 +102,7 @@ export function overwriteUserTablePreset(
   const updated: TablePreset = {
     ...preset,
     prompt: input.structure.prompt,
+    summaryRules: input.structure.summaryRules,
     tables: input.structure.tables,
     updatedAt: input.now,
   };
@@ -141,6 +143,7 @@ export function copyTablePresetAsUserPreset(
     createdAt: input.now,
     updatedAt: input.now,
     prompt: source.prompt,
+    summaryRules: source.summaryRules,
     tables: source.tables,
   };
   return { settings: { ...settings, userPresets: [...settings.userPresets, preset] }, preset };
