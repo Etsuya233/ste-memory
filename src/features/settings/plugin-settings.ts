@@ -37,7 +37,7 @@ export interface ChatMirrorSettings {
 export type EntryPlacement = "top" | "wand" | "both";
 
 export interface PluginSettings {
-  /** 每批填写 Agent 总时限（秒）；旧设置默认五分钟。 */
+  /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
   readonly enabled: boolean;

@@ -1,6 +1,5 @@
 import type {
   MemoryField,
-  MemorySummaryRule,
   MemorySpaceId,
   MemorySpaceInitializationSource,
   MemoryTable,
@@ -17,7 +16,6 @@ import type {
  * 空间不存在返回 false（不创建空间）。
  */
 export interface SpaceStructureRebuildInput {
-  readonly summaryRules?: readonly MemorySummaryRule[];
   readonly prompt?: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tables: readonly MemoryTable[];

@@ -6,7 +6,6 @@ import {
   memoryFieldValuePattern,
   memoryTableKey,
   memoryTableName,
-  memorySummaryRules,
   type MemoryField,
   type MemoryFieldId,
   type MemorySpaceId,
@@ -106,37 +105,6 @@ export function instantiateTablePreset(
         createdAt: now,
         updatedAt: now,
       });
-    }
-  }
-  for (const rule of memorySummaryRules(preset.summaryRules)) {
-    const source = tables.find((table) => table.key === rule.sourceTableKey);
-    const target = tables.find((table) => table.key === rule.targetTableKey);
-    const field = fields.find(
-      (field) => field.tableId === source?.id && field.key === rule.referenceFieldKey,
-    );
-    if (
-      !source?.enabled ||
-      !target?.enabled ||
-      !field?.enabled ||
-      field.type !== "single_reference" ||
-      field.referenceTableId !== target.id
-    ) {
-      throw new Error(
-        `总结规则引用无效：${rule.sourceTableKey}.${rule.referenceFieldKey} → ${rule.targetTableKey}`,
-      );
-    }
-    if (rule.timeRange) {
-      const rangeFields = [
-        [source.id, rule.timeRange.sourceStartFieldKey],
-        [source.id, rule.timeRange.sourceEndFieldKey],
-        [target.id, rule.timeRange.targetStartFieldKey],
-        [target.id, rule.timeRange.targetEndFieldKey],
-      ].map(([tableId, key]) =>
-        fields.find((candidate) => candidate.tableId === tableId && candidate.key === key),
-      );
-      if (rangeFields.some((candidate) => !candidate?.enabled || candidate.type !== "datetime")) {
-        throw new Error("总结时间范围必须引用启用的日期时间字段");
-      }
     }
   }
   return { tables, fields };

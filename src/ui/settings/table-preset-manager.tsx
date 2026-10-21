@@ -694,12 +694,6 @@ function PresetStructurePreview(props: { readonly preset: ResolvedTablePreset })
           通用填写规则：{props.preset.prompt}
         </div>
       )}
-      {props.preset.summaryRules?.map((rule) => (
-        <div className="stm-setting-hint" key={rule.sourceTableKey}>
-          总结归组：{rule.sourceTableKey} → {rule.targetTableKey}，每组 {rule.groupSize}{" "}
-          条，至少保留 {rule.retainCount} 条未总结来源。
-        </div>
-      ))}
       {preview.tables.map((table) => (
         <div key={table.key} className="stm-preset-preview-table">
           <div className="stm-preset-preview-title">

@@ -1,4 +1,4 @@
-import type { MemoryField, MemoryTable, MemorySummaryRule } from "../memory/index.ts";
+import type { MemoryField, MemoryTable } from "../memory/index.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 import type {
   TablePresetDisplayStrategy,
@@ -29,7 +29,6 @@ export async function captureSpaceStructure(
   reader: SpaceStructureReader,
   memorySpaceId: MemorySpaceId,
   prompt?: string,
-  summaryRules?: readonly MemorySummaryRule[],
 ): Promise<TablePresetStructure> {
   const tables = await reader.listTables(memorySpaceId);
   const tableKeyById = new Map<string, string>(tables.map((table) => [table.id, table.key]));
@@ -40,7 +39,6 @@ export async function captureSpaceStructure(
 
   return {
     prompt,
-    summaryRules,
     tables: tables.map((table) => {
       const fields = fieldsByTableId.get(table.id) ?? [];
       const fieldKeyById = new Map<string, string>(fields.map((field) => [field.id, field.key]));

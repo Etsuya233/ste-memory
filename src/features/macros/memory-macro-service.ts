@@ -1,6 +1,6 @@
 import type { MemoryRecord, MemorySpaceId, MemoryTable, MemoryTableId } from "../memory/index.ts";
 import { createReadTimeDisplayTextResolver, type MemorySpaceReader } from "../memory/index.ts";
-import { buildMemorySpaceTableDigest, type MemorySpaceTableDigest } from "../agent/index.ts";
+import { buildMemorySpaceTableDigest } from "../agent/index.ts";
 import {
   memoryChangesEqual,
   type MemoryChangeFingerprint,
@@ -126,7 +126,6 @@ const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
 /** 内置宏快照集合（{{前缀::full}} + 每个启用表 {{前缀::表Key}}） */
 interface BuiltinSnapshots {
-  readonly compact?: string;
   readonly full: string;
   readonly perTable: ReadonlyMap<string, string>;
 }
@@ -186,17 +185,11 @@ export class MemoryMacroService {
    * 宏内容一览/验收可读；顺序 = full 在前）。
    */
   builtinSnapshotNames(): readonly string[] {
-    return [
-      BUILTIN_FULL_ARG,
-      ...(this.#builtinSnapshots.compact !== undefined ? ["compact"] : []),
-      ...this.#builtinSnapshots.perTable.keys(),
-    ];
+    return [BUILTIN_FULL_ARG, ...this.#builtinSnapshots.perTable.keys()];
   }
 
   /** 内置宏快照只读口（宏内容一览）：名字 = full 或表 Key；未知名字 = undefined */
   getBuiltinSnapshot(name: string): string | undefined {
-    if (name === "compact" && this.#builtinSnapshots.compact !== undefined)
-      return this.#builtinSnapshots.compact;
     if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
     return this.#builtinSnapshots.perTable.get(name);
   }
@@ -306,10 +299,8 @@ export class MemoryMacroService {
     // 2. 全局视图
     const viewSnapshot = this.#viewSnapshots.get(name);
     if (viewSnapshot !== undefined) return viewSnapshot;
-    // 3. 内置宏：full（全量）/ compact（总结与未归组来源）→ 表 Key（单表）
+    // 3. 内置宏：full（全量）→ 表 Key（单表）
     if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
-    if (name === "compact" && this.#builtinSnapshots.compact !== undefined)
-      return this.#builtinSnapshots.compact;
     const tableSnapshot = this.#builtinSnapshots.perTable.get(name);
     if (tableSnapshot !== undefined) return tableSnapshot;
     this.#ports.log?.warn(`记忆宏：未知宏名「${name}」，展开为空串`);
@@ -462,7 +453,6 @@ export class MemoryMacroService {
       settings.macroLimit,
       resolveDisplay,
       recordsByTable,
-      digest,
     );
 
     this.#snapshot = snapshot;
@@ -482,7 +472,6 @@ export class MemoryMacroService {
     macroLimit: number,
     resolveDisplay: ReturnType<typeof createReadTimeDisplayTextResolver>,
     recordsByTable: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
-    digest: MemorySpaceTableDigest,
   ): Promise<BuiltinSnapshots> {
     try {
       const enabledTables = tables.filter((table) => table.enabled);
@@ -495,7 +484,6 @@ export class MemoryMacroService {
         }[];
       }[] = [];
       const perTable = new Map<string, string>();
-      const compactInputs: { priority: number; input: (typeof tableInputs)[number] }[] = [];
       for (const table of enabledTables) {
         const fields = await this.#ports.reader.listFields(spaceId, table.id);
         const enabledFields = fields.filter((field) => field.enabled);
@@ -512,58 +500,9 @@ export class MemoryMacroService {
           records: recordsWithDisplay,
         };
         tableInputs.push(input);
-        const rule = digest.summaryRules?.find(
-          (candidate) => candidate.sourceTableKey === table.key,
-        );
-        if (rule) {
-          const reference = fields.find((field) => field.key === rule.referenceFieldKey);
-          const target = enabledTables.find((candidate) => candidate.key === rule.targetTableKey);
-          if (
-            !reference?.enabled ||
-            reference.type !== "single_reference" ||
-            !target ||
-            reference.referenceTableId !== target.id
-          ) {
-            throw new Error(
-              `compact 总结规则无效：${rule.sourceTableKey}.${rule.referenceFieldKey}`,
-            );
-          }
-          const summaryIds = new Set(
-            (recordsByTable.get(target.id) ?? []).map((record) => record.id),
-          );
-          compactInputs.push({
-            priority: 1,
-            input: {
-              ...input,
-              records: recordsWithDisplay.filter(
-                (_, index) =>
-                  !summaryIds.has(records[index]!.payload[reference.id] as MemoryRecord["id"]),
-              ),
-            },
-          });
-        } else {
-          compactInputs.push({
-            priority: digest.summaryRules?.some(
-              (candidate) => candidate.targetTableKey === table.key,
-            )
-              ? 0
-              : 2,
-            input,
-          });
-        }
         perTable.set(table.key, renderMemoryFullSnapshot({ tables: [input], limit: macroLimit }));
       }
       return {
-        ...(digest.summaryRules?.length
-          ? {
-              compact: renderMemoryFullSnapshot({
-                tables: compactInputs
-                  .sort((a, b) => a.priority - b.priority)
-                  .map(({ input }) => input),
-                limit: macroLimit,
-              }),
-            }
-          : {}),
         full: renderMemoryFullSnapshot({ tables: tableInputs, limit: macroLimit }),
         perTable,
       };

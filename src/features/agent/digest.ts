@@ -1,6 +1,5 @@
 import type {
   MemoryField,
-  MemorySummaryRule,
   MemoryFieldKey,
   MemoryFieldType,
   MemoryFieldId,
@@ -47,7 +46,6 @@ export interface MemoryTableDigest {
  * 保证模型看到的表/字段与工具实际接受的完全一致。
  */
 export interface MemorySpaceTableDigest {
-  readonly summaryRules?: readonly MemorySummaryRule[];
   readonly prompt?: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tables: readonly MemoryTableDigest[];
@@ -72,12 +70,7 @@ export async function buildMemorySpaceTableDigest(
       .filter((table) => table.enabled)
       .map(async (table) => digestTable(reader, table, tableKeyById)),
   );
-  return {
-    memorySpaceId,
-    prompt: space?.prompt,
-    summaryRules: space?.summaryRules,
-    tables: digests,
-  };
+  return { memorySpaceId, prompt: space?.prompt, tables: digests };
 }
 
 async function digestTable(

@@ -464,28 +464,13 @@ it("空间通用填写规则随备份往返，缺省规则的旧文件仍可读�
   const withPrompt = {
     spaces: original.spaces.map((unit) => ({
       ...unit,
-      space: {
-        ...unit.space,
-        prompt: "统一填写规则",
-        summaryRules: [
-          {
-            sourceTableKey: "notes",
-            targetTableKey: "summaries",
-            referenceFieldKey: "group",
-            groupSize: 15,
-            retainCount: 5,
-          },
-        ],
-      },
+      space: { ...unit.space, prompt: "统一填写规则" },
     })),
   };
   const restored = parseBackupFile(
     serializeBackupFile(createBackupFile(withPrompt, "0.1.4", "2026-10-20T00:00:00.000Z")),
   );
   expect(restored.data.spaces[0]!.space.prompt).toBe("统一填写规则");
-  expect(restored.data.spaces[0]!.space.summaryRules).toEqual(
-    withPrompt.spaces[0]!.space.summaryRules,
-  );
   expect(
     decodeBackupFile(createBackupFile(original, "0.1.4", "2026-10-20T00:00:00.000Z")).data
       .spaces[0]!.space.prompt,

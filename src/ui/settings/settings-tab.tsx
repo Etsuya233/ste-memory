@@ -396,7 +396,6 @@ export function SettingsTab(props: {
       },
       active.space.id,
       active.space.prompt,
-      active.space.summaryRules,
     );
   }
 
@@ -576,10 +575,6 @@ export function SettingsTab(props: {
                 Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
             {macroScopeTab === "builtin" && (
               <BuiltinMacrosList
-                hasSummaryRules={
-                  props.status?.kind === "active" &&
-                  Boolean(props.status.space.summaryRules?.length)
-                }
                 prefix={props.settings.macroName.replace(/[{}]/g, "")}
                 spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                 readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}

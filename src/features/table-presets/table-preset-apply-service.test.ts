@@ -508,7 +508,6 @@ it("新预设保留共用规则与纪要归属引用，另存可往返，已有�
   });
   const stored = (await services.spaces.find(fresh.id))!;
   expect(stored.prompt).toBe(STORY_MEMORY_PRESET.prompt);
-  expect(stored.summaryRules).toEqual(STORY_MEMORY_PRESET.summaryRules);
   const tables = await services.tables.list(fresh.id);
   const fields = await db.memoryFields.where("memorySpaceId").equals(fresh.id).toArray();
   expect(tables).toHaveLength(8);
@@ -525,15 +524,9 @@ it("新预设保留共用规则与纪要归属引用，另存可往返，已有�
     listTables: services.tables.list.bind(services.tables),
     listFields: services.fields.list.bind(services.fields),
   };
-  const captured = await captureSpaceStructure(
-    reader,
-    fresh.id,
-    stored.prompt,
-    stored.summaryRules,
-  );
+  const captured = await captureSpaceStructure(reader, fresh.id, stored.prompt);
   expect(captured).toEqual({
     prompt: STORY_MEMORY_PRESET.prompt,
-    summaryRules: STORY_MEMORY_PRESET.summaryRules,
     tables: STORY_MEMORY_PRESET.tables,
   });
   const digest = await buildMemorySpaceTableDigest(
@@ -546,7 +539,6 @@ it("新预设保留共用规则与纪要归属引用，另存可往返，已有�
     fresh.id,
   );
   expect(digest.prompt).toBe(STORY_MEMORY_PRESET.prompt);
-  expect(digest.summaryRules).toEqual(STORY_MEMORY_PRESET.summaryRules);
   expect(digest.tables[0]!.prompt).toBe(STORY_MEMORY_PRESET.tables[0]!.prompt);
   expect(digest.tables[0]!.fields[0]!.prompt).toBe(
     STORY_MEMORY_PRESET.tables[0]!.fields[0]!.prompt,
