@@ -68,14 +68,15 @@
   background: var(--stm-success-dim);
 }
 
-/* 面板：移动端 = 全屏底部抽屉（默认态，移动优先）。
- * 注意：不能用 bottom: 0 锚定——ST 给 html 加了 -webkit-transform: translateZ(0)
- * （防模糊闪烁），html 成为 fixed 包含块，而移动端 body 为 fixed 导致 html 高度
- * 塌缩为 0，bottom: 0 会把面板顶到视口上方（真机踩坑，2026-08-08）。改以 top: 0
- * 锚定（html 顶边 = 视口顶边）+ 关闭态 translateY 推到视口下方；底部内缩（面板
- * 安全区）不能设 bottom，只能以高度计算表达，关闭位移相应补上底部内缩避免残影。 */
+/* 面板放入 manual popover 顶层，避开 ST 根元素 transform 对 fixed 包含块的影响。
+ * 移动端以视口顶边锚定，通过高度计算扣除上下安全区。 */
 .stm-panel {
   position: fixed;
+  margin: 0;
+  padding: 0;
+  bottom: auto;
+  border: 0;
+  overflow: hidden;
   left: var(--stm-safe-left, 0);
   right: var(--stm-safe-right, 0);
   top: var(--stm-safe-top, 0);
@@ -95,6 +96,11 @@
   transition:
     transform 0.22s ease-out,
     visibility 0.22s;
+}
+
+/* 覆盖自身 display:flex；收起的面板不参与宿主页面溢出计算。 */
+.stm-panel:not(:popover-open) {
+  display: none;
 }
 
 .stm-panel.stm-panel--open {

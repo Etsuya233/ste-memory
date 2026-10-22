@@ -331,6 +331,15 @@ export function PanelShell(props: {
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
 
+  // ST 的 html 带 transform；顶层浮层让 fixed 几何始终以视口为准。
+  // manual 保留点击外部不收起的行为，开关仍由 PanelModel 管理。
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.togglePopover(state.open);
+    return () => panel.hidePopover();
+  }, [state.open]);
+
   // 当前 Tab 的离开守卫（记录网格与预设编辑器注册、卸载时注销）
   const internalGuardRef = useRef<LeaveGuard | null>(null);
   const guardRef = props.leaveGuardRef ?? internalGuardRef;
@@ -384,7 +393,7 @@ export function PanelShell(props: {
     style.setProperty("--stm-h", `${geometry.height}px`);
   }
 
-  // 恢复持久化几何：挂载时 + 每次跨入桌面断点时（移动端几何变量惰性，恢复对移动端无影响）
+  // 挂载、视口缩放与跨入桌面断点时，将保存的窗口几何限制在当前视口内。
   useEffect(() => {
     if (typeof window === "undefined") return;
     const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
@@ -398,7 +407,11 @@ export function PanelShell(props: {
     };
     applySaved();
     media.addEventListener("change", applySaved);
-    return () => media.removeEventListener("change", applySaved);
+    window.addEventListener("resize", applySaved);
+    return () => {
+      media.removeEventListener("change", applySaved);
+      window.removeEventListener("resize", applySaved);
+    };
   }, []);
 
   /** 拖拽/缩放收尾：摘监听 + 持久化几何（localStorage，UI 窗口状态） */
@@ -486,6 +499,7 @@ export function PanelShell(props: {
     <aside
       id="stm-panel"
       ref={panelRef}
+      popover="manual"
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
