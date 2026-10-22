@@ -114,3 +114,86 @@
   font-size: 9px;
   color: var(--stm-ink-secondary);
 }
+
+/* 检索沿用面板表单与向量卡片的色彩和间距。 */
+.stm-retrieval,
+.stm-retrieval form,
+.stm-retrieval [data-retrieval-results] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.stm-retrieval h3,
+.stm-retrieval h4,
+.stm-retrieval p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.stm-retrieval form > label:first-child,
+.stm-retrieval .stm-action-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 130px;
+  min-width: 0;
+}
+.stm-retrieval .stm-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.stm-retrieval textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+}
+.stm-retrieval fieldset,
+.stm-retrieval li {
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+.stm-retrieval fieldset label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-right: 12px;
+  min-height: 32px;
+}
+.stm-retrieval legend {
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+.stm-retrieval pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--stm-ink-bg);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+.stm-retrieval ol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 24px;
+  margin: 0;
+}
+.stm-retrieval li > * + * {
+  margin-top: 8px;
+}
+.stm-retrieval summary {
+  cursor: pointer;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+}
+.stm-retrieval [role="alert"],
+.stm-retrieval [data-retrieval-status="stale"] {
+  color: var(--stm-danger);
+}

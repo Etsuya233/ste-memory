@@ -1,3 +1,6 @@
+import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
+import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
+import type { VectorRetrievalService } from "../../features/vector-retrieval/vector-retrieval-service.ts";
 /**
  * 面板外壳（ADR 0005：UI 渲染层采用 React，随 esbuild 打进单文件 bundle）。
  *
@@ -51,6 +54,10 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  */
 export interface PanelRuntime {
   readonly vector: VectorIndexService;
+  readonly retrieval: Pick<
+    VectorRetrievalService,
+    "getState" | "subscribe" | "ranges" | "search" | "cancel"
+  >;
   readonly spaces: Pick<SteMemoryRuntime["spaces"], "list">;
   readonly manager: Pick<
     SteMemoryRuntime["manager"],
@@ -265,6 +272,13 @@ export function PanelShell(props: {
   const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
   // 问答聊天历史/run 状态的页面内存存储（ticket 20）：挂在面板壳上，跨 Tab 切换存活；
   // 刷新页面即失（决策 4/9：不落 Dexie、不进通用日志）
+  const [recordFocus, setRecordFocus] = useState<{
+    tableId: MemoryTableId;
+    recordId: MemoryRecordId;
+  } | null>(null);
+  useEffect(() => {
+    setRecordFocus(null);
+  }, [status?.kind === "active" ? status.space.id : null]);
   const [queryChatStore] = useState(() => new QueryChatStore());
 
   const info = buildSpaceInfo(status, settings);
@@ -529,6 +543,8 @@ export function PanelShell(props: {
           <section className="stm-tab-section" data-stm-section="records" role="tabpanel">
             <RecordsTab
               runtime={props.runtime}
+              focusRecord={recordFocus}
+              onFocusConsumed={() => setRecordFocus(null)}
               status={status}
               settings={settings}
               dataVersion={dataVersion}
@@ -556,6 +572,25 @@ export function PanelShell(props: {
             />
           </section>
         )}
+        <section
+          hidden={state.tab !== "retrieval"}
+          className="stm-tab-section"
+          data-stm-section="retrieval"
+          role="tabpanel"
+        >
+          <RetrievalTab
+            key={props.runtime.retrieval.getState().epoch}
+            service={props.runtime.retrieval}
+            connection={settings.embeddingConnection}
+            spaceId={status?.kind === "active" ? status.space.id : null}
+            onRecord={(tableId, recordId) => {
+              setRecordFocus({ tableId, recordId });
+              props.model.setTab("records");
+            }}
+            onIndex={() => props.model.setTab("tables")}
+            onSettings={() => props.model.setTab("settings")}
+          />
+        </section>
         {state.tab === "query" && (
           <section className="stm-tab-section" data-stm-section="query" role="tabpanel">
             <QueryChatTab

@@ -80,6 +80,8 @@ export type LeaveGuard = () => boolean;
 // ---- 记录列表 Tab ----
 
 export function RecordsTab(props: {
+  readonly onFocusConsumed?: () => void;
+  readonly focusRecord?: { tableId: MemoryTableId; recordId: MemoryRecordId } | null;
   readonly runtime: PanelRuntime;
   readonly status: SpaceContextStatus | undefined;
   readonly settings: PluginSettings;
@@ -88,8 +90,13 @@ export function RecordsTab(props: {
   /** 注册离开守卫（切 Tab / 关面板时由面板先询问；卸载时注销） */
   readonly registerLeaveGuard?: (guard: LeaveGuard | null) => void;
 }) {
+  useEffect(() => {
+    props.onFocusConsumed?.();
+  }, []);
   const [tables, setTables] = useState<readonly MemoryTable[] | undefined>(undefined);
-  const [selectedTableId, setSelectedTableId] = useState<MemoryTableId | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<MemoryTableId | null>(
+    props.focusRecord?.tableId ?? null,
+  );
   const [fields, setFields] = useState<readonly MemoryField[]>([]);
   const [recordPage, setRecordPage] = useState<MemoryRecordPage | undefined>(undefined);
   const [vectorSummaries, setVectorSummaries] = useState<ReadonlyMap<MemoryRecordId, string>>(
@@ -102,7 +109,9 @@ export function RecordsTab(props: {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // 详情
-  const [detailRecordId, setDetailRecordId] = useState<MemoryRecordId | null>(null);
+  const [detailRecordId, setDetailRecordId] = useState<MemoryRecordId | null>(
+    props.focusRecord?.recordId ?? null,
+  );
   const [detailRecord, setDetailRecord] = useState<MemoryRecord | undefined>(undefined);
   const [detailDisplayText, setDetailDisplayText] = useState<string>("");
   const [history, setHistory] = useState<readonly MemoryRecordHistory[]>([]);

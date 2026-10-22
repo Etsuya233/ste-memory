@@ -1,5 +1,6 @@
 import {
   effectiveVectorIndexGroups,
+  createReadTimeDisplayTextResolver,
   type MemoryField,
   type MemoryFieldRepository,
   type MemoryRecord,
@@ -36,7 +37,7 @@ const vectorId = (space: string, table: string, record: string, group: string): 
 const suppressionId = (id: string, fingerprint: string): string => `${id}\u0000${fingerprint}`;
 const now = (): string => new Date().toISOString();
 
-interface Target {
+export interface VectorTarget {
   readonly table: MemoryTable;
   readonly record: MemoryRecord;
   readonly fields: readonly MemoryField[];
@@ -621,12 +622,32 @@ export class VectorIndexService {
     );
   }
 
-  private async targets(scope: VectorScope, draft?: VectorIndexConfiguration): Promise<Target[]> {
+  async targets(
+    scope: VectorScope,
+    draft?: VectorIndexConfiguration,
+    signal?: AbortSignal,
+  ): Promise<VectorTarget[]> {
+    signal?.throwIfAborted();
     const profile = this.embedding.getProfile();
     const tables = scope.tableId
       ? [await this.tables.find(scope.memorySpaceId, scope.tableId)]
       : await this.tables.list(scope.memorySpaceId);
-    const targets: Target[] = [];
+    const targets: VectorTarget[] = [];
+    const recordCache = new Map<string, Promise<MemoryRecord | undefined>>();
+    const findRecord = (tableId: MemoryTable["id"], recordId: string) => {
+      const key = JSON.stringify([tableId, recordId]);
+      if (!recordCache.has(key))
+        recordCache.set(
+          key,
+          this.records.find(scope.memorySpaceId, tableId, recordId as MemoryRecord["id"]),
+        );
+      return recordCache.get(key)!;
+    };
+    const displayText = createReadTimeDisplayTextResolver({
+      getTable: (tableId) => this.tables.find(scope.memorySpaceId, tableId),
+      getFields: (tableId) => this.fields.list(scope.memorySpaceId, tableId),
+      findRecord,
+    });
     for (const table of tables) {
       const configuration = draft ?? table?.vectorIndex;
       if (!table || !configuration || (!draft && !configuration.enabled)) continue;
@@ -634,9 +655,15 @@ export class VectorIndexService {
       const records = scope.recordId
         ? [await this.records.find(scope.memorySpaceId, table.id, scope.recordId)]
         : await this.records.list(scope.memorySpaceId, table.id);
-      for (const record of records) {
+      for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+        if (recordIndex > 0 && recordIndex % 100 === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          signal?.throwIfAborted();
+        }
+        const record = records[recordIndex];
         if (!record) continue;
         for (const group of effectiveVectorIndexGroups(configuration, fields)) {
+          signal?.throwIfAborted();
           const lines: string[] = [];
           let configurationError: string | null = null;
           for (const fieldId of group.fieldIds) {
@@ -657,22 +684,13 @@ export class VectorIndexService {
             if (field.type === "single_reference" || field.type === "multi_reference") {
               const ids = Array.isArray(value) ? value : [String(value)];
               const refs = await Promise.all(
-                ids.map((id) =>
-                  this.records.find(
-                    scope.memorySpaceId,
-                    field.referenceTableId!,
-                    id as MemoryRecord["id"],
-                  ),
-                ),
+                ids.map((id) => findRecord(field.referenceTableId!, String(id))),
               );
               if (refs.some((ref) => ref === undefined)) {
                 configurationError = `向量分组「${group.name}」包含已删除的引用记录`;
                 break;
               }
-              display = refs
-                .filter((ref) => ref !== undefined)
-                .map((ref) => ref.displayText)
-                .join("、");
+              display = (await Promise.all(refs.map((ref) => displayText(ref!)))).join("、");
             } else display = Array.isArray(value) ? value.join("、") : String(value);
             if (display) lines.push(`${field.name}：${display}`);
           }
@@ -694,8 +712,8 @@ export class VectorIndexService {
                   : "ready";
           targets.push({
             table,
-            record,
-            fields,
+            record: { ...record, displayText: await displayText(record) },
+            fields: fields.filter((field) => group.fieldIds.includes(field.id)),
             groupId: group.id,
             groupName: group.name,
             input,
@@ -716,7 +734,7 @@ export class VectorIndexService {
   }
 
   private async createTask(
-    target: Target,
+    target: VectorTarget,
     source: VectorTaskSource,
     force: boolean,
     predecessorId: string | null,

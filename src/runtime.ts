@@ -1,3 +1,5 @@
+import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
+import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
   MemoryFieldService,
   MemoryRecordQueryService,
@@ -102,6 +104,7 @@ export interface SteMemoryRuntime {
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
   readonly vector: VectorIndexService;
+  readonly retrieval: VectorRetrievalService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
@@ -374,12 +377,15 @@ export async function startSteMemory(
     createId,
   });
 
+  const embedding =
+    options.embedding ?? new OpenAiEmbeddingPort(() => settings.read().embeddingConnection);
+  const vectorRepository = new DexieVectorIndexRepository(db);
   const vector = new VectorIndexService(
     tableRepository,
     fieldRepository,
     recordRepository,
-    options.embedding ?? new OpenAiEmbeddingPort(() => settings.read().embeddingConnection),
-    new DexieVectorIndexRepository(db),
+    embedding,
+    vectorRepository,
     () => {
       const status = manager.getStatus();
       return status?.kind === "active" ? status.space.id : null;
@@ -387,6 +393,29 @@ export async function startSteMemory(
     () => settings.read().enabled,
     () => createId("vector-task"),
   );
+  let chatEpoch = 0;
+  const retrievalContext = () => {
+    const status = manager.getStatus();
+    return JSON.stringify([
+      chatEpoch,
+      chatIdentityKey(adapter.getChatSnapshot()),
+      status?.kind === "active" ? status.space.id : null,
+    ]);
+  };
+  const retrieval = new VectorRetrievalService(
+    tableRepository,
+    fieldRepository,
+    vector,
+    vectorRepository,
+    embedding,
+    retrievalContext,
+  );
+  const syncRetrievalContext = () => {
+    const status = manager.getStatus();
+    retrieval.setContext(retrievalContext(), status?.kind === "active" ? status.space.id : null);
+  };
+  manager.onStatusChange(syncRetrievalContext);
+  trackRetrievalChanges(db, retrieval);
   await vector.start();
   const vectorSync = new VectorIndexChangeSync(
     db,
@@ -469,6 +498,8 @@ export async function startSteMemory(
 
   adapter.registerEventBridge({
     onChatChanged: () => {
+      chatEpoch++;
+      retrieval.setContext(retrievalContext(), null, true);
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
       if (!settings.read().enabled) return;
       void manager.syncToCurrentChat().catch((error) => {
@@ -526,7 +557,10 @@ export async function startSteMemory(
     refreshAgentMacros: () => agentMacro.kick(),
     refreshMirror: () => mirror.kick(),
     writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
-    refreshVectorIndex: () => vectorSync.refreshSettings(),
+    refreshVectorIndex: () => {
+      retrieval.profileChanged();
+      return vectorSync.refreshSettings();
+    },
   });
   return {
     manager,
@@ -542,6 +576,7 @@ export async function startSteMemory(
     mirror,
     tasks,
     vector,
+    retrieval,
     spaceMaintenance,
     presetApply,
     logs,

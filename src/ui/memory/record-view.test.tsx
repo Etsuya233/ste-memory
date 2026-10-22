@@ -32,6 +32,24 @@ function activeStatus(): SpaceContextStatus {
 function fakeRuntime(): PanelRuntime {
   return {
     vector: {} as PanelRuntime["vector"],
+    retrieval: {
+      getState: () => ({
+        epoch: 0,
+        dataVersion: 0,
+        status: "idle",
+        result: null,
+        error: null,
+        indexUpdated: false,
+        request: null,
+        calls: 0,
+        startedAt: null,
+        elapsedMs: null,
+      }),
+      subscribe: () => () => {},
+      ranges: async () => [],
+      search: async () => {},
+      cancel: () => {},
+    },
     spaces: { list: vi.fn(async () => []) },
     manager: {
       getStatus: () => activeStatus(),

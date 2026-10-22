@@ -56,11 +56,20 @@ export class DexieVectorIndexRepository implements VectorIndexRepository {
     await this.db.recordVectors.delete(id);
   }
   async listVectors(scope: VectorScope): Promise<RecordVector[]> {
-    const rows = await this.db.recordVectors
-      .where("memorySpaceId")
-      .equals(scope.memorySpaceId)
-      .toArray();
-    return rows.filter((row) => inScope(row, scope));
+    if (scope.tableId !== undefined && scope.recordId !== undefined)
+      return this.db.recordVectors
+        .where("[memorySpaceId+tableId+recordId]")
+        .equals([scope.memorySpaceId, scope.tableId, scope.recordId])
+        .toArray();
+    if (scope.tableId !== undefined)
+      return this.db.recordVectors
+        .where("[memorySpaceId+tableId]")
+        .equals([scope.memorySpaceId, scope.tableId])
+        .toArray();
+    const rows = this.db.recordVectors.where("memorySpaceId").equals(scope.memorySpaceId);
+    return scope.recordId !== undefined
+      ? rows.filter((row) => row.recordId === scope.recordId).toArray()
+      : rows.toArray();
   }
   async deleteVectors(scope: VectorScope): Promise<void> {
     const rows = await this.listVectors(scope);

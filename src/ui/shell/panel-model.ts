@@ -4,13 +4,14 @@
  * 渲染对应区块。测试直接驱动本模型，不碰 ST DOM。
  */
 
-export type PanelTab = "tables" | "records" | "tasks" | "query" | "logs" | "settings";
+export type PanelTab = "tables" | "records" | "tasks" | "retrieval" | "query" | "logs" | "settings";
 
 /** 底部 Tab 固定顺序（spec UI 形态：表格/记录/任务/问答/日志/设置；问答 = ticket 20） */
 export const PANEL_TABS: readonly PanelTab[] = [
   "tables",
   "records",
   "tasks",
+  "retrieval",
   "query",
   "logs",
   "settings",
@@ -21,6 +22,7 @@ export const PANEL_TAB_LABELS: Readonly<Record<PanelTab, string>> = {
   tables: "表格",
   records: "记录",
   tasks: "任务",
+  retrieval: "检索",
   query: "问答",
   logs: "日志",
   settings: "设置",

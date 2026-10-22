@@ -284,3 +284,90 @@ describe("VectorIndexService", () => {
     expect(ctx.tasks.size).toBe(0);
   });
 });
+
+it("索引与检索目标共用读时引用显示，目标模板依赖变化使旧指纹过期", async () => {
+  const sourceTable = {
+    ...table,
+    id: "source",
+    vectorIndex: {
+      ...table.vectorIndex!,
+      groups: [{ id: "g", name: "关联人物", fieldIds: ["ref"] }],
+    },
+  } as unknown as MemoryTable;
+  const personTable = {
+    ...table,
+    id: "person",
+    vectorIndex: undefined,
+    displayStrategy: { type: "template", template: "人物位于{place}" },
+  } as unknown as MemoryTable;
+  const placeTable = {
+    ...table,
+    id: "place",
+    vectorIndex: undefined,
+    displayStrategy: null,
+  } as unknown as MemoryTable;
+  const refField = {
+    id: "ref",
+    name: "人物",
+    enabled: true,
+    type: "single_reference",
+    referenceTableId: personTable.id,
+  } as MemoryField;
+  const placeField = {
+    id: "place",
+    name: "地点",
+    enabled: true,
+    type: "single_reference",
+    referenceTableId: placeTable.id,
+  } as MemoryField;
+  const source = {
+    id: "source-record",
+    memorySpaceId: space,
+    tableId: sourceTable.id,
+    payload: { ref: "person-record" },
+    displayText: "来源",
+  } as unknown as MemoryRecord;
+  const person = {
+    id: "person-record",
+    memorySpaceId: space,
+    tableId: personTable.id,
+    payload: { place: "place-record" },
+    displayText: "旧缓存地点",
+  } as unknown as MemoryRecord;
+  let place = {
+    id: "place-record",
+    memorySpaceId: space,
+    tableId: placeTable.id,
+    payload: {},
+    displayText: "森林",
+  } as unknown as MemoryRecord;
+  const service = new VectorIndexService(
+    {
+      list: async () => [sourceTable],
+      find: async (_space: string, id: string) =>
+        [sourceTable, personTable, placeTable].find((table) => table.id === id),
+    } as unknown as MemoryTableRepository,
+    {
+      list: async (_space: string, id: string) =>
+        id === sourceTable.id ? [refField] : id === personTable.id ? [placeField] : [],
+    } as unknown as MemoryFieldRepository,
+    {
+      list: async () => [source],
+      find: async (_space: string, _table: string, id: string) =>
+        [source, person, place].find((record) => record.id === id),
+    } as unknown as MemoryRecordRepository,
+    {
+      getProfile: () => ({ model: "test", version: "v1", maxInputChars: 100 }),
+      embed: async () => [1, 0],
+    },
+    {} as VectorIndexRepository,
+    () => space,
+  );
+  const first = (await service.targets({ memorySpaceId: space, tableId: sourceTable.id }))[0]!;
+  expect(first.input).toBe("人物：人物位于森林");
+  place = { ...place, displayText: "城镇" };
+  const second = (await service.targets({ memorySpaceId: space, tableId: sourceTable.id }))[0]!;
+  expect(second.input).toBe("人物：人物位于城镇");
+  expect(second.fingerprint).not.toBe(first.fingerprint);
+  expect(person.displayText).toBe("旧缓存地点");
+});

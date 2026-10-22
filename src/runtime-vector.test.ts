@@ -21,6 +21,7 @@ async function setup(embedding: VectorEmbeddingPort) {
       settings = next;
     },
   };
+  const handlers = new Map<string, () => void>();
   const context: StContext = {
     chatId: "vector-chat",
     characterId: 1,
@@ -29,7 +30,11 @@ async function setup(embedding: VectorEmbeddingPort) {
     chat: [{}, {}],
     chatMetadata: {},
     saveMetadataDebounced: vi.fn(),
-    eventSource: { on: () => undefined },
+    eventSource: {
+      on: (event, handler) => {
+        handlers.set(event, handler);
+      },
+    },
     eventTypes: {
       CHAT_CHANGED: "chat_changed",
       MESSAGE_SENT: "message_sent",
@@ -65,7 +70,7 @@ async function setup(embedding: VectorEmbeddingPort) {
   });
   if (!field) throw new Error("字段创建失败");
   await runtime.fields.setDisplayStrategy(spaceId, table.id, { type: "field", fieldId: field.id });
-  return { runtime, db, spaceId, tableId: table.id, fieldId: field.id };
+  return { runtime, db, spaceId, tableId: table.id, fieldId: field.id, context, handlers };
 }
 
 async function waitFor(assertion: () => Promise<void>): Promise<void> {
@@ -200,5 +205,139 @@ describe("runtime 向量索引接线", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(0);
     expect(calls).toBe(1);
+  });
+});
+
+describe("runtime 向量检索接线", () => {
+  it("真实Dexie变更让查询过期，纯向量替换保留结果，切同空间chat代次丢弃迟到响应", async () => {
+    let resolveQuery: ((value: readonly number[]) => void) | undefined;
+    const ctx = await setup({
+      getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+      embed: async (input) =>
+        input === "慢查询"
+          ? new Promise((resolve) => {
+              resolveQuery = resolve;
+            })
+          : [1, 0],
+    });
+    const { runtime, db, spaceId, tableId, fieldId } = ctx;
+    await runtime.tables.update(spaceId, tableId, {
+      vectorIndex: { enabled: true, source: "automatic", updateMode: "manual", groups: [] },
+    });
+    const record = await runtime.records.create(spaceId, tableId, {
+      payload: { [fieldId]: "森林" },
+    });
+    if (!record) throw new Error("创建失败");
+    await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
+    await waitFor(async () => {
+      expect(await db.recordVectors.count()).toBe(1);
+    });
+    const request = {
+      query: "森林",
+      selection: [
+        {
+          tableId,
+          groupIds: (await runtime.vector.targets({ memorySpaceId: spaceId, tableId })).map(
+            (target) => target.groupId,
+          ),
+        },
+      ],
+      topK: 10,
+      minimumScore: null,
+    };
+    await runtime.retrieval.search(request);
+    expect(runtime.retrieval.getState().status).toBe("done");
+    const vector = (await db.recordVectors.toArray())[0]!;
+    await db.recordVectors.put({ ...vector, updatedAt: "replacement" });
+    expect(runtime.retrieval.getState()).toMatchObject({ status: "done", indexUpdated: true });
+    await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "新记录" } });
+    expect(runtime.retrieval.getState().status).toBe("stale");
+    const pending = runtime.retrieval.search({ ...request, query: "慢查询" });
+    await waitFor(async () => {
+      expect(resolveQuery).toBeTypeOf("function");
+    });
+    Object.assign(ctx.context, { chatId: "same-space-other-chat" });
+    runtime.adapter.bindingStore.write({ version: 1, spaceId });
+    ctx.handlers.get("chat_changed")!();
+    await runtime.manager.syncToCurrentChat();
+    Object.assign(ctx.context, { chatId: "vector-chat" });
+    runtime.adapter.bindingStore.write({ version: 1, spaceId });
+    ctx.handlers.get("chat_changed")!();
+    await runtime.manager.syncToCurrentChat();
+    resolveQuery!([1, 0]);
+    await pending;
+    expect(runtime.retrieval.getState()).toMatchObject({ status: "idle", result: null });
+    await runtime.retrieval.search(request);
+    await db.recordVectors.delete(vector.id);
+    expect(runtime.retrieval.getState().status).toBe("stale");
+  });
+
+  it("索引与查询网络并发且取消/错误独立，查询成功不解除索引鉴权阻塞", async () => {
+    const pending: {
+      input: string;
+      resolve: (value: readonly number[]) => void;
+      reject: (error: Error) => void;
+    }[] = [];
+    const ctx = await setup({
+      getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+      embed: (input) => new Promise((resolve, reject) => pending.push({ input, resolve, reject })),
+    });
+    const { runtime, db, spaceId, tableId, fieldId } = ctx;
+    await runtime.tables.update(spaceId, tableId, {
+      vectorIndex: { enabled: true, source: "automatic", updateMode: "manual", groups: [] },
+    });
+    const record = await runtime.records.create(spaceId, tableId, {
+      payload: { [fieldId]: "森林" },
+    });
+    if (!record) throw new Error("创建失败");
+    await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
+    await waitFor(async () => {
+      expect(pending).toHaveLength(1);
+    });
+    pending[0]!.resolve([1, 0]);
+    await waitFor(async () => {
+      expect(await db.recordVectors.count()).toBe(1);
+    });
+    const request = { query: "独立查询", selection: null, topK: 10, minimumScore: null };
+    await runtime.vector.submit(
+      { memorySpaceId: spaceId, tableId },
+      { source: "manual", force: true },
+    );
+    await waitFor(async () => {
+      expect(pending).toHaveLength(2);
+    });
+    const query = runtime.retrieval.search(request);
+    await waitFor(async () => {
+      expect(pending).toHaveLength(3);
+    });
+    expect(pending[2]!.input).toBe("独立查询");
+    runtime.retrieval.cancel();
+    pending[2]!.resolve([1, 0]);
+    await query;
+    expect((await db.vectorTasks.toArray()).some((task) => task.status === "running")).toBe(true);
+    const { VectorEmbeddingRequestError } = await import("./features/vector-index/index.ts");
+    pending[1]!.reject(new VectorEmbeddingRequestError("索引鉴权失败", "authentication", true));
+    await waitFor(async () => {
+      expect((await db.vectorTasks.toArray()).some((task) => task.status === "failed")).toBe(true);
+    });
+    const next = runtime.retrieval.search(request);
+    await waitFor(async () => {
+      expect(pending).toHaveLength(4);
+    });
+    pending[3]!.resolve([1, 0]);
+    await next;
+    expect(runtime.retrieval.getState().status).toBe("done");
+    await runtime.vector.submit(
+      { memorySpaceId: spaceId, tableId },
+      { source: "manual", force: true },
+    );
+    await waitFor(async () => {
+      expect(
+        (await db.vectorTasks.toArray()).some(
+          (task) => task.status === "queued" && !!task.waitReason,
+        ),
+      ).toBe(true);
+    });
+    expect(pending).toHaveLength(4);
   });
 });

@@ -34,6 +34,24 @@ function activeStatus(): SpaceContextStatus {
 function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
   return {
     vector: {} as PanelRuntime["vector"],
+    retrieval: {
+      getState: () => ({
+        epoch: 0,
+        dataVersion: 0,
+        status: "idle",
+        result: null,
+        error: null,
+        indexUpdated: false,
+        request: null,
+        calls: 0,
+        startedAt: null,
+        elapsedMs: null,
+      }),
+      subscribe: () => () => {},
+      ranges: async () => [],
+      search: async () => {},
+      cancel: () => {},
+    },
     spaces: { list: vi.fn(async () => []) },
     manager: {
       getStatus: () => activeStatus(),
@@ -236,7 +254,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-action="resize-panel"');
   });
 
-  it("初始：收起态（aria-hidden）+ 空间名 + 六个 Tab + 表格区块", () => {
+  it("初始：收起态（aria-hidden）+ 空间名 + 七个 Tab + 表格区块", () => {
     const html = renderShell(new PanelModel());
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("爱丽丝 - story");
