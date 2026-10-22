@@ -331,6 +331,7 @@ export class ChatSpaceManager {
         record: () => id("record") as MemoryRecordId,
         history: () => id("record-history") as MemoryRecordHistoryId,
         task: () => id("task"),
+        group: () => id("vector-group"),
         evidence: () => id("evidence") as MemoryEvidenceId,
       });
       // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
@@ -384,6 +385,7 @@ export class ChatSpaceManager {
       history: () => id("record-history") as MemoryRecordHistoryId,
       evidence: () => id("evidence") as MemoryEvidenceId,
       task: () => id("task"),
+      group: () => id("vector-group"),
     });
     // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
     await this.#ports.spaces.rename(newSpaceId, newSpaceName);

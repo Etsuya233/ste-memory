@@ -33,6 +33,8 @@ function activeStatus(): SpaceContextStatus {
 
 function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
   return {
+    vector: {} as PanelRuntime["vector"],
+    spaces: { list: vi.fn(async () => []) },
     manager: {
       getStatus: () => activeStatus(),
       onStatusChange: () => () => {},
@@ -73,6 +75,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       refreshMemoryMacros: vi.fn(async () => {}),
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
+      refreshVectorIndex: vi.fn(async () => {}),
       writeChatScopeMacros: vi.fn(),
     }),
     settings: {

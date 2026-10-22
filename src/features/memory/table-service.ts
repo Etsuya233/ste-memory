@@ -3,9 +3,12 @@ import {
   memoryTableKey,
   memoryTableName,
   memoryTablePosition,
+  type MemoryField,
   type MemorySpaceId,
   type MemoryTable,
   type MemoryTableId,
+  type VectorIndexConfiguration,
+  validateVectorIndexConfiguration,
 } from "./domain/index.ts";
 import type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 import type { MemoryTableRepository } from "./ports/memory-table-repository.ts";
@@ -20,6 +23,7 @@ export interface CreateMemoryTableInput {
 }
 
 export interface UpdateMemoryTableInput {
+  readonly vectorIndex?: VectorIndexConfiguration;
   readonly key?: string;
   readonly name?: string;
   readonly description?: string;
@@ -31,6 +35,9 @@ export interface UpdateMemoryTableInput {
 export class MemoryTableService {
   private readonly spaces: MemorySpaceRepository;
   private readonly tables: MemoryTableRepository;
+  private readonly fields?: {
+    list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<readonly MemoryField[]>;
+  };
   private readonly createId: () => MemoryTableId;
   private readonly now: () => string;
 
@@ -39,11 +46,15 @@ export class MemoryTableService {
     tables: MemoryTableRepository,
     createId: () => MemoryTableId,
     now: () => string,
+    fields?: {
+      list(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<readonly MemoryField[]>;
+    },
   ) {
     this.spaces = spaces;
     this.tables = tables;
     this.createId = createId;
     this.now = now;
+    this.fields = fields;
   }
 
   async create(
@@ -113,7 +124,15 @@ export class MemoryTableService {
       position:
         input.position === undefined ? current.position : memoryTablePosition(input.position),
       updatedAt: this.now(),
+      vectorIndex: input.vectorIndex ?? current.vectorIndex,
     };
+    if (input.vectorIndex !== undefined) {
+      if (!this.fields) throw new Error("保存向量索引配置需要字段仓库");
+      validateVectorIndexConfiguration(
+        input.vectorIndex,
+        await this.fields.list(memorySpaceId, id),
+      );
+    }
     await this.tables.update(updated);
     return updated;
   }

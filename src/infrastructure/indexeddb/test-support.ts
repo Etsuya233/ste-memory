@@ -71,6 +71,7 @@ export async function installDefaultPreset(
     createIds: {
       table: () => `preset-table-${++presetIdSequence}` as MemoryTableId,
       field: () => `preset-field-${++presetIdSequence}` as MemoryFieldId,
+      group: () => `preset-group-${++presetIdSequence}`,
     },
     now,
   });

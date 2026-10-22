@@ -1,5 +1,6 @@
 import type { MemoryView } from "../macros/memory-views.ts";
 import type { EntryPlacement, PluginSettings, SettingsStore } from "./plugin-settings.ts";
+import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
 
 interface SettingsDependencies {
   readonly store: SettingsStore;
@@ -8,6 +9,7 @@ interface SettingsDependencies {
   readonly refreshAgentMacros: () => Promise<void>;
   readonly refreshMirror: () => Promise<void>;
   readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
+  readonly refreshVectorIndex: () => Promise<void>;
 }
 
 export class SettingsService {
@@ -34,6 +36,7 @@ export class SettingsService {
       this.dependencies.refreshMemoryMacros(),
       this.dependencies.refreshAgentMacros(),
       this.dependencies.refreshMirror(),
+      this.dependencies.refreshVectorIndex(),
     );
     await Promise.all(changes);
   }
@@ -42,6 +45,11 @@ export class SettingsService {
     const settings = this.read();
     this.save({ ...settings, mirror: { ...settings.mirror, enabled } });
     await this.dependencies.refreshMirror();
+  }
+
+  async setEmbeddingConnection(connection: EmbeddingConnection | undefined): Promise<void> {
+    this.save({ ...this.read(), embeddingConnection: parseEmbeddingConnection(connection) });
+    await this.dependencies.refreshVectorIndex();
   }
 
   async setMirrorHistoryIncluded(includeHistory: boolean): Promise<void> {

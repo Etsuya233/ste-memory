@@ -15,6 +15,11 @@ import type {
   MemoryTableId,
 } from "../../features/memory/index.ts";
 import type { FillTask, FloorFillStatus } from "../../features/fill-tasks/fill-task.ts";
+import type {
+  RecordVector,
+  VectorSuppression,
+  VectorTask,
+} from "../../features/vector-index/types.ts";
 
 /**
  * 证据条目的存储形态：领域 evidence_id 映射为主键 id（Dexie 行主键路径为 id），
@@ -93,6 +98,9 @@ export class SteMemoryDatabase extends Dexie {
   memoryEvidence!: Table<MemoryEvidenceRow, MemoryEvidenceId>;
   memoryFillTasks!: Table<FillTask, string>;
   floorFillLedger!: Table<FloorLedgerRow, string>;
+  vectorTasks!: Table<VectorTask, string>;
+  recordVectors!: Table<RecordVector, string>;
+  vectorSuppressions!: Table<VectorSuppression, string>;
 
   constructor(name: string = ST_MEMORY_DB_NAME) {
     super(name);
@@ -141,6 +149,12 @@ export class SteMemoryDatabase extends Dexie {
         }
         if (tables.length > 0) await transaction.table("memoryTables").bulkPut(tables);
       });
+    this.version(6).stores({
+      vectorTasks:
+        "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId], [status+createdAt]",
+      recordVectors: "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId]",
+      vectorSuppressions: "id, memorySpaceId",
+    });
   }
 }
 

@@ -1,3 +1,5 @@
 # 单包仓库：不需要 packages 列表，仅保留 pnpm 构建许可（esbuild 需要 postinstall）
 allowBuilds:
+  "@google/genai": false
   esbuild: true
+  protobufjs: false

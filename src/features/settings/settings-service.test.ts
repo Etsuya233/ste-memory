@@ -21,11 +21,29 @@ function harness() {
     refreshAgentMacros: vi.fn(refresh),
     refreshMirror: vi.fn(refresh),
     writeChatScopeMacros: vi.fn(),
+    refreshVectorIndex: vi.fn(async () => {}),
   };
   return { service: new SettingsService(dependencies), dependencies, observed };
 }
 
 describe("SettingsService", () => {
+  it("保存独立向量连接后刷新索引，非法配置不落库", async () => {
+    const { service, dependencies } = harness();
+    const connection = {
+      baseUrl: "http://localhost:8080/v1",
+      apiKey: "",
+      model: "embedding",
+      maxInputChars: 8000,
+      timeoutSeconds: 120,
+    };
+    await service.setEmbeddingConnection(connection);
+    expect(service.read().embeddingConnection).toEqual(connection);
+    expect(dependencies.refreshVectorIndex).toHaveBeenCalledOnce();
+    await expect(
+      service.setEmbeddingConnection({ ...connection, timeoutSeconds: 0 }),
+    ).rejects.toThrow("超时");
+    expect(service.read().embeddingConnection).toEqual(connection);
+  });
   it("启用先保存，再同步对话和刷新宏与镜像", async () => {
     const { service, dependencies, observed } = harness();
     service.save({ ...service.read(), enabled: false });

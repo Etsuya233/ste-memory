@@ -88,6 +88,71 @@ async function seedDatabase(db: SteMemoryDatabase) {
 }
 
 describe("Dexie memory backup repository", () => {
+  it("恢复空间清理该空间的向量派生数据，备份不导出它们", async () => {
+    const db = createTestDatabase();
+    const { space, table, record } = await seedDatabase(db);
+    const repo = new DexieMemoryBackupRepository(db);
+    const unit = (await repo.loadSnapshot()).spaces[0]!;
+    await db.recordVectors.add({
+      id: "vector-1",
+      memorySpaceId: space.id,
+      tableId: table.id,
+      recordId: record!.id,
+      groupId: "group-1",
+      fingerprint: "old",
+      values: [1],
+      model: "test",
+      version: "1",
+      updatedAt: NOW,
+    });
+    await db.vectorSuppressions.add({
+      id: "suppression-1",
+      memorySpaceId: space.id,
+      fingerprint: "old",
+      reason: "cancelled",
+    });
+    expect(JSON.stringify(await repo.loadSnapshot())).not.toContain("vector-1");
+    await repo.restoreSpace(unit);
+    expect(await db.recordVectors.count()).toBe(0);
+    expect(await db.vectorSuppressions.count()).toBe(0);
+  });
+  it("备份保留自动来源与预设快照，克隆重映射分组和字段身份", async () => {
+    const db = createTestDatabase();
+    const { space, table, name, identity } = await seedDatabase(db);
+    await db.memoryTables.update(table.id, {
+      vectorIndex: {
+        enabled: true,
+        source: "automatic",
+        updateMode: "manual",
+        groups: [],
+        presetGroups: [{ id: "original-group", name: "人物", fieldIds: [name.id, identity.id] }],
+      },
+    });
+    const repo = new DexieMemoryBackupRepository(db);
+    const original = (await repo.loadSnapshot()).spaces[0]!;
+    const originalTable = original.tables.find((item) => item.id === table.id)!;
+    expect(originalTable.vectorIndex?.source).toBe("automatic");
+    let sequence = 0;
+    const clonedId = await repo.cloneSpace(space.id, {
+      space: () => `space-vector-${++sequence}` as MemorySpaceId,
+      table: () => `table-vector-${++sequence}` as MemoryTableId,
+      field: () => `field-vector-${++sequence}` as MemoryFieldId,
+      record: () => `record-vector-${++sequence}` as MemoryRecordId,
+      history: () => `history-vector-${++sequence}` as MemoryRecordHistoryId,
+      evidence: () => `evidence-vector-${++sequence}` as MemoryEvidenceId,
+      task: () => `task-vector-${++sequence}`,
+      group: () => `group-vector-${++sequence}`,
+    });
+    const cloned = (await repo.loadSnapshot()).spaces.find((unit) => unit.space.id === clonedId)!;
+    const clonedTable = cloned.tables.find((item) => item.key === table.key)!;
+    const clonedFields = cloned.fields.filter((field) => field.tableId === clonedTable.id);
+    expect(clonedTable.vectorIndex?.source).toBe("automatic");
+    expect(clonedTable.vectorIndex?.presetGroups?.[0]?.id).toMatch(/^group-vector-\d+$/);
+    expect(clonedTable.vectorIndex?.presetGroups?.[0]?.fieldIds).toEqual([
+      clonedFields.find((field) => field.key === name.key)!.id,
+      clonedFields.find((field) => field.key === identity.key)!.id,
+    ]);
+  });
   it("loadSnapshot 返回按空间分组、排序确定的全库数据", async () => {
     const db = createTestDatabase();
     const { services, space, table, record, name, identity } = await seedDatabase(db);
@@ -358,6 +423,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `cloned-record-${++seq}` as MemoryRecordId,
       history: () => `cloned-history-${++seq}` as MemoryRecordHistoryId,
       task: () => `cloned-task-${++seq}`,
+      group: () => `cloned-group-${++seq}`,
       evidence: () => `cloned-evidence-${++seq}` as MemoryEvidenceId,
     });
 
@@ -404,6 +470,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `clone-record-${++seq}` as MemoryRecordId,
       history: () => `clone-history-${++seq}` as MemoryRecordHistoryId,
       task: () => `clone-task-${++seq}`,
+      group: () => `clone-group-${++seq}`,
       evidence: () => `clone-evidence-${++seq}` as MemoryEvidenceId,
     });
     const clonedId = await repo.cloneSpace(space.id, ids());
@@ -458,6 +525,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `cloned-record-${++recordSeq}` as MemoryRecordId,
       history: () => `cloned-history-${++historySeq}` as MemoryRecordHistoryId,
       task: () => `cloned-task-${++taskSeq}`,
+      group: () => `cloned-group-${++taskSeq}`,
       evidence: () => `cloned-evidence-${++evidenceSeq}` as MemoryEvidenceId,
     });
 
@@ -519,6 +587,7 @@ describe("Dexie memory backup repository", () => {
         record: () => `fail-record-${++seq}` as MemoryRecordId,
         history: () => `fail-history-${++seq}` as MemoryRecordHistoryId,
         task: () => `cloned-task-${++seq}`,
+        group: () => `cloned-group-${++seq}`,
         evidence: () => `fail-evidence-${++seq}` as MemoryEvidenceId,
       }),
     ).rejects.toThrow();
@@ -548,6 +617,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `cloned-unit-record-${++recordSeq}` as MemoryRecordId,
       history: () => `cloned-unit-history-${++historySeq}` as MemoryRecordHistoryId,
       task: () => `cloned-task-${++taskSeq}`,
+      group: () => `cloned-group-${++taskSeq}`,
       evidence: () => `cloned-unit-evidence-${++evidenceSeq}` as MemoryEvidenceId,
     });
 
@@ -611,6 +681,7 @@ describe("Dexie memory backup repository", () => {
         record: () => `fail-unit-record-${++seq}` as MemoryRecordId,
         history: () => `fail-unit-history-${++seq}` as MemoryRecordHistoryId,
         task: () => `cloned-task-${++seq}`,
+        group: () => `cloned-group-${++seq}`,
         evidence: () => `fail-unit-evidence-${++seq}` as MemoryEvidenceId,
       }),
     ).rejects.toThrow();
@@ -654,6 +725,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `cloned-record-${++seq}` as MemoryRecordId,
       history: () => `cloned-history-${++seq}` as MemoryRecordHistoryId,
       task: () => `cloned-task-${++seq}`,
+      group: () => `cloned-group-${++seq}`,
       evidence: () => `cloned-evidence-${++seq}` as MemoryEvidenceId,
     });
     const clonedUnit = (await repo.loadSnapshot()).spaces.find(
@@ -770,6 +842,7 @@ describe("Dexie memory backup repository", () => {
       record: () => `repaired-record-${++seq}` as MemoryRecordId,
       history: () => `repaired-history-${++seq}` as MemoryRecordHistoryId,
       task: () => `cloned-task-${++seq}`,
+      group: () => `cloned-group-${++seq}`,
       evidence: () => `repaired-evidence-${++seq}` as MemoryEvidenceId,
     });
     const clonedUnit = (await repo.loadSnapshot()).spaces.find(

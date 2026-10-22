@@ -40,6 +40,7 @@ import { joinListText, recordValueFieldKey, type RecordFormValue } from "./recor
 // ---- 网格编辑器 ----
 
 export interface GridEditorProps {
+  readonly vectorSummaries?: ReadonlyMap<MemoryRecordId, string>;
   readonly fields: readonly MemoryField[];
   readonly rows: readonly GridRowState[];
   /** 校验错误（保存时全校验；行底错误条） */
@@ -114,6 +115,7 @@ export function GridEditor(props: GridEditorProps) {
             key={row.key}
             row={row}
             rowNumber={index + 1}
+            vectorSummary={row.recordId ? props.vectorSummaries?.get(row.recordId) : undefined}
             fields={props.fields}
             error={props.errors[row.key]}
             commitError={props.commitErrors[row.key]}
@@ -139,6 +141,7 @@ export function GridEditor(props: GridEditorProps) {
 // ---- 数据行（行号单元格 + 每字段单元格 + 行底错误条） ----
 
 function GridRow(props: {
+  readonly vectorSummary?: string;
   readonly row: GridRowState;
   readonly rowNumber: number;
   readonly fields: readonly MemoryField[];
@@ -201,6 +204,11 @@ function GridRow(props: {
           >
             {props.rowNumber}
           </button>
+        )}
+        {props.vectorSummary && (
+          <span className="stm-grid-vector-status" title={`向量：${props.vectorSummary}`}>
+            {props.vectorSummary}
+          </span>
         )}
         <GridRowResizeHandle
           ariaLabel={`调整记录 ${props.rowNumber} 行高`}

@@ -36,6 +36,8 @@ import { buildSpaceInfo } from "./space-info.ts";
 import { RecordsTab, type LeaveGuard } from "../memory/record-view.tsx";
 import { TablesTab } from "../memory/tables-tab.tsx";
 import { TasksTab } from "../tasks/tasks-tab.tsx";
+import { VectorTasks } from "../tasks/vector-tasks.tsx";
+import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
 import { QueryChatTab } from "../query-chat/query-chat-tab.tsx";
 import { LogTab } from "../logs/log-tab.tsx";
 import { SettingsTab } from "../settings/settings-tab.tsx";
@@ -48,6 +50,8 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  * 结构满足该端口，组合根直接传入。
  */
 export interface PanelRuntime {
+  readonly vector: VectorIndexService;
+  readonly spaces: Pick<SteMemoryRuntime["spaces"], "list">;
   readonly manager: Pick<
     SteMemoryRuntime["manager"],
     "getStatus" | "onStatusChange" | "syncToCurrentChat" | "resolveBranch" | "importSpace"
@@ -510,6 +514,7 @@ export function PanelShell(props: {
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
             <TablesTab
+              vector={props.runtime.vector}
               tables={props.runtime.tables}
               fields={props.runtime.fields}
               records={props.runtime.records}
@@ -542,6 +547,12 @@ export function PanelShell(props: {
                 setLogFocusRunId(runId);
                 props.model.setTab("logs");
               }}
+            />
+            <VectorTasks
+              vector={props.runtime.vector}
+              spaces={props.runtime.spaces}
+              tables={props.runtime.tables}
+              currentSpaceId={status?.kind === "active" ? status.space.id : undefined}
             />
           </section>
         )}

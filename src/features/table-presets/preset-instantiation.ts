@@ -14,6 +14,7 @@ import {
   type MemoryTableId,
 } from "../memory/index.ts";
 import type { TablePresetDisplayStrategy, TablePresetStructure } from "./preset-model.ts";
+import { importPresetVectorIndexGroups } from "./preset-vector-index.ts";
 
 /**
  * 预设实例化（spec 4.2 / 10.2）：把预设结构复制成具体记忆空间的表/字段行。
@@ -29,6 +30,7 @@ import type { TablePresetDisplayStrategy, TablePresetStructure } from "./preset-
 export interface PresetInstantiationIds {
   readonly table: () => MemoryTableId;
   readonly field: () => MemoryFieldId;
+  readonly group: () => string;
 }
 
 export interface InstantiatedSpaceStructure {
@@ -68,6 +70,28 @@ export function instantiateTablePreset(
       description: table.description,
       prompt: table.prompt,
       enabled: table.enabled,
+      vectorIndex:
+        table.vectorIndex === undefined
+          ? undefined
+          : {
+              enabled: table.vectorIndex.enabled,
+              source: table.vectorIndex.groups.length > 0 ? "preset" : "automatic",
+              updateMode: table.vectorIndex.updateMode,
+              groups: [],
+              presetGroups:
+                table.vectorIndex.groups.length > 0
+                  ? importPresetVectorIndexGroups(
+                      table,
+                      table.fields.map((field, fieldPosition) => ({
+                        id: fieldIdByKey.get(field.key)!,
+                        key: memoryFieldKey(field.key),
+                        enabled: field.enabled,
+                        position: fieldPosition,
+                      })),
+                      ids.group,
+                    )
+                  : undefined,
+            },
       position,
       displayStrategy: instantiatedDisplayStrategy(
         table.key,

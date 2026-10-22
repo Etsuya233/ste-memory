@@ -1,5 +1,6 @@
 import type { MemoryField, MemoryTable } from "../memory/index.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
+import { capturePresetVectorIndex } from "./preset-vector-index.ts";
 import type {
   TablePresetDisplayStrategy,
   TablePresetStructure,
@@ -48,6 +49,7 @@ export async function captureSpaceStructure(
         description: table.description,
         prompt: table.prompt,
         enabled: table.enabled,
+        vectorIndex: capturePresetVectorIndex(table.vectorIndex, fields),
         displayStrategy: captureDisplayStrategy(table.displayStrategy, fieldKeyById),
         fields: fields.map((field): TablePresetTable["fields"][number] => ({
           key: field.key,

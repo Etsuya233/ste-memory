@@ -22,6 +22,7 @@ export const STYLE_SOURCES: readonly string[] = [
   "memory-tables.css",
   "records.css",
   "tasks.css",
+  "vector-index.css",
   "agent-presets.css",
   "logs.css",
   "query-chat.css",

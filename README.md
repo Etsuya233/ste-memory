@@ -34,6 +34,20 @@ pnpm test         # vitest run
 真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
 通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。
 
+## 向量索引
+
+在设置中保存独立的 OpenAI 兼容 embedding 连接，然后从表格的「向量索引」配置字段分组。
+配置来源支持自动、预设和自定义；更新方式单独选择手动或自动。自动配置将启用字段合成一组，
+每条记录的每个分组生成一个向量。表格预设保存当前分组快照，空间备份保留配置来源，均不导出向量或连接密钥。
+
+任务页可按空间、表、状态、来源筛选向量任务，并逐项或勾选取消。队列优先手动任务，
+同来源中优先当前对话；每次请求结束后重新排序。向量可补建、强制重算或单独清除，不改变记忆正文。
+
+连接由浏览器直接请求服务的 `/embeddings` 接口，服务需允许当前 ST 站点跨域访问。
+输入字符上限是本地限制，模型的 token 限制仍由服务校验；接口格式见
+[embedding API 文档](https://developers.openai.com/api/reference/resources/embeddings/methods/create)。
+本轮提供索引维护，语义召回与宏接入留待后续开发。
+
 ## ST 安装与同步
 
 开发用两种方式，二选一。

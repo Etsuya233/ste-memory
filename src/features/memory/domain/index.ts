@@ -1,4 +1,10 @@
 export { DomainError } from "./domain-error.ts";
+export {
+  effectiveVectorIndexGroups,
+  validateVectorIndexConfiguration,
+  remapVectorIndexConfiguration,
+} from "./vector-index-configuration.ts";
+export type { VectorIndexConfiguration, VectorIndexGroup } from "./vector-index-configuration.ts";
 export type { DomainErrorData, DomainErrorType } from "./domain-error.ts";
 export {
   memoryFieldConfiguration,

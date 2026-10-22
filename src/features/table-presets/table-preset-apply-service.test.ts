@@ -125,6 +125,7 @@ async function setup() {
     createIds: {
       table: () => `applied-table-${++tableSeq}` as MemoryTableId,
       field: () => `applied-field-${++fieldSeq}` as MemoryFieldId,
+      group: () => `group-${Math.random().toString(36).slice(2)}`,
     },
     now: () => "2026-10-18T12:00:00.000Z",
   });
@@ -142,7 +143,11 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => "char:9:other",
       clearChatScopeMacros,
-      createIds: { table: () => "unused" as MemoryTableId, field: () => "unused" as MemoryFieldId },
+      createIds: {
+        table: () => "unused" as MemoryTableId,
+        field: () => "unused" as MemoryFieldId,
+        group: () => "unused",
+      },
       now: () => NOW,
     });
     await expect(
@@ -169,6 +174,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       createIds: {
         table: () => `init-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `init-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
+        group: () => `group-${Math.random().toString(36).slice(2)}`,
       },
       now: () => "2026-10-18T09:00:00.000Z",
     });
@@ -446,6 +452,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       createIds: {
         table: () => `swap-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `swap-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
+        group: () => `group-${Math.random().toString(36).slice(2)}`,
       },
       now: () => NOW,
     });
@@ -482,6 +489,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       createIds: {
         table: () => `keep-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `keep-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
+        group: () => `group-${Math.random().toString(36).slice(2)}`,
       },
       now: () => NOW,
     });

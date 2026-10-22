@@ -1,6 +1,7 @@
 import { DomainError } from "./domain-error.ts";
 import type { MemorySpaceId } from "./memory-space.ts";
 import type { MemoryFieldId } from "./memory-field.ts";
+import type { VectorIndexConfiguration } from "./vector-index-configuration.ts";
 
 export type MemoryTableId = string & { readonly __brand: "MemoryTableId" };
 export type MemoryTableKey = string & { readonly __brand: "MemoryTableKey" };
@@ -55,6 +56,7 @@ export function remapMemoryTableDisplayStrategy(
 }
 
 export interface MemoryTable {
+  readonly vectorIndex?: VectorIndexConfiguration;
   readonly id: MemoryTableId;
   readonly memorySpaceId: MemorySpaceId;
   readonly key: MemoryTableKey;

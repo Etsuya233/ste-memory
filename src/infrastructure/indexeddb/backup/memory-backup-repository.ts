@@ -21,7 +21,10 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "../../../features/memory/index.ts";
-import { remapMemoryTableDisplayStrategy } from "../../../features/memory/index.ts";
+import {
+  remapMemoryTableDisplayStrategy,
+  remapVectorIndexConfiguration,
+} from "../../../features/memory/index.ts";
 import type { FillTask } from "../../../features/fill-tasks/fill-task.ts";
 import { isFillTaskTerminal } from "../../../features/fill-tasks/fill-task.ts";
 import type { SteMemoryDatabase, MemoryEvidenceRow } from "../database.ts";
@@ -108,6 +111,9 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         this.#db.memoryEvidence,
         this.#db.memoryFillTasks,
         this.#db.floorFillLedger,
+        this.#db.vectorTasks,
+        this.#db.recordVectors,
+        this.#db.vectorSuppressions,
       ],
       async () => {
         await Promise.all([
@@ -119,6 +125,9 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           this.#db.memoryEvidence.clear(),
           this.#db.memoryFillTasks.clear(),
           this.#db.floorFillLedger.clear(),
+          this.#db.vectorTasks.clear(),
+          this.#db.recordVectors.clear(),
+          this.#db.vectorSuppressions.clear(),
         ]);
         for (const unit of snapshot.spaces) {
           await this.#writeUnit(unit);
@@ -146,6 +155,9 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         this.#db.memoryEvidence,
         this.#db.memoryFillTasks,
         this.#db.floorFillLedger,
+        this.#db.vectorTasks,
+        this.#db.recordVectors,
+        this.#db.vectorSuppressions,
       ],
       async () => {
         await Promise.all([
@@ -157,6 +169,9 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
           this.#db.memoryRecords.where("memorySpaceId").equals(spaceId).delete(),
           this.#db.memoryRecordHistory.where("memorySpaceId").equals(spaceId).delete(),
           this.#db.memoryEvidence.where("memorySpaceId").equals(spaceId).delete(),
+          this.#db.vectorTasks.where("memorySpaceId").equals(spaceId).delete(),
+          this.#db.recordVectors.where("memorySpaceId").equals(spaceId).delete(),
+          this.#db.vectorSuppressions.where("memorySpaceId").equals(spaceId).delete(),
         ]);
         if (unit.fillTasks !== undefined || unit.floorLedger !== undefined) {
           await this.#db.memoryFillTasks.where("memorySpaceId").equals(spaceId).delete();
@@ -372,6 +387,11 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
               id: tableIdMap.get(table.id)!,
               memorySpaceId: newSpaceId,
               displayStrategy: remapMemoryTableDisplayStrategy(table.displayStrategy, fieldIdMap),
+              vectorIndex: remapVectorIndexConfiguration(
+                table.vectorIndex,
+                fieldIdMap,
+                createId.group,
+              ),
             })),
           );
         }

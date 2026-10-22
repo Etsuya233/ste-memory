@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MemoryFieldId, MemorySpaceId, MemoryTableId } from "../memory/index.ts";
 import { instantiateTablePreset } from "./preset-instantiation.ts";
 import type { TablePresetStructure } from "./preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "./system-preset.ts";
 import { captureSpaceStructure } from "./space-structure-capture.ts";
+import { validateTablePresetContent } from "./preset-transfer.ts";
 import type { MemoryField, MemoryTable } from "../memory/index.ts";
 
 const SPACE = "space-1" as MemorySpaceId;
@@ -12,13 +13,46 @@ const SPACE = "space-1" as MemorySpaceId;
 function idFactory(prefix = "") {
   let tables = 0;
   let fields = 0;
+  let groups = 0;
   return {
     table: () => `${prefix}table-${++tables}` as MemoryTableId,
     field: () => `${prefix}field-${++fields}` as MemoryFieldId,
+    group: () => `${prefix}group-${++groups}`,
   };
 }
 
 describe("预设实例化（spec 4.2 / 10.2）", () => {
+  it("含向量分组的预设校验和实例化只使用注入的身份工厂", () => {
+    const preset = {
+      name: SYSTEM_TABLE_PRESET.name,
+      description: SYSTEM_TABLE_PRESET.description,
+      prompt: SYSTEM_TABLE_PRESET.prompt,
+      tables: SYSTEM_TABLE_PRESET.tables.map((table, index) =>
+        index === 0
+          ? {
+              ...table,
+              vectorIndex: {
+                enabled: true,
+                updateMode: "manual" as const,
+                groups: [{ name: "人物", fieldKeys: [table.fields[0]!.key] }],
+              },
+            }
+          : table,
+      ),
+    };
+    const nativeId = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("当前上下文没有原生 UUID 生成能力");
+    });
+    try {
+      const validated = validateTablePresetContent(preset);
+      const structure = instantiateTablePreset(validated, SPACE, idFactory("host-"), "now");
+      expect(structure.tables[0]!.vectorIndex?.presetGroups?.[0]?.id).toBe("host-group-1");
+      expect(nativeId).not.toHaveBeenCalled();
+    } finally {
+      nativeId.mockRestore();
+    }
+  });
+
   it("系统自带预设实例化出当前默认的 8 张表与完整规则（AC-02）", () => {
     const { tables, fields } = instantiateTablePreset(
       SYSTEM_TABLE_PRESET,

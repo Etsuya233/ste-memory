@@ -37,6 +37,9 @@ import {
   type RecordFormValue,
 } from "./record-form-model.ts";
 import { GridEditor } from "./grid-editor.tsx";
+import { VectorRecordStatus } from "./vector-record-status.tsx";
+import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
+import type { MemorySpaceId } from "../../features/memory/index.ts";
 import {
   clampGridRowHeight,
   clampGridWidth,
@@ -89,6 +92,9 @@ export function RecordsTab(props: {
   const [selectedTableId, setSelectedTableId] = useState<MemoryTableId | null>(null);
   const [fields, setFields] = useState<readonly MemoryField[]>([]);
   const [recordPage, setRecordPage] = useState<MemoryRecordPage | undefined>(undefined);
+  const [vectorSummaries, setVectorSummaries] = useState<ReadonlyMap<MemoryRecordId, string>>(
+    new Map(),
+  );
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -336,6 +342,55 @@ export function RecordsTab(props: {
       cancelled = true;
     };
   }, [props.runtime, spaceId, selectedTableId, detailRecordId, reloadKey, tables]);
+
+  useEffect(() => {
+    if (!spaceId || !selectedTableId || !recordPage) {
+      setVectorSummaries(new Map());
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      recordPage.records.map(async (record) => {
+        const scope = { memorySpaceId: spaceId, tableId: selectedTableId, recordId: record.id };
+        const [previews, state] = await Promise.all([
+          props.runtime.vector.preview(scope),
+          props.runtime.vector.getStatus(scope),
+        ]);
+        if (previews.length === 0) return [record.id, "无分组"] as const;
+        const ready = previews.filter((preview) =>
+          state.vectors.some(
+            (vector) =>
+              vector.groupId === preview.groupId && vector.fingerprint === preview.fingerprint,
+          ),
+        ).length;
+        const empty = previews.filter((preview) => preview.status === "empty").length;
+        const failed = previews.filter(
+          (preview) =>
+            preview.status === "too_long" ||
+            preview.status === "unavailable" ||
+            state.tasks.some(
+              (task) =>
+                task.groupId === preview.groupId &&
+                task.status === "failed" &&
+                task.fingerprint === preview.fingerprint,
+            ),
+        ).length;
+        return [
+          record.id,
+          `就绪 ${ready}/${previews.length}${empty ? ` · 空 ${empty}` : ""}${failed ? ` · 异常 ${failed}` : ""}`,
+        ] as const;
+      }),
+    )
+      .then((rows) => {
+        if (!cancelled) setVectorSummaries(new Map(rows));
+      })
+      .catch((error) => {
+        if (!cancelled) reportError(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.runtime, spaceId, selectedTableId, recordPage, reloadKey]);
 
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复记录展示" />;
@@ -728,6 +783,9 @@ export function RecordsTab(props: {
             onDelete={() => void deleteRecord()}
             onJumpFloor={(floor) => props.runtime.st.scrollToFloor(floor)}
             getMessageAt={(floor) => props.runtime.st.getMessageAt(floor)}
+            vector={props.runtime.vector}
+            memorySpaceId={currentSpaceId}
+            tableId={currentTable.id}
           />
         ) : (
           <Placeholder title="正在加载…" hint="记录详情读取中" />
@@ -747,6 +805,7 @@ export function RecordsTab(props: {
                 />
               ) : null}
               <GridEditor
+                vectorSummaries={vectorSummaries}
                 fields={fields}
                 rows={gridRows}
                 errors={gridErrors}
@@ -805,6 +864,9 @@ export function RecordsTab(props: {
 // ---- 记录详情（字段值 + 字段证据 + 来源/修订徽标） ----
 
 function RecordDetail(props: {
+  readonly vector: VectorIndexService;
+  readonly memorySpaceId: MemorySpaceId;
+  readonly tableId: MemoryTableId;
   readonly record: MemoryRecord;
   readonly displayText: string;
   readonly fields: readonly MemoryField[];
@@ -917,6 +979,12 @@ function RecordDetail(props: {
           );
         })}
       </ul>
+      <VectorRecordStatus
+        vector={props.vector}
+        memorySpaceId={props.memorySpaceId}
+        tableId={props.tableId}
+        recordId={props.record.id}
+      />
     </div>
   );
 }

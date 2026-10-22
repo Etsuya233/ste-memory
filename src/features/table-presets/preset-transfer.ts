@@ -67,6 +67,24 @@ const presetSchema = Type.Object(
           description: Type.String(),
           prompt: Type.String(),
           enabled: Type.Boolean(),
+          vectorIndex: Type.Optional(
+            Type.Object(
+              {
+                enabled: Type.Boolean(),
+                updateMode: Type.Union([Type.Literal("manual"), Type.Literal("automatic")]),
+                groups: Type.Array(
+                  Type.Object(
+                    {
+                      name: Type.String(),
+                      fieldKeys: Type.Array(Type.String()),
+                    },
+                    { additionalProperties: false },
+                  ),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
           displayStrategy: displayStrategySchema,
           fields: Type.Array(fieldSchema),
         },
@@ -156,6 +174,25 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
         throw new Error(`字段 Key 重复或含首尾空白：${table.key}.${field.key}`);
       fieldKeys.add(field.key);
     }
+    if (table.vectorIndex) {
+      if (table.vectorIndex.enabled && table.vectorIndex.groups.length === 0)
+        throw new Error(`预设表「${table.key}」启用索引但没有向量分组`);
+      for (const group of table.vectorIndex.groups) {
+        if (
+          !group.name.trim() ||
+          group.fieldKeys.length === 0 ||
+          new Set(group.fieldKeys).size !== group.fieldKeys.length
+        )
+          throw new Error(`预设表「${table.key}」的向量分组名称或字段无效`);
+        for (const key of group.fieldKeys) {
+          const field = table.fields.find((candidate) => candidate.key === key);
+          if (!field || !field.enabled)
+            throw new Error(
+              `预设表「${table.key}」的向量分组「${group.name}」引用了不存在或停用的字段「${key}」`,
+            );
+        }
+      }
+    }
   }
   let nextId = 0;
   instantiateTablePreset(
@@ -164,6 +201,7 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
     {
       table: () => `table-${++nextId}` as MemoryTableId,
       field: () => `field-${++nextId}` as MemoryFieldId,
+      group: () => `group-${++nextId}`,
     },
     "",
   );

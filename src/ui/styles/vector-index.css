@@ -1,0 +1,116 @@
+.stm-vector-editor,
+.stm-vector-record,
+.stm-vector-task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--stm-surface);
+  color: var(--stm-ink);
+}
+
+.stm-vector-editor fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.stm-vector-groups,
+.stm-vector-import,
+.stm-vector-preview,
+.stm-vector-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-vector-group,
+.stm-vector-preview-group,
+.stm-vector-task {
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.stm-vector-group-head,
+.stm-vector-field,
+.stm-vector-task,
+.stm-vector-task-buttons,
+.stm-vector-task-actions,
+.stm-vector-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stm-vector-group-head {
+  justify-content: space-between;
+}
+
+.stm-vector-group-head .stm-input {
+  flex: 1 1 180px;
+}
+
+.stm-vector-field span,
+.stm-vector-task-main {
+  flex: 1 1 180px;
+  overflow-wrap: anywhere;
+}
+
+.stm-vector-preview pre,
+.stm-vector-task-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--stm-ink-bg);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+
+.stm-vector-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.stm-vector-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+  flex: 1 1 130px;
+}
+
+.stm-vector-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.stm-vector-task-counts {
+  font-family: var(--stm-font-mono);
+  color: var(--stm-ink-secondary);
+}
+
+.stm-grid-vector-status {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: var(--stm-ink-secondary);
+}

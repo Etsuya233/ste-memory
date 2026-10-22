@@ -17,6 +17,7 @@ import {
   type AgentPresetMessage,
 } from "../agent-presets/preset-model.ts";
 import type { AgentConnection } from "./agent-connections.ts";
+import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
 import { mergeCleaningRuleLists, type CleaningRuleList } from "../cleaning/cleaning-rule-lists.ts";
 import { mergeMemoryViews, type MemoryView } from "../macros/memory-views.ts";
 import {
@@ -37,6 +38,8 @@ export interface ChatMirrorSettings {
 export type EntryPlacement = "top" | "wand" | "both";
 
 export interface PluginSettings {
+  /** 独立的 OpenAI 兼容向量连接，浏览器直连；旧设置未配置时保持关闭。 */
+  readonly embeddingConnection?: EmbeddingConnection;
   /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
@@ -108,6 +111,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
     throw new Error("每批填写超时须为 30–1800 秒的整数");
   }
   return {
+    embeddingConnection: parseEmbeddingConnection(source.embeddingConnection),
     fillAgentTimeoutSeconds:
       source.fillAgentTimeoutSeconds === undefined
         ? DEFAULT_SETTINGS.fillAgentTimeoutSeconds

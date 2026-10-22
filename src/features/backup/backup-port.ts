@@ -16,6 +16,8 @@ export interface BackupIdFactory {
   readonly space: () => MemorySpaceId;
   /** 填表任务 runId（克隆的任务行必须是全新身份，避免与源空间主键相撞） */
   readonly task: () => string;
+  /** 克隆的向量分组身份。 */
+  readonly group: () => string;
   readonly table: () => MemoryTableId;
   readonly field: () => MemoryFieldId;
   readonly record: () => MemoryRecordId;

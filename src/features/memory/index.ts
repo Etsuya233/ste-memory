@@ -88,6 +88,9 @@ export type {
 } from "./internal/proposal-preview.ts";
 export {
   DomainError,
+  effectiveVectorIndexGroups,
+  validateVectorIndexConfiguration,
+  remapVectorIndexConfiguration,
   derivedDisplayTemplate,
   memoryFieldConfiguration,
   memoryFieldName,
@@ -103,6 +106,8 @@ export {
 } from "./domain/index.ts";
 export type {
   DomainErrorData,
+  VectorIndexConfiguration,
+  VectorIndexGroup,
   DomainErrorType,
   MemoryEvidence,
   MemoryEvidenceId,

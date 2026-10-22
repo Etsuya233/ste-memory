@@ -677,6 +677,9 @@ export function TablePresetManager(props: {
         <div className="stm-setting-subgroup" data-stm-section="preset-save">
           <div className="stm-setting-name">将当前表结构另存为预设</div>
           <div className="stm-setting-hint">{SAVE_PRESET_HINT}</div>
+          <div className="stm-setting-hint">
+            自动配置将保存为当前分组快照；请先修正失效的来源字段。此操作本身不会发送向量请求。
+          </div>
           <div className="stm-preset-editor">
             <input
               className="stm-input"

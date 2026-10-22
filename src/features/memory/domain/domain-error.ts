@@ -1,4 +1,5 @@
 export type DomainErrorData =
+  | { readonly type: "vector_index_configuration_invalid"; readonly humanMsg: string }
   | {
       readonly type: "memory_space_name_required";
       readonly humanMsg: string;

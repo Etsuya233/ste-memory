@@ -14,6 +14,7 @@ import {
   parseOptionsText,
 } from "../memory/field-editor-model.ts";
 import { FIELD_TYPE_LABELS } from "../memory/table-list-model.ts";
+import { PresetVectorIndexEditor } from "./preset-vector-index-editor.tsx";
 import {
   presetFieldUsedForDisplay,
   renamePresetDisplayField,
@@ -34,6 +35,7 @@ export function TablePresetEditor(props: {
   );
   const [managing, setManaging] = useState<ReadonlySet<string>>(new Set());
   const [strategyEditor, setStrategyEditor] = useState<string | null>(null);
+  const [vectorEditor, setVectorEditor] = useState<string | null>(null);
   function toggleExpanded(key: string) {
     setExpanded((previous) => {
       const next = new Set(previous);
@@ -370,6 +372,16 @@ export function TablePresetEditor(props: {
                   <button
                     type="button"
                     className="stm-table-action"
+                    data-action="edit-preset-vector-index"
+                    aria-pressed={vectorEditor === table.key}
+                    disabled={editing}
+                    onClick={() => setVectorEditor(vectorEditor === table.key ? null : table.key)}
+                  >
+                    向量索引
+                  </button>
+                  <button
+                    type="button"
+                    className="stm-table-action"
                     aria-label={`上移表格 ${table.name}`}
                     disabled={editing || ti === 0}
                     onClick={() => moveTable(ti, -1)}
@@ -491,6 +503,13 @@ export function TablePresetEditor(props: {
                     </button>
                   </div>
                 </div>
+              )}
+              {vectorEditor === table.key && (
+                <PresetVectorIndexEditor
+                  table={table}
+                  readonly={readonly}
+                  onChange={(vectorIndex) => updateTable(ti, { ...table, vectorIndex })}
+                />
               )}
               {isExpanded && (
                 <>

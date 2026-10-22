@@ -21,6 +21,7 @@ export const SYSTEM_TABLE_PRESET_NAME = "系统默认";
 
 /** 预设内一张表的结构（表 Key 在预设内唯一）。 */
 export interface TablePresetTable {
+  readonly vectorIndex?: TablePresetVectorIndex;
   readonly key: string;
   readonly name: string;
   readonly description: string;
@@ -28,6 +29,12 @@ export interface TablePresetTable {
   readonly enabled: boolean;
   readonly displayStrategy: TablePresetDisplayStrategy | null;
   readonly fields: readonly TablePresetField[];
+}
+
+export interface TablePresetVectorIndex {
+  readonly enabled: boolean;
+  readonly updateMode: "manual" | "automatic";
+  readonly groups: readonly { readonly name: string; readonly fieldKeys: readonly string[] }[];
 }
 
 /** 预设显示策略：字段与模板都写预设内字段 Key（实例化时换成空间内字段 ID）。 */

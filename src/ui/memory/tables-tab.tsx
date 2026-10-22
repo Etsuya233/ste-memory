@@ -26,6 +26,12 @@ import {
   emptyDisplayStrategyDraft,
 } from "./display-strategy-model.ts";
 import { DisplayStrategyEditor } from "./display-strategy-editor.tsx";
+import { VectorIndexEditor } from "./vector-index-editor.tsx";
+import { TableVectorActions } from "./table-vector-actions.tsx";
+import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
+import { listTablePresets } from "../../features/table-presets/preset-model.ts";
+import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
+import type { VectorIndexConfiguration } from "../../features/memory/index.ts";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -53,6 +59,7 @@ type FieldEditorState =
   | null;
 
 export function TablesTab(props: {
+  readonly vector: VectorIndexService;
   readonly tables: Pick<MemoryTableService, "list" | "update" | "create" | "delete">;
   readonly fields: Pick<
     MemoryFieldService,
@@ -86,6 +93,8 @@ export function TablesTab(props: {
   const [strategyPreviewRecords, setStrategyPreviewRecords] = useState<readonly MemoryRecord[]>([]);
   const [strategyPreviewError, setStrategyPreviewError] = useState<string | null>(null);
   const [strategySaving, setStrategySaving] = useState(false);
+  const [vectorEditorTableId, setVectorEditorTableId] = useState<MemoryTableId | null>(null);
+  const [vectorSaving, setVectorSaving] = useState(false);
   // 打开中的策略编辑器表格（异步加载预览记录的竞态守卫：快速切换/关闭后丢弃过期结果）
   const strategyEditorTableRef = useRef<MemoryTableId | null>(null);
 
@@ -553,6 +562,18 @@ export function TablesTab(props: {
                 </button>
                 <button
                   type="button"
+                  className="stm-table-action"
+                  data-action="edit-vector-index"
+                  data-table-id={table.id}
+                  aria-pressed={vectorEditorTableId === table.id}
+                  onClick={() =>
+                    setVectorEditorTableId(vectorEditorTableId === table.id ? null : table.id)
+                  }
+                >
+                  向量索引
+                </button>
+                <button
+                  type="button"
                   className="stm-table-action stm-table-action--danger"
                   data-action="delete-table"
                   data-table-id={table.id}
@@ -586,6 +607,40 @@ export function TablesTab(props: {
                   saving={strategySaving}
                   onSave={(strategy) => void saveDisplayStrategy(table.id, strategy)}
                   onCancel={closeStrategyEditor}
+                />
+              )}
+              {vectorEditorTableId === table.id && rawTable && (
+                <VectorIndexEditor
+                  key={table.id}
+                  vector={props.vector}
+                  records={props.records}
+                  memorySpaceId={currentSpaceId}
+                  tableId={table.id}
+                  initial={rawTable.vectorIndex}
+                  fields={tableFields}
+                  presets={listTablePresets(props.settings.tablePresets, SYSTEM_TABLE_PRESET)}
+                  saving={vectorSaving}
+                  onCancel={() => setVectorEditorTableId(null)}
+                  onSave={async (config: VectorIndexConfiguration) => {
+                    if (!spaceId) return;
+                    setVectorSaving(true);
+                    try {
+                      await props.tables.update(spaceId, table.id, { vectorIndex: config });
+                      setVectorEditorTableId(null);
+                      setReloadKey((key) => key + 1);
+                      reportSuccess("向量索引配置已保存");
+                    } finally {
+                      setVectorSaving(false);
+                    }
+                  }}
+                />
+              )}
+              {rawTable && (
+                <TableVectorActions
+                  vector={props.vector}
+                  memorySpaceId={currentSpaceId}
+                  tableId={table.id}
+                  enabled={rawTable.vectorIndex?.enabled ?? false}
                 />
               )}
               {isExpanded && (

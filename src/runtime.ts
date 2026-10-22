@@ -33,6 +33,11 @@ import {
   SteMemoryLogDatabase,
 } from "./infrastructure/indexeddb/index.ts";
 import { FillTaskService } from "./features/fill-tasks/fill-task-service.ts";
+import { VectorIndexService } from "./features/vector-index/index.ts";
+import type { VectorEmbeddingPort } from "./features/vector-index/index.ts";
+import { DexieVectorIndexRepository } from "./infrastructure/indexeddb/vector-index/vector-index-repository.ts";
+import { VectorIndexChangeSync } from "./infrastructure/indexeddb/vector-index-change-sync.ts";
+import { OpenAiEmbeddingPort } from "./infrastructure/sillytavern/embedding/openai-embedding.ts";
 import { SpaceMaintenanceService } from "./features/space-maintenance/space-maintenance-service.ts";
 import { QueryChatService } from "./features/query-chat/query-chat-service.ts";
 import type { Table } from "dexie";
@@ -96,6 +101,7 @@ export interface SteMemoryRuntime {
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
   readonly tasks: FillTaskService;
+  readonly vector: VectorIndexService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
@@ -150,6 +156,8 @@ export interface SteMemoryRuntime {
 }
 
 export interface StartSteMemoryOptions {
+  /** 测试与其他宿主可注入 embedding 实现；浏览器默认使用独立 HTTP 连接。 */
+  readonly embedding?: VectorEmbeddingPort;
   readonly log?: PluginLog;
   /** 时钟；缺省 = Date.toISOString（测试注入固定时钟） */
   readonly now?: () => string;
@@ -211,6 +219,7 @@ export async function startSteMemory(
     tableRepository,
     () => createId("table") as MemoryTableId,
     now,
+    fieldRepository,
   );
   const fields = new MemoryFieldService(
     tableRepository,
@@ -346,6 +355,7 @@ export async function startSteMemory(
     createIds: {
       table: () => createId("table") as MemoryTableId,
       field: () => createId("field") as MemoryFieldId,
+      group: () => createId("vector-group"),
     },
     now,
   });
@@ -363,6 +373,28 @@ export async function startSteMemory(
     backup,
     createId,
   });
+
+  const vector = new VectorIndexService(
+    tableRepository,
+    fieldRepository,
+    recordRepository,
+    options.embedding ?? new OpenAiEmbeddingPort(() => settings.read().embeddingConnection),
+    new DexieVectorIndexRepository(db),
+    () => {
+      const status = manager.getStatus();
+      return status?.kind === "active" ? status.space.id : null;
+    },
+    () => settings.read().enabled,
+    () => createId("vector-task"),
+  );
+  await vector.start();
+  const vectorSync = new VectorIndexChangeSync(
+    db,
+    vector,
+    () => settings.read().enabled,
+    (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 向量索引核对失败`, error),
+  );
+  vectorSync.start();
 
   // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
   // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
@@ -468,6 +500,8 @@ export async function startSteMemory(
 
   if (settings.read().enabled) {
     await manager.syncToCurrentChat();
+    const status = manager.getStatus();
+    if (status?.kind === "active") vectorSync.activate(status.space.id);
   }
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
@@ -476,6 +510,8 @@ export async function startSteMemory(
   // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
   // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
   manager.onStatusChange(() => {
+    const status = manager.getStatus();
+    if (status?.kind === "active") vectorSync.activate(status.space.id);
     void macro.kick().catch((error) => {
       log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
     });
@@ -490,6 +526,7 @@ export async function startSteMemory(
     refreshAgentMacros: () => agentMacro.kick(),
     refreshMirror: () => mirror.kick(),
     writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
+    refreshVectorIndex: () => vectorSync.refreshSettings(),
   });
   return {
     manager,
@@ -504,6 +541,7 @@ export async function startSteMemory(
     settingsService,
     mirror,
     tasks,
+    vector,
     spaceMaintenance,
     presetApply,
     logs,

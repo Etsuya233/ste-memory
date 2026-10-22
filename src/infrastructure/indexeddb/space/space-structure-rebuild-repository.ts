@@ -35,12 +35,18 @@ export class DexieSpaceStructureRebuild implements SpaceStructureRebuild {
         this.#db.memoryEvidence,
         this.#db.memoryFillTasks,
         this.#db.floorFillLedger,
+        this.#db.vectorTasks,
+        this.#db.recordVectors,
+        this.#db.vectorSuppressions,
       ],
       async () => {
         if (!(await this.#db.memorySpaces.get(memorySpaceId))) return false;
         // 任务与进度先清：进度台账标记（提交回滚点）不属于重建后空间
         await this.#db.memoryFillTasks.where("memorySpaceId").equals(memorySpaceId).delete();
         await this.#db.floorFillLedger.where("memorySpaceId").equals(memorySpaceId).delete();
+        await this.#db.vectorTasks.where("memorySpaceId").equals(memorySpaceId).delete();
+        await this.#db.recordVectors.where("memorySpaceId").equals(memorySpaceId).delete();
+        await this.#db.vectorSuppressions.where("memorySpaceId").equals(memorySpaceId).delete();
         // 表格删除级联字段/记录/历史；证据按空间删除
         await this.#spaces.deleteAllTables(memorySpaceId);
         if (input.tables.length > 0) await this.#db.memoryTables.bulkAdd([...input.tables]);

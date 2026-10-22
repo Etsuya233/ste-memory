@@ -93,6 +93,33 @@ const memorySpaceSchema = Type.Object({
 });
 
 const memoryTableSchema = Type.Object({
+  vectorIndex: Type.Optional(
+    Type.Object({
+      enabled: Type.Boolean(),
+      source: Type.Union([
+        Type.Literal("automatic"),
+        Type.Literal("preset"),
+        Type.Literal("custom"),
+      ]),
+      updateMode: Type.Union([Type.Literal("manual"), Type.Literal("automatic")]),
+      groups: Type.Array(
+        Type.Object({
+          id: Type.String(),
+          name: Type.String(),
+          fieldIds: Type.Array(Type.String()),
+        }),
+      ),
+      presetGroups: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            name: Type.String(),
+            fieldIds: Type.Array(Type.String()),
+          }),
+        ),
+      ),
+    }),
+  ),
   id: Type.String(),
   memorySpaceId: Type.String(),
   key: Type.String(),

@@ -21,6 +21,7 @@ import type { EntryPlacement, PluginSettings } from "../../features/settings/plu
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import { executeSpaceImport, planSpaceImport } from "../../features/chat-binding/space-import.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
+import { EmbeddingConnectionEditor } from "./embedding-connection-editor.tsx";
 import type { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import {
   DEFAULT_ENTRY_PLAN,
@@ -544,6 +545,17 @@ export function SettingsTab(props: {
             <span className="stm-switch-track" aria-hidden="true"></span>
           </label>
         </div>
+      </div>
+
+      <div className="stm-setting-group" data-group="embedding-connection">
+        <div className="stm-setting-group-title">Embedding 连接</div>
+        <EmbeddingConnectionEditor
+          key={JSON.stringify(props.settings.embeddingConnection)}
+          connection={props.settings.embeddingConnection}
+          onSave={(connection) =>
+            changeSettings(() => props.settingsService.setEmbeddingConnection(connection))
+          }
+        />
       </div>
 
       {/* 记忆宏：常用首位 */}

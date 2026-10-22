@@ -92,6 +92,7 @@ export class DexieMemoryTableRepository implements MemoryTableRepository {
       enabled: memoryTable.enabled,
       position: memoryTable.position,
       displayStrategy: memoryTable.displayStrategy,
+      vectorIndex: memoryTable.vectorIndex,
       updatedAt: memoryTable.updatedAt,
     });
     return count > 0;
