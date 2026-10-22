@@ -311,7 +311,7 @@ export function PanelShell(props: {
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
 
-  // 记录 Tab 的离开守卫（未保存修改确认；RecordsTab 挂载时注册、卸载时注销）
+  // 当前 Tab 的离开守卫（记录网格与预设编辑器注册、卸载时注销）
   const internalGuardRef = useRef<LeaveGuard | null>(null);
   const guardRef = props.leaveGuardRef ?? internalGuardRef;
   const registerLeaveGuard = useCallback(
@@ -320,8 +320,8 @@ export function PanelShell(props: {
     },
     [guardRef],
   );
-  function confirmLeaveRecordsTab(): boolean {
-    if (state.tab !== "records") return true;
+  function confirmLeaveTab(): boolean {
+    if (state.tab !== "records" && state.tab !== "settings") return true;
     const guard = guardRef.current;
     return guard ? guard() : true;
   }
@@ -480,7 +480,7 @@ export function PanelShell(props: {
           data-action="close-panel"
           aria-label="收起面板"
           onClick={() => {
-            if (!confirmLeaveRecordsTab()) return;
+            if (!confirmLeaveTab()) return;
             props.model.close();
           }}
         >
@@ -498,7 +498,7 @@ export function PanelShell(props: {
             data-action="tab"
             aria-selected={tab === state.tab}
             onClick={() => {
-              if (!confirmLeaveRecordsTab()) return;
+              if (!confirmLeaveTab()) return;
               props.model.setTab(tab);
             }}
           >
@@ -569,6 +569,7 @@ export function PanelShell(props: {
         {state.tab === "settings" && (
           <section className="stm-tab-section" data-stm-section="settings" role="tabpanel">
             <SettingsTab
+              registerLeaveGuard={registerLeaveGuard}
               settingsService={props.runtime.settingsService}
               tables={props.runtime.tables}
               fields={props.runtime.fields}

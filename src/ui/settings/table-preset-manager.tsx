@@ -1,3 +1,4 @@
+import { TablePresetEditor } from "./table-preset-editor.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { MemorySpace } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
@@ -19,6 +20,7 @@ import {
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import {
   importTablePreset,
+  validateTablePresetContent,
   parseTablePresetExport,
   serializeTablePresetExport,
 } from "../../features/table-presets/preset-transfer.ts";
@@ -50,6 +52,7 @@ import {
  */
 export function TablePresetManager(props: {
   readonly presets: TablePresetSettings;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly status: SpaceContextStatus | undefined;
   readonly pluginEnabled: boolean;
   readonly onPresetsChange: (presets: TablePresetSettings) => void;
@@ -71,6 +74,9 @@ export function TablePresetManager(props: {
   /** 重建成功后刷新面板数据 */
   readonly onDataChanged: () => void;
 }) {
+  const [editor, setEditor] = useState<{ initial: ResolvedTablePreset; isNew: boolean } | null>(
+    null,
+  );
   const active = props.status?.kind === "active" ? props.status : undefined;
   const space = active?.space;
   const rows = tablePresetRows(props.presets, SYSTEM_TABLE_PRESET);
@@ -302,6 +308,45 @@ export function TablePresetManager(props: {
     }
   }
 
+  if (editor)
+    return (
+      <TablePresetEditor
+        initial={editor.initial}
+        isNew={editor.isNew}
+        registerLeaveGuard={props.registerLeaveGuard}
+        onClose={() => setEditor(null)}
+        onSave={(draft) => {
+          const now = new Date().toISOString();
+          const validated = validateTablePresetContent({
+            name: draft.name,
+            description: draft.description,
+            prompt: draft.prompt,
+            tables: draft.tables,
+          });
+          const next = editor.isNew
+            ? saveUserTablePreset(props.presets, {
+                id: draft.id,
+                name: validated.name,
+                description: validated.description,
+                structure: validated,
+                now,
+              }).settings
+            : overwriteUserTablePreset(
+                renameUserTablePreset(props.presets, draft.id, {
+                  name: validated.name,
+                  description: validated.description,
+                  now,
+                }),
+                draft.id,
+                { structure: validated, now },
+              );
+          changePresets(next);
+          setEditor(null);
+          reportSuccess(`已保存预设「${draft.name.trim()}」`);
+        }}
+      />
+    );
+
   return (
     <div className="stm-preset-manager" data-stm-section="table-presets">
       {/* 新空间默认设置 */}
@@ -410,6 +455,27 @@ export function TablePresetManager(props: {
 
       {/* 预设管理区 */}
       <div className="stm-setting-subgroup" data-stm-section="preset-library">
+        <button
+          type="button"
+          className="stm-button"
+          data-action="new-table-preset"
+          disabled={busy}
+          onClick={() =>
+            setEditor({
+              isNew: true,
+              initial: {
+                id: createUiId(),
+                name: "",
+                description: "",
+                prompt: "",
+                tables: [],
+                builtIn: false,
+              },
+            })
+          }
+        >
+          新建空白预设
+        </button>
         <div className="stm-setting-name">预设管理</div>
         <div className="stm-setting-actions">
           <button
@@ -460,6 +526,35 @@ export function TablePresetManager(props: {
                   )}
                 </div>
                 <div className="stm-table-actions">
+                  <button
+                    type="button"
+                    className="stm-table-action"
+                    data-action="edit-table-preset"
+                    disabled={busy}
+                    onClick={() => setEditor({ initial: preset, isNew: false })}
+                  >
+                    {preset.builtIn ? "查看" : "编辑"}
+                  </button>
+                  {preset.builtIn && (
+                    <button
+                      type="button"
+                      className="stm-table-action"
+                      disabled={busy}
+                      onClick={() =>
+                        setEditor({
+                          isNew: true,
+                          initial: {
+                            ...preset,
+                            id: createUiId(),
+                            name: `${preset.name} 副本`,
+                            builtIn: false,
+                          },
+                        })
+                      }
+                    >
+                      复制并编辑
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="stm-table-action"

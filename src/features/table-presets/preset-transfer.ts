@@ -132,7 +132,16 @@ export function parseTablePresetExport(text: string): ImportedTablePreset {
     const issue = [...Value.Errors(fileSchema, raw)][0]!;
     throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
   }
-  const preset = raw.preset;
+  return validateTablePresetContent(raw.preset);
+}
+
+/** 编辑与导入共用同一套结构、引用和显示策略校验。 */
+export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
+  if (!Value.Check(presetSchema, raw)) {
+    const issue = [...Value.Errors(presetSchema, raw)][0]!;
+    throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
+  }
+  const preset = raw;
   if (!preset.name.trim() || preset.name.trim().length > 120)
     throw new Error("预设名称须为 1–120 个字符");
   // 引用和显示策略按实例化的真实规则校验，导入阶段失败不会写设置。

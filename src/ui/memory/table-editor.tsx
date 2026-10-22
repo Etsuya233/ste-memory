@@ -139,7 +139,7 @@ export interface FieldEditorFormProps {
   /** 同表其他字段的 key（编辑模式排除自身）；用于 key 冲突即时校验 */
   readonly existingKeys: readonly string[];
   /** 引用目标候选表（当前记忆空间内全部表，含系统表） */
-  readonly referenceTables: readonly MemoryTable[];
+  readonly referenceTables: readonly Pick<MemoryTable, "id" | "name">[];
   /** 编辑模式 = true：类型选择器禁用（字段类型创建后不可修改） */
   readonly typeLocked: boolean;
   readonly submitLabel: string;
@@ -160,6 +160,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
     setDraft((prev) => ({
       ...prev,
       type,
+      optionsText: fieldTypeNeedsOptions(type) ? prev.optionsText : "",
       referenceTableId: fieldTypeNeedsReference(type) ? prev.referenceTableId : "",
     }));
   }

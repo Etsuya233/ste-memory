@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { createBackupFile, serializeBackupFile } from "../../features/backup/index.ts";
 import {
   backupFilename,
@@ -135,6 +142,7 @@ export function MacroSettingsFields(props: {
   );
 }
 export function SettingsTab(props: {
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settingsService: SettingsService;
   readonly tables: Pick<MemoryTableService, "list">;
   readonly fields: Pick<MemoryFieldService, "list">;
@@ -462,7 +470,17 @@ export function SettingsTab(props: {
   useEffect(() => {
     saveExpandedGroups(safeLocalStorage(), expandedGroups);
   }, [expandedGroups]);
+  const presetLeaveGuard = useRef<(() => boolean) | null>(null);
+  const registerPresetLeaveGuard = useCallback(
+    (guard: (() => boolean) | null) => {
+      presetLeaveGuard.current = guard;
+      props.registerLeaveGuard?.(guard);
+    },
+    [props.registerLeaveGuard],
+  );
+
   function toggleGroup(key: SettingsGroupKey): void {
+    if (key === "table-presets" && presetLeaveGuard.current && !presetLeaveGuard.current()) return;
     setExpandedGroups((prev) => toggleSettingsGroup(prev, key));
   }
 
@@ -656,6 +674,7 @@ export function SettingsTab(props: {
         {isSettingsGroupExpanded(expandedGroups, "table-presets") && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
+              registerLeaveGuard={registerPresetLeaveGuard}
               presets={props.settings.tablePresets}
               status={props.status}
               pluginEnabled={props.settings.enabled}

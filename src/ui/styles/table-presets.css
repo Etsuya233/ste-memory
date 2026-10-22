@@ -150,3 +150,66 @@
 .stm-modal-body .stm-form-error {
   margin-top: 6px;
 }
+
+/* 预设编辑页沿用表格页表单，取消 fieldset 的浏览器默认边框与最小宽度。 */
+.stm-preset-editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.stm-preset-table-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stm-preset-page-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stm-preset-page-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.stm-preset-info-summary {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  cursor: pointer;
+}
+
+.stm-preset-info > .stm-editor {
+  margin: 0 10px 10px;
+  padding: 10px;
+}
+
+.stm-preset-card-actions {
+  flex-wrap: wrap;
+}
+
+.stm-preset-field-constraints {
+  flex-basis: 100%;
+  min-width: 0;
+  padding: 0 0 6px;
+}
+
+.stm-preset-field-constraints > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
