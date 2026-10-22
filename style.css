@@ -2047,6 +2047,236 @@
   min-height: 36px;
 }
 
+.stm-vector-editor,
+.stm-vector-record,
+.stm-vector-task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--stm-surface);
+  color: var(--stm-ink);
+}
+
+.stm-vector-editor fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.stm-vector-groups,
+.stm-vector-import,
+.stm-vector-preview,
+.stm-vector-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stm-vector-group,
+.stm-vector-preview-group,
+.stm-vector-task {
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.stm-vector-group-head,
+.stm-vector-field,
+.stm-vector-task,
+.stm-vector-task-buttons,
+.stm-vector-task-actions,
+.stm-vector-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stm-vector-group-head {
+  justify-content: space-between;
+}
+
+.stm-vector-group-head .stm-input {
+  flex: 1 1 180px;
+}
+
+.stm-vector-field span,
+.stm-vector-task-main {
+  flex: 1 1 180px;
+  overflow-wrap: anywhere;
+}
+
+.stm-vector-preview pre,
+.stm-vector-task-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--stm-ink-bg);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+
+.stm-vector-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.stm-vector-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+  flex: 1 1 130px;
+}
+
+.stm-vector-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.stm-vector-task-counts {
+  font-family: var(--stm-font-mono);
+  color: var(--stm-ink-secondary);
+}
+
+.stm-grid-vector-status {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: var(--stm-ink-secondary);
+}
+
+/* 检索沿用面板表单与向量卡片的色彩和间距。 */
+.stm-retrieval,
+.stm-retrieval form,
+.stm-retrieval [data-retrieval-results] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.stm-retrieval h3,
+.stm-retrieval h4,
+.stm-retrieval p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.stm-retrieval form > label:first-child,
+.stm-retrieval .stm-action-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 130px;
+  min-width: 0;
+}
+.stm-retrieval .stm-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.stm-retrieval textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+}
+.stm-retrieval fieldset,
+.stm-retrieval li {
+  border: 1px solid var(--stm-border);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+.stm-retrieval fieldset label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-right: 12px;
+  min-height: 32px;
+}
+.stm-retrieval legend {
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+}
+.stm-retrieval pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--stm-ink-bg);
+  font-family: var(--stm-font-mono);
+  font-size: 12px;
+}
+.stm-retrieval ol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 24px;
+  margin: 0;
+}
+.stm-retrieval li > * + * {
+  margin-top: 8px;
+}
+.stm-retrieval summary {
+  cursor: pointer;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+}
+.stm-retrieval [role="alert"],
+.stm-retrieval [data-retrieval-status="stale"] {
+  color: var(--stm-danger);
+}
+
+.stm-memory-recall {
+  padding: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--stm-border);
+}
+.stm-memory-recall form > label:first-child {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+}
+.stm-memory-recall input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+.stm-memory-recall fieldset {
+  margin: 0;
+}
+.stm-memory-recall legend {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.stm-memory-recall .stm-button {
+  align-self: flex-start;
+  white-space: normal;
+  max-width: 100%;
+}
+
 /* ---------- Agent 提示词预设编辑 ---------- */
 
 /* ===== Agent 提示词预设（ticket 17 / ADR 0006） ===== */
@@ -3153,6 +3383,69 @@
 /* 应用确认弹窗内的错误提示与弹窗正文对齐 */
 .stm-modal-body .stm-form-error {
   margin-top: 6px;
+}
+
+/* 预设编辑页沿用表格页表单，取消 fieldset 的浏览器默认边框与最小宽度。 */
+.stm-preset-editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.stm-preset-table-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stm-preset-page-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stm-preset-page-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.stm-preset-info-summary {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--stm-ink-secondary);
+  cursor: pointer;
+}
+
+.stm-preset-info > .stm-editor {
+  margin: 0 10px 10px;
+  padding: 10px;
+}
+
+.stm-preset-card-actions {
+  flex-wrap: wrap;
+}
+
+.stm-preset-field-constraints {
+  flex-basis: 100%;
+  min-width: 0;
+  padding: 0 0 6px;
+}
+
+.stm-preset-field-constraints > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--stm-ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 /* ---------- 预设预览与展开内容模态框 ---------- */
