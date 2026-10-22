@@ -1,3 +1,8 @@
+import {
+  MemoryRecallService,
+  DEFAULT_RECALL_CONFIGURATION,
+  type RecallConfiguration,
+} from "./features/vector-retrieval/memory-recall-service.ts";
 import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
 import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
@@ -105,6 +110,7 @@ export interface SteMemoryRuntime {
   readonly tasks: FillTaskService;
   readonly vector: VectorIndexService;
   readonly retrieval: VectorRetrievalService;
+  readonly memoryRecall: MemoryRecallService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
@@ -245,6 +251,14 @@ export async function startSteMemory(
   // 填表任务（ticket 13）：ProposalAgent 的只读端口/提交上下文与面板服务共用同一组
   // repository；批次提交 + 台账标记包在同一个 Dexie 事务（失败回滚不产生半批数据/半批状态）。
   const adapter = new StChatAdapter(() => getContext() as StContext);
+  Object.assign(globalThis, {
+    steMemoryGenerationInterceptor: (
+      _chat: unknown,
+      _contextSize: number,
+      abort: (immediately: boolean) => void,
+      type: unknown,
+    ) => adapter.interceptGeneration(abort, type),
+  });
   const reader: MemorySpaceReader = {
     getSpace: (id) => spaces.find(id),
     listTables: (memorySpaceId) => tables.list(memorySpaceId),
@@ -410,12 +424,61 @@ export async function startSteMemory(
     embedding,
     retrievalContext,
   );
+  const recallRetrieval = new VectorRetrievalService(
+    tableRepository,
+    fieldRepository,
+    vector,
+    vectorRepository,
+    embedding,
+    retrievalContext,
+  );
+  const currentSpaceId = () => {
+    const status = manager.getStatus();
+    return status?.kind === "active" ? status.space.id : null;
+  };
+  const memoryRecall = new MemoryRecallService({
+    retrieval: recallRetrieval,
+    reader,
+    context: retrievalContext,
+    spaceId: currentSpaceId,
+    readConfiguration: () =>
+      ((getContext() as StContext).chatMetadata?.steMemoryRecall as
+        RecallConfiguration | undefined) ?? DEFAULT_RECALL_CONFIGURATION,
+    writeConfiguration: (configuration) => {
+      const context = getContext() as StContext;
+      if (!context.chatMetadata) throw new Error("当前对话尚未准备好");
+      context.chatMetadata.steMemoryRecall = configuration;
+      context.saveMetadataDebounced?.();
+    },
+    views: (scope) =>
+      scope === "global" ? settings.read().memoryViews : adapter.chatScopeMacroStore.read(),
+    enabled: () =>
+      settings.read().enabled &&
+      resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall",
+    source: (floor) => adapter.getMessageAt(floor),
+    lastUser: () => {
+      for (let floor = adapter.chatMessageCount() - 1; floor >= 0; floor--)
+        if (adapter.getMessageAt(floor)?.isUser) return floor;
+      return -1;
+    },
+    stopGeneration: () => {
+      (getContext() as StContext).stopGeneration?.();
+    },
+    isGroup: () => Boolean((getContext() as StContext).groupId),
+  });
+  let recallContext = "";
   const syncRetrievalContext = () => {
     const status = manager.getStatus();
     retrieval.setContext(retrievalContext(), status?.kind === "active" ? status.space.id : null);
+    recallRetrieval.setContext(retrievalContext(), currentSpaceId());
+    if (recallContext !== retrievalContext()) {
+      recallContext = retrievalContext();
+      memoryRecall.syncContext();
+    }
   };
   manager.onStatusChange(syncRetrievalContext);
   trackRetrievalChanges(db, retrieval);
+  trackRetrievalChanges(db, recallRetrieval);
   await vector.start();
   const vectorSync = new VectorIndexChangeSync(
     db,
@@ -498,6 +561,7 @@ export async function startSteMemory(
 
   adapter.registerEventBridge({
     onChatChanged: () => {
+      memoryRecall.chatChanged();
       chatEpoch++;
       retrieval.setContext(retrievalContext(), null, true);
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
@@ -506,8 +570,16 @@ export async function startSteMemory(
         log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
       });
     },
-    // MESSAGE_SENT / MESSAGE_RECEIVED：未来自动填表的触发点（ticket 13），当前无消费方
-    onMessageEvent: () => {},
+    // 把召回 Promise 原样返回 MESSAGE_SENT，ST 等待后才构建本轮提示词。
+    onMessageEvent: (kind, floor) =>
+      kind === "message_sent" && floor !== undefined ? memoryRecall.messageSent(floor) : undefined,
+    onGenerationStarted: (type, options, dryRun) => memoryRecall.started(type, options, dryRun),
+    onGenerationStopped: () => memoryRecall.stop(),
+    onGenerationFinished: (dryRun) => memoryRecall.generationFinished(dryRun),
+    shouldAwaitRecall: () => memoryRecall.getState().status === "preparing",
+    onGroupStarted: () => memoryRecall.groupStarted(),
+    onGroupEnded: () => memoryRecall.groupEnded(),
+    onMessageChanged: () => memoryRecall.sourceChanged(),
   });
 
   // Agent 预设宏（ticket 17 / ADR 0006）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 +
@@ -537,6 +609,11 @@ export async function startSteMemory(
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
   await macro.start();
+  let recallMacroRegistered = false;
+  if (resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall") {
+    adapter.macroRegistration.register("memoryRecall", () => memoryRecall.getMacroText());
+    recallMacroRegistered = true;
+  }
   await agentMacro.start();
   // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
   // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
@@ -553,12 +630,24 @@ export async function startSteMemory(
   const settingsService = new SettingsService({
     store: settings,
     syncToCurrentChat: () => manager.syncToCurrentChat(),
-    refreshMemoryMacros: () => macro.kick(),
+    refreshMemoryMacros: async () => {
+      memoryRecall.invalidate("记忆宏或视图设置已修改");
+      await macro.kick();
+      if (
+        !recallMacroRegistered &&
+        resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall"
+      ) {
+        adapter.macroRegistration.register("memoryRecall", () => memoryRecall.getMacroText());
+        recallMacroRegistered = true;
+      }
+    },
     refreshAgentMacros: () => agentMacro.kick(),
     refreshMirror: () => mirror.kick(),
     writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
     refreshVectorIndex: () => {
       retrieval.profileChanged();
+      recallRetrieval.profileChanged();
+      memoryRecall.invalidate("设置已修改");
       return vectorSync.refreshSettings();
     },
   });
@@ -577,6 +666,7 @@ export async function startSteMemory(
     tasks,
     vector,
     retrieval,
+    memoryRecall,
     spaceMaintenance,
     presetApply,
     logs,

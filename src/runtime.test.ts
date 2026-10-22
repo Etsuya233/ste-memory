@@ -445,7 +445,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 默认前缀 {{ste}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
     // systemDefaultPrompt（Agent 预设宏）；内置/视图/对话宏全部走 {{前缀::名字}} 分发
     const registeredKeys = [...registered.keys()].sort();
-    expect(registeredKeys).toEqual(["ste", "systemDefaultPrompt", "tablesDigest"]);
+    expect(registeredKeys).toEqual(["memoryRecall", "ste", "systemDefaultPrompt", "tablesDigest"]);
     expect(runtime.macro.getSnapshot()).toBe("");
     // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
     expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");
@@ -481,17 +481,18 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 设置服务负责保存和联动；调用方不再安排宏刷新。
     await runtime.settingsService.setMacroName("{{myMemory}}");
     expect([...registered.keys()].sort()).toEqual(
-      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
 
     // 插件总开关关闭：注销（无注入）
     await runtime.settingsService.setPluginEnabled(false);
-    expect(registered.size).toBe(0);
+    expect([...registered.keys()]).toEqual(["memoryRecall"]);
+    expect(registered.get("memoryRecall")!({})).toBe("");
     expect(runtime.mirror.getStatus().kind).toBe("disabled");
 
     await runtime.settingsService.setPluginEnabled(true);
     expect([...registered.keys()].sort()).toEqual(
-      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
   });
 

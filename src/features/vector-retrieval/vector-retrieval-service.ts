@@ -16,6 +16,8 @@ import type {
 export interface RetrievalSelection {
   readonly tableId: MemoryTable["id"];
   readonly groupIds: readonly string[];
+  /** 指定时只允许这些记录与本组选区配对；省略表示整表。 */
+  readonly recordIds?: readonly string[];
 }
 export interface RetrievalRequest {
   readonly query: string;
@@ -300,7 +302,7 @@ export class VectorRetrievalService {
         throw new Error("最低分必须在 [-1, 1] 内");
       const ranges = await this.ranges(spaceId);
       check();
-      const selection =
+      const selection: readonly RetrievalSelection[] =
         request.selection ??
         ranges
           .filter((range) => !range.error)
@@ -338,7 +340,10 @@ export class VectorRetrievalService {
       };
       const candidates: { target: VectorTarget; vector: RecordVector }[] = [];
       const records = new Set<string>();
+      const checkedTargets = new Set<string>();
       for (const range of selection) {
+        if (range.recordIds?.length === 0) continue;
+        const selectedRecords = range.recordIds === undefined ? null : new Set(range.recordIds);
         const [targets, vectors] = await Promise.all([
           this.index.targets(
             { memorySpaceId: spaceId, tableId: range.tableId },
@@ -356,7 +361,14 @@ export class VectorRetrievalService {
             check();
           }
           const target = targets[i]!;
-          if (!range.groupIds.includes(target.groupId)) continue;
+          if (
+            !range.groupIds.includes(target.groupId) ||
+            (selectedRecords !== null && !selectedRecords.has(target.record.id))
+          )
+            continue;
+          const targetKey = JSON.stringify([target.table.id, target.record.id, target.groupId]);
+          if (checkedTargets.has(targetKey)) continue;
+          checkedTargets.add(targetKey);
           records.add(JSON.stringify([target.table.id, target.record.id]));
           if (target.status === "empty") {
             coverage.empty++;
@@ -400,7 +412,10 @@ export class VectorRetrievalService {
             (task) =>
               task.memorySpaceId === spaceId &&
               selection.some(
-                (range) => range.tableId === task.tableId && range.groupIds.includes(task.groupId),
+                (range) =>
+                  range.tableId === task.tableId &&
+                  range.groupIds.includes(task.groupId) &&
+                  (range.recordIds === undefined || range.recordIds.includes(task.recordId)),
               ) &&
               ["queued", "running", "failed", "cancelled", "interrupted"].includes(task.status),
           )
@@ -432,7 +447,9 @@ export class VectorRetrievalService {
         finish(
           [],
           !coverage.records
-            ? "所选表暂无记录"
+            ? request.selection?.some((range) => range.recordIds !== undefined)
+              ? "没有符合筛选条件的记录"
+              : "所选表暂无记录"
             : !coverage.expected
               ? "所选记录的分组均无内容"
               : coverage.invalid === coverage.expected

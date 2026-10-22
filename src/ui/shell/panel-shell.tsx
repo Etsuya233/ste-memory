@@ -1,3 +1,4 @@
+import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
 import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
 import type { VectorRetrievalService } from "../../features/vector-retrieval/vector-retrieval-service.ts";
@@ -53,6 +54,7 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  * 结构满足该端口，组合根直接传入。
  */
 export interface PanelRuntime {
+  readonly memoryRecall?: SteMemoryRuntime["memoryRecall"];
   readonly vector: VectorIndexService;
   readonly retrieval: Pick<
     VectorRetrievalService,
@@ -578,6 +580,15 @@ export function PanelShell(props: {
           data-stm-section="retrieval"
           role="tabpanel"
         >
+          {props.runtime.memoryRecall && (
+            <MemoryRecallPanel
+              service={props.runtime.memoryRecall}
+              onRecord={(tableId, recordId) => {
+                setRecordFocus({ tableId, recordId });
+                props.model.setTab("records");
+              }}
+            />
+          )}
           <RetrievalTab
             key={props.runtime.retrieval.getState().epoch}
             service={props.runtime.retrieval}

@@ -318,7 +318,7 @@ describe("StChatAdapter.stRegexEntries（ST 正则条目读取：全局 + 角色
 
 describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   function fakeEventSource() {
-    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
     return {
       handlers,
       eventSource: {
@@ -348,20 +348,171 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     expect(handlers.has("message_received")).toBe(true);
   });
 
-  it("CHAT_CHANGED 触发 onChatChanged；消息事件触发 onMessageEvent（payload 被忽略）", () => {
+  it("CHAT_CHANGED 触发 onChatChanged；消息事件触发 onMessageEvent（发送保留消息下标与等待Promise）", async () => {
     const { handlers, eventSource, eventTypes } = fakeEventSource();
     const { adapter } = stableAdapter({ eventSource, eventTypes });
-    const bridge: StEventBridge = { onChatChanged: vi.fn(), onMessageEvent: vi.fn() };
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const bridge: StEventBridge = { onChatChanged: vi.fn(), onMessageEvent: vi.fn(() => waiting) };
     adapter.registerEventBridge(bridge);
 
     handlers.get("chat_id_changed")!("story");
-    handlers.get("message_sent")!(3);
+    const returned = handlers.get("message_sent")!(3);
+    expect(returned).toBe(waiting);
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
     handlers.get("message_received")!(4, "normal");
 
     expect(bridge.onChatChanged).toHaveBeenCalledTimes(1);
-    expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_sent");
+    expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_sent", 3);
     expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_received");
     expect(bridge.onMessageEvent).toHaveBeenCalledTimes(2);
+    release();
+    await returned;
+    expect(settled).toBe(true);
+  });
+
+  function recallBridge() {
+    const fake = fakeEventSource();
+    const eventTypes = {
+      ...fake.eventTypes,
+      GENERATION_STARTED: "started",
+      GENERATION_AFTER_COMMANDS: "after_commands",
+      GENERATION_ENDED: "ended",
+      GENERATE_AFTER_DATA: "data",
+      GENERATION_STOPPED: "stopped",
+    };
+    const stopGeneration = vi.fn(() => {
+      fake.handlers.get("ended")!();
+      fake.handlers.get("stopped")!();
+      return true;
+    });
+    const { adapter } = stableAdapter({
+      eventSource: fake.eventSource,
+      eventTypes,
+      stopGeneration,
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const bridge: StEventBridge = {
+      onChatChanged: vi.fn(() => {
+        stopGeneration();
+      }),
+      onMessageEvent: vi.fn(() => waiting),
+      onGenerationStarted: vi.fn(),
+      onGenerationFinished: vi.fn(),
+      onGenerationStopped: vi.fn(() => {
+        release();
+      }),
+      shouldAwaitRecall: () => true,
+    };
+    adapter.registerEventBridge(bridge);
+    return { adapter, bridge, handlers: fake.handlers, stopGeneration, release };
+  }
+
+  it("命令阶段的发送不召回；经过提示词构建后的normal递归保留同轮资格", async () => {
+    const { adapter, bridge, handlers, release } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("message_sent")!(2);
+    expect(bridge.onMessageEvent).not.toHaveBeenCalled();
+    handlers.get("after_commands")!("normal", {}, false);
+    const sent = handlers.get("message_sent")!(2);
+    release();
+    await sent;
+    adapter.interceptGeneration(vi.fn(), "normal");
+    await handlers.get("started")!("normal", {}, false);
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "normal",
+      { continuation: true },
+      false,
+    );
+  });
+
+  it("停止等待后新STARTED等待旧拦截器退出，旧ENDED不会清新发送", async () => {
+    const { adapter, bridge, handlers, stopGeneration } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    const sent = handlers.get("message_sent")!(2);
+    stopGeneration();
+    const next = handlers.get("started")!("normal", {}, false);
+    await sent;
+    await Promise.resolve();
+    expect(bridge.onGenerationStarted).toHaveBeenCalledTimes(1);
+    const abort = vi.fn();
+    adapter.interceptGeneration(abort, "normal");
+    expect(abort).toHaveBeenCalledWith(true);
+    handlers.get("ended")!();
+    await next;
+    expect(bridge.onGenerationStarted).toHaveBeenCalledTimes(2);
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "normal",
+      { continuation: false },
+      false,
+    );
+  });
+
+  it("等待期间dryRun不停止或取消真实召回", async () => {
+    const { adapter, handlers, stopGeneration, release } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    const sent = handlers.get("message_sent")!(2);
+    await handlers.get("started")!("normal", {}, true);
+    expect(stopGeneration).not.toHaveBeenCalled();
+    release();
+    await sent;
+    const abort = vi.fn();
+    adapter.interceptGeneration(abort, "normal");
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("真实发送开始后插入完整dryRun仍把MESSAGE_SENT交给召回等待", async () => {
+    const { adapter, bridge, handlers, stopGeneration, release } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    await handlers.get("started")!("normal", {}, true);
+    handlers.get("after_commands")!("normal", {}, true);
+    handlers.get("data")!({}, true);
+    expect(bridge.onGenerationFinished).toHaveBeenCalledWith(true);
+    const sent = handlers.get("message_sent")!(2);
+    expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_sent", 2);
+    expect(stopGeneration).not.toHaveBeenCalled();
+    release();
+    await sent;
+    const abort = vi.fn();
+    adapter.interceptGeneration(abort, "normal");
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("普通空输入生成结束后不接受孤立MESSAGE_SENT，dry结束不清真实发送资格", async () => {
+    const { bridge, handlers } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    handlers.get("ended")!();
+    handlers.get("message_sent")!(2);
+    expect(bridge.onGenerationFinished).toHaveBeenCalledWith(false);
+    expect(bridge.onMessageEvent).not.toHaveBeenCalled();
+  });
+
+  it("召回结束到拦截器之间切聊仍终止旧发送，STOP先发ENDED也保留归属", async () => {
+    const { adapter, handlers, release } = recallBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    const sent = handlers.get("message_sent")!(2);
+    release();
+    await sent;
+    handlers.get("chat_id_changed")!("other");
+    const abort = vi.fn();
+    adapter.interceptGeneration(abort, "normal");
+    expect(abort).toHaveBeenCalledWith(true);
+    await handlers.get("started")!("normal", {}, false);
   });
 
   it("缺 eventSource / eventTypes（异常 ST 环境）时静默跳过注册", () => {

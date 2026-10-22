@@ -130,6 +130,41 @@ function setup() {
   };
 }
 
+it("filtered record/group unions keep view pairing and deduplicate overlap before ranking and coverage", async () => {
+  const ctx = setup();
+  await ctx.populate();
+  await ctx.service.search({
+    ...request,
+    selection: [
+      { tableId: ctx.table.id, groupIds: ["b"], recordIds: ["r1"] },
+      { tableId: ctx.table.id, groupIds: ["a"], recordIds: ["r3"] },
+      { tableId: ctx.table.id, groupIds: ["b"], recordIds: ["r1"] },
+    ],
+  });
+  const result = ctx.service.getState().result!;
+  expect(result.coverage.records).toBe(2);
+  expect(result.coverage.expected).toBe(2);
+  expect(result.coverage.ready).toBe(2);
+  expect(result.hits.map((hit) => [hit.target.record.id, hit.target.groupId])).toEqual([
+    ["r1", "b"],
+    ["r3", "a"],
+  ]);
+  expect(result.hits[0]!.score).toBeCloseTo(Math.SQRT1_2);
+  expect(ctx.embedding.embed).toHaveBeenCalledTimes(1);
+});
+
+it("empty filtered candidates avoid embedding and retain an explicit filter message", async () => {
+  const ctx = setup();
+  await ctx.populate();
+  await ctx.service.search({
+    ...request,
+    selection: [{ tableId: ctx.table.id, groupIds: ["a"], recordIds: [] }],
+  });
+  expect(ctx.embedding.embed).not.toHaveBeenCalled();
+  expect(ctx.service.getState().result?.message).toBe("没有符合筛选条件的记录");
+  expect(ctx.service.getState().result?.coverage.expected).toBe(0);
+});
+
 async function embeddingStarted(ctx: ReturnType<typeof setup>): Promise<void> {
   await vi.waitFor(() => expect(ctx.service.getState().status).toBe("embedding"));
 }

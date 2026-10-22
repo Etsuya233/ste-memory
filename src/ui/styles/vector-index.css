@@ -197,3 +197,33 @@
 .stm-retrieval [data-retrieval-status="stale"] {
   color: var(--stm-danger);
 }
+
+.stm-memory-recall {
+  padding: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--stm-border);
+}
+.stm-memory-recall form > label:first-child {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+}
+.stm-memory-recall input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+.stm-memory-recall fieldset {
+  margin: 0;
+}
+.stm-memory-recall legend {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.stm-memory-recall .stm-button {
+  align-self: flex-start;
+  white-space: normal;
+  max-width: 100%;
+}

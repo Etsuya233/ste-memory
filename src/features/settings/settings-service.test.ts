@@ -27,6 +27,13 @@ function harness() {
 }
 
 describe("SettingsService", () => {
+  it("拒绝覆盖自动召回保留宏，大小写与 ST 注册规则一致", async () => {
+    const { service, dependencies } = harness();
+    const before = service.read().macroName;
+    await expect(service.setMacroName("{{MemoryRecall}}")).rejects.toThrow("保留宏名");
+    expect(service.read().macroName).toBe(before);
+    expect(dependencies.refreshMemoryMacros).not.toHaveBeenCalled();
+  });
   it("保存独立向量连接后刷新索引，非法配置不落库", async () => {
     const { service, dependencies } = harness();
     const connection = {

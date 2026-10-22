@@ -1,3 +1,4 @@
+import { resolveMacroRegistrationName } from "../macros/macro-name.ts";
 import type { MemoryView } from "../macros/memory-views.ts";
 import type { EntryPlacement, PluginSettings, SettingsStore } from "./plugin-settings.ts";
 import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
@@ -59,6 +60,8 @@ export class SettingsService {
   }
 
   async setMacroName(macroName: string): Promise<void> {
+    if (resolveMacroRegistrationName(macroName)?.toLowerCase() === "memoryrecall")
+      throw new Error("memoryRecall 为自动召回保留宏名");
     this.save({ ...this.read(), macroName });
     await this.dependencies.refreshMemoryMacros();
   }

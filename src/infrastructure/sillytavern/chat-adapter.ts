@@ -29,11 +29,12 @@ import type { MemoryView } from "../../features/macros/memory-views.ts";
 /**
  * ST 1.18 getContext() 返回对象的插件所需子集（public/scripts/st-context.js 已核实）。
  * 事件 payload 事实（public/script.js 已核实）：CHAT_CHANGED 带当前 chatId、
- * MESSAGE_SENT 带消息下标、MESSAGE_RECEIVED 带（下标, 类型）——本适配器不消费
- * payload，一律重读快照/忽略，隔离 ST 内部变更。
+ * MESSAGE_SENT 带消息下标、MESSAGE_RECEIVED 带（下标, 类型）；发送事件把下标
+ * 与监听器 Promise 交给自动召回，其余数据按需重读当前快照。
  */
 export interface StContext {
   /** 当前对话文件名（无 .jsonl）；临时/未保存对话为 undefined */
+  stopGeneration?: () => boolean;
   chatId?: string;
   /** 当前角色索引；群聊为 undefined */
   characterId?: number | string | undefined;
@@ -109,6 +110,15 @@ export interface StContext {
     readonly CHAT_CHANGED: string;
     readonly MESSAGE_SENT: string;
     readonly MESSAGE_RECEIVED: string;
+    readonly GENERATION_STARTED?: string;
+    readonly GENERATION_AFTER_COMMANDS?: string;
+    readonly GENERATE_AFTER_DATA?: string;
+    readonly GENERATION_ENDED?: string;
+    readonly GENERATION_STOPPED?: string;
+    readonly GROUP_WRAPPER_STARTED?: string;
+    readonly GROUP_WRAPPER_FINISHED?: string;
+    readonly MESSAGE_EDITED?: string;
+    readonly MESSAGE_DELETED?: string;
   };
   /** ST 通用弹窗 API（public/scripts/popup.js 已核实） */
   callGenericPopup?: (
@@ -173,12 +183,23 @@ export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
-/** ST 事件桥（ticket 05）：CHAT_CHANGED 切换空间上下文；消息事件仅注册为未来触发点 */
+/** ST 事件桥：切换空间上下文，并在正常发送构建提示词前等待自动召回。 */
 export interface StEventBridge {
   /** CHAT_CHANGED：切换对话 → 重新同步空间上下文 */
   onChatChanged(): void | Promise<void>;
-  /** MESSAGE_SENT / MESSAGE_RECEIVED：未来自动填表的触发点（ticket 13），当前无消费方 */
-  onMessageEvent(kind: "message_sent" | "message_received"): void;
+  /** MESSAGE_SENT 返回本轮召回 Promise；MESSAGE_RECEIVED 保留消息通知入口。 */
+  onMessageEvent(kind: "message_sent" | "message_received", floor?: number): void | Promise<void>;
+  onGenerationStarted?(
+    type: unknown,
+    options: { automatic_trigger?: boolean; signal?: AbortSignal; continuation?: boolean },
+    dryRun: boolean,
+  ): void;
+  onGenerationStopped?(): void;
+  onGenerationFinished?(dryRun: boolean): void;
+  shouldAwaitRecall?(): boolean;
+  onGroupStarted?(): void;
+  onGroupEnded?(): void;
+  onMessageChanged?(): void;
 }
 
 export type FloorJumpResult =
@@ -209,6 +230,16 @@ export interface StChatMessage {
  */
 export class StChatAdapter {
   readonly #getContext: () => StContext;
+  #sendEligible = false;
+  #afterCommands = false;
+  #generationSignal: AbortSignal | undefined;
+  #generation: {
+    awaitingMessage: boolean;
+    prompted: boolean;
+    cancelled: boolean;
+    drained: Promise<void>;
+    drain: () => void;
+  } | null = null;
 
   constructor(getContext: () => StContext) {
     this.#getContext = getContext;
@@ -438,15 +469,147 @@ export class StChatAdapter {
     };
   }
 
-  /** 注册事件桥：CHAT_CHANGED 用于切换空间上下文；消息事件仅注册（未来触发点） */
+  /** 注册 ST 生命周期：正常发送等待召回，停止后的旧调用经拦截器退出。 */
   registerEventBridge(bridge: StEventBridge): void {
     const context = this.#getContext();
     const source = context.eventSource;
     const types = context.eventTypes;
     if (!source || !types) return;
-    source.on(types.CHAT_CHANGED, () => void bridge.onChatChanged());
-    source.on(types.MESSAGE_SENT, () => bridge.onMessageEvent("message_sent"));
+    source.on(types.CHAT_CHANGED, () => {
+      this.#sendEligible = false;
+      this.#afterCommands = false;
+      if (this.#generation && !this.#generation.prompted) {
+        this.#generation.cancelled = true;
+        this.#getContext().stopGeneration?.();
+      }
+      return bridge.onChatChanged();
+    });
+    source.on(types.MESSAGE_SENT, (floor) => {
+      if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) return;
+      const result = bridge.onMessageEvent("message_sent", floor as number);
+      if (result && bridge.shouldAwaitRecall?.()) {
+        let drain!: () => void;
+        const drained = new Promise<void>((resolve) => {
+          drain = resolve;
+        });
+        const generation = {
+          awaitingMessage: true,
+          prompted: false,
+          cancelled: false,
+          drained,
+          drain,
+        };
+        this.#generation = generation;
+        this.#generationSignal?.addEventListener(
+          "abort",
+          () => {
+            if (this.#generation !== generation) return;
+            if (!generation.prompted) generation.cancelled = true;
+            bridge.onGenerationStopped?.();
+          },
+          { once: true },
+        );
+        void result.then(
+          () => {
+            generation.awaitingMessage = false;
+          },
+          () => {
+            generation.awaitingMessage = false;
+          },
+        );
+      }
+      return result;
+    });
+    if (types.GENERATION_STARTED)
+      source.on(types.GENERATION_STARTED, async (type, options, dryRun) => {
+        const generationOptions = options as { automatic_trigger?: boolean; signal?: AbortSignal };
+        const excluded = dryRun === true || type === "quiet" || type === "impersonate";
+        if (excluded) {
+          bridge.onGenerationStarted?.(type, generationOptions, dryRun === true);
+          return;
+        }
+        // ST 在 STARTED 监听器返回后才替换全局取消控制器。旧等待先走到拦截器退出，
+        // 再放行新生成，避免旧调用使用新调用的 controller 发出请求。
+        const previous = this.#generation;
+        if (previous?.awaitingMessage || previous?.cancelled) {
+          previous.cancelled = true;
+          this.#getContext().stopGeneration?.();
+          await previous.drained;
+        }
+        const continuation = this.#generation?.prompted === true;
+        if (!continuation) {
+          this.#generation?.drain();
+          this.#generation = null;
+        }
+        this.#sendEligible =
+          !continuation &&
+          !generationOptions.automatic_trigger &&
+          (type === undefined || type === "normal");
+        this.#afterCommands = false;
+        this.#generationSignal = generationOptions.signal;
+        bridge.onGenerationStarted?.(
+          type,
+          { ...(options as { automatic_trigger?: boolean; signal?: AbortSignal }), continuation },
+          dryRun === true,
+        );
+      });
+    if (types.GENERATION_AFTER_COMMANDS)
+      source.on(types.GENERATION_AFTER_COMMANDS, (_type, _options, dryRun) => {
+        if (dryRun !== true) this.#afterCommands = true;
+      });
+    if (types.GENERATE_AFTER_DATA)
+      source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) =>
+        bridge.onGenerationFinished?.(dryRun === true),
+      );
+    if (types.GENERATION_ENDED)
+      source.on(types.GENERATION_ENDED, () => {
+        this.#sendEligible = false;
+        this.#afterCommands = false;
+        if (
+          this.#generation?.prompted &&
+          !this.#generation.awaitingMessage &&
+          !this.#generation.cancelled
+        ) {
+          this.#generation.drain();
+          this.#generation = null;
+        }
+        bridge.onGenerationFinished?.(false);
+      });
+    if (types.GENERATION_STOPPED)
+      source.on(types.GENERATION_STOPPED, () => {
+        const generation = this.#generation;
+        if (generation && !generation.prompted) generation.cancelled = true;
+        else if (generation && !generation.cancelled) {
+          generation.drain();
+          this.#generation = null;
+        }
+        bridge.onGenerationStopped?.();
+      });
+    if (types.GROUP_WRAPPER_STARTED)
+      source.on(types.GROUP_WRAPPER_STARTED, () => bridge.onGroupStarted?.());
+    if (types.GROUP_WRAPPER_FINISHED)
+      source.on(types.GROUP_WRAPPER_FINISHED, () => bridge.onGroupEnded?.());
+    if (types.MESSAGE_EDITED) source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
+    if (types.MESSAGE_DELETED) source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
     source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
+  }
+
+  /** ST 的提示词拦截入口；取消中的旧发送必须在新 STARTED 放行前退出。 */
+  interceptGeneration(abort: (immediately: boolean) => void, type: unknown): void {
+    if (type === "quiet" || type === "impersonate") return;
+    const generation = this.#generation;
+    if (!generation) return;
+    if (generation.cancelled) {
+      abort(true);
+      // 让 ST 先执行拦截器后的 unblockGeneration，下一任务再放行新 STARTED。
+      // 否则旧调用发出的 ENDED 会把新调用的状态清掉。
+      setTimeout(() => {
+        if (this.#generation === generation) this.#generation = null;
+        generation.drain();
+      }, 0);
+      return;
+    }
+    generation.prompted = true;
   }
 
   /**
