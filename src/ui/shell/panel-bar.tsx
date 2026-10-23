@@ -5,17 +5,19 @@ export function PanelBarAction({
   icon,
   label,
   emphasis = false,
+  danger = false,
   ...props
 }: Omit<ComponentProps<"button">, "children" | "className" | "aria-label"> & {
   readonly icon: string;
   readonly label: string;
   readonly emphasis?: boolean;
+  readonly danger?: boolean;
 }) {
   return (
     <button
       type="button"
       {...props}
-      className={`stm-bar-action${emphasis ? " stm-bar-action--primary" : ""}`}
+      className={`stm-bar-action${emphasis ? " stm-bar-action--primary" : ""}${danger ? " stm-bar-action--danger" : ""}`}
       aria-label={label}
       title={label}
     >

@@ -1,4 +1,5 @@
 import { PageChrome } from "../shell/page-layout.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 /**
  * 记录视图（ticket 11）：按表查看/搜索/分页的记录列表、记录详情（字段值 + 字段证据
  * 楼层 chip）、手动创建/编辑/删除。纯逻辑 seam（record-list-model / record-form-model
@@ -143,6 +144,7 @@ export function RecordsTab(props: {
   const [formErrors, setFormErrors] = useState<Readonly<Record<string, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [savingRecord, setSavingRecord] = useState(false);
+  const [deletingRecord, setDeletingRecord] = useState(false);
   const viewRef = useRef<HTMLDivElement>(null);
   const editorFormId = useId();
   const listScrollTop = useRef(0);
@@ -157,8 +159,8 @@ export function RecordsTab(props: {
     });
     return () => cancelAnimationFrame(frame);
   }, [showingRecord]);
-  const editorStateRef = useRef({ editor, fields, savingRecord, savingGrid });
-  editorStateRef.current = { editor, fields, savingRecord, savingGrid };
+  const editorStateRef = useRef({ editor, fields, savingRecord, savingGrid, deletingRecord });
+  editorStateRef.current = { editor, fields, savingRecord, savingGrid, deletingRecord };
   const newRowCounter = useRef(0);
   // 引用字段的目标表记录（单选/多选引用下拉与勾选组的数据源）
   const [referenceRecords, setReferenceRecords] = useState<
@@ -502,7 +504,12 @@ export function RecordsTab(props: {
 
   /** 当前是否有未保存改动（读 ref 最新状态；离开守卫与导航确认共用） */
   function hasUnsavedRecordChanges(): boolean {
-    if (editorStateRef.current.savingRecord || editorStateRef.current.savingGrid) return true;
+    if (
+      editorStateRef.current.savingRecord ||
+      editorStateRef.current.savingGrid ||
+      editorStateRef.current.deletingRecord
+    )
+      return true;
     const { fields: currentFields, gridRows: rows, recordPage: page } = gridStateRef.current;
     const originals = new Map((page?.records ?? []).map((record) => [record.id, record]));
     const { editor: currentEditor } = editorStateRef.current;
@@ -518,7 +525,12 @@ export function RecordsTab(props: {
 
   /** 有未保存修改时先确认放弃（返回是否可继续） */
   function confirmDiscardIfDirty(): boolean {
-    if (editorStateRef.current.savingRecord || editorStateRef.current.savingGrid) return false;
+    if (
+      editorStateRef.current.savingRecord ||
+      editorStateRef.current.savingGrid ||
+      editorStateRef.current.deletingRecord
+    )
+      return false;
     if (!hasUnsavedRecordChanges()) return true;
     return window.confirm("有未保存的记录修改，放弃这些修改吗？");
   }
@@ -807,17 +819,17 @@ export function RecordsTab(props: {
     setHeights((prev) => ({ ...prev, [rowKey]: clampGridRowHeight(px) }));
   }
 
-  async function deleteRecord(): Promise<void> {
-    if (!selectedTableId || !detailRecord || !detailRecordId) return;
+  async function deleteRecord(record: MemoryRecord): Promise<void> {
     if (!confirmDiscardIfDirty()) return;
     if (!window.confirm("确定删除这条记录吗？删除后不可恢复。")) return;
     const deleteScope = dataScopeRef.current;
+    setDeletingRecord(true);
     try {
       await props.runtime.records.delete(
         currentSpaceId,
-        selectedTableId,
-        detailRecordId,
-        detailRecord.revisionId,
+        record.tableId,
+        record.id,
+        record.revisionId,
         "user",
       );
       if (
@@ -826,10 +838,13 @@ export function RecordsTab(props: {
       )
         return;
       reportSuccess("记录已删除");
+      setEditor(null);
       setDetailRecordId(null);
       bumpData();
     } catch (error) {
       reportError(error);
+    } finally {
+      setDeletingRecord(false);
     }
   }
 
@@ -849,17 +864,29 @@ export function RecordsTab(props: {
                   icon="fa-chevron-left"
                   label="返回记录"
                   data-action="back-to-records"
+                  disabled={deletingRecord}
                   onClick={() => setDetailRecordId(null)}
                 />
               }
               trailing={
                 detailRecord ? (
-                  <PanelBarAction
-                    icon="fa-pen"
-                    label="编辑记录"
-                    data-action="edit-record"
-                    onClick={() => openEditor(detailRecord)}
-                  />
+                  <>
+                    <PanelBarAction
+                      icon="fa-trash-can"
+                      label="删除记录"
+                      danger
+                      data-action="delete-record"
+                      disabled={deletingRecord}
+                      onClick={() => void deleteRecord(detailRecord)}
+                    />
+                    <PanelBarAction
+                      icon="fa-pen"
+                      label="编辑记录"
+                      data-action="edit-record"
+                      disabled={deletingRecord}
+                      onClick={() => openEditor(detailRecord)}
+                    />
+                  </>
                 ) : null
               }
             />
@@ -998,27 +1025,39 @@ export function RecordsTab(props: {
                     icon="fa-xmark"
                     label="取消"
                     data-action="cancel-record"
-                    disabled={savingRecord}
+                    disabled={savingRecord || deletingRecord}
                     onClick={() => {
                       if (confirmDiscardIfDirty()) setEditor(null);
                     }}
                   />
                 }
                 trailing={
-                  <PanelBarAction
-                    icon={savingRecord ? "fa-spinner" : "fa-check"}
-                    label={savingRecord ? "保存中…" : "保存"}
-                    type="submit"
-                    form={editorFormId}
-                    emphasis
-                    data-action="save-record"
-                    disabled={savingRecord || !formChanged}
-                  />
+                  <>
+                    {editor.original ? (
+                      <PanelBarAction
+                        icon="fa-trash-can"
+                        label="删除记录"
+                        danger
+                        data-action="delete-record"
+                        disabled={savingRecord || deletingRecord}
+                        onClick={() => void deleteRecord(editor.original!)}
+                      />
+                    ) : null}
+                    <PanelBarAction
+                      icon={savingRecord ? "fa-spinner" : "fa-check"}
+                      label={savingRecord ? "保存中…" : "保存"}
+                      type="submit"
+                      form={editorFormId}
+                      emphasis
+                      data-action="save-record"
+                      disabled={savingRecord || deletingRecord || !formChanged}
+                    />
+                  </>
                 }
               />
             }
           />
-          <fieldset className="stm-record-form-fields" disabled={savingRecord}>
+          <fieldset className="stm-record-form-fields" disabled={savingRecord || deletingRecord}>
             {fields.map((field) => (
               <div
                 key={field.id}
@@ -1079,7 +1118,6 @@ export function RecordsTab(props: {
             history={history}
             referenceLabels={referenceLabels}
             unsavedDraft={detailDirty}
-            onDelete={() => void deleteRecord()}
             onJumpFloor={(floor) => props.runtime.st.scrollToFloor(floor)}
             getMessageAt={(floor) => props.runtime.st.getMessageAt(floor)}
             vector={props.runtime.vector}
@@ -1239,7 +1277,6 @@ export function RecordSummaryList(props: {
                 {previewFields.map(({ field, text }, index) => (
                   <span key={field.id}>
                     {index > 0 ? " · " : ""}
-                    <span className="stm-record-summary-label">{field.name}</span>
                     {text}
                   </span>
                 ))}
@@ -1269,7 +1306,6 @@ function RecordDetail(props: {
   readonly referenceLabels: ReadonlyMap<string, string>;
   /** 该记录在网格中有未保存草稿（详情显示的是已提交值） */
   readonly unsavedDraft: boolean;
-  readonly onDelete: () => void;
   readonly onJumpFloor: (floor: number) => FloorJumpOutcome;
   readonly getMessageAt: (floor: number) => StChatMessage | undefined;
 }) {
@@ -1351,8 +1387,12 @@ function RecordDetail(props: {
         })}
       </ul>
       {props.history.length > 0 ? (
-        <details className="stm-record-history">
-          <summary>修订历史 · {props.history.length}</summary>
+        <Disclosure
+          className="stm-record-history"
+          icon="fa-clock-rotate-left"
+          title="修订历史"
+          meta={props.history.length}
+        >
           {props.history.map((entry) => (
             <div key={entry.id} className="stm-record-history-entry">
               <span className="stm-record-meta-time">
@@ -1367,7 +1407,7 @@ function RecordDetail(props: {
               ))}
             </div>
           ))}
-        </details>
+        </Disclosure>
       ) : null}
       <VectorRecordStatus
         vector={props.vector}
@@ -1375,16 +1415,6 @@ function RecordDetail(props: {
         tableId={props.tableId}
         recordId={props.record.id}
       />
-      <div className="stm-record-detail-actions">
-        <button
-          type="button"
-          className="stm-button stm-button--danger"
-          data-action="delete-record"
-          onClick={props.onDelete}
-        >
-          删除记录
-        </button>
-      </div>
     </div>
   );
 }

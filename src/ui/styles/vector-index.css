@@ -1,5 +1,4 @@
 .stm-vector-editor,
-.stm-vector-record,
 .stm-vector-task-detail {
   display: flex;
   flex-direction: column;
@@ -64,6 +63,7 @@
 }
 
 .stm-vector-preview pre,
+.stm-vector-record pre,
 .stm-vector-task-detail pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

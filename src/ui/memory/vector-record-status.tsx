@@ -8,6 +8,7 @@ import type {
   VectorTaskStatus,
 } from "../../features/vector-index/types.ts";
 import { reportError, reportSuccess } from "../shell/ui-helpers.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 
 const taskLabels: Record<VectorTaskStatus, string> = {
   queued: "排队中",
@@ -94,15 +95,18 @@ export function VectorRecordStatus(props: {
       ),
   ).length;
   return (
-    <section className="stm-vector-record" data-stm-section="record-vector-status">
-      <div className="stm-vector-group-head">
-        <strong>向量索引</strong>
-        <span>
-          {previews.length
-            ? `就绪 ${ready}/${previews.length}，无内容 ${empty}，异常 ${invalid}`
-            : "暂无可用分组"}
-        </span>
-      </div>
+    <Disclosure
+      className="stm-vector-record"
+      data-stm-section="record-vector-status"
+      icon="fa-diagram-project"
+      title="向量索引"
+      meta={previews.length ? `就绪 ${ready}/${previews.length}` : "暂无可用分组"}
+    >
+      {previews.length > 0 ? (
+        <p className="stm-setting-hint">
+          无内容 {empty} · 异常 {invalid}
+        </p>
+      ) : null}
       <p className="stm-setting-hint">{connection}</p>
       <p className="stm-setting-hint">
         强制重算会产生一次额外的远端 embedding 请求，已发出的请求可能仍产生费用。
@@ -193,6 +197,6 @@ export function VectorRecordStatus(props: {
           </div>
         );
       })}
-    </section>
+    </Disclosure>
   );
 }

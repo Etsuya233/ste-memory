@@ -1110,6 +1110,9 @@
   opacity: 0.4;
   cursor: default;
 }
+.stm-bar-action--danger {
+  color: var(--stm-danger);
+}
 .stm-bar-action--primary {
   color: var(--stm-accent-text);
 }
@@ -1191,4 +1194,67 @@
     color-mix(in srgb, var(--stm-bg) 60%, transparent) 55%,
     transparent
   );
+}
+
+/* 统一的原生展开分组。 */
+.stm-disclosure {
+  min-width: 0;
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius-card);
+  background: var(--stm-surface);
+  color: var(--stm-fg);
+  overflow: hidden;
+}
+.stm-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--stm-space-3);
+  box-sizing: border-box;
+  min-height: 56px;
+  padding: var(--stm-space-3) var(--stm-space-4);
+  list-style: none;
+  cursor: pointer;
+}
+.stm-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+.stm-disclosure-summary:hover {
+  background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+}
+.stm-disclosure-summary:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: -3px;
+}
+.stm-disclosure-icon {
+  width: 18px;
+  color: var(--stm-fg-2);
+  text-align: center;
+  flex: 0 0 auto;
+}
+.stm-disclosure-title {
+  flex: 1;
+  font-size: var(--stm-fs-md);
+  font-weight: var(--stm-weight-medium);
+}
+.stm-disclosure-meta {
+  max-width: 50%;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+  text-align: right;
+}
+.stm-disclosure-chevron {
+  color: var(--stm-fg-2);
+  font-size: 10px;
+  flex: 0 0 auto;
+}
+.stm-disclosure[open] > .stm-disclosure-summary .stm-disclosure-chevron {
+  transform: rotate(90deg);
+}
+.stm-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-3);
+  padding: var(--stm-space-4);
+  border-top: 1px solid var(--stm-border);
+  min-width: 0;
 }
