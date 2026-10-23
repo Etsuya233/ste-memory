@@ -22,6 +22,7 @@ import type { PluginSettings } from "../../features/settings/plugin-settings.ts"
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { StChatMessage } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { PanelRuntime } from "../shell/panel-shell.tsx";
+import { PanelBar, PanelBarAction, PanelBottomBar } from "../shell/panel-bar.tsx";
 import {
   activeStatus,
   Placeholder,
@@ -825,18 +826,36 @@ export function RecordsTab(props: {
   }
 
   return (
-    <div className="stm-record-view" ref={viewRef}>
+    <div
+      className={`stm-record-view${showingRecord ? " stm-record-view--detail" : ""}`}
+      ref={viewRef}
+    >
+      {detailRecordId && !editor ? (
+        <PanelBar
+          variant="record"
+          title={currentTable.name}
+          leading={
+            <PanelBarAction
+              icon="fa-chevron-left"
+              label="返回记录"
+              data-action="back-to-records"
+              onClick={() => setDetailRecordId(null)}
+            />
+          }
+          trailing={
+            detailRecord ? (
+              <PanelBarAction
+                icon="fa-pen"
+                label="编辑记录"
+                data-action="edit-record"
+                onClick={() => openEditor(detailRecord)}
+              />
+            ) : null
+          }
+        />
+      ) : null}
       <div className="stm-record-toolbar" hidden={detailRecordId !== null || editor !== null}>
         <div className="stm-record-actions">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="add-grid-row"
-            disabled={savingGrid}
-            onClick={() => (viewMode === "grid" ? addGridRow() : openEditor(null))}
-          >
-            {viewMode === "grid" ? "+ 新行" : "+ 新建记录"}
-          </button>
           {viewMode === "grid" && dirty ? (
             <button
               type="button"
@@ -956,10 +975,31 @@ export function RecordsTab(props: {
             void saveRecord();
           }}
         >
-          <div className="stm-record-detail-header">
-            <h3>{editor.original ? "编辑记录" : "新建记录"}</h3>
-            <span className="stm-record-table-meta">{currentTable.name}</span>
-          </div>
+          <PanelBar
+            variant="record"
+            title={editor.original ? "编辑记录" : "新建记录"}
+            leading={
+              <PanelBarAction
+                icon="fa-xmark"
+                label="取消"
+                data-action="cancel-record"
+                disabled={savingRecord}
+                onClick={() => {
+                  if (confirmDiscardIfDirty()) setEditor(null);
+                }}
+              />
+            }
+            trailing={
+              <PanelBarAction
+                icon={savingRecord ? "fa-spinner" : "fa-check"}
+                label={savingRecord ? "保存中…" : "保存"}
+                type="submit"
+                emphasis
+                data-action="save-record"
+                disabled={savingRecord || !formChanged}
+              />
+            }
+          />
           <fieldset className="stm-record-form-fields" disabled={savingRecord}>
             {fields.map((field) => (
               <div
@@ -1011,27 +1051,6 @@ export function RecordsTab(props: {
               {formError}
             </p>
           ) : null}
-          <div className="stm-record-form-actions">
-            <button
-              type="button"
-              className="stm-button"
-              data-action="cancel-record"
-              disabled={savingRecord}
-              onClick={() => {
-                if (confirmDiscardIfDirty()) setEditor(null);
-              }}
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              className="stm-button stm-button--primary"
-              data-action="save-record"
-              disabled={savingRecord || !formChanged}
-            >
-              {savingRecord ? "保存中…" : "保存记录"}
-            </button>
-          </div>
         </form>
       ) : detailRecordId ? (
         detailRecord ? (
@@ -1042,8 +1061,6 @@ export function RecordsTab(props: {
             history={history}
             referenceLabels={referenceLabels}
             unsavedDraft={detailDirty}
-            onBack={() => setDetailRecordId(null)}
-            onEdit={() => openEditor(detailRecord)}
             onDelete={() => void deleteRecord()}
             onJumpFloor={(floor) => props.runtime.st.scrollToFloor(floor)}
             getMessageAt={(floor) => props.runtime.st.getMessageAt(floor)}
@@ -1113,34 +1130,50 @@ export function RecordsTab(props: {
                 onResizeRowHeight={resizeRowHeight}
               />
             )}
-            <div className="stm-pagination">
-              <button
-                type="button"
-                className="stm-page-button"
+            <PanelBottomBar
+              label="记录分页"
+              trailing={
+                <PanelBarAction
+                  icon="fa-plus"
+                  label={viewMode === "grid" ? "新行" : "新建记录"}
+                  emphasis
+                  data-action="add-grid-row"
+                  disabled={savingGrid}
+                  onClick={() => (viewMode === "grid" ? addGridRow() : openEditor(null))}
+                />
+              }
+            >
+              <PanelBarAction
+                icon="fa-chevron-left"
+                label="上一页"
                 data-action="record-page-prev"
                 disabled={(recordPage?.page ?? 1) <= 1}
                 onClick={() => {
-                  if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 1) - 1);
+                  if (confirmDiscardIfDirty()) {
+                    listScrollTop.current = 0;
+                    viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
+                    setPage((recordPage?.page ?? 1) - 1);
+                  }
                 }}
-              >
-                上一页
-              </button>
-              <span className="stm-pagination-info">
+              />
+              <span className="stm-pagination-info" aria-live="polite" aria-atomic="true">
                 {recordPage && recordPage.totalPages > 0 ? recordPage.page : 0} /{" "}
-                {recordPage?.totalPages ?? 0}（共 {recordPage?.total ?? 0} 条）
+                {recordPage?.totalPages ?? 0}
               </span>
-              <button
-                type="button"
-                className="stm-page-button"
+              <PanelBarAction
+                icon="fa-chevron-right"
+                label="下一页"
                 data-action="record-page-next"
                 disabled={(recordPage?.page ?? 0) >= (recordPage?.totalPages ?? 0)}
                 onClick={() => {
-                  if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 0) + 1);
+                  if (confirmDiscardIfDirty()) {
+                    listScrollTop.current = 0;
+                    viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
+                    setPage((recordPage?.page ?? 0) + 1);
+                  }
                 }}
-              >
-                下一页
-              </button>
-            </div>
+              />
+            </PanelBottomBar>
           </>
         ) : null}
       </div>
@@ -1165,7 +1198,7 @@ export function RecordSummaryList(props: {
             text: recordFieldValueText(field, record.payload[field.id], props.referenceLabels),
           }))
           .filter(({ text }) => text !== "—" && text.trim() !== record.displayText.trim())
-          .slice(0, 3);
+          .slice(0, 2);
         const vectorSummary = props.vectorSummaries.get(record.id);
         return (
           <button
@@ -1179,20 +1212,18 @@ export function RecordSummaryList(props: {
             <span className="stm-record-summary-title">{record.displayText}</span>
             {previewFields.length > 0 ? (
               <span className="stm-record-summary-values">
-                {previewFields.map(({ field, text }) => (
+                {previewFields.map(({ field, text }, index) => (
                   <span key={field.id}>
+                    {index > 0 ? " · " : ""}
                     <span className="stm-record-summary-label">{field.name}</span>
                     {text}
                   </span>
                 ))}
               </span>
             ) : null}
-            <span className="stm-record-summary-meta">
-              <span>
-                {recordSourceLabel(record.source)} · {formatDisplayTime(record.updatedAt)}
-              </span>
-              {vectorSummary ? <span>{vectorSummary}</span> : null}
-            </span>
+            {vectorSummary ? (
+              <span className="stm-record-summary-status">{vectorSummary}</span>
+            ) : null}
           </button>
         );
       })}
@@ -1214,51 +1245,21 @@ function RecordDetail(props: {
   readonly referenceLabels: ReadonlyMap<string, string>;
   /** 该记录在网格中有未保存草稿（详情显示的是已提交值） */
   readonly unsavedDraft: boolean;
-  readonly onBack: () => void;
   readonly onDelete: () => void;
-  readonly onEdit: () => void;
   readonly onJumpFloor: (floor: number) => FloorJumpOutcome;
   readonly getMessageAt: (floor: number) => StChatMessage | undefined;
 }) {
   const noEvidence = !recordHasEvidence(props.record.fieldEvidence);
   return (
     <div className="stm-record-detail">
-      <div className="stm-record-detail-header">
-        <button
-          type="button"
-          className="stm-table-action"
-          data-action="back-to-records"
-          onClick={props.onBack}
+      {props.unsavedDraft ? (
+        <span
+          className="stm-record-detail-unsaved"
+          title="该记录在网格中有未保存的修改，详情显示的是已保存值"
         >
-          <i className="fa-solid fa-arrow-left" aria-hidden="true"></i> 返回
-        </button>
-        {props.unsavedDraft ? (
-          <span
-            className="stm-record-detail-unsaved"
-            title="该记录在网格中有未保存的修改，详情显示的是已保存值"
-          >
-            有未保存修改
-          </span>
-        ) : null}
-        <div className="stm-record-detail-actions">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="edit-record"
-            onClick={props.onEdit}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            className="stm-table-action stm-table-action--danger"
-            data-action="delete-record"
-            onClick={props.onDelete}
-          >
-            删除
-          </button>
-        </div>
-      </div>
+          有未保存修改
+        </span>
+      ) : null}
       <div className="stm-record-display-large">{props.displayText}</div>
       <div className="stm-record-meta">
         <span
@@ -1350,6 +1351,16 @@ function RecordDetail(props: {
         tableId={props.tableId}
         recordId={props.record.id}
       />
+      <div className="stm-record-detail-actions">
+        <button
+          type="button"
+          className="stm-button stm-button--danger"
+          data-action="delete-record"
+          onClick={props.onDelete}
+        >
+          删除记录
+        </button>
+      </div>
     </div>
   );
 }

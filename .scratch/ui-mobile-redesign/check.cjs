@@ -20,7 +20,38 @@ const fs = require('node:fs');
    }
   }
   await page.setViewportSize({width:390,height:844});await go('records');
+  const listBody=page.locator('.stm-panel-body');
+  const pager=page.locator('.stm-bottom-bar');
+  const rowHeight=await page.locator('[data-action="open-record"]').first().evaluate(el=>el.getBoundingClientRect().height);
+  assert.ok(rowHeight>=44&&rowHeight<=88,`record height ${rowHeight}`);
+  const pagerStart=await pager.boundingBox();
+  await listBody.evaluate(el=>{el.scrollTop=300});
+  const pagerScrolled=await pager.boundingBox();
+  assert.ok(Math.abs(pagerStart.y-pagerScrolled.y)<2,'pagination remains fixed while scrolling');
+  await listBody.evaluate(el=>{el.scrollTop=el.scrollHeight});
+  const lastRow=await page.locator('[data-action="open-record"]').last().boundingBox();
+  assert.ok(lastRow.y+lastRow.height<=(await pager.boundingBox()).y+1,'last row is not covered by pagination');
+  const savedScroll=await listBody.evaluate(el=>el.scrollTop);
+  await page.locator('[data-action="open-record"]').nth(4).click();
+  assert.equal(await page.locator('#stm-panel > .stm-panel-header').isVisible(),false);
+  await page.locator('[data-action="back-to-records"]').click();
+  assert.ok(Math.abs(await listBody.evaluate(el=>el.scrollTop)-savedScroll)<2,`list scroll restored: expected ${savedScroll}, actual ${await listBody.evaluate(el=>el.scrollTop)}`);
+  await page.locator('[data-action="record-page-next"]').click();
+  await page.waitForFunction(()=>document.querySelector('.stm-pagination-info').textContent.trim()==='2 / 3');
+  assert.equal(await listBody.evaluate(el=>el.scrollTop),0);
+  await page.locator('[data-action="record-page-next"]').click();
+  await page.waitForFunction(()=>document.querySelector('.stm-pagination-info').textContent.trim()==='3 / 3');
+  assert.equal(await page.locator('[data-action="open-record"]').count(),3);
+  const shortPager=await pager.boundingBox();
+  assert.ok(Math.abs(shortPager.y-pagerStart.y)<2,'short-list pagination stays at bottom');
+  await shot('records-short');
+  await go('records');
   await page.locator('[data-action="open-record"]').first().click();await shot('record-detail');
+  const recordBar=page.locator('.stm-panel-header--record');
+  const barTop=(await recordBar.boundingBox()).y;
+  await listBody.evaluate(el=>{el.scrollTop=el.scrollHeight});
+  assert.ok(Math.abs((await recordBar.boundingBox()).y-barTop)<2,'detail bar stays visible');
+
   await page.locator('[data-action="edit-record"]').click();
   await page.locator('form textarea').first().fill('林澈（更新）');await shot('record-edit');
   await page.locator('[data-action="save-record"]').click();
@@ -52,6 +83,6 @@ const fs = require('node:fs');
   await page.locator('[data-action="retrieval-open-record"]').first().click();await page.locator('[data-action="back-to-records"]').waitFor();
   await page.setViewportSize({width:1280,height:900});await go('tables');await page.locator('[data-action="expand-table"]').first().waitFor();await shot('tables-desktop');await width();
   assert.deepEqual(errors,[]);
-  console.log('PASS: 28 viewport/page checks; record save/cancel, navigation focus, table details, theme/font, retrieval → record; no browser errors.');
+  console.log('PASS: 28 viewport/page checks; compact rows, sticky pagination/bar, scroll restoration, record save/cancel, navigation focus, table details, theme/font, retrieval → record; no browser errors.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,51 +1,57 @@
-/* ---------- 记录视图：列表/详情/表单/证据楼层 chip ---------- */
-
-/* ============================================================
- * 记录视图（ticket 11）：列表/详情/表单/证据楼层 chip
- * 证据楼层 chip 是全插件唯一签名元素（spec §11）：铜绿 + 等宽 #N
- * ============================================================ */
+/* Records share the panel's typography, spacing and navigation bar tokens. */
+.stm-panel-body > [data-stm-section="records"] {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 
 .stm-record-view {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--stm-space-3);
+  min-width: 0;
 }
 
-/* 工具栏（ticket 21）：操作行（新行/放弃/保存）+ 选择行（表格 chip 横向滑动 + 右侧折叠搜索） */
-.stm-record-toolbar {
+.stm-record-view [hidden] {
+  display: none;
+}
+
+.stm-record-toolbar,
+.stm-record-results {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--stm-space-3);
+  min-width: 0;
+}
+
+.stm-record-results {
+  flex: 1;
+}
+
+.stm-record-actions,
+.stm-record-selector-row {
+  display: flex;
+  align-items: center;
+  gap: var(--stm-space-2);
+  min-width: 0;
 }
 
 .stm-record-actions {
-  display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
 }
-
 .stm-record-actions .stm-button {
   flex: 0 0 auto;
   margin: 0;
 }
 
-/* 表格选择 chip 行：横向滑动 + scroll-snap（宽窄屏同一布局） */
-.stm-record-selector-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
 .stm-record-tables {
   display: flex;
-  gap: 6px;
+  flex: 1;
+  gap: var(--stm-space-2);
+  min-width: 0;
   overflow-x: auto;
   scroll-snap-type: x proximity;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-bottom: 2px;
   scrollbar-width: none;
 }
 
@@ -53,60 +59,287 @@
   display: none;
 }
 
-.stm-record-chip {
+.stm-record-chip,
+.stm-record-search-toggle {
   flex: 0 0 auto;
-  scroll-snap-align: start;
-  min-height: 34px;
-  padding: 6px 12px;
-  border-radius: 999px;
+  min-height: var(--stm-control-h);
   border: 1px solid var(--stm-border);
-  background: var(--stm-ink-bg);
-  color: var(--stm-ink-secondary);
+  border-radius: var(--stm-radius);
+  background: var(--stm-bg);
+  color: var(--stm-fg-2);
+  font: inherit;
   font-size: var(--stm-fs-sm);
-  font-family: var(--stm-font);
   cursor: pointer;
+}
+
+.stm-record-chip {
+  padding: var(--stm-space-2) var(--stm-space-3);
   white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .stm-record-chip--active {
   border-color: var(--stm-accent);
-  color: var(--stm-ink);
-  background: color-mix(in srgb, var(--stm-accent) 14%, var(--stm-ink-bg));
+  color: var(--stm-fg);
+  background: color-mix(in srgb, var(--stm-accent) 12%, var(--stm-bg));
 }
 
 .stm-record-chip--disabled {
   opacity: 0.45;
 }
-
 .stm-record-search {
-  flex: 1 1 auto;
+  flex: 1;
   min-width: 0;
 }
 
 .stm-record-search-toggle {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  border: 1px solid var(--stm-border);
-  background: var(--stm-ink-bg);
-  color: var(--stm-ink-secondary);
-  cursor: pointer;
+  width: var(--stm-control-h);
+  height: var(--stm-control-h);
 }
 
 .stm-record-search-toggle:hover {
   color: var(--stm-accent);
 }
 
-.stm-record-table-meta {
-  color: var(--stm-ink-secondary);
-  font-size: var(--stm-fs-xs);
-  font-family: var(--stm-font-mono);
+.stm-record-view-switch {
+  display: flex;
+  gap: var(--stm-space-1);
+  margin-left: auto;
 }
 
+.stm-record-view-switch .stm-record-chip {
+  border-color: transparent;
+  background: transparent;
+}
+.stm-record-view-switch [aria-pressed="true"] {
+  background: var(--stm-surface);
+  border-color: var(--stm-border);
+  color: var(--stm-fg);
+}
+.stm-record-table-meta {
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+  line-height: var(--stm-leading-normal);
+}
+
+.stm-record-summary-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--stm-border);
+}
+
+.stm-record-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  gap: var(--stm-space-1) var(--stm-space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: 80px;
+  padding: var(--stm-row-padding-y) 0;
+  border: 0;
+  border-bottom: 1px solid var(--stm-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--stm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stm-record-summary:hover {
+  background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+}
+.stm-record-summary-title {
+  grid-column: 1;
+  font-size: var(--stm-fs-md);
+  font-weight: var(--stm-weight-medium);
+  line-height: var(--stm-leading-tight);
+}
+.stm-record-summary-values {
+  grid-column: 1 / -1;
+  font-size: var(--stm-fs-sm);
+  line-height: var(--stm-leading-normal);
+  color: var(--stm-fg-2);
+}
+.stm-record-summary-title,
+.stm-record-summary-values {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stm-record-summary-label {
+  margin-right: var(--stm-space-1);
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+}
+.stm-record-summary-status {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+  line-height: var(--stm-leading-tight);
+  white-space: nowrap;
+}
+
+.stm-record-view .stm-bottom-bar {
+  margin: auto calc(-1 * var(--stm-page-padding))
+    calc(-1 * var(--stm-space-5) - env(safe-area-inset-bottom));
+}
+.stm-pagination-info {
+  min-width: 64px;
+  text-align: center;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.stm-record-view .stm-panel-header--record {
+  position: sticky;
+  top: calc(-1 * var(--stm-page-padding));
+  z-index: 5;
+  flex-shrink: 0;
+  margin: calc(-1 * var(--stm-page-padding)) calc(-1 * var(--stm-page-padding)) 0;
+}
+
+.stm-record-detail,
+.stm-record-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-4);
+  min-width: 0;
+}
+.stm-record-form .stm-panel-header--record {
+  margin-bottom: var(--stm-space-1);
+}
+.stm-record-display-large {
+  font-size: var(--stm-fs-lg);
+  font-weight: var(--stm-weight-semibold);
+  line-height: var(--stm-leading-relaxed);
+  color: var(--stm-fg);
+  overflow-wrap: anywhere;
+}
+.stm-record-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--stm-space-2);
+}
+.stm-record-meta-time {
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+}
+.stm-record-detail-unsaved {
+  align-self: flex-start;
+  padding: var(--stm-space-1) var(--stm-space-2);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  color: var(--stm-warning);
+  font-size: var(--stm-fs-xs);
+}
+.stm-no-evidence {
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+}
+.stm-record-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.stm-record-field {
+  border-bottom: 1px solid var(--stm-border);
+  padding: var(--stm-row-padding-y) 0;
+}
+.stm-record-field-head {
+  display: flex;
+  align-items: center;
+  gap: var(--stm-space-2);
+  margin-bottom: var(--stm-space-1);
+}
+.stm-record-field-name {
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-sm);
+  font-weight: var(--stm-weight-medium);
+}
+.stm-record-field-value {
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-md);
+  line-height: var(--stm-leading-relaxed);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.stm-field-disabled {
+  color: var(--stm-warning);
+  font-size: var(--stm-fs-xs);
+}
+.stm-record-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-5);
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.stm-record-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-2);
+}
+.stm-record-form-field .stm-input {
+  width: 100%;
+  min-height: var(--stm-control-h);
+  box-sizing: border-box;
+  font-size: max(16px, var(--stm-fs-md));
+}
+.stm-record-form-field textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.stm-record-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.stm-record-history {
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  padding-inline: var(--stm-space-3);
+}
+.stm-record-history summary {
+  min-height: var(--stm-control-h);
+  padding-block: var(--stm-space-3);
+  cursor: pointer;
+}
+.stm-record-history-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-2);
+  padding-block: var(--stm-space-3);
+  border-top: 1px solid var(--stm-border);
+  font-size: var(--stm-fs-sm);
+  line-height: var(--stm-leading-relaxed);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 480px) {
+  .stm-record-view-switch {
+    gap: 0;
+  }
+  .stm-record-view-switch .stm-record-chip {
+    padding-inline: var(--stm-space-2);
+  }
+  .stm-grid-cell input,
+  .stm-grid-cell textarea,
+  .stm-grid-cell select {
+    font-size: max(16px, var(--stm-fs-md));
+  }
+}
 /* 记录网格（表格填写视图）：行 = 记录、列 = 字段；冻结表头 + 冻结行号列 + 可调列宽 */
 .stm-grid-scroll {
   overflow: auto;
@@ -124,13 +357,13 @@
 /* 单元格：默认上下居中；查看/编辑单元格高度由行高决定（行内 style）。 */
 .stm-grid-cell {
   min-height: 32px;
-  padding: 2px 4px;
+  padding: calc(var(--stm-space-1) / 2) var(--stm-space-1);
   box-sizing: border-box;
   border-bottom: 1px solid var(--stm-border);
   border-right: 1px solid var(--stm-border);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--stm-space-1);
 }
 
 .stm-grid-cell--input {
@@ -146,7 +379,7 @@
    显示可容纳的整行数、无上限，行数由 grid-editor 按行高算出并以行内
    -webkit-line-clamp 覆盖，见 gridViewLineCount），点击进入编辑模式（停用字段不可点击） */
 .stm-grid-cell--view {
-  padding: 4px 6px;
+  padding: var(--stm-space-1) var(--stm-space-2);
   cursor: pointer;
   overflow: hidden;
 }
@@ -154,17 +387,17 @@
 .stm-grid-cell--view .stm-grid-view-text {
   width: 100%;
   font-size: var(--stm-fs-sm);
-  color: var(--stm-ink);
+  color: var(--stm-fg);
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.5;
+  line-height: var(--stm-leading-normal);
 }
 
 /* 停用字段的查看文本：次级色、不可点击 */
 .stm-grid-cell--view .stm-grid-view-text--disabled {
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2);
   cursor: default;
 }
 
@@ -175,25 +408,25 @@
   z-index: 2;
   background: var(--stm-surface);
   font-size: var(--stm-fs-xs);
-  font-weight: 600;
-  color: var(--stm-ink);
+  font-weight: var(--stm-weight-semibold);
+  color: var(--stm-fg);
 }
 
 .stm-grid-head-name {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: calc(var(--stm-space-1) / 2);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .stm-grid-head-disabled {
   font-size: var(--stm-fs-xs);
-  line-height: 1;
-  padding: 3px 5px;
+  line-height: var(--stm-leading-tight);
+  padding: var(--stm-space-1) var(--stm-space-2);
   border-radius: 999px;
   color: var(--stm-warning);
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg);
   border: 1px solid var(--stm-border);
 }
 
@@ -202,9 +435,9 @@
   position: sticky;
   left: 0;
   z-index: 1;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg);
   justify-content: center;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2);
   font-family: var(--stm-font-mono);
   font-size: var(--stm-fs-xs);
 }
@@ -216,13 +449,13 @@
 
 .stm-grid-rownum--new {
   color: var(--stm-accent);
-  font-weight: 600;
+  font-weight: var(--stm-weight-semibold);
 }
 
 .stm-grid-rownum-saving {
   color: var(--stm-accent);
   font-size: var(--stm-fs-sm);
-  line-height: 1;
+  line-height: var(--stm-leading-tight);
 }
 
 .stm-grid-rownum-btn {
@@ -231,7 +464,7 @@
   padding: 0;
   width: 100%;
   height: 100%;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2);
   font-family: var(--stm-font-mono);
   font-size: var(--stm-fs-xs);
   cursor: pointer;
@@ -310,7 +543,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--stm-ink);
+  color: var(--stm-fg);
   font-size: var(--stm-fs-sm);
   font-family: var(--stm-font);
 }
@@ -319,7 +552,7 @@
   resize: none;
   height: 100%;
   min-height: 32px;
-  line-height: 1.5;
+  line-height: var(--stm-leading-normal);
 }
 
 /* 原生多选（ticket 21）：适配默认 3 行行高 */
@@ -337,190 +570,43 @@
   background: color-mix(in srgb, var(--stm-danger) 10%, var(--stm-surface));
   border-bottom: 1px solid var(--stm-border);
   border-right: 1px solid var(--stm-border);
-  padding: 4px 8px;
+  padding: var(--stm-space-1) var(--stm-space-2);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(var(--stm-space-1) / 2);
 }
 
 .stm-grid-row-error {
   color: var(--stm-danger);
   font-size: var(--stm-fs-xs);
-  line-height: 1.4;
+  line-height: var(--stm-leading-normal);
 }
 
 .stm-source-badge {
   flex: 0 0 auto;
   font-size: var(--stm-fs-xs);
-  line-height: 1;
-  padding: 5px 8px;
+  line-height: var(--stm-leading-tight);
+  padding: var(--stm-space-1) var(--stm-space-2);
   border-radius: 999px;
 }
 
 .stm-source-badge--manual {
-  color: var(--stm-ink-secondary);
-  background: var(--stm-ink-bg);
+  color: var(--stm-fg-2);
+  background: var(--stm-bg);
   border: 1px solid var(--stm-border);
 }
 
 .stm-source-badge--agent {
-  color: var(--stm-ink-bg);
+  color: var(--stm-bg);
   background: var(--stm-accent);
-}
-
-/* 分页 */
-.stm-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.stm-page-button {
-  min-height: 44px;
-  padding: 6px 12px;
-  background: var(--stm-surface);
-  border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
-  font-size: var(--stm-fs-xs);
-  font-family: var(--stm-font);
-  cursor: pointer;
-}
-
-.stm-page-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.stm-pagination-info {
-  color: var(--stm-ink-secondary);
-  font-size: var(--stm-fs-xs);
-  font-family: var(--stm-font-mono);
-}
-
-/* 记录详情 */
-.stm-record-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stm-record-detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.stm-record-detail-actions {
-  display: flex;
-  gap: 4px;
-}
-
-/* 详情页头：网格中有未保存草稿的提示（详情显示的是已保存值） */
-.stm-record-detail-unsaved {
-  font-size: var(--stm-fs-xs);
-  line-height: 1;
-  padding: 5px 8px;
-  border-radius: 999px;
-  color: var(--stm-warning);
-  background: var(--stm-ink-bg);
-  border: 1px solid var(--stm-border);
-  white-space: nowrap;
-}
-
-.stm-record-display-large {
-  font-size: var(--stm-fs-md);
-  font-weight: 600;
-  line-height: 1.5;
-  color: var(--stm-ink);
-  overflow-wrap: anywhere;
-}
-
-.stm-record-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.stm-record-meta-time {
-  color: var(--stm-ink-secondary);
-  font-size: var(--stm-fs-xs);
-  font-family: var(--stm-font-mono);
-}
-
-.stm-record-revision {
-  color: var(--stm-ink-secondary);
-  font-size: var(--stm-fs-xs);
-  font-family: var(--stm-font-mono);
-}
-
-.stm-no-evidence {
-  color: var(--stm-ink-secondary);
-  font-size: var(--stm-fs-xs);
-  font-style: italic;
-  padding: 6px 10px;
-  background: var(--stm-ink-bg);
-  border: 1px dashed var(--stm-border);
-  border-radius: 8px;
-}
-
-/* 详情字段值 */
-.stm-record-fields {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stm-record-field {
-  background: var(--stm-surface);
-  border: 1px solid var(--stm-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-}
-
-.stm-record-field-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.stm-record-field-name {
-  font-size: var(--stm-fs-sm);
-  font-weight: 600;
-  color: var(--stm-ink);
-}
-
-.stm-field-disabled {
-  font-size: var(--stm-fs-xs);
-  line-height: 1;
-  padding: 4px 7px;
-  border-radius: 999px;
-  color: var(--stm-warning);
-  background: var(--stm-ink-bg);
-  border: 1px solid var(--stm-border);
-}
-
-.stm-record-field-value {
-  font-size: var(--stm-fs-sm);
-  line-height: 1.6;
-  color: var(--stm-ink);
-  overflow-wrap: anywhere;
 }
 
 /* 证据楼层 chip（签名元素）：铜绿 + 等宽 #N */
 .stm-evidence-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: var(--stm-space-2);
+  margin-top: var(--stm-space-2);
 }
 
 .stm-evidence-chip-wrap {
@@ -530,12 +616,12 @@
 
 .stm-evidence-chip {
   /* spec §11 触控目标 ≥44px（签名元素：点按跳转 + 长按摘录） */
-  min-height: 44px;
-  padding: 6px 10px;
+  min-height: var(--stm-control-h);
+  padding: var(--stm-space-2) var(--stm-space-3);
   border-radius: 999px;
   border: 1px solid var(--stm-border);
-  background: var(--stm-ink-bg);
-  color: var(--stm-ink-secondary);
+  background: var(--stm-bg);
+  color: var(--stm-fg-2);
   font-size: var(--stm-fs-xs);
   font-family: var(--stm-font-mono);
   cursor: default;
@@ -544,9 +630,9 @@
 .stm-evidence-chip--floor {
   background: var(--stm-accent);
   border-color: var(--stm-accent);
-  color: var(--stm-ink-bg);
+  color: var(--stm-bg);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--stm-weight-semibold);
 }
 
 .stm-evidence-chip--floor:hover {
@@ -568,299 +654,35 @@
   background: var(--stm-surface);
   border: 1px solid var(--stm-border);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  padding: 8px 10px;
+  box-shadow: var(--stm-shadow-pop);
+  padding: var(--stm-space-2) var(--stm-space-3);
   pointer-events: none;
 }
 
 .stm-evidence-popover-head {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: var(--stm-space-2);
+  margin-bottom: var(--stm-space-1);
 }
 
 .stm-evidence-popover-floor {
   color: var(--stm-accent);
   font-family: var(--stm-font-mono);
   font-size: var(--stm-fs-xs);
-  font-weight: 600;
+  font-weight: var(--stm-weight-semibold);
 }
 
 .stm-evidence-popover-name {
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2);
   font-size: var(--stm-fs-xs);
 }
 
 .stm-evidence-popover-content {
-  color: var(--stm-ink);
+  color: var(--stm-fg);
   font-size: var(--stm-fs-xs);
-  line-height: 1.5;
+  line-height: var(--stm-leading-normal);
   overflow-wrap: anywhere;
   max-height: 132px;
   overflow-y: auto;
-}
-
-/* 记录从摘要进入，网格作为批量编辑工作区。 */
-.stm-record-view {
-  gap: 16px;
-  min-width: 0;
-}
-
-.stm-record-view [hidden] {
-  display: none;
-}
-
-.stm-record-toolbar {
-  gap: 12px;
-}
-
-.stm-record-chip,
-.stm-record-search-toggle {
-  min-height: 44px;
-  border-radius: 10px;
-}
-
-.stm-record-search-toggle {
-  width: 44px;
-  height: 44px;
-}
-
-.stm-record-view-switch {
-  display: flex;
-  margin-left: auto;
-  gap: 4px;
-}
-
-.stm-record-view-switch .stm-record-chip {
-  border-color: transparent;
-  background: transparent;
-}
-
-.stm-record-view-switch [aria-pressed="true"] {
-  background: var(--stm-surface);
-  border-color: var(--stm-border);
-  color: var(--stm-fg);
-}
-
-.stm-record-results {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-.stm-record-summary-list {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--stm-border);
-}
-
-.stm-record-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  padding: 18px 4px;
-  border: 0;
-  border-bottom: 1px solid var(--stm-border);
-  border-radius: 0;
-  background: transparent;
-  color: var(--stm-fg);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-
-.stm-record-summary:hover {
-  background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
-}
-
-.stm-record-summary:focus-visible,
-.stm-record-chip:focus-visible,
-.stm-record-search-toggle:focus-visible,
-.stm-record-history summary:focus-visible {
-  outline: 2px solid var(--stm-accent);
-  outline-offset: 3px;
-}
-
-.stm-record-summary-title {
-  color: var(--stm-fg);
-  font-size: var(--stm-fs-md);
-  font-weight: 600;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.stm-record-summary-values {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--stm-fg-2);
-  font-size: var(--stm-fs-sm);
-  line-height: 1.6;
-}
-
-.stm-record-summary-values > span {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-
-.stm-record-summary-label {
-  margin-right: 10px;
-  color: var(--stm-fg-2);
-  font-size: var(--stm-fs-xs);
-}
-
-.stm-record-summary-meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
-  color: var(--stm-fg-2);
-  font-size: var(--stm-fs-xs);
-  line-height: 1.5;
-}
-
-.stm-record-detail {
-  gap: 16px;
-}
-
-.stm-record-detail-header {
-  min-height: 44px;
-  flex-wrap: wrap;
-}
-
-.stm-record-detail-header h3 {
-  margin: 0;
-  font-size: var(--stm-fs-lg);
-}
-
-.stm-record-detail-actions {
-  gap: 8px;
-}
-
-.stm-record-detail .stm-table-action {
-  min-height: 44px;
-}
-
-.stm-record-display-large {
-  font-size: var(--stm-fs-lg);
-  line-height: 1.65;
-}
-
-.stm-record-field {
-  border: 0;
-  border-bottom: 1px solid var(--stm-border);
-  border-radius: 0;
-  background: transparent;
-  padding: 12px 0;
-}
-
-.stm-record-field-value {
-  white-space: pre-wrap;
-}
-
-.stm-record-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.stm-record-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stm-record-form-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-  padding: 0;
-  margin: 0;
-  border: 0;
-}
-
-.stm-record-form-field .stm-input {
-  min-height: 44px;
-  width: 100%;
-  box-sizing: border-box;
-  font-size: max(16px, var(--stm-fs-md));
-}
-
-.stm-record-form-field textarea {
-  min-height: 100px;
-  resize: vertical;
-}
-
-.stm-record-form-actions {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 0;
-  background: var(--stm-bg);
-  border-top: 1px solid var(--stm-border);
-  z-index: 3;
-}
-
-.stm-record-history {
-  border: 1px solid var(--stm-border);
-  border-radius: 14px;
-  padding: 0 14px;
-}
-
-.stm-record-history summary {
-  display: list-item;
-  padding: 14px 0;
-  min-height: 44px;
-  box-sizing: border-box;
-  cursor: pointer;
-}
-
-.stm-record-history-entry {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 0;
-  border-top: 1px solid var(--stm-border);
-  font-size: var(--stm-fs-sm);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-@media (max-width: 480px) {
-  .stm-record-actions {
-    gap: 6px;
-  }
-
-  .stm-record-view-switch {
-    gap: 0;
-  }
-
-  .stm-record-view-switch .stm-record-chip {
-    padding-inline: 8px;
-  }
-
-  .stm-record-form-actions .stm-button {
-    flex: 1;
-  }
-
-  .stm-grid-cell input,
-  .stm-grid-cell textarea,
-  .stm-grid-cell select {
-    font-size: max(16px, var(--stm-fs-md));
-  }
 }

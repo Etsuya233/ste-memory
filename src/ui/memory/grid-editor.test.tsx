@@ -91,7 +91,7 @@ const sampleRecord: MemoryRecord = {
 };
 
 describe("记录摘要列表", () => {
-  it("显示启用字段摘要、来源与向量状态，保留打开记录入口", () => {
+  it("显示启用字段摘要与向量状态，保留整行打开记录入口", () => {
     const html = renderToString(
       <RecordSummaryList
         records={[
@@ -109,7 +109,8 @@ describe("记录摘要列表", () => {
     expect(html.match(/阿尔法/g)).toHaveLength(1);
     expect(html).not.toContain("名字");
     expect(html).toContain("就绪 1/2");
-    expect(html).toContain("手动");
+    expect(html).not.toContain("手动");
+    expect(html).not.toContain("2026");
     expect(html).not.toContain("已停用内容");
     expect(html).not.toContain("textarea");
   });
@@ -159,7 +160,7 @@ describe("记录摘要列表", () => {
     );
     expect(html).toContain("摘要甲");
     expect(html).toContain("摘要乙");
-    expect(html).toContain("摘要丙");
+    expect(html).not.toContain("摘要丙");
     expect(html).not.toContain("摘要丁");
     expect(html).not.toContain("无分组");
     expect(html).not.toContain('stm-record-summary-label">名称');

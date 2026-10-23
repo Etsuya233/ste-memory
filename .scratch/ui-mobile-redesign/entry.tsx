@@ -26,7 +26,7 @@ let fields = tables.flatMap((table) => [
   { key: "trusted", name: "建立信任", type: "boolean" },
 ].map((field, position) => ({ ...stamp, options: [], required: false, enabled: true, prompt: "", referenceTableId: null, maxChars: null, valuePattern: null, valuePatternMessage: null, ...field, id: `${table.id}-${field.key}`, tableId: table.id, position })));
 const people = ["林澈", "苏眠", "白塔守望者", "渡船人", "长名字的远行旅伴与北境调查员", "邮差", "钟楼学徒", "商队领队"];
-let records = tables.flatMap((table, ti) => people.slice(0, ti ? 3 : 8).map((name, index) => ({
+let records = tables.flatMap((table, ti) => Array.from({ length: ti ? 3 : 23 }, (_, index) => people[index % people.length]).map((name, index) => ({
   ...stamp, id: `${table.id}-record-${index}`, tableId: table.id, displayText: name, payload: {
     [`${table.id}-name`]: name,
     [`${table.id}-summary`]: index === 0 ? "在旧港的雨夜相识。他曾帮助我们避开巡逻，也一直在寻找失踪的姐姐。约定在白塔钟声响起时再见。" : "在前往北境的旅途中相识，掌握一段尚未证实的线索。",

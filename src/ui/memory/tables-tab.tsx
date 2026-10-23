@@ -33,7 +33,7 @@ import type { VectorIndexService } from "../../features/vector-index/vector-inde
 import { listTablePresets } from "../../features/table-presets/preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import type { VectorIndexConfiguration } from "../../features/memory/index.ts";
-import { PanelBar } from "../shell/panel-bar.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -562,16 +562,12 @@ export function TablesTab(props: {
             <PanelBar
               variant="detail"
               leading={
-                <button
-                  type="button"
-                  className="stm-header-back"
+                <PanelBarAction
+                  icon="fa-chevron-left"
+                  label="返回表格索引"
                   data-action="back-to-table-list"
-                  aria-label="返回表格索引"
                   onClick={backToList}
-                >
-                  <i className="fa-solid fa-chevron-left" aria-hidden="true"></i>
-                  <span>表格</span>
-                </button>
+                />
               }
               title={selectedTable.name}
               subtitle={selectedTable.key}

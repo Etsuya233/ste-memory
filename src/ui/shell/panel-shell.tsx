@@ -1,3 +1,4 @@
+import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
@@ -512,6 +513,7 @@ export function PanelShell(props: {
   return (
     <aside
       id="stm-panel"
+      data-glass={appearance.liquidGlass}
       data-theme={appearance.theme}
       data-accent={appearance.accent}
       data-font={appearance.font}
@@ -542,46 +544,42 @@ export function PanelShell(props: {
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      <header
-        className="stm-panel-header"
-        data-action="drag-panel"
+      <PanelBar
+        dataAction="drag-panel"
         onPointerDown={beginHeaderDrag}
         inert={navOpen}
-      >
-        <button
-          type="button"
-          className="stm-header-nav"
-          ref={navTriggerRef}
-          aria-label="打开导航"
-          aria-expanded={navOpen}
-          aria-controls="stm-navigation"
-          data-action="open-navigation"
-          onClick={() => setNavOpen(true)}
-        >
-          <i className="fa-solid fa-bars" aria-hidden="true" />
-        </button>
-        <div className="stm-header-title-wrap">
-          <div className="stm-header-title">{PANEL_TAB_LABELS[state.tab]}</div>
-          <div
+        title={PANEL_TAB_LABELS[state.tab]}
+        subtitle={
+          <span
             className="stm-space-title"
             title={[info.title, info.detail].filter(Boolean).join(" · ")}
           >
             {info.title}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="stm-panel-close"
-          data-action="close-panel"
-          aria-label="收起面板"
-          onClick={() => {
-            if (!confirmLeaveTab()) return;
-            props.model.close();
-          }}
-        >
-          <i className="fa-solid fa-xmark" aria-hidden="true"></i>
-        </button>
-      </header>
+          </span>
+        }
+        leading={
+          <PanelBarAction
+            icon="fa-bars"
+            label="打开导航"
+            ref={navTriggerRef}
+            aria-expanded={navOpen}
+            aria-controls="stm-navigation"
+            data-action="open-navigation"
+            onClick={() => setNavOpen(true)}
+          />
+        }
+        trailing={
+          <PanelBarAction
+            icon="fa-xmark"
+            label="收起面板"
+            data-action="close-panel"
+            onClick={() => {
+              if (!confirmLeaveTab()) return;
+              props.model.close();
+            }}
+          />
+        }
+      />
       {navOpen && (
         <button
           type="button"
