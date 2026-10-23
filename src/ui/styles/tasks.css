@@ -37,8 +37,10 @@
   cursor: pointer;
 }
 
-.stm-task-card-title--foldable:hover {
-  color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-task-card-title--foldable:hover {
+    color: var(--stm-accent);
+  }
 }
 
 .stm-task-card-detail {

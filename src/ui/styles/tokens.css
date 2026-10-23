@@ -40,6 +40,8 @@
   --stm-radius: 10px;
   --stm-radius-card: 14px;
   --stm-control-h: 44px;
+  --stm-press-scale: 1.035;
+  --stm-press-duration: 120ms;
   --stm-space-1: 4px;
   --stm-space-2: 8px;
   --stm-space-3: 12px;
@@ -208,7 +210,7 @@
 }
 
 /* 楼层跳转高亮（证据楼层 chip 的底层反馈）：ST 消息块 `.mes[mesid="N"]` 临时描边。
- * 全插件仅此一处动效 + 抽屉开合，尊重 reduced-motion（spec UI 契约）。 */
+ * 与公共控件按压及抽屉开合一致，尊重 reduced-motion。 */
 .stm-floor-flash {
   animation: stm-floor-flash 2s ease-out;
 }

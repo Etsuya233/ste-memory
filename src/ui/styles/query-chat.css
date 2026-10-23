@@ -45,8 +45,10 @@
   cursor: pointer;
 }
 
-.stm-query-mode:hover {
-  color: var(--stm-ink);
+@media (hover: hover) and (pointer: fine) {
+  .stm-query-mode:hover {
+    color: var(--stm-ink);
+  }
 }
 
 .stm-query-mode[aria-selected="true"] {
@@ -127,9 +129,11 @@
   cursor: pointer;
 }
 
-.stm-chat-copy:hover:not(:disabled) {
-  border-color: var(--stm-accent);
-  color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-chat-copy:hover:not(:disabled) {
+    border-color: var(--stm-accent);
+    color: var(--stm-accent);
+  }
 }
 
 .stm-chat-copy:disabled {
@@ -353,8 +357,10 @@
   text-underline-offset: 2px;
 }
 
-.stm-chat-markdown a:hover {
-  color: var(--stm-ink);
+@media (hover: hover) and (pointer: fine) {
+  .stm-chat-markdown a:hover {
+    color: var(--stm-ink);
+  }
 }
 
 .stm-chat-markdown hr {
@@ -462,8 +468,10 @@
   cursor: pointer;
 }
 
-.stm-query-chat-send:hover:not(:disabled) {
-  filter: brightness(1.08);
+@media (hover: hover) and (pointer: fine) {
+  .stm-query-chat-send:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
 }
 
 .stm-query-chat-send:disabled {

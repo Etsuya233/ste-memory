@@ -5,7 +5,7 @@
  * 移动端优先：默认 = 全屏底部抽屉；桌面（≥1001px，与 ST 移动断点一致）
  * = 居中大尺寸浮动窗口：顶栏拖拽移动 + 右下角缩放手柄（几何走 CSS 变量，
  * 只被桌面媒体查询消费）。色板/字体全部走令牌；类名 stm- 前缀隔离，
- * 不依赖 ST 主题变量。动效只留抽屉开合（spec UI 契约），尊重 reduced-motion。
+ * 不依赖 ST 主题变量。交互动效遵循统一令牌，尊重 reduced-motion。
  * ============================================================ */
 
 /* 顶部工具栏按钮（插入 #top-settings-holder；自身完整自绘，仅借用容器位置） */
@@ -31,8 +31,10 @@
   cursor: pointer;
 }
 
-.stm-toolbar-button:hover {
-  opacity: 0.95;
+@media (hover: hover) and (pointer: fine) {
+  .stm-toolbar-button:hover {
+    opacity: 0.95;
+  }
 }
 
 .stm-toolbar-button[aria-pressed="true"] {
@@ -50,7 +52,11 @@
   color: var(--stm-ink-secondary);
 }
 
-.stm-wand-entry:hover .extensionsMenuExtensionButton,
+@media (hover: hover) and (pointer: fine) {
+  .stm-wand-entry:hover .extensionsMenuExtensionButton {
+    color: var(--stm-ink);
+  }
+}
 .stm-wand-entry:focus-visible .extensionsMenuExtensionButton {
   color: var(--stm-ink);
 }
@@ -169,10 +175,12 @@
   cursor: pointer;
   font-size: var(--stm-fs-md);
 }
-.stm-header-nav:hover,
-.stm-panel-close:hover {
-  background: var(--stm-hover);
-  color: var(--stm-fg);
+@media (hover: hover) and (pointer: fine) {
+  .stm-header-nav:hover,
+  .stm-panel-close:hover {
+    background: var(--stm-hover);
+    color: var(--stm-fg);
+  }
 }
 .stm-header-back {
   min-height: var(--stm-control-h);
@@ -210,8 +218,10 @@
   cursor: pointer;
 }
 
-.stm-macro-scope-tab:hover {
-  color: var(--stm-ink);
+@media (hover: hover) and (pointer: fine) {
+  .stm-macro-scope-tab:hover {
+    color: var(--stm-ink);
+  }
 }
 
 .stm-macro-scope-tab[aria-selected="true"] {
@@ -397,9 +407,11 @@
   width: 20px;
   text-align: center;
 }
-.stm-tab:hover {
-  background: var(--stm-hover);
-  color: var(--stm-fg);
+@media (hover: hover) and (pointer: fine) {
+  .stm-tab:hover {
+    background: var(--stm-hover);
+    color: var(--stm-fg);
+  }
 }
 .stm-tab[aria-selected="true"] {
   background: var(--stm-accent-tint);
@@ -473,9 +485,11 @@
   opacity: 0.55;
 }
 
-.stm-panel-resize:hover::before {
-  border-color: var(--stm-accent);
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .stm-panel-resize:hover::before {
+    border-color: var(--stm-accent);
+    opacity: 1;
+  }
 }
 
 /* 空状态（「空状态是邀请」风格） */
@@ -536,8 +550,10 @@
   cursor: pointer;
 }
 
-.stm-expand:hover {
-  color: var(--stm-ink);
+@media (hover: hover) and (pointer: fine) {
+  .stm-expand:hover {
+    color: var(--stm-ink);
+  }
 }
 
 .stm-table-row-main {
@@ -709,8 +725,10 @@
   color: var(--stm-accent);
 }
 
-.stm-setting-group-header:hover {
-  border-color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-setting-group-header:hover {
+    border-color: var(--stm-accent);
+  }
 }
 
 .stm-setting-group-header:focus-visible {
@@ -750,8 +768,10 @@
   color: var(--stm-ink-secondary);
 }
 
-.stm-setting-group-header:hover i.fa-solid {
-  color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-setting-group-header:hover i.fa-solid {
+    color: var(--stm-accent);
+  }
 }
 
 .stm-setting-group-body {
@@ -813,8 +833,10 @@
   cursor: pointer;
 }
 
-.stm-entry-option:hover {
-  color: var(--stm-ink);
+@media (hover: hover) and (pointer: fine) {
+  .stm-entry-option:hover {
+    color: var(--stm-ink);
+  }
 }
 
 .stm-entry-option--active {
@@ -875,8 +897,10 @@
   cursor: pointer;
 }
 
-.stm-button:hover {
-  border-color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-button:hover {
+    border-color: var(--stm-accent);
+  }
 }
 
 .stm-button:disabled {
@@ -1084,6 +1108,11 @@
   border-radius: 999px;
   background: var(--stm-surface-2);
   box-shadow: inset 0 0 0 1px var(--stm-border);
+  transition: transform var(--stm-press-duration) ease;
+}
+.stm-bar-group:has(.stm-bar-action:not(:disabled)[data-pressed="true"]),
+.stm-bar-group:has(.stm-bar-action:not(:disabled):focus-visible:active) {
+  transform: scale(var(--stm-press-scale));
 }
 .stm-bar-action {
   display: grid;
@@ -1099,11 +1128,15 @@
   font: inherit;
   font-size: var(--stm-fs-lg);
   cursor: pointer;
+  transition: background-color var(--stm-press-duration) ease;
 }
-.stm-bar-action:hover {
-  background: var(--stm-hover);
+@media (hover: hover) and (pointer: fine) {
+  .stm-bar-action:not(:disabled):hover {
+    background: var(--stm-hover);
+  }
 }
-.stm-bar-action:active {
+.stm-bar-action:not(:disabled):focus-visible:active,
+.stm-bar-action:not(:disabled)[data-pressed="true"] {
   background: var(--stm-pressed);
 }
 .stm-bar-action:disabled {
@@ -1204,8 +1237,10 @@
 .stm-disclosure-summary::-webkit-details-marker {
   display: none;
 }
-.stm-disclosure-summary:hover {
-  background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-disclosure-summary:hover {
+    background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+  }
 }
 .stm-disclosure-summary:focus-visible {
   outline: 2px solid var(--stm-accent);
@@ -1251,4 +1286,26 @@
 #stm-panel *::before,
 #stm-panel *::after {
   text-shadow: none;
+}
+
+/* 按压反馈不依赖 hover 能力，触屏松开后立即恢复。 */
+.stm-button:not(:disabled):active,
+.stm-header-nav:not(:disabled):active,
+.stm-panel-close:not(:disabled):active,
+.stm-record-chip:not(:disabled):active,
+.stm-record-summary:not(:disabled):active,
+.stm-tab:not(:disabled):active,
+.stm-setting-group-header:active,
+.stm-disclosure-summary:active {
+  background: var(--stm-pressed);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stm-bar-group,
+  .stm-bar-action {
+    transition: none;
+  }
+  .stm-bar-group:has(.stm-bar-action:not(:disabled)[data-pressed="true"]),
+  .stm-bar-group:has(.stm-bar-action:not(:disabled):focus-visible:active) {
+    transform: none;
+  }
 }

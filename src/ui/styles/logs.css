@@ -31,8 +31,10 @@
   color: inherit;
 }
 
-.stm-log-item-head:hover {
-  background: var(--stm-hover, rgba(128, 128, 128, 0.08));
+@media (hover: hover) and (pointer: fine) {
+  .stm-log-item-head:hover {
+    background: var(--stm-hover, rgba(128, 128, 128, 0.08));
+  }
 }
 
 .stm-log-level {

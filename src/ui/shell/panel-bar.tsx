@@ -1,4 +1,4 @@
-import type { ComponentProps, PointerEventHandler, ReactNode } from "react";
+import { useState, type ComponentProps, type PointerEventHandler, type ReactNode } from "react";
 
 /** 标准图标操作；原生按钮属性保留表单、键盘、ref 和页面事件能力。 */
 export function PanelBarAction({
@@ -6,6 +6,11 @@ export function PanelBarAction({
   label,
   emphasis = false,
   danger = false,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
+  onLostPointerCapture,
   ...props
 }: Omit<ComponentProps<"button">, "children" | "className" | "aria-label"> & {
   readonly icon: string;
@@ -13,10 +18,33 @@ export function PanelBarAction({
   readonly emphasis?: boolean;
   readonly danger?: boolean;
 }) {
+  const [pressed, setPressed] = useState(false);
   return (
     <button
       type="button"
       {...props}
+      data-pressed={pressed}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        if (props.disabled || event.defaultPrevented || event.button !== 0) return;
+        setPressed(true);
+      }}
+      onPointerUp={(event) => {
+        setPressed(false);
+        onPointerUp?.(event);
+      }}
+      onPointerCancel={(event) => {
+        setPressed(false);
+        onPointerCancel?.(event);
+      }}
+      onPointerLeave={(event) => {
+        setPressed(false);
+        onPointerLeave?.(event);
+      }}
+      onLostPointerCapture={(event) => {
+        setPressed(false);
+        onLostPointerCapture?.(event);
+      }}
       className={`stm-bar-action${emphasis ? " stm-bar-action--primary" : ""}${danger ? " stm-bar-action--danger" : ""}`}
       aria-label={label}
       title={label}

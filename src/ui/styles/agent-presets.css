@@ -149,8 +149,10 @@
   cursor: pointer;
 }
 
-.stm-preset-fragment-remove:hover {
-  color: var(--stm-danger);
+@media (hover: hover) and (pointer: fine) {
+  .stm-preset-fragment-remove:hover {
+    color: var(--stm-danger);
+  }
 }
 
 .stm-preset-fragment-body {
@@ -185,8 +187,10 @@
   cursor: pointer;
 }
 
-.stm-chip:hover {
-  border-color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-chip:hover {
+    border-color: var(--stm-accent);
+  }
 }
 
 .stm-preset-add-fragment {

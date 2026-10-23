@@ -32,9 +32,11 @@
   cursor: pointer;
 }
 
-.stm-table-action:hover {
-  color: var(--stm-ink);
-  border-color: var(--stm-border);
+@media (hover: hover) and (pointer: fine) {
+  .stm-table-action:hover {
+    color: var(--stm-ink);
+    border-color: var(--stm-border);
+  }
 }
 
 .stm-table-action[aria-pressed="true"] {
@@ -45,9 +47,11 @@
   color: var(--stm-danger);
 }
 
-.stm-table-action--danger:hover {
-  color: var(--stm-danger);
-  border-color: var(--stm-danger);
+@media (hover: hover) and (pointer: fine) {
+  .stm-table-action--danger:hover {
+    color: var(--stm-danger);
+    border-color: var(--stm-danger);
+  }
 }
 
 .stm-table-action--hint {
@@ -56,9 +60,11 @@
   opacity: 0.7;
 }
 
-.stm-table-action--hint:hover {
-  color: var(--stm-ink-secondary);
-  border-color: transparent;
+@media (hover: hover) and (pointer: fine) {
+  .stm-table-action--hint:hover {
+    color: var(--stm-ink-secondary);
+    border-color: transparent;
+  }
 }
 
 /* 字段管理模式入口（卡片展开区顶部） */
@@ -89,9 +95,11 @@
   cursor: pointer;
 }
 
-.stm-field-action:hover:not(:disabled) {
-  color: var(--stm-ink);
-  border-color: var(--stm-border);
+@media (hover: hover) and (pointer: fine) {
+  .stm-field-action:hover:not(:disabled) {
+    color: var(--stm-ink);
+    border-color: var(--stm-border);
+  }
 }
 
 .stm-field-action:disabled {
@@ -142,9 +150,11 @@
   cursor: pointer;
 }
 
-.stm-strategy-chip:hover {
-  border-color: var(--stm-accent);
-  color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-strategy-chip:hover {
+    border-color: var(--stm-accent);
+    color: var(--stm-accent);
+  }
 }
 
 .stm-strategy-preview {
@@ -430,8 +440,10 @@
   cursor: pointer;
 }
 
-.stm-table-rail-row:hover {
-  background: var(--stm-hover);
+@media (hover: hover) and (pointer: fine) {
+  .stm-table-rail-row:hover {
+    background: var(--stm-hover);
+  }
 }
 
 .stm-table-rail-row.is-active {
@@ -733,8 +745,10 @@
   cursor: pointer;
 }
 
-.stm-field-main:hover .stm-field-name {
-  color: var(--stm-accent-text);
+@media (hover: hover) and (pointer: fine) {
+  .stm-field-main:hover .stm-field-name {
+    color: var(--stm-accent-text);
+  }
 }
 
 .stm-field-name {
@@ -923,8 +937,10 @@
   transition: transform 0.12s ease;
 }
 
-.stm-form-check:hover input:not(:disabled) + .stm-check-box {
-  border-color: var(--stm-fg-3);
+@media (hover: hover) and (pointer: fine) {
+  .stm-form-check:hover input:not(:disabled) + .stm-check-box {
+    border-color: var(--stm-fg-3);
+  }
 }
 
 .stm-form-check input:checked + .stm-check-box {

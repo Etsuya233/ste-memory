@@ -940,11 +940,9 @@ export function RecordsTab(props: {
             role="group"
             aria-label="记录显示方式"
           >
-            <button
-              type="button"
-              className="stm-bar-action"
-              aria-label="列表"
-              title="列表"
+            <PanelBarAction
+              icon="fa-list"
+              label="列表"
               aria-pressed={viewMode === "list"}
               data-action="records-list-view"
               onClick={() => {
@@ -953,43 +951,29 @@ export function RecordsTab(props: {
                   setViewMode("list");
                 }
               }}
-            >
-              <i className="fa-solid fa-list" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="stm-bar-action"
-              aria-label="批量编辑"
-              title="批量编辑"
+            />
+            <PanelBarAction
+              icon="fa-table-cells"
+              label="批量编辑"
               aria-pressed={viewMode === "grid"}
               data-action="records-grid-view"
               onClick={() => setViewMode("grid")}
-            >
-              <i className="fa-solid fa-table-cells" aria-hidden="true" />
-            </button>
+            />
           </div>
           <div className="stm-bar-group">
             {searchOpen ? (
-              <button
-                type="button"
-                className="stm-bar-action stm-record-search-toggle"
-                aria-label="关闭搜索"
-                title="关闭搜索"
+              <PanelBarAction
+                icon="fa-xmark"
+                label="关闭搜索"
                 onClick={() => setSearchOpen(false)}
-              >
-                <i className="fa-solid fa-xmark" aria-hidden="true" />
-              </button>
+              />
             ) : (
-              <button
-                type="button"
-                className="stm-bar-action stm-record-search-toggle"
+              <PanelBarAction
+                icon="fa-magnifying-glass"
                 data-action="record-search-toggle"
-                aria-label="搜索记录"
-                title="搜索记录"
+                label="搜索记录"
                 onClick={() => setSearchOpen(true)}
-              >
-                <i className="fa-solid fa-magnifying-glass" aria-hidden="true" />
-              </button>
+              />
             )}
           </div>
         </div>

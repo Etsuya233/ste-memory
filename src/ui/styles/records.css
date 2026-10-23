@@ -83,9 +83,11 @@
   cursor: pointer;
 }
 
-.stm-record-chip:hover {
-  color: var(--stm-fg);
-  background: var(--stm-surface-2);
+@media (hover: hover) and (pointer: fine) {
+  .stm-record-chip:hover {
+    color: var(--stm-fg);
+    background: var(--stm-surface-2);
+  }
 }
 
 .stm-record-chip--active {
@@ -169,8 +171,10 @@
   border-top: 1px solid var(--stm-border);
 }
 
-.stm-record-summary:hover {
-  background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-record-summary:hover {
+    background: color-mix(in srgb, var(--stm-accent) 5%, transparent);
+  }
 }
 .stm-record-summary:focus-visible {
   outline: 2px solid var(--stm-accent);
@@ -477,8 +481,10 @@
   cursor: pointer;
 }
 
-.stm-grid-rownum-btn:hover {
-  color: var(--stm-accent);
+@media (hover: hover) and (pointer: fine) {
+  .stm-grid-rownum-btn:hover {
+    color: var(--stm-accent);
+  }
 }
 
 /* 行高拖拽把手（行号单元格下缘；与列宽把手同一模式，纵向） */
@@ -504,7 +510,11 @@
   background: transparent;
 }
 
-.stm-grid-row-resize:hover::after,
+@media (hover: hover) and (pointer: fine) {
+  .stm-grid-row-resize:hover::after {
+    background: var(--stm-accent);
+  }
+}
 .stm-grid-row-resize:focus-visible::after {
   background: var(--stm-accent);
 }
@@ -532,7 +542,11 @@
   background: transparent;
 }
 
-.stm-grid-resize:hover::after,
+@media (hover: hover) and (pointer: fine) {
+  .stm-grid-resize:hover::after {
+    background: var(--stm-accent);
+  }
+}
 .stm-grid-resize:focus-visible::after {
   background: var(--stm-accent);
 }
@@ -642,8 +656,10 @@
   font-weight: var(--stm-weight-semibold);
 }
 
-.stm-evidence-chip--floor:hover {
-  filter: brightness(1.1);
+@media (hover: hover) and (pointer: fine) {
+  .stm-evidence-chip--floor:hover {
+    filter: brightness(1.1);
+  }
 }
 
 .stm-evidence-chip-floor {
