@@ -37,8 +37,8 @@
   --stm-danger: #f87171;
   --stm-danger-fill: #dc2626;
 
-  --stm-radius: 10px;
-  --stm-radius-card: 14px;
+  --stm-radius: 14px;
+  --stm-radius-card: var(--stm-radius);
   --stm-control-h: 44px;
   --stm-press-scale: 1.035;
   --stm-press-duration: 120ms;

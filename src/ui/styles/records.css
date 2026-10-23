@@ -135,10 +135,6 @@
 .stm-record-summary-list {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--stm-border);
-  border-radius: var(--stm-radius-card);
-  background: var(--stm-surface);
 }
 
 .stm-record-summary {

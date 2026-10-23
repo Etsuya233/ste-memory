@@ -1074,9 +1074,6 @@
   display: none;
 }
 @container stm-panel (max-width: 640px) {
-  [data-table-detail="true"] > .stm-page-layout > .stm-page-header {
-    display: none;
-  }
   .stm-panel input:not([type="checkbox"]):not([type="radio"]),
   .stm-panel textarea,
   .stm-panel select {
@@ -1308,4 +1305,30 @@
   .stm-bar-group:has(.stm-bar-action:not(:disabled):focus-visible:active) {
     transform: none;
   }
+}
+
+/* 分组列表统一边框与容器轮廓，行布局由各业务列表定义。 */
+.stm-grouped-list {
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius-card);
+  background: var(--stm-surface);
+  overflow: clip;
+}
+.stm-header-actions-slot {
+  display: contents;
+}
+
+.stm-grouped-list button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 自带外观的控件可取消胶囊；always 明确覆盖子控件的无框标记。 */
+.stm-panel .stm-bar-group[data-frame="none"],
+.stm-panel .stm-bar-group:not([data-frame="always"]):has(> [data-bar-unframed]) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }

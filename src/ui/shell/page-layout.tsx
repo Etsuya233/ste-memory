@@ -11,6 +11,8 @@ import { createPortal } from "react-dom";
 interface PageSlots {
   readonly header: HTMLDivElement | null;
   readonly footer: HTMLDivElement | null;
+  readonly headerActions: HTMLSpanElement | null;
+  readonly setHeaderActions: (element: HTMLSpanElement | null) => void;
   readonly replaceHeader: (active: boolean) => void;
 }
 
@@ -30,6 +32,7 @@ export function PageLayout(props: {
   const layoutRef = useRef<HTMLDivElement>(null);
   const [header, setHeader] = useState<HTMLDivElement | null>(null);
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
+  const [headerActions, setHeaderActions] = useState<HTMLSpanElement | null>(null);
   const [headerReplaced, setHeaderReplaced] = useState(false);
 
   useLayoutEffect(() => {
@@ -53,7 +56,9 @@ export function PageLayout(props: {
   }, [header, footer]);
 
   return (
-    <PageSlotContext value={{ header, footer, replaceHeader: setHeaderReplaced }}>
+    <PageSlotContext
+      value={{ header, footer, headerActions, setHeaderActions, replaceHeader: setHeaderReplaced }}
+    >
       <div
         className="stm-page-layout"
         data-scroll-mode={props.mode ?? "scroll"}
@@ -75,7 +80,11 @@ export function PageLayout(props: {
 }
 
 /** 子页面将页面栏挂到所属容器，正文始终保留在同一个滚动区域中。 */
-export function PageChrome(props: { readonly header?: ReactNode; readonly footer?: ReactNode }) {
+export function PageChrome(props: {
+  readonly header?: ReactNode;
+  readonly footer?: ReactNode;
+  readonly headerTrailing?: ReactNode;
+}) {
   const slots = useContext(PageSlotContext)!;
   const replacesHeader = props.header !== undefined;
   const replaceHeader = slots.replaceHeader;
@@ -89,6 +98,15 @@ export function PageChrome(props: { readonly header?: ReactNode; readonly footer
     <>
       {slots.header && props.header ? createPortal(props.header, slots.header) : null}
       {slots.footer && props.footer ? createPortal(props.footer, slots.footer) : null}
+      {slots.headerActions && props.headerTrailing
+        ? createPortal(props.headerTrailing, slots.headerActions)
+        : null}
     </>
   );
+}
+
+/** 默认顶栏操作组内的页面扩展位置，保留 Shell 的导航与关闭操作。 */
+export function PageHeaderActions() {
+  const slots = useContext(PageSlotContext)!;
+  return <span className="stm-header-actions-slot" ref={slots.setHeaderActions} />;
 }

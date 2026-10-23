@@ -6,7 +6,7 @@
  * 保存动作由父层异步执行，Memory 的 DomainError（key 冲突、跨空间引用等）
  * 经 toastr 展示。SSR 冒烟测试直接渲染本组件（无 jsdom）。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MemoryTable, MemoryFieldType } from "../../features/memory/index.ts";
 import { FIELD_TYPE_LABELS } from "./table-list-model.ts";
 import {
@@ -28,6 +28,9 @@ const FIELD_TYPES = Object.keys(FIELD_TYPE_LABELS) as readonly MemoryFieldType[]
 // ---- 表格编辑表单 ----
 
 export interface TableEditorFormProps {
+  readonly formId?: string;
+  readonly saving?: boolean;
+  readonly onDirtyChange?: (dirty: boolean) => void;
   readonly title: string;
   readonly initial: TableDraft;
   readonly submitLabel: string;
@@ -38,6 +41,10 @@ export interface TableEditorFormProps {
 export function TableEditorForm(props: TableEditorFormProps) {
   const [draft, setDraft] = useState<TableDraft>(props.initial);
   const [errors, setErrors] = useState<TableDraftErrors>({});
+
+  useEffect(() => {
+    props.onDirtyChange?.(JSON.stringify(draft) !== JSON.stringify(props.initial));
+  }, [draft, props.initial, props.onDirtyChange]);
 
   function set<K extends keyof TableDraft>(key: K, value: TableDraft[K]): void {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -52,81 +59,86 @@ export function TableEditorForm(props: TableEditorFormProps) {
 
   return (
     <form
+      id={props.formId}
       className="stm-editor"
       data-stm-editor="table"
       onSubmit={(event) => {
         event.preventDefault();
-        submit();
+        if (!props.saving) submit();
       }}
     >
-      <div className="stm-editor-title">{props.title}</div>
-      <label className="stm-form-row">
-        <span className="stm-form-label">
-          Key <em className="stm-form-required-mark">*</em>
-        </span>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="table-key"
-          value={draft.key}
-          placeholder="唯一英文标识，如 characters"
-          onChange={(event) => set("key", event.target.value)}
-        />
-        {errors.key ? <span className="stm-form-error">{errors.key}</span> : null}
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">
-          名称 <em className="stm-form-required-mark">*</em>
-        </span>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="table-name"
-          value={draft.name}
-          placeholder="如：角色档案"
-          onChange={(event) => set("name", event.target.value)}
-        />
-        {errors.name ? <span className="stm-form-error">{errors.name}</span> : null}
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">描述</span>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="table-description"
-          value={draft.description}
-          placeholder="这张表记录什么"
-          onChange={(event) => set("description", event.target.value)}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">表格 Prompt</span>
-        <textarea
-          className="stm-textarea"
-          data-stm-field="table-prompt"
-          value={draft.prompt}
-          rows={3}
-          placeholder="给 Agent 的填表指引（可选）"
-          onChange={(event) => set("prompt", event.target.value)}
-        />
-      </label>
-      <div className="stm-editor-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="editor-cancel"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-        <button
-          type="submit"
-          className="stm-button stm-button--primary"
-          data-action="editor-submit"
-        >
-          {props.submitLabel}
-        </button>
-      </div>
+      {!props.formId ? <div className="stm-editor-title">{props.title}</div> : null}
+      <fieldset className="stm-editor-fields" disabled={props.saving}>
+        <label className="stm-form-row">
+          <span className="stm-form-label">
+            Key <em className="stm-form-required-mark">*</em>
+          </span>
+          <input
+            className="stm-input"
+            type="text"
+            data-stm-field="table-key"
+            value={draft.key}
+            placeholder="唯一英文标识，如 characters"
+            onChange={(event) => set("key", event.target.value)}
+          />
+          {errors.key ? <span className="stm-form-error">{errors.key}</span> : null}
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">
+            名称 <em className="stm-form-required-mark">*</em>
+          </span>
+          <input
+            className="stm-input"
+            type="text"
+            data-stm-field="table-name"
+            value={draft.name}
+            placeholder="如：角色档案"
+            onChange={(event) => set("name", event.target.value)}
+          />
+          {errors.name ? <span className="stm-form-error">{errors.name}</span> : null}
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">描述</span>
+          <input
+            className="stm-input"
+            type="text"
+            data-stm-field="table-description"
+            value={draft.description}
+            placeholder="这张表记录什么"
+            onChange={(event) => set("description", event.target.value)}
+          />
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">表格 Prompt</span>
+          <textarea
+            className="stm-textarea"
+            data-stm-field="table-prompt"
+            value={draft.prompt}
+            rows={3}
+            placeholder="给 Agent 的填表指引（可选）"
+            onChange={(event) => set("prompt", event.target.value)}
+          />
+        </label>
+      </fieldset>
+      {!props.formId ? (
+        <div className="stm-editor-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="editor-cancel"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            className="stm-button stm-button--primary"
+            data-action="editor-submit"
+          >
+            {props.submitLabel}
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -134,6 +146,9 @@ export function TableEditorForm(props: TableEditorFormProps) {
 // ---- 字段定义编辑表单 ----
 
 export interface FieldEditorFormProps {
+  readonly formId?: string;
+  readonly saving?: boolean;
+  readonly onDirtyChange?: (dirty: boolean) => void;
   readonly title: string;
   readonly initial: FieldDraft;
   /** 同表其他字段的 key（编辑模式排除自身）；用于 key 冲突即时校验 */
@@ -142,6 +157,7 @@ export interface FieldEditorFormProps {
   readonly referenceTables: readonly Pick<MemoryTable, "id" | "name">[];
   /** 编辑模式 = true：类型选择器禁用（字段类型创建后不可修改） */
   readonly typeLocked: boolean;
+  readonly enabledLocked?: boolean;
   readonly submitLabel: string;
   readonly onSave: (draft: FieldDraft) => void;
   readonly onCancel: () => void;
@@ -150,6 +166,10 @@ export interface FieldEditorFormProps {
 export function FieldEditorForm(props: FieldEditorFormProps) {
   const [draft, setDraft] = useState<FieldDraft>(props.initial);
   const [errors, setErrors] = useState<FieldDraftErrors>({});
+
+  useEffect(() => {
+    props.onDirtyChange?.(JSON.stringify(draft) !== JSON.stringify(props.initial));
+  }, [draft, props.initial, props.onDirtyChange]);
 
   function set<K extends keyof FieldDraft>(key: K, value: FieldDraft[K]): void {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -176,153 +196,159 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
 
   return (
     <form
+      id={props.formId}
       className="stm-editor"
       data-stm-editor="field"
       onSubmit={(event) => {
         event.preventDefault();
-        submit();
+        if (!props.saving) submit();
       }}
     >
-      <div className="stm-editor-title">{props.title}</div>
-      <label className="stm-form-row">
-        <span className="stm-form-label">
-          Key <em className="stm-form-required-mark">*</em>
-        </span>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="field-key"
-          value={draft.key}
-          placeholder="唯一英文标识，如 full_name"
-          onChange={(event) => set("key", event.target.value)}
-        />
-        {errors.key ? <span className="stm-form-error">{errors.key}</span> : null}
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">
-          名称 <em className="stm-form-required-mark">*</em>
-        </span>
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="field-name"
-          value={draft.name}
-          placeholder="如：全名"
-          onChange={(event) => set("name", event.target.value)}
-        />
-        {errors.name ? <span className="stm-form-error">{errors.name}</span> : null}
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">
-          类型
-          {props.typeLocked ? (
-            <span className="stm-form-hint stm-form-hint--inline">创建后不可修改</span>
-          ) : null}
-        </span>
-        <select
-          className="stm-select"
-          data-stm-field="field-type"
-          value={draft.type}
-          disabled={props.typeLocked}
-          onChange={(event) => changeType(event.target.value as MemoryFieldType)}
-        >
-          {FIELD_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {FIELD_TYPE_LABELS[type]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {fieldTypeNeedsOptions(draft.type) ? (
+      {!props.formId ? <div className="stm-editor-title">{props.title}</div> : null}
+      <fieldset className="stm-editor-fields" disabled={props.saving}>
         <label className="stm-form-row">
           <span className="stm-form-label">
-            固定选项 <em className="stm-form-required-mark">*</em>
+            Key <em className="stm-form-required-mark">*</em>
           </span>
-          <textarea
-            className="stm-textarea"
-            data-stm-field="field-options"
-            value={draft.optionsText}
-            rows={4}
-            placeholder={"每行一个选项，如：\n朋友\n家人\n同事"}
-            onChange={(event) => set("optionsText", event.target.value)}
+          <input
+            className="stm-input"
+            type="text"
+            data-stm-field="field-key"
+            value={draft.key}
+            placeholder="唯一英文标识，如 full_name"
+            onChange={(event) => set("key", event.target.value)}
           />
-          {errors.options ? <span className="stm-form-error">{errors.options}</span> : null}
+          {errors.key ? <span className="stm-form-error">{errors.key}</span> : null}
         </label>
-      ) : null}
-      {fieldTypeNeedsReference(draft.type) ? (
         <label className="stm-form-row">
           <span className="stm-form-label">
-            引用目标表 <em className="stm-form-required-mark">*</em>
+            名称 <em className="stm-form-required-mark">*</em>
+          </span>
+          <input
+            className="stm-input"
+            type="text"
+            data-stm-field="field-name"
+            value={draft.name}
+            placeholder="如：全名"
+            onChange={(event) => set("name", event.target.value)}
+          />
+          {errors.name ? <span className="stm-form-error">{errors.name}</span> : null}
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">
+            类型
+            {props.typeLocked ? (
+              <span className="stm-form-hint stm-form-hint--inline">创建后不可修改</span>
+            ) : null}
           </span>
           <select
             className="stm-select"
-            data-stm-field="field-reference-table"
-            value={draft.referenceTableId}
-            onChange={(event) => set("referenceTableId", event.target.value)}
+            data-stm-field="field-type"
+            value={draft.type}
+            disabled={props.typeLocked}
+            onChange={(event) => changeType(event.target.value as MemoryFieldType)}
           >
-            <option value="">选择目标表…</option>
-            {props.referenceTables.map((table) => (
-              <option key={table.id} value={table.id}>
-                {table.name}
+            {FIELD_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {FIELD_TYPE_LABELS[type]}
               </option>
             ))}
           </select>
-          {errors.reference ? <span className="stm-form-error">{errors.reference}</span> : null}
         </label>
-      ) : null}
-      <label className="stm-form-row">
-        <span className="stm-form-label">字段 Prompt</span>
-        <textarea
-          className="stm-textarea"
-          data-stm-field="field-prompt"
-          value={draft.prompt}
-          rows={2}
-          placeholder="给 Agent 的填值指引（可选）"
-          onChange={(event) => set("prompt", event.target.value)}
-        />
-      </label>
-      <div className="stm-form-row stm-form-row--inline">
-        <label className="stm-form-check">
-          <input
-            type="checkbox"
-            data-stm-field="field-required"
-            checked={draft.required}
-            onChange={(event) => set("required", event.target.checked)}
+        {fieldTypeNeedsOptions(draft.type) ? (
+          <label className="stm-form-row">
+            <span className="stm-form-label">
+              固定选项 <em className="stm-form-required-mark">*</em>
+            </span>
+            <textarea
+              className="stm-textarea"
+              data-stm-field="field-options"
+              value={draft.optionsText}
+              rows={4}
+              placeholder={"每行一个选项，如：\n朋友\n家人\n同事"}
+              onChange={(event) => set("optionsText", event.target.value)}
+            />
+            {errors.options ? <span className="stm-form-error">{errors.options}</span> : null}
+          </label>
+        ) : null}
+        {fieldTypeNeedsReference(draft.type) ? (
+          <label className="stm-form-row">
+            <span className="stm-form-label">
+              引用目标表 <em className="stm-form-required-mark">*</em>
+            </span>
+            <select
+              className="stm-select"
+              data-stm-field="field-reference-table"
+              value={draft.referenceTableId}
+              onChange={(event) => set("referenceTableId", event.target.value)}
+            >
+              <option value="">选择目标表…</option>
+              {props.referenceTables.map((table) => (
+                <option key={table.id} value={table.id}>
+                  {table.name}
+                </option>
+              ))}
+            </select>
+            {errors.reference ? <span className="stm-form-error">{errors.reference}</span> : null}
+          </label>
+        ) : null}
+        <label className="stm-form-row">
+          <span className="stm-form-label">字段 Prompt</span>
+          <textarea
+            className="stm-textarea"
+            data-stm-field="field-prompt"
+            value={draft.prompt}
+            rows={2}
+            placeholder="给 Agent 的填值指引（可选）"
+            onChange={(event) => set("prompt", event.target.value)}
           />
-          <span className="stm-check-box" aria-hidden="true"></span>
-          必填
         </label>
-        <label className="stm-form-check">
-          <input
-            type="checkbox"
-            data-stm-field="field-enabled"
-            checked={draft.enabled}
-            onChange={(event) => set("enabled", event.target.checked)}
-          />
-          <span className="stm-check-box" aria-hidden="true"></span>
-          启用
-        </label>
-      </div>
-      {draft.required && !draft.enabled ? (
-        <div className="stm-form-warning">停用必填字段后，Agent 可能无法创建合法记录</div>
+        <div className="stm-form-row stm-form-row--inline">
+          <label className="stm-form-check">
+            <input
+              type="checkbox"
+              data-stm-field="field-required"
+              checked={draft.required}
+              onChange={(event) => set("required", event.target.checked)}
+            />
+            <span className="stm-check-box" aria-hidden="true"></span>
+            必填
+          </label>
+          <label className="stm-form-check">
+            <input
+              type="checkbox"
+              data-stm-field="field-enabled"
+              disabled={props.enabledLocked}
+              checked={draft.enabled}
+              onChange={(event) => set("enabled", event.target.checked)}
+            />
+            <span className="stm-check-box" aria-hidden="true"></span>
+            启用
+          </label>
+        </div>
+        {draft.required && !draft.enabled ? (
+          <div className="stm-form-warning">停用必填字段后，Agent 可能无法创建合法记录</div>
+        ) : null}
+      </fieldset>
+      {!props.formId ? (
+        <div className="stm-editor-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="editor-cancel"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            className="stm-button stm-button--primary"
+            data-action="editor-submit"
+          >
+            {props.submitLabel}
+          </button>
+        </div>
       ) : null}
-      <div className="stm-editor-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="editor-cancel"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-        <button
-          type="submit"
-          className="stm-button stm-button--primary"
-          data-action="editor-submit"
-        >
-          {props.submitLabel}
-        </button>
-      </div>
     </form>
   );
 }

@@ -54,6 +54,8 @@ export function PanelBarAction({
   );
 }
 
+export type PanelBarFrame = "auto" | "none" | "always";
+
 export type PanelBarVariant = "root" | "detail" | "record";
 
 /**
@@ -63,9 +65,11 @@ export type PanelBarVariant = "root" | "detail" | "record";
 export function PanelBar(props: {
   readonly variant?: PanelBarVariant;
   readonly leading?: ReactNode;
+  readonly leadingFrame?: PanelBarFrame;
   readonly title: ReactNode;
   readonly subtitle?: ReactNode;
   readonly trailing?: ReactNode;
+  readonly trailingFrame?: PanelBarFrame;
   readonly extension?: ReactNode;
   readonly dataAction?: string;
   readonly inert?: boolean;
@@ -80,14 +84,22 @@ export function PanelBar(props: {
       onPointerDown={props.onPointerDown}
     >
       <div className="stm-header-leading">
-        {props.leading ? <div className="stm-bar-group">{props.leading}</div> : null}
+        {props.leading ? (
+          <div className="stm-bar-group" data-frame={props.leadingFrame ?? "auto"}>
+            {props.leading}
+          </div>
+        ) : null}
       </div>
       <div className="stm-header-title-wrap">
         <div className="stm-header-title">{props.title}</div>
         {props.subtitle ? <div className="stm-header-subtitle">{props.subtitle}</div> : null}
       </div>
       <div className="stm-header-trailing">
-        {props.trailing ? <div className="stm-bar-group">{props.trailing}</div> : null}
+        {props.trailing ? (
+          <div className="stm-bar-group" data-frame={props.trailingFrame ?? "auto"}>
+            {props.trailing}
+          </div>
+        ) : null}
       </div>
       {props.extension ? <div className="stm-header-extension">{props.extension}</div> : null}
     </header>
@@ -97,13 +109,21 @@ export function PanelBar(props: {
 /** 底部操作栏：主操作组与独立快捷操作共用顶栏材质。 */
 export function PanelBottomBar(props: {
   readonly label: string;
+  readonly mainFrame?: PanelBarFrame;
   readonly children: ReactNode;
   readonly trailing?: ReactNode;
+  readonly trailingFrame?: PanelBarFrame;
 }) {
   return (
     <footer className="stm-bottom-bar" aria-label={props.label}>
-      <div className="stm-bar-group stm-bottom-bar-main">{props.children}</div>
-      {props.trailing ? <div className="stm-bar-group">{props.trailing}</div> : null}
+      <div className="stm-bar-group stm-bottom-bar-main" data-frame={props.mainFrame ?? "auto"}>
+        {props.children}
+      </div>
+      {props.trailing ? (
+        <div className="stm-bar-group" data-frame={props.trailingFrame ?? "auto"}>
+          {props.trailing}
+        </div>
+      ) : null}
     </footer>
   );
 }

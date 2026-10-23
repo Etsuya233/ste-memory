@@ -1,4 +1,4 @@
-import { PageLayout } from "./page-layout.tsx";
+import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
@@ -288,7 +288,6 @@ export function PanelShell(props: {
 
   const appearance = useAppearance();
   const [navOpen, setNavOpen] = useState(false);
-  const [tablesDetailOpen, setTablesDetailOpen] = useState(false);
   const [taskKind, setTaskKind] = useState<"fill" | "vector">("fill");
   const navRef = useRef<HTMLElement | null>(null);
   const navTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -356,7 +355,7 @@ export function PanelShell(props: {
     return () => panel.hidePopover();
   }, [state.open]);
 
-  // 当前 Tab 的离开守卫（记录网格与预设编辑器注册、卸载时注销）
+  // 当前 Tab 的离开守卫（页面编辑器注册、卸载时注销）
   const internalGuardRef = useRef<LeaveGuard | null>(null);
   const guardRef = props.leaveGuardRef ?? internalGuardRef;
   const registerLeaveGuard = useCallback(
@@ -366,7 +365,7 @@ export function PanelShell(props: {
     [guardRef],
   );
   function confirmLeaveTab(): boolean {
-    if (state.tab !== "records" && state.tab !== "settings") return true;
+    if (state.tab !== "records" && state.tab !== "settings" && state.tab !== "tables") return true;
     const guard = guardRef.current;
     return guard ? guard() : true;
   }
@@ -519,7 +518,6 @@ export function PanelShell(props: {
       data-accent={appearance.accent}
       data-font={appearance.font}
       data-size={appearance.size}
-      data-table-detail={state.tab === "tables" && tablesDetailOpen}
       onKeyDown={(event) => {
         if (!navOpen) return;
         if (event.key === "Escape") {
@@ -653,19 +651,21 @@ export function PanelShell(props: {
               />
             }
             trailing={
-              <PanelBarAction
-                icon="fa-xmark"
-                label="收起面板"
-                data-action="close-panel"
-                onClick={() => {
-                  if (!confirmLeaveTab()) return;
-                  props.model.close();
-                }}
-              />
+              <>
+                <PageHeaderActions />
+                <PanelBarAction
+                  icon="fa-xmark"
+                  label="收起面板"
+                  data-action="close-panel"
+                  onClick={() => {
+                    if (!confirmLeaveTab()) return;
+                    props.model.close();
+                  }}
+                />
+              </>
             }
           />
         }
-        mode={state.tab === "tables" ? "contained" : "scroll"}
         contentClassName="stm-panel-body"
         contentAs="main"
         inert={navOpen}
@@ -678,7 +678,7 @@ export function PanelShell(props: {
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
             <TablesTab
-              onDetailOpenChange={setTablesDetailOpen}
+              registerLeaveGuard={registerLeaveGuard}
               vector={props.runtime.vector}
               tables={props.runtime.tables}
               fields={props.runtime.fields}

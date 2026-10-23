@@ -1246,7 +1246,7 @@ export function RecordSummaryList(props: {
   readonly onOpenRecord: (recordId: MemoryRecordId) => void;
 }) {
   return (
-    <div className="stm-record-summary-list" aria-label="记录列表">
+    <div className="stm-record-summary-list stm-grouped-list" aria-label="记录列表">
       {props.records.map((record) => {
         const previewFields = props.fields
           .filter((field) => field.enabled)

@@ -25,6 +25,8 @@ import {
 } from "./display-strategy-model.ts";
 
 export interface DisplayStrategyEditorProps {
+  readonly formId?: string;
+  readonly onDirtyChange?: (dirty: boolean) => void;
   readonly title: string;
   /** 当前表已保存策略（null = 未配置）构造的初始草稿 */
   readonly initial: DisplayStrategyDraft;
@@ -47,6 +49,9 @@ export interface DisplayStrategyEditorProps {
 
 export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
   const [draft, setDraft] = useState<DisplayStrategyDraft>(props.initial);
+  useEffect(() => {
+    props.onDirtyChange?.(JSON.stringify(draft) !== JSON.stringify(props.initial));
+  }, [draft, props.initial, props.onDirtyChange]);
   // 预览文本（与 previewRecords 对齐；null = 草稿无效或无可预览记录）
   const [previews, setPreviews] = useState<readonly string[] | null>(null);
   const templateRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +107,7 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
 
   return (
     <form
+      id={props.formId}
       className="stm-editor"
       data-stm-editor="display-strategy"
       onSubmit={(event) => {
@@ -110,131 +116,139 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
         props.onSave(displayStrategyFromDraft(draft));
       }}
     >
-      <div className="stm-editor-title">{props.title}</div>
-      <label className="stm-form-row">
-        <span className="stm-form-label">类型</span>
-        <select
-          className="stm-select"
-          data-stm-field="display-strategy-type"
-          value={draft.type}
-          onChange={(event) =>
-            setDraft((prev) => ({ ...prev, type: event.target.value as "field" | "template" }))
-          }
-        >
-          <option value="field">短文本字段</option>
-          <option value="template">派生模板</option>
-        </select>
-      </label>
-      {draft.type === "field" ? (
+      {!props.formId ? <div className="stm-editor-title">{props.title}</div> : null}
+      <fieldset className="stm-editor-fields" disabled={props.saving}>
         <label className="stm-form-row">
-          <span className="stm-form-label">
-            显示字段 <em className="stm-form-required-mark">*</em>
-          </span>
+          <span className="stm-form-label">类型</span>
           <select
             className="stm-select"
-            data-stm-field="display-strategy-field"
-            value={draft.fieldId}
-            disabled={fieldCandidates.length === 0}
-            onChange={(event) => setDraft((prev) => ({ ...prev, fieldId: event.target.value }))}
+            data-stm-field="display-strategy-type"
+            value={draft.type}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, type: event.target.value as "field" | "template" }))
+            }
           >
-            <option value="">
-              {fieldCandidates.length === 0 ? "当前表没有已启用的短文本字段" : "选择显示字段…"}
-            </option>
-            {fieldCandidates.map((field) => (
-              <option key={field.id} value={field.id}>
-                {field.name}（{field.key}）
-              </option>
-            ))}
+            <option value="field">短文本字段</option>
+            <option value="template">派生模板</option>
           </select>
-          {fieldCandidates.length === 0 ? (
-            <span className="stm-form-hint">先创建并启用一个短文本字段，再配置显示策略</span>
-          ) : null}
         </label>
-      ) : (
-        <>
+        {draft.type === "field" ? (
           <label className="stm-form-row">
             <span className="stm-form-label">
-              显示模板 <em className="stm-form-required-mark">*</em>
+              显示字段 <em className="stm-form-required-mark">*</em>
             </span>
-            <textarea
-              ref={templateRef}
-              className="stm-textarea"
-              data-stm-field="display-strategy-template"
-              rows={2}
-              value={draft.template}
-              placeholder="点击下方字段插入引用"
-              onChange={(event) => setDraft((prev) => ({ ...prev, template: event.target.value }))}
-            />
-          </label>
-          {templateFields.length > 0 ? (
-            <div className="stm-strategy-chips">
-              <span className="stm-strategy-chips-label">插入字段引用：</span>
-              {templateFields.map((field) => (
-                <button
-                  key={field.id}
-                  type="button"
-                  className="stm-strategy-chip"
-                  data-action="insert-field-ref"
-                  data-field-id={field.id}
-                  onClick={() => insertFieldRef(field.id)}
-                >
-                  {field.name}
-                </button>
+            <select
+              className="stm-select"
+              data-stm-field="display-strategy-field"
+              value={draft.fieldId}
+              disabled={fieldCandidates.length === 0}
+              onChange={(event) => setDraft((prev) => ({ ...prev, fieldId: event.target.value }))}
+            >
+              <option value="">
+                {fieldCandidates.length === 0 ? "当前表没有已启用的短文本字段" : "选择显示字段…"}
+              </option>
+              {fieldCandidates.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {field.name}（{field.key}）
+                </option>
               ))}
+            </select>
+            {fieldCandidates.length === 0 ? (
+              <span className="stm-form-hint">先创建并启用一个短文本字段，再配置显示策略</span>
+            ) : null}
+          </label>
+        ) : (
+          <>
+            <label className="stm-form-row">
+              <span className="stm-form-label">
+                显示模板 <em className="stm-form-required-mark">*</em>
+              </span>
+              <textarea
+                ref={templateRef}
+                className="stm-textarea"
+                data-stm-field="display-strategy-template"
+                rows={2}
+                value={draft.template}
+                placeholder="点击下方字段插入引用"
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, template: event.target.value }))
+                }
+              />
+            </label>
+            {templateFields.length > 0 ? (
+              <div className="stm-strategy-chips">
+                <span className="stm-strategy-chips-label">插入字段引用：</span>
+                {templateFields.map((field) => (
+                  <button
+                    key={field.id}
+                    type="button"
+                    className="stm-strategy-chip"
+                    data-action="insert-field-ref"
+                    data-field-id={field.id}
+                    onClick={() => insertFieldRef(field.id)}
+                  >
+                    {field.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
+        {validation ? (
+          <div className="stm-form-error" data-stm-field="display-strategy-error">
+            {validation.message}
+          </div>
+        ) : null}
+        <div className="stm-strategy-preview">
+          <div className="stm-strategy-preview-title">预览</div>
+          {props.previewError ? (
+            <div className="stm-form-hint" data-stm-field="display-strategy-preview-error">
+              {props.previewError}
             </div>
-          ) : null}
-        </>
-      )}
-      {validation ? (
-        <div className="stm-form-error" data-stm-field="display-strategy-error">
-          {validation.message}
+          ) : props.previewRecords.length === 0 ? (
+            <div className="stm-form-hint" data-stm-field="display-strategy-preview-empty">
+              暂无记录
+            </div>
+          ) : previews === null ? (
+            <div className="stm-form-hint" data-stm-field="display-strategy-preview-invalid">
+              无法预览
+            </div>
+          ) : (
+            <ul className="stm-strategy-preview-list">
+              {props.previewRecords.map((record, index) => (
+                <li key={record.id} className="stm-strategy-preview-row">
+                  <div className="stm-strategy-preview-text">
+                    {previews[index] ?? "（预览失败）"}
+                  </div>
+                  <div className="stm-strategy-preview-meta">
+                    {payloadSummary(record.payload, props.fields)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </fieldset>
+      {!props.formId ? (
+        <div className="stm-editor-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="editor-cancel"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            className="stm-button stm-button--primary"
+            data-action="editor-submit"
+            disabled={validation !== null || props.saving}
+          >
+            保存
+          </button>
         </div>
       ) : null}
-      <div className="stm-strategy-preview">
-        <div className="stm-strategy-preview-title">预览</div>
-        {props.previewError ? (
-          <div className="stm-form-hint" data-stm-field="display-strategy-preview-error">
-            {props.previewError}
-          </div>
-        ) : props.previewRecords.length === 0 ? (
-          <div className="stm-form-hint" data-stm-field="display-strategy-preview-empty">
-            暂无记录
-          </div>
-        ) : previews === null ? (
-          <div className="stm-form-hint" data-stm-field="display-strategy-preview-invalid">
-            无法预览
-          </div>
-        ) : (
-          <ul className="stm-strategy-preview-list">
-            {props.previewRecords.map((record, index) => (
-              <li key={record.id} className="stm-strategy-preview-row">
-                <div className="stm-strategy-preview-text">{previews[index] ?? "（预览失败）"}</div>
-                <div className="stm-strategy-preview-meta">
-                  {payloadSummary(record.payload, props.fields)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="stm-editor-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="editor-cancel"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-        <button
-          type="submit"
-          className="stm-button stm-button--primary"
-          data-action="editor-submit"
-          disabled={validation !== null || props.saving}
-        >
-          保存
-        </button>
-      </div>
     </form>
   );
 }
