@@ -77,6 +77,8 @@
   bottom: auto;
   border: 0;
   overflow: hidden;
+  /* popover 默认 width: fit-content；恢复 auto，让左右安全区决定移动端宽度。 */
+  width: auto;
   left: var(--stm-safe-left, 0);
   right: var(--stm-safe-right, 0);
   top: var(--stm-safe-top, 0);

@@ -207,6 +207,29 @@ async function main() {
       JSON.stringify(mobileStyle),
     );
 
+    // popover 默认 fit-content 曾让移动端抽屉随各 Tab 内容收缩。
+    for (const tab of ["tables", "records", "tasks", "retrieval", "query", "logs", "settings"]) {
+      await page.locator(`#stm-panel .stm-tab[data-tab="${tab}"]`).click();
+      const bounds = await page.evaluate(() => {
+        const panel = document.getElementById("stm-panel");
+        const rect = panel.getBoundingClientRect();
+        const style = getComputedStyle(panel);
+        return {
+          left: rect.left,
+          right: rect.right,
+          expectedLeft: parseFloat(style.left),
+          expectedRight: window.innerWidth - parseFloat(style.right),
+        };
+      });
+      check(
+        `移动端切换 ${tab}：面板宽度由左右安全区决定`,
+        Math.abs(bounds.left - bounds.expectedLeft) < 1 &&
+          Math.abs(bounds.right - bounds.expectedRight) < 1,
+        JSON.stringify(bounds),
+      );
+    }
+    await page.locator('#stm-panel .stm-tab[data-tab="tables"]').click();
+
     // 4. 面板骨架：空间信息 + 底部 Tab 四枚 + 表格列表（系统表启停）
     const skeleton = await page.evaluate(() => {
       const panel = document.getElementById("stm-panel");
