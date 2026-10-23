@@ -1124,19 +1124,12 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.stm-panel[data-glass="true"] .stm-panel-header::before,
 .stm-panel[data-glass="true"] .stm-panel-header::after {
   content: "";
   position: absolute;
-  inset: 0 0 calc(-1 * var(--stm-space-6));
+  inset: 0 0 calc(-1 * var(--stm-glass-fade));
   z-index: -1;
   pointer-events: none;
-}
-.stm-panel[data-glass="true"] .stm-panel-header::before {
-  backdrop-filter: var(--stm-bar-backdrop);
-  -webkit-backdrop-filter: var(--stm-bar-backdrop);
-  mask-image: linear-gradient(to bottom, black 45%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, black 45%, transparent 100%);
 }
 .stm-panel[data-glass="true"] .stm-panel-header::after {
   background: linear-gradient(
@@ -1173,19 +1166,12 @@
 .stm-panel[data-glass="true"] .stm-bottom-bar {
   background: transparent;
 }
-.stm-panel[data-glass="true"] .stm-bottom-bar::before,
 .stm-panel[data-glass="true"] .stm-bottom-bar::after {
   content: "";
   position: absolute;
-  inset: calc(-1 * var(--stm-space-6)) 0 0;
+  inset: calc(-1 * var(--stm-glass-fade)) 0 0;
   z-index: -1;
   pointer-events: none;
-}
-.stm-panel[data-glass="true"] .stm-bottom-bar::before {
-  backdrop-filter: var(--stm-bar-backdrop);
-  -webkit-backdrop-filter: var(--stm-bar-backdrop);
-  mask-image: linear-gradient(to top, black 45%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to top, black 45%, transparent 100%);
 }
 .stm-panel[data-glass="true"] .stm-bottom-bar::after {
   background: linear-gradient(
@@ -1257,4 +1243,12 @@
   padding: var(--stm-space-4);
   border-top: 1px solid var(--stm-border);
   min-width: 0;
+}
+
+/* ST 在通配选择器上添加文字阴影，插件内统一隔离。 */
+#stm-panel,
+#stm-panel *,
+#stm-panel *::before,
+#stm-panel *::after {
+  text-shadow: none;
 }

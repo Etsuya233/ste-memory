@@ -894,83 +894,34 @@ export function RecordsTab(props: {
         />
       ) : null}
       <div className="stm-record-toolbar" hidden={detailRecordId !== null || editor !== null}>
-        <div className="stm-record-actions">
-          {viewMode === "grid" && dirty ? (
-            <button
-              type="button"
-              className="stm-button"
-              data-action="discard-grid"
-              onClick={discardGrid}
-            >
-              放弃修改
-            </button>
-          ) : null}
-          {viewMode === "grid" ? (
-            <button
-              type="button"
-              className="stm-button stm-button--primary"
-              data-action="save-grid"
-              disabled={savingGrid || !dirty}
-              onClick={() => void saveGrid()}
-            >
-              {savingGrid ? "保存中…" : "保存修改"}
-            </button>
-          ) : null}
-          <div className="stm-record-view-switch" role="group" aria-label="记录显示方式">
-            <button
-              type="button"
-              className="stm-record-chip"
-              aria-pressed={viewMode === "list"}
-              data-action="records-list-view"
-              onClick={() => {
-                if (confirmDiscardIfDirty()) {
-                  discardGrid();
-                  setViewMode("list");
-                }
-              }}
-            >
-              列表
-            </button>
-            <button
-              type="button"
-              className="stm-record-chip"
-              aria-pressed={viewMode === "grid"}
-              data-action="records-grid-view"
-              onClick={() => setViewMode("grid")}
-            >
-              批量编辑
-            </button>
-          </div>
+        <div className="stm-record-tables" role="tablist" aria-label="选择表格">
+          {tables.map((table) => {
+            const selected = table.id === selectedTableId;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                role="tab"
+                className={`stm-record-chip${selected ? " stm-record-chip--active" : ""}${!table.enabled ? " stm-record-chip--disabled" : ""}`}
+                data-action="select-table"
+                data-table-id={table.id}
+                aria-selected={selected}
+                title={!table.enabled ? `${table.name}（已停用）` : table.name}
+                onClick={() => selectTable(table.id)}
+              >
+                {table.name}
+              </button>
+            );
+          })}
         </div>
         <div className="stm-record-selector-row">
-          {!searchOpen ? (
-            <div className="stm-record-tables" role="tablist" aria-label="选择表格">
-              {tables.map((table) => {
-                const selected = table.id === selectedTableId;
-                return (
-                  <button
-                    key={table.id}
-                    type="button"
-                    role="tab"
-                    className={`stm-record-chip${selected ? " stm-record-chip--active" : ""}${!table.enabled ? " stm-record-chip--disabled" : ""}`}
-                    data-action="select-table"
-                    data-table-id={table.id}
-                    aria-selected={selected}
-                    title={!table.enabled ? `${table.name}（已停用）` : table.name}
-                    onClick={() => selectTable(table.id)}
-                  >
-                    {table.name}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
           {searchOpen ? (
             <input
               type="search"
               className="stm-input stm-record-search"
               data-action="record-search"
               data-stm-field="record-search"
+              aria-label="搜索记录"
               placeholder="搜索记录…"
               autoFocus
               value={searchInput}
@@ -980,31 +931,91 @@ export function RecordsTab(props: {
               }}
             />
           ) : (
-            <button
-              type="button"
-              className="stm-record-search-toggle"
-              data-action="record-search-toggle"
-              aria-label="搜索记录"
-              title="搜索记录"
-              onClick={() => setSearchOpen(true)}
-            >
-              <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-            </button>
+            <div className="stm-record-table-meta">
+              {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
+            </div>
           )}
-          {searchOpen ? (
+          <div
+            className="stm-bar-group stm-record-view-switch"
+            role="group"
+            aria-label="记录显示方式"
+          >
             <button
               type="button"
-              className="stm-record-search-toggle"
-              aria-label="关闭搜索"
-              onClick={() => setSearchOpen(false)}
+              className="stm-bar-action"
+              aria-label="列表"
+              title="列表"
+              aria-pressed={viewMode === "list"}
+              data-action="records-list-view"
+              onClick={() => {
+                if (confirmDiscardIfDirty()) {
+                  discardGrid();
+                  setViewMode("list");
+                }
+              }}
             >
-              <i className="fa-solid fa-xmark" aria-hidden="true" />
+              <i className="fa-solid fa-list" aria-hidden="true" />
             </button>
-          ) : null}
+            <button
+              type="button"
+              className="stm-bar-action"
+              aria-label="批量编辑"
+              title="批量编辑"
+              aria-pressed={viewMode === "grid"}
+              data-action="records-grid-view"
+              onClick={() => setViewMode("grid")}
+            >
+              <i className="fa-solid fa-table-cells" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="stm-bar-group">
+            {searchOpen ? (
+              <button
+                type="button"
+                className="stm-bar-action stm-record-search-toggle"
+                aria-label="关闭搜索"
+                title="关闭搜索"
+                onClick={() => setSearchOpen(false)}
+              >
+                <i className="fa-solid fa-xmark" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="stm-bar-action stm-record-search-toggle"
+                data-action="record-search-toggle"
+                aria-label="搜索记录"
+                title="搜索记录"
+                onClick={() => setSearchOpen(true)}
+              >
+                <i className="fa-solid fa-magnifying-glass" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="stm-record-table-meta" hidden={detailRecordId !== null || editor !== null}>
-        {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
+        {viewMode === "grid" ? (
+          <div className="stm-record-actions">
+            {dirty ? (
+              <button
+                type="button"
+                className="stm-button"
+                data-action="discard-grid"
+                onClick={discardGrid}
+              >
+                放弃修改
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="stm-button stm-button--primary"
+              data-action="save-grid"
+              disabled={savingGrid || !dirty}
+              onClick={() => void saveGrid()}
+            >
+              {savingGrid ? "保存中…" : "保存修改"}
+            </button>
+          </div>
+        ) : null}
       </div>
       {editor ? (
         <form

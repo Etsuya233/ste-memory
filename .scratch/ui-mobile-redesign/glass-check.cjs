@@ -22,7 +22,7 @@ const assert = require('node:assert/strict');
       await page.goto('http://127.0.0.1:8799/?tab=records');
       await page.locator('[data-action="open-record"]').first().waitFor();
       await page.locator('.stm-panel-body').evaluate(element => { element.scrollTop = 180; });
-      assert.match(await page.locator('.stm-panel-header--root').evaluate(element => getComputedStyle(element, '::before').backdropFilter), /blur/);
+      assert.match(await page.locator('.stm-panel-header--root .stm-bar-group').first().evaluate(element => getComputedStyle(element).backdropFilter), /blur/);
       await page.screenshot({ path: `.scratch/ui-mobile-redesign/screenshots/glass-${theme}.png` });
       assert.ok(await page.locator('.stm-bottom-bar').isVisible());
       await page.locator('[data-action="open-record"]').nth(3).click();

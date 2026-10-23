@@ -126,7 +126,6 @@ describe("记录摘要列表", () => {
         onOpenRecord={() => {}}
       />,
     );
-    expect(html).toContain("同伴");
     expect(html).toContain("贝塔");
     expect(html).not.toContain("record-friend");
   });
