@@ -3,6 +3,7 @@ import { PanelShell, type PanelRuntime } from "../../src/ui/shell/panel-shell.ts
 import { PanelModel } from "../../src/ui/shell/panel-model.ts";
 import { DEFAULT_SETTINGS } from "../../src/features/settings/plugin-settings.ts";
 import { SettingsService } from "../../src/features/settings/settings-service.ts";
+import { installTaskPreview } from "./task-fixtures.ts";
 import { fakeRuntime } from "./runtime-base.ts";
 
 // Enforce the isolated preview boundary even for direct connection-test buttons.
@@ -80,9 +81,10 @@ runtime.spaces = { list: async () => [runtime.manager.getStatus().space] };
 runtime.st = { getMessageAt: () => ({ mes: "雨夜旧港的谈话。", name: "林澈", is_user: false }), chatMessageCount: () => 24, scrollToFloor: () => ({ kind: "jumped" }) };
 runtime.backup.restoreSnapshot = unsupported;
 runtime.backup.restoreSpace = unsupported;
+const taskData = installTaskPreview(runtime, now);
 const model = new PanelModel();
 const initialTab = new URLSearchParams(location.search).get("tab");
 if (initialTab) model.setTab(initialTab as any);
 model.open();
-window.__UI_PREVIEW__ = { model, runtime, getData: () => ({ tables, fields, records }) };
+window.__UI_PREVIEW__ = { model, runtime, getData: () => ({ tables, fields, records, ...taskData() }) };
 createRoot(document.getElementById("app")!).render(<PanelShell model={model} runtime={runtime as PanelRuntime} />);

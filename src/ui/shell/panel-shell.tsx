@@ -1,3 +1,4 @@
+import { Tabs } from "./tabs.tsx";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
@@ -705,24 +706,37 @@ export function PanelShell(props: {
         )}
         {state.tab === "tasks" && (
           <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
-            <div className="stm-segmented stm-task-kind" aria-label="任务类型">
-              <button
-                type="button"
-                aria-pressed={taskKind === "fill"}
-                onClick={() => setTaskKind("fill")}
-              >
-                填表任务
-              </button>
-              <button
-                type="button"
-                aria-pressed={taskKind === "vector"}
-                onClick={() => setTaskKind("vector")}
-              >
-                向量任务
-              </button>
-            </div>
-            <div hidden={taskKind !== "fill"}>
+            <Tabs
+              label="任务类型"
+              className="stm-task-kind"
+              value={taskKind}
+              options={[
+                {
+                  value: "fill",
+                  label: "填表任务",
+                  panelId: "stm-fill-tasks",
+                  dataAction: "task-kind-fill",
+                },
+                {
+                  value: "vector",
+                  label: "向量任务",
+                  panelId: "stm-vector-tasks",
+                  dataAction: "task-kind-vector",
+                },
+              ]}
+              onChange={(kind) => {
+                setTaskKind(kind);
+                panelRef.current!.querySelector(".stm-panel-body")!.scrollTop = 0;
+              }}
+            />
+            <div
+              id="stm-fill-tasks"
+              role="tabpanel"
+              aria-label="填表任务"
+              hidden={taskKind !== "fill"}
+            >
               <TasksTab
+                active={taskKind === "fill"}
                 runtime={props.runtime}
                 status={status}
                 settings={settings}
@@ -733,8 +747,14 @@ export function PanelShell(props: {
                 }}
               />
             </div>
-            <div hidden={taskKind !== "vector"}>
+            <div
+              id="stm-vector-tasks"
+              role="tabpanel"
+              aria-label="向量任务"
+              hidden={taskKind !== "vector"}
+            >
               <VectorTasks
+                active={taskKind === "vector"}
                 vector={props.runtime.vector}
                 spaces={props.runtime.spaces}
                 tables={props.runtime.tables}

@@ -1,5 +1,4 @@
-.stm-vector-editor,
-.stm-vector-task-detail {
+.stm-vector-editor {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -21,16 +20,14 @@
 
 .stm-vector-groups,
 .stm-vector-import,
-.stm-vector-preview,
-.stm-vector-tasks {
+.stm-vector-preview {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .stm-vector-group,
-.stm-vector-preview-group,
-.stm-vector-task {
+.stm-vector-preview-group {
   border: 1px solid var(--stm-border);
   border-radius: 10px;
   padding: 8px;
@@ -38,9 +35,7 @@
 
 .stm-vector-group-head,
 .stm-vector-field,
-.stm-vector-task,
 .stm-vector-task-buttons,
-.stm-vector-task-actions,
 .stm-vector-table-actions {
   display: flex;
   align-items: center;
@@ -56,15 +51,13 @@
   flex: 1 1 180px;
 }
 
-.stm-vector-field span,
-.stm-vector-task-main {
+.stm-vector-field span {
   flex: 1 1 180px;
   overflow-wrap: anywhere;
 }
 
 .stm-vector-preview pre,
-.stm-vector-record pre,
-.stm-vector-task-detail pre {
+.stm-vector-record pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 260px;
@@ -74,35 +67,6 @@
   background: var(--stm-bg, var(--stm-ink-bg));
   font-family: var(--stm-font-mono);
   font-size: 12px;
-}
-
-.stm-vector-filters {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: end;
-}
-
-.stm-vector-filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 110px;
-  flex: 1 1 130px;
-}
-
-.stm-vector-task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.stm-vector-task-counts {
-  font-family: var(--stm-font-mono);
-  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-grid-vector-status {
@@ -285,23 +249,8 @@
   white-space: normal;
   max-width: 100%;
 }
-.stm-vector-queue-info > summary {
-  min-height: 44px;
-  padding: 12px 0;
-  box-sizing: border-box;
-  cursor: pointer;
-  color: var(--stm-fg-2, var(--stm-ink-secondary));
-  font-size: 12px;
-}
 @media (max-width: 540px) {
   .stm-retrieval .stm-action-row > .stm-button {
     flex: 1 1 auto;
-  }
-  .stm-vector-task {
-    gap: 12px;
-    padding: 14px;
-  }
-  .stm-vector-task-buttons {
-    flex: 1 1 100%;
   }
 }
