@@ -112,7 +112,7 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
     >
       <div className="stm-editor-title">{props.title}</div>
       <label className="stm-form-row">
-        <span className="stm-form-label">显示策略类型</span>
+        <span className="stm-form-label">类型</span>
         <select
           className="stm-select"
           data-stm-field="display-strategy-type"
@@ -128,7 +128,7 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
       {draft.type === "field" ? (
         <label className="stm-form-row">
           <span className="stm-form-label">
-            显示字段（短文本） <em className="stm-form-required-mark">*</em>
+            显示字段 <em className="stm-form-required-mark">*</em>
           </span>
           <select
             className="stm-select"
@@ -162,7 +162,7 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
               data-stm-field="display-strategy-template"
               rows={2}
               value={draft.template}
-              placeholder={"用 {字段引用} 组合显示文本，如：{field-name} 住在 {field-location}"}
+              placeholder="点击下方字段插入引用"
               onChange={(event) => setDraft((prev) => ({ ...prev, template: event.target.value }))}
             />
           </label>
@@ -191,18 +191,18 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
         </div>
       ) : null}
       <div className="stm-strategy-preview">
-        <div className="stm-strategy-preview-title">显示效果预览</div>
+        <div className="stm-strategy-preview-title">预览</div>
         {props.previewError ? (
           <div className="stm-form-hint" data-stm-field="display-strategy-preview-error">
             {props.previewError}
           </div>
         ) : props.previewRecords.length === 0 ? (
           <div className="stm-form-hint" data-stm-field="display-strategy-preview-empty">
-            该表还没有记录；保存策略后新记录将按此策略显示
+            暂无记录
           </div>
         ) : previews === null ? (
           <div className="stm-form-hint" data-stm-field="display-strategy-preview-invalid">
-            当前策略无效，无法预览
+            无法预览
           </div>
         ) : (
           <ul className="stm-strategy-preview-list">

@@ -9,25 +9,32 @@
 .stm-task-tab {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .stm-task-card {
   background: var(--stm-surface);
   border: 1px solid var(--stm-border);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 14px;
+  padding: 16px;
 }
 
 .stm-task-card-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--stm-ink);
+  color: var(--stm-fg, var(--stm-ink));
 }
 
 .stm-task-card-title--foldable {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
-  user-select: none;
 }
 
 .stm-task-card-title--foldable:hover {
@@ -38,7 +45,7 @@
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   overflow-wrap: anywhere;
 }
 
@@ -46,13 +53,14 @@
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-task-form {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
   margin-top: 10px;
 }
 
@@ -66,10 +74,10 @@
   box-sizing: border-box;
   width: 100%;
   padding: 8px 10px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
+  border-radius: 10px;
+  color: var(--stm-fg, var(--stm-ink));
   font-size: 14px;
   font-family: var(--stm-font-mono);
   resize: vertical;
@@ -82,16 +90,17 @@
 
 .stm-task-field {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
-  flex: 1;
+  flex: 1 1 100px;
   min-width: 0;
 }
 
 .stm-task-field > span {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-task-field input {
@@ -100,10 +109,10 @@
   min-width: 0;
   min-height: 44px;
   padding: 8px 10px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
+  border-radius: 10px;
+  color: var(--stm-fg, var(--stm-ink));
   font-size: 14px;
   font-family: var(--stm-font-mono);
 }
@@ -115,7 +124,7 @@
 
 .stm-task-range-sep {
   flex-shrink: 0;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-task-actions {
@@ -176,7 +185,7 @@
   gap: 10px;
   margin-top: 10px;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-coverage-legend-item {
@@ -202,9 +211,9 @@
 }
 
 .stm-history-item {
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px;
 }
 
@@ -224,35 +233,35 @@
 }
 
 .stm-task-status--succeeded {
-  color: var(--stm-ink-bg);
+  color: var(--stm-bg, var(--stm-ink-bg));
   background: var(--stm-success);
 }
 
 .stm-task-status--failed {
-  color: var(--stm-ink-bg);
+  color: var(--stm-bg, var(--stm-ink-bg));
   background: var(--stm-danger);
 }
 
 .stm-task-status--interrupted {
-  color: var(--stm-ink-secondary);
-  background: var(--stm-ink-bg);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
 }
 
 .stm-task-status--running {
-  color: var(--stm-ink-bg);
+  color: var(--stm-bg, var(--stm-ink-bg));
   background: var(--stm-accent);
 }
 
 .stm-history-range {
   font-size: 13px;
   font-weight: 600;
-  color: var(--stm-ink);
+  color: var(--stm-fg, var(--stm-ink));
 }
 
 .stm-history-kind {
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   border: 1px solid var(--stm-border);
   border-radius: 999px;
   padding: 1px 8px;
@@ -261,14 +270,14 @@
 .stm-history-time {
   margin-left: auto;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-family: var(--stm-font-mono);
 }
 
 .stm-history-detail {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-history-error {
@@ -284,5 +293,25 @@
 }
 
 .stm-history-item .stm-button {
-  min-height: 36px;
+  min-height: 44px;
+}
+
+.stm-task-init > summary {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+.stm-task-init > summary::after {
+  content: "展开";
+  align-self: flex-end;
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  font-size: 12px;
+}
+.stm-task-init[open] > summary::after {
+  content: "收起";
+}
+.stm-task-init > .stm-task-hint {
+  margin-top: 14px;
 }

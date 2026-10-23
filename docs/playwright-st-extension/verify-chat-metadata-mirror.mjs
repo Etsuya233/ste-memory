@@ -6,6 +6,7 @@ import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { switchTab, openSettingsGroup } from "./ui-navigation.mjs";
 
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
 const ST_CHATS_ROOT = process.env.STE_ST_DATA
@@ -147,9 +148,8 @@ async function openSettingsTab(page) {
     () => document.querySelector('#stm-panel .stm-tab[data-tab="settings"]') !== null,
     "面板渲染（设置 Tab 按钮）",
   );
-  await page.evaluate(() => {
-    document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
-  });
+  await switchTab(page, "settings");
+  await openSettingsGroup(page, "mirror");
   await waitUntil(
     page,
     () => document.querySelector('#stm-panel input[data-action="toggle-mirror"]') !== null,
@@ -159,9 +159,8 @@ async function openSettingsTab(page) {
 
 /** 面板内制造一次本地数据变更：切换第一张表的启停（指纹变化 → 触发镜像评估） */
 async function toggleFirstTable(page) {
-  await page.evaluate(() => {
-    document.querySelector('#stm-panel .stm-tab[data-tab="tables"]')?.click();
-  });
+  await switchTab(page, "tables");
+  await page.locator('#stm-panel [data-action="expand-table"]').first().click();
   await waitUntil(
     page,
     () => document.querySelector('#stm-panel input[data-action="toggle-table"]') !== null,
@@ -379,9 +378,8 @@ async function main() {
     // 7. 镜像总开关关闭 → 变更不再写回（磁盘镜像 updatedAt 不变）
     //    注意：面板此刻停在表格 Tab（step 5/6 切走），先切回设置 Tab 再点击
     const diskMirrorBefore = readFileMirror(chatFileB);
-    await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
-    });
+    await switchTab(page, "settings");
+    await openSettingsGroup(page, "mirror");
     await waitUntil(
       page,
       () => document.querySelector('input[data-action="toggle-mirror"]') !== null,

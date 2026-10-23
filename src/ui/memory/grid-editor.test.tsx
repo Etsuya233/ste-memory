@@ -9,6 +9,7 @@ import type { MemoryField, MemoryRecord } from "../../features/memory/index.ts";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { GridEditor } from "./grid-editor.tsx";
+import { RecordSummaryList } from "./record-view.tsx";
 import {
   defaultGridColumnWidths,
   emptyGridRow,
@@ -88,6 +89,82 @@ const sampleRecord: MemoryRecord = {
   createdAt: "2026-08-09T00:00:00.000Z",
   updatedAt: "2026-08-09T00:00:00.000Z",
 };
+
+describe("记录摘要列表", () => {
+  it("显示启用字段摘要、来源与向量状态，保留打开记录入口", () => {
+    const html = renderToString(
+      <RecordSummaryList
+        records={[
+          { ...sampleRecord, payload: { "field-name": "阿尔法", "field-note": "已停用内容" } },
+        ]}
+        fields={fields}
+        referenceLabels={new Map()}
+        vectorSummaries={new Map([[sampleRecord.id, "就绪 1/2"]])}
+        onOpenRecord={() => {}}
+      />,
+    );
+    expect(html).toContain('data-action="open-record"');
+    expect(html).toContain('data-record-id="record-1"');
+    expect(html).toContain("阿尔法");
+    expect(html.match(/阿尔法/g)).toHaveLength(1);
+    expect(html).not.toContain("名字");
+    expect(html).toContain("就绪 1/2");
+    expect(html).toContain("手动");
+    expect(html).not.toContain("已停用内容");
+    expect(html).not.toContain("textarea");
+  });
+
+  it("引用摘要解析为记录名称", () => {
+    const reference = field({ key: "friend", name: "同伴", type: "single_reference" });
+    const html = renderToString(
+      <RecordSummaryList
+        records={[{ ...sampleRecord, payload: { [reference.id]: "record-friend" } }]}
+        fields={[reference]}
+        referenceLabels={new Map([["record-friend", "贝塔"]])}
+        vectorSummaries={new Map()}
+        onOpenRecord={() => {}}
+      />,
+    );
+    expect(html).toContain("同伴");
+    expect(html).toContain("贝塔");
+    expect(html).not.toContain("record-friend");
+  });
+
+  it("去掉标题重复值与空字段后，继续选取后续摘要字段", () => {
+    const extraFields = [
+      field({ key: "name" }),
+      field({ key: "empty" }),
+      ...["a", "b", "c", "d"].map((key) => field({ key, name: key })),
+    ];
+    const html = renderToString(
+      <RecordSummaryList
+        records={[
+          {
+            ...sampleRecord,
+            payload: {
+              "field-name": "阿尔法",
+              "field-empty": null,
+              "field-a": "摘要甲",
+              "field-b": "摘要乙",
+              "field-c": "摘要丙",
+              "field-d": "摘要丁",
+            },
+          },
+        ]}
+        fields={extraFields}
+        referenceLabels={new Map()}
+        vectorSummaries={new Map([[sampleRecord.id, ""]])}
+        onOpenRecord={() => {}}
+      />,
+    );
+    expect(html).toContain("摘要甲");
+    expect(html).toContain("摘要乙");
+    expect(html).toContain("摘要丙");
+    expect(html).not.toContain("摘要丁");
+    expect(html).not.toContain("无分组");
+    expect(html).not.toContain('stm-record-summary-label">名称');
+  });
+});
 
 describe("GridEditor（记录网格投影）", () => {
   it("表头：行号列 + 字段名 + 必填标记 + 停用徽标 + 列宽把手", () => {

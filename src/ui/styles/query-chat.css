@@ -11,6 +11,11 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 100%;
+}
+
+.stm-tab-section[data-stm-section="query"] {
+  height: 100%;
 }
 
 .stm-query-chat-toolbar {
@@ -35,7 +40,7 @@
   border: none;
   border-radius: 6px;
   color: var(--stm-ink-secondary);
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   font-family: var(--stm-font);
   cursor: pointer;
 }
@@ -46,7 +51,7 @@
 
 .stm-query-mode[aria-selected="true"] {
   background: var(--stm-accent);
-  color: var(--stm-ink-bg);
+  color: var(--stm-accent-fg);
   font-weight: 600;
 }
 
@@ -55,13 +60,14 @@
   flex-direction: column;
   gap: 10px;
   padding: 2px 0 4px;
+  flex: 1;
 }
 
 .stm-chat-bubble {
   max-width: 86%;
   padding: 8px 12px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -70,7 +76,7 @@
 .stm-chat-bubble--user {
   align-self: flex-end;
   background: var(--stm-accent);
-  color: var(--stm-ink-bg);
+  color: var(--stm-accent-fg);
 }
 
 .stm-chat-assistant {
@@ -91,7 +97,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
 }
 
@@ -116,7 +122,7 @@
   border: 1px solid var(--stm-border);
   border-radius: 6px;
   color: var(--stm-ink-secondary);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   font-family: var(--stm-font);
   cursor: pointer;
 }
@@ -144,14 +150,14 @@
   align-items: center;
   min-height: 28px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-warning);
   user-select: none;
 }
 
 .stm-chat-thinking-text {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.6;
   color: var(--stm-ink-secondary);
   white-space: pre-wrap;
@@ -176,14 +182,14 @@
   gap: 8px;
   min-height: 28px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink);
   user-select: none;
 }
 
 .stm-chat-tool summary > i {
   color: var(--stm-accent);
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
 }
 
 .stm-chat-tool--error summary > i {
@@ -192,14 +198,14 @@
 
 .stm-chat-tool-name {
   font-family: var(--stm-font-mono);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-accent);
 }
 
 .stm-chat-tool-status {
   margin-left: auto;
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
 }
 
@@ -213,7 +219,7 @@
 
 .stm-chat-tool-label {
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
 }
 
@@ -232,7 +238,7 @@
   border: 1px solid var(--stm-border);
   border-radius: 6px;
   font-family: var(--stm-font-mono);
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.5;
   color: var(--stm-ink);
   white-space: pre-wrap;
@@ -241,7 +247,7 @@
 
 /* 文本片段（ADR 0013）：GFM Markdown 渲染容器；思考片段保持纯文本、工具 JSON 保持 <pre> */
 .stm-chat-markdown {
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   line-height: 1.6;
   color: var(--stm-ink);
   word-break: break-word;
@@ -280,13 +286,13 @@
 }
 
 .stm-chat-markdown h3 {
-  font-size: 14px;
+  font-size: var(--stm-fs-md);
 }
 
 .stm-chat-markdown h4,
 .stm-chat-markdown h5,
 .stm-chat-markdown h6 {
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
 }
 
 .stm-chat-markdown ul,
@@ -306,7 +312,7 @@
 
 .stm-chat-markdown code {
   font-family: var(--stm-font-mono);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
 }
 
 .stm-chat-markdown :not(pre) > code {
@@ -329,7 +335,7 @@
   padding: 0;
   background: none;
   color: var(--stm-ink-secondary);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.55;
   white-space: pre;
 }
@@ -365,7 +371,7 @@
 
 .stm-chat-markdown table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
 }
 
 .stm-chat-markdown th,
@@ -389,7 +395,7 @@
 .stm-chat-commit {
   padding: 6px 10px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   background: var(--stm-success-dim);
   color: var(--stm-success);
 }
@@ -405,30 +411,31 @@
 }
 
 .stm-chat-error {
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-danger);
 }
 
-/* 输入行：sticky 吸底（滚动容器 = .stm-panel-body；负 bottom/下内边距盖住面板底部留白） */
+/* 输入行留在内容底部，长对话滚动时保持可达。 */
 .stm-query-chat-input-row {
   position: sticky;
-  bottom: -12px;
+  bottom: 0;
   display: flex;
   gap: 8px;
   padding: 10px 0 16px;
-  background: var(--stm-surface);
+  background: var(--stm-bg);
 }
 
 .stm-query-chat-input-row input {
   box-sizing: border-box;
   flex: 1;
+  min-width: 0;
   min-height: 44px;
   padding: 10px 12px;
   background: var(--stm-ink-bg);
   border: 1px solid var(--stm-border);
   border-radius: 8px;
   color: var(--stm-ink);
-  font-size: 14px;
+  font-size: var(--stm-fs-md);
   font-family: var(--stm-font);
 }
 
@@ -450,7 +457,7 @@
   background: var(--stm-accent);
   border: none;
   border-radius: 8px;
-  color: var(--stm-ink-bg);
+  color: var(--stm-accent-fg);
   font-size: 15px;
   cursor: pointer;
 }

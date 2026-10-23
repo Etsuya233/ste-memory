@@ -181,7 +181,7 @@ describe("RecordsTab（记录视图投影）", () => {
       />,
     );
     expect(html).toContain("正在加载");
-    expect(html).toContain("记录列表准备中");
+    expect(html).toContain('role="status"');
   });
 
   it("插件停用 → 停用占位优先", () => {

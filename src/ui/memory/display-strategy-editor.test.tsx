@@ -80,7 +80,7 @@ describe("DisplayStrategyEditor（显示策略编辑器投影）", () => {
     expect(html).toContain('data-stm-field="display-strategy-field"');
     expect(html).toContain("field-name");
     expect(html).toContain('data-action="editor-submit"');
-    expect(html).toContain("该表还没有记录");
+    expect(html).toContain("暂无记录");
   });
 
   it("template 策略：模板输入 + 插入引用 chip + 预览区", () => {
@@ -90,16 +90,16 @@ describe("DisplayStrategyEditor（显示策略编辑器投影）", () => {
     expect(html).toContain('data-stm-field="display-strategy-template"');
     expect(html).toContain('data-action="insert-field-ref"');
     expect(html).toContain("{field-name}");
-    expect(html).toContain("显示效果预览");
+    expect(html).toContain("预览");
   });
 
-  it("有记录但草稿无效：预览区显示「策略无效，无法预览」", () => {
+  it("有记录但草稿无效：预览区显示「无法预览」", () => {
     const html = renderEditor({
       initial: emptyDisplayStrategyDraft(null),
       previewRecords: [record("record-1")],
     });
     expect(html).toContain('data-stm-field="display-strategy-preview-invalid"');
-    expect(html).toContain("当前策略无效，无法预览");
+    expect(html).toContain("无法预览");
     // 无效草稿：保存按钮禁用
     expect(html).toContain('data-action="editor-submit"');
     expect(html).toContain("disabled");

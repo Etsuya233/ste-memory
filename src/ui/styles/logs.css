@@ -39,7 +39,7 @@
   flex: none;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   border: 1px solid var(--stm-border);
 }
 
@@ -48,8 +48,8 @@
 }
 
 .stm-log-level--warn {
-  color: #b58900;
-  border-color: #b58900;
+  color: var(--stm-warning);
+  border-color: var(--stm-warning);
 }
 
 .stm-log-level--error {
@@ -60,14 +60,14 @@
 .stm-log-type {
   flex: none;
   color: var(--stm-ink-secondary);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
 }
 
 .stm-log-key {
   flex: 1;
   min-width: 0;
   font-family: var(--stm-mono, monospace);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -76,7 +76,7 @@
 .stm-log-time {
   flex: none;
   color: var(--stm-ink-secondary);
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
 }
 
 .stm-log-detail {
@@ -90,7 +90,7 @@
   background: var(--stm-code-bg, rgba(0, 0, 0, 0.35));
   border-radius: 6px;
   overflow-x: auto;
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;

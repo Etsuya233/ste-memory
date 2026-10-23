@@ -323,46 +323,6 @@ export function TasksTab(props: {
   return (
     <div className="stm-task-tab">
       {presetSwitcher}
-      {view.coverage.totalCount > 0 ? (
-        <div className="stm-task-card" data-stm-section="coverage">
-          <div className="stm-task-card-title">楼层覆盖</div>
-          {/* 楼层条：每消息一格（run 为渲染单元展开，键 = 楼层号），悬停显示楼层与类别 */}
-          <div
-            className="stm-coverage-strip"
-            data-stm-field="coverage-strip"
-            aria-label="楼层覆盖条"
-          >
-            {view.coverage.runs.flatMap((run) => {
-              const cells: ReactNode[] = [];
-              for (let floor = run.from; floor <= run.to; floor += 1) {
-                cells.push(
-                  <span
-                    key={floor}
-                    className={`stm-coverage-cell stm-coverage-cell--${run.status}`}
-                    title={`#${floor} · ${COVERAGE_STATUS_LABELS[run.status]}`}
-                  />,
-                );
-              }
-              return cells;
-            })}
-          </div>
-          <div className="stm-coverage-legend">
-            {COVERAGE_LEGEND_ITEMS.map(({ status, countField }) => (
-              <span
-                key={status}
-                className="stm-coverage-legend-item"
-                data-stm-field={`coverage-${status}`}
-              >
-                <span
-                  className={`stm-coverage-dot stm-coverage-dot--${status}`}
-                  aria-hidden="true"
-                />
-                {COVERAGE_STATUS_LABELS[status]} {view.coverage[countField]}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
       {view.hasActiveTask && view.activeTaskRunId ? (
         <div className="stm-task-card" data-stm-section="active-task">
           <div className="stm-task-card-title">
@@ -393,7 +353,7 @@ export function TasksTab(props: {
         <div className="stm-task-card" data-stm-section="trigger">
           <div className="stm-task-card-title">手动触发填表</div>
           <div className="stm-task-hint" data-stm-field="cleaning-hint">
-            {view.cleaningHint}（在设置中配置）
+            {view.cleaningHint}
           </div>
           {view.unprocessedHint ? (
             <div className="stm-task-hint" data-stm-field="unprocessed-hint">
@@ -463,23 +423,57 @@ export function TasksTab(props: {
           ) : null}
         </div>
       )}
+      {view.coverage.totalCount > 0 ? (
+        <div className="stm-task-card" data-stm-section="coverage">
+          <div className="stm-task-card-title">楼层覆盖</div>
+          {/* 楼层条：每消息一格（run 为渲染单元展开，键 = 楼层号），悬停显示楼层与类别 */}
+          <div
+            className="stm-coverage-strip"
+            data-stm-field="coverage-strip"
+            aria-label="楼层覆盖条"
+          >
+            {view.coverage.runs.flatMap((run) => {
+              const cells: ReactNode[] = [];
+              for (let floor = run.from; floor <= run.to; floor += 1) {
+                cells.push(
+                  <span
+                    key={floor}
+                    className={`stm-coverage-cell stm-coverage-cell--${run.status}`}
+                    title={`#${floor} · ${COVERAGE_STATUS_LABELS[run.status]}`}
+                  />,
+                );
+              }
+              return cells;
+            })}
+          </div>
+          <div className="stm-coverage-legend">
+            {COVERAGE_LEGEND_ITEMS.map(({ status, countField }) => (
+              <span
+                key={status}
+                className="stm-coverage-legend-item"
+                data-stm-field={`coverage-${status}`}
+              >
+                <span
+                  className={`stm-coverage-dot stm-coverage-dot--${status}`}
+                  aria-hidden="true"
+                />
+                {COVERAGE_STATUS_LABELS[status]} {view.coverage[countField]}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="stm-task-card" data-stm-section="mark-ledger">
-        <div
+        <button
+          type="button"
           className="stm-task-card-title stm-task-card-title--foldable"
           onClick={() => setShowMarkSection((v) => !v)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") setShowMarkSection((v) => !v);
-          }}
+          aria-expanded={showMarkSection}
         >
           {showMarkSection ? "▾" : "▸"} 标记楼层进度
-        </div>
+        </button>
         {showMarkSection ? (
           <>
-            <div className="stm-task-hint">
-              手动设置指定楼层区间的台账状态（已处理 / 未处理 / 出错）
-            </div>
             <div className="stm-task-form">
               <label className="stm-task-field">
                 <span>状态</span>
@@ -542,9 +536,8 @@ export function TasksTab(props: {
           </>
         ) : null}
       </div>
-      <div className="stm-task-card" data-stm-section="init-fill">
-        <div className="stm-task-card-title">初始化填表</div>
-        <div className="stm-task-hint">新对话开始时，用设定文本初始化记忆表格（无需消息）</div>
+      <details className="stm-task-card stm-task-init" data-stm-section="init-fill">
+        <summary className="stm-task-card-title">初始化填表</summary>
         <div className="stm-task-form stm-task-form--column">
           <textarea
             className="stm-task-init-input"
@@ -564,7 +557,7 @@ export function TasksTab(props: {
             初始化
           </button>
         </div>
-      </div>
+      </details>
       {view.history.length > 0 ? (
         <div className="stm-task-card" data-stm-section="history">
           <div className="stm-task-card-title">任务历史</div>

@@ -87,20 +87,6 @@ export function RetrievalTab(props: {
   };
   return (
     <div className="stm-retrieval" data-stm-retrieval>
-      <h3>向量检索</h3>
-      <p className="stm-setting-hint">
-        只搜索当前空间已有索引，不等待或自动补建。每次搜索最多调用一次
-        embedding；索引请求独立运行，已发送的请求取消后仍可能计费。
-      </p>
-      <details>
-        <summary>当前空间与连接</summary>
-        <p>空间：{props.spaceId ?? "未绑定"}</p>
-        <p>
-          {props.connection
-            ? `${props.connection.baseUrl} · ${props.connection.model} · ${props.connection.dimensions ?? "响应决定"} 维`
-            : "尚未配置 embedding 连接"}
-        </p>
-      </details>
       {!props.spaceId ? <p role="alert">请先绑定有效记忆空间。</p> : null}
       <form
         onSubmit={(event) => {
@@ -120,143 +106,153 @@ export function RetrievalTab(props: {
             data-action="retrieval-query"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            placeholder="想找哪段记忆？描述人物、事件或关键词…"
             rows={3}
           />
         </label>
         <p className="stm-setting-hint">
-          {query.trim().length} 字符；上限为连接限制与 4000 中较小值。字符数与 token
-          数不同，超长需自行缩短。
+          {query.trim().length}/{Math.min(props.connection?.maxInputChars ?? 4000, 4000)} 字符
         </p>
-        <div className="stm-action-row">
-          <label>
-            Top K
-            <input
-              className="stm-input"
-              data-action="retrieval-top-k"
-              type="number"
-              min="1"
-              max="50"
-              step="1"
-              value={topK}
-              onChange={(event) => setTopK(event.target.value)}
-            />
-          </label>
-          <label>
-            最低分（留空关闭）
-            <input
-              className="stm-input"
-              data-action="retrieval-threshold"
-              type="number"
-              min="-1"
-              max="1"
-              step="any"
-              value={threshold}
-              onChange={(event) => setThreshold(event.target.value)}
-            />
-          </label>
-        </div>
-        <label>
-          <input
-            type="checkbox"
-            checked={custom}
-            onChange={(event) => {
-              setCustom(event.target.checked);
-              if (event.target.checked && !selection.length)
-                setSelection(
-                  ranges
-                    .filter((range) => !range.error)
-                    .map((range) => ({
-                      tableId: range.table.id,
-                      groupIds: range.groups.map((group) => group.id),
-                    })),
-                );
-            }}
-          />
-          手动选择表和分组（默认全部可检索表）
-        </label>
-        {rangeError ? <p role="alert">{rangeError}</p> : null}
-        {ranges.some((range) => range.error) ? (
-          <details className="stm-retrieval-excluded">
-            <summary>未检索的表（{ranges.filter((range) => range.error).length}）</summary>
+        <details className="stm-retrieval-options" data-retrieval-options>
+          <summary>
+            搜索选项{" "}
+            <span>
+              最多 {topK} 条 · {custom ? "自选范围" : "全部可检索表"}
+            </span>
+          </summary>
+          <div className="stm-retrieval-options-body">
+            <div className="stm-action-row">
+              <label>
+                Top K
+                <input
+                  className="stm-input"
+                  data-action="retrieval-top-k"
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={topK}
+                  onChange={(event) => setTopK(event.target.value)}
+                />
+              </label>
+              <label>
+                最低分（留空关闭）
+                <input
+                  className="stm-input"
+                  data-action="retrieval-threshold"
+                  type="number"
+                  min="-1"
+                  max="1"
+                  step="any"
+                  value={threshold}
+                  onChange={(event) => setThreshold(event.target.value)}
+                />
+              </label>
+            </div>
+            <label>
+              <input
+                type="checkbox"
+                checked={custom}
+                onChange={(event) => {
+                  setCustom(event.target.checked);
+                  if (event.target.checked && !selection.length)
+                    setSelection(
+                      ranges
+                        .filter((range) => !range.error)
+                        .map((range) => ({
+                          tableId: range.table.id,
+                          groupIds: range.groups.map((group) => group.id),
+                        })),
+                    );
+                }}
+              />
+              手动选择表和分组（默认全部可检索表）
+            </label>
+            {rangeError ? <p role="alert">{rangeError}</p> : null}
+            {ranges.some((range) => range.error) ? (
+              <details className="stm-retrieval-excluded">
+                <summary>未检索的表（{ranges.filter((range) => range.error).length}）</summary>
+                {ranges
+                  .filter((range) => range.error)
+                  .map((range) => (
+                    <p key={range.table.id}>
+                      {range.table.name} · {range.error}
+                    </p>
+                  ))}
+              </details>
+            ) : null}
             {ranges
-              .filter((range) => range.error)
+              .filter((range) => !range.error)
               .map((range) => (
-                <p key={range.table.id}>
-                  {range.table.name} · {range.error}
-                </p>
-              ))}
-          </details>
-        ) : null}
-        {ranges
-          .filter((range) => !range.error)
-          .map((range) => (
-            <fieldset key={range.table.id}>
-              <legend>
-                <label>
-                  <input
-                    type="checkbox"
-                    disabled={!custom}
-                    checked={
-                      !custom ||
-                      range.groups.every((group) =>
-                        selection.some(
-                          (selected) =>
-                            selected.tableId === range.table.id &&
-                            selected.groupIds.includes(group.id),
-                        ),
-                      )
-                    }
-                    onChange={(event) =>
-                      setSelection((previous) => [
-                        ...previous.filter((selected) => selected.tableId !== range.table.id),
-                        ...(event.target.checked
-                          ? [
-                              {
-                                tableId: range.table.id,
-                                groupIds: range.groups.map((group) => group.id),
-                              },
-                            ]
-                          : []),
-                      ])
-                    }
-                  />
-                  {range.table.name}
-                </label>{" "}
-                · {range.table.key}
-                {range.error ? ` · 未检索：${range.error}` : ""}
-              </legend>
-              {range.groups.map((group) => (
-                <label key={group.id}>
-                  <input
-                    type="checkbox"
-                    disabled={!custom || !!range.error}
-                    checked={
-                      custom
-                        ? selection.some(
-                            (selected) =>
-                              selected.tableId === range.table.id &&
-                              selected.groupIds.includes(group.id),
+                <fieldset key={range.table.id}>
+                  <legend>
+                    <label>
+                      <input
+                        type="checkbox"
+                        disabled={!custom}
+                        checked={
+                          !custom ||
+                          range.groups.every((group) =>
+                            selection.some(
+                              (selected) =>
+                                selected.tableId === range.table.id &&
+                                selected.groupIds.includes(group.id),
+                            ),
                           )
-                        : !range.error
-                    }
-                    onChange={(event) =>
-                      toggleGroup(range.table.id, group.id, event.target.checked)
-                    }
-                  />
-                  {group.name}
-                  {group.error ? ` · ${group.error}` : ""}
-                </label>
+                        }
+                        onChange={(event) =>
+                          setSelection((previous) => [
+                            ...previous.filter((selected) => selected.tableId !== range.table.id),
+                            ...(event.target.checked
+                              ? [
+                                  {
+                                    tableId: range.table.id,
+                                    groupIds: range.groups.map((group) => group.id),
+                                  },
+                                ]
+                              : []),
+                          ])
+                        }
+                      />
+                      {range.table.name}
+                    </label>{" "}
+                    · {range.table.key}
+                    {range.error ? ` · 未检索：${range.error}` : ""}
+                  </legend>
+                  {range.groups.map((group) => (
+                    <label key={group.id}>
+                      <input
+                        type="checkbox"
+                        disabled={!custom || !!range.error}
+                        checked={
+                          custom
+                            ? selection.some(
+                                (selected) =>
+                                  selected.tableId === range.table.id &&
+                                  selected.groupIds.includes(group.id),
+                              )
+                            : !range.error
+                        }
+                        onChange={(event) =>
+                          toggleGroup(range.table.id, group.id, event.target.checked)
+                        }
+                      />
+                      {group.name}
+                      {group.error ? ` · ${group.error}` : ""}
+                    </label>
+                  ))}
+                </fieldset>
               ))}
-            </fieldset>
-          ))}
+          </div>
+        </details>
         <div className="stm-action-row">
           <button
-            className="stm-button"
+            className="stm-button stm-button--primary"
             type="submit"
             data-action="retrieval-search"
             disabled={!props.spaceId}
           >
-            搜索
+            搜索记忆
           </button>
           {running ? (
             <button
@@ -276,15 +272,16 @@ export function RetrievalTab(props: {
           </button>
         </div>
       </form>
-      <p role="status" data-retrieval-status={state.status}>
-        {labels[state.status]}
-        {running
-          ? ` · ${(elapsed / 1000).toFixed(1)} 秒`
-          : state.elapsedMs !== null
-            ? ` · ${(state.elapsedMs / 1000).toFixed(1)} 秒`
-            : ""}{" "}
-        · 本次查询调用 {state.calls}
-      </p>
+      {state.status !== "idle" && (
+        <p role="status" data-retrieval-status={state.status}>
+          {labels[state.status]}
+          {running
+            ? ` · ${(elapsed / 1000).toFixed(1)} 秒`
+            : state.elapsedMs !== null
+              ? ` · ${(state.elapsedMs / 1000).toFixed(1)} 秒`
+              : ""}{" "}
+        </p>
+      )}
       {state.error ? <p role="alert">{state.error}</p> : null}
       {state.indexUpdated ? <p>索引已更新，可重新搜索；本次候选与覆盖保留原检查时点。</p> : null}
       {result ? (
@@ -293,50 +290,58 @@ export function RetrievalTab(props: {
             {state.status === "stale" ? "已过期结果 · " : ""}
             {result.message}
           </h4>
-          <p>
-            实际查询：{result.request.query} · Top K {result.request.topK} · 最低分{" "}
-            {result.request.minimumScore ?? "关闭"}
-          </p>
-          <p>
-            实际范围：
-            {result.ranges
-              .map((range) => {
-                const tableRange = ranges.find((item) => item.table.id === range.tableId);
-                const names = range.groupIds.map(
-                  (groupId) =>
-                    tableRange?.groups.find((group) => group.id === groupId)?.name ?? groupId,
-                );
-                return `${tableRange?.table.name ?? range.tableId} [${names.join("、")}]`;
-              })
-              .join("；")}
-          </p>
-          <details>
-            <summary>连接配置身份</summary>
-            <pre>{result.profile}</pre>
-          </details>
-          <p>
-            检查时点 {result.coverage.checkedAt} · {result.coverage.records} 条记录 · 就绪{" "}
-            {result.coverage.ready}/{result.coverage.expected} 个非空目标 · 空输入{" "}
-            {result.coverage.empty} · 缺失 {result.coverage.missing} · 过期 {result.coverage.stale}{" "}
-            · 异常 {result.coverage.invalid}
-          </p>
           {result.coverage.ready < result.coverage.expected ? (
-            <p>部分索引，结果可能遗漏。</p>
+            <p className="stm-setting-hint">部分索引可用，结果可能遗漏。</p>
           ) : null}
-          <p>
-            本地检查 {result.timing.check.toFixed(1)} ms · 远端 {result.timing.remote.toFixed(1)} ms
-            · 排序 {result.timing.sort.toFixed(1)} ms · 总计 {result.timing.total.toFixed(1)} ms ·
-            查询调用 {result.calls}
-          </p>
-          <details>
-            <summary>覆盖与任务明细</summary>
-            {[...result.coverage.issues, ...result.coverage.taskStates].map((issue, index) => (
-              <p key={index}>{issue}</p>
-            ))}
+          <details className="stm-retrieval-diagnostics" data-retrieval-diagnostics>
+            <summary>搜索详情与索引覆盖</summary>
+            <div className="stm-retrieval-options-body">
+              <p>
+                实际查询：{result.request.query} · Top K {result.request.topK} · 最低分{" "}
+                {result.request.minimumScore ?? "关闭"}
+              </p>
+              <p>
+                实际范围：
+                {result.ranges
+                  .map((range) => {
+                    const tableRange = ranges.find((item) => item.table.id === range.tableId);
+                    const names = range.groupIds.map(
+                      (groupId) =>
+                        tableRange?.groups.find((group) => group.id === groupId)?.name ?? groupId,
+                    );
+                    return `${tableRange?.table.name ?? range.tableId} [${names.join("、")}]`;
+                  })
+                  .join("；")}
+              </p>
+              <details>
+                <summary>连接配置身份</summary>
+                <pre>{result.profile}</pre>
+              </details>
+              <p>
+                检查时点 {result.coverage.checkedAt} · {result.coverage.records} 条记录 · 就绪{" "}
+                {result.coverage.ready}/{result.coverage.expected} 个非空目标 · 空输入{" "}
+                {result.coverage.empty} · 缺失 {result.coverage.missing} · 过期{" "}
+                {result.coverage.stale} · 异常 {result.coverage.invalid}
+              </p>
+              {result.coverage.ready < result.coverage.expected ? (
+                <p>部分索引，结果可能遗漏。</p>
+              ) : null}
+              <p>
+                本地检查 {result.timing.check.toFixed(1)} ms · 远端{" "}
+                {result.timing.remote.toFixed(1)} ms · 排序 {result.timing.sort.toFixed(1)} ms ·
+                总计 {result.timing.total.toFixed(1)} ms · 查询调用 {result.calls}
+              </p>
+              <details>
+                <summary>覆盖与任务明细</summary>
+                {[...result.coverage.issues, ...result.coverage.taskStates].map((issue, index) => (
+                  <p key={index}>{issue}</p>
+                ))}
+              </details>
+              <p className="stm-setting-hint">
+                余弦分数衡量相似程度，不代表事实可信度。最低分关闭时也可能返回低分记录。相同端点和模型名下服务更换权重需强制重算。
+              </p>
+            </div>
           </details>
-          <p className="stm-setting-hint">
-            余弦分数衡量相似程度，不代表事实可信度。最低分关闭时也可能返回低分记录。相同端点和模型名下服务更换权重需强制重算。
-          </p>
           <ol>
             {result.hits.map((hit) => (
               <li
@@ -378,6 +383,24 @@ export function RetrievalTab(props: {
           </ol>
         </section>
       ) : null}
+      <details className="stm-retrieval-connection">
+        <summary>空间、连接与索引说明</summary>
+        <div className="stm-retrieval-options-body">
+          <p>空间：{props.spaceId ?? "未绑定"}</p>
+          <p>
+            {props.connection
+              ? `${props.connection.baseUrl} · ${props.connection.model} · ${props.connection.dimensions ?? "响应决定"} 维`
+              : "尚未配置 embedding 连接"}
+          </p>
+          <p className="stm-setting-hint">
+            查询调用 {state.calls} 次；字符数与 token 数不同，超长需缩短查询。
+          </p>
+          <p className="stm-setting-hint">
+            只搜索已有索引，不等待或自动补建。每次搜索最多调用一次
+            embedding；索引请求独立运行，已发送的请求取消后仍可能计费。
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

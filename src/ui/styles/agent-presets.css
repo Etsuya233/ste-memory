@@ -7,33 +7,33 @@
   gap: 10px;
   margin-top: 8px;
   padding: 12px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px dashed var(--stm-border);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .stm-preset-builtin-text {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-preset-warning {
   margin-top: 8px;
   padding: 8px 10px;
   border: 1px solid var(--stm-warning);
-  border-radius: 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--stm-warning) 12%, transparent);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--stm-ink);
+  color: var(--stm-fg, var(--stm-ink));
 }
 
 .stm-preset-fragment {
   margin-top: 8px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -54,8 +54,8 @@
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
-  color: var(--stm-ink-secondary);
-  background: color-mix(in srgb, var(--stm-ink) 8%, transparent);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  background: color-mix(in srgb, var(--stm-fg, var(--stm-ink)) 8%, transparent);
 }
 
 .stm-preset-fragment-head {
@@ -68,7 +68,7 @@
 
 .stm-preset-fragment-drag {
   cursor: grab;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 16px;
   padding: 8px 4px;
   touch-action: none;
@@ -83,7 +83,7 @@
   padding: 8px 4px;
   background: none;
   border: none;
-  color: var(--stm-ink);
+  color: var(--stm-fg, var(--stm-ink));
   font-size: 13px;
   text-align: left;
   cursor: pointer;
@@ -109,8 +109,8 @@
 }
 
 .stm-preset-role-tag--user {
-  color: var(--stm-ink);
-  background: color-mix(in srgb, var(--stm-ink) 10%, transparent);
+  color: var(--stm-fg, var(--stm-ink));
+  background: color-mix(in srgb, var(--stm-fg, var(--stm-ink)) 10%, transparent);
 }
 
 .stm-preset-role-tag--assistant {
@@ -144,7 +144,7 @@
   padding: 8px 10px;
   background: none;
   border: none;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 13px;
   cursor: pointer;
 }
@@ -170,13 +170,13 @@
 
 .stm-preset-placeholders-label {
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-chip {
-  min-height: 32px;
+  min-height: 44px;
   padding: 4px 10px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-bg, var(--stm-ink-bg));
   border: 1px solid var(--stm-border);
   border-radius: 999px;
   color: var(--stm-accent);
@@ -222,7 +222,7 @@
 
 .stm-preset-row-drag {
   cursor: grab;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 14px;
   padding: 8px 2px;
   touch-action: none;
@@ -238,8 +238,8 @@
   padding: 6px 10px;
   background: none;
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
+  border-radius: 10px;
+  color: var(--stm-fg, var(--stm-ink));
   font-size: 13px;
   text-align: left;
   cursor: pointer;
@@ -254,7 +254,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1px solid var(--stm-ink-secondary);
+  border: 1px solid var(--stm-fg-2, var(--stm-ink-secondary));
   flex: none;
 }
 
@@ -274,7 +274,7 @@
   padding: 1px 6px;
   border: 1px solid var(--stm-border);
   border-radius: 999px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 11px;
   flex: none;
 }

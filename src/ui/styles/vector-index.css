@@ -5,10 +5,10 @@
   flex-direction: column;
   gap: 10px;
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 12px;
   background: var(--stm-surface);
-  color: var(--stm-ink);
+  color: var(--stm-fg, var(--stm-ink));
 }
 
 .stm-vector-editor fieldset {
@@ -33,7 +33,7 @@
 .stm-vector-preview-group,
 .stm-vector-task {
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 8px;
 }
 
@@ -70,8 +70,8 @@
   max-height: 260px;
   overflow: auto;
   padding: 8px;
-  border-radius: 6px;
-  background: var(--stm-ink-bg);
+  border-radius: 10px;
+  background: var(--stm-bg, var(--stm-ink-bg));
   font-family: var(--stm-font-mono);
   font-size: 12px;
 }
@@ -102,7 +102,7 @@
 
 .stm-vector-task-counts {
   font-family: var(--stm-font-mono);
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
 .stm-grid-vector-status {
@@ -112,17 +112,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 9px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
 }
 
-/* 检索沿用面板表单与向量卡片的色彩和间距。 */
+/* 检索：查询与结果在主轴，参数、配置与诊断按需展开。 */
 .stm-retrieval,
 .stm-retrieval form,
-.stm-retrieval [data-retrieval-results] {
+.stm-retrieval [data-retrieval-results],
+.stm-retrieval-options-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   min-width: 0;
+}
+.stm-retrieval {
+  color: var(--stm-fg, var(--stm-ink));
+  padding: 4px 0 20px;
+}
+.stm-retrieval h3 {
+  font-size: 18px;
+  font-weight: 650;
 }
 .stm-retrieval h3,
 .stm-retrieval h4,
@@ -134,7 +143,7 @@
 .stm-retrieval .stm-action-row > label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   flex: 1 1 130px;
   min-width: 0;
 }
@@ -142,72 +151,128 @@
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 8px;
+  gap: 10px;
 }
 .stm-retrieval textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 80px;
+  min-height: 112px;
+  padding: 14px;
   resize: vertical;
+  line-height: 1.7;
+  font-family: inherit;
 }
 .stm-retrieval fieldset,
 .stm-retrieval li {
+  margin: 0;
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 14px;
+  padding: 14px;
   min-width: 0;
+  background: var(--stm-surface);
 }
 .stm-retrieval fieldset label {
   display: inline-flex;
-  gap: 5px;
+  gap: 8px;
   align-items: center;
   margin-right: 12px;
-  min-height: 32px;
+  min-height: 44px;
 }
 .stm-retrieval legend {
+  max-width: 100%;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  overflow-wrap: anywhere;
 }
 .stm-retrieval pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 240px;
   overflow: auto;
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--stm-ink-bg);
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--stm-bg, var(--stm-ink-bg));
   font-family: var(--stm-font-mono);
   font-size: 12px;
+  line-height: 1.65;
 }
 .stm-retrieval ol {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-left: 24px;
+  gap: 14px;
+  list-style: none;
+  padding: 0;
   margin: 0;
 }
 .stm-retrieval li > * + * {
-  margin-top: 8px;
+  margin-top: 10px;
+}
+.stm-retrieval li > strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.stm-retrieval li > p {
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  font-size: 12px;
 }
 .stm-retrieval summary {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 12px 0;
   cursor: pointer;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  font-size: 13px;
+  line-height: 20px;
+}
+.stm-retrieval summary > span {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+}
+.stm-retrieval summary:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+.stm-retrieval-options,
+.stm-retrieval-diagnostics,
+.stm-retrieval-connection,
+.stm-recall-configuration {
+  border-top: 1px solid var(--stm-border);
+  border-bottom: 1px solid var(--stm-border);
+}
+.stm-retrieval-options-body {
+  padding: 4px 0 16px;
+}
+.stm-retrieval [role="status"] {
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 12px;
 }
 .stm-retrieval [role="alert"],
 .stm-retrieval [data-retrieval-status="stale"] {
   color: var(--stm-danger);
 }
-
+.stm-retrieval-empty {
+  padding: 24px 16px;
+  border-radius: 14px;
+  background: var(--stm-surface);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  font-size: 13px;
+  line-height: 1.7;
+}
 .stm-memory-recall {
-  padding: 14px;
-  margin-bottom: 14px;
-  border-bottom: 1px solid var(--stm-border);
+  padding: 16px;
+  margin: 20px 0 0;
+  border: 1px solid var(--stm-border);
+  border-radius: 14px;
+  background: var(--stm-surface);
 }
 .stm-memory-recall form > label:first-child {
   flex: none;
   flex-direction: row;
   align-items: center;
-  min-height: 36px;
+  min-height: 44px;
   gap: 8px;
 }
 .stm-memory-recall input[type="checkbox"] {
@@ -215,15 +280,28 @@
   width: auto;
   margin: 0;
 }
-.stm-memory-recall fieldset {
-  margin: 0;
-}
-.stm-memory-recall legend {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
 .stm-memory-recall .stm-button {
   align-self: flex-start;
   white-space: normal;
   max-width: 100%;
+}
+.stm-vector-queue-info > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
+  font-size: 12px;
+}
+@media (max-width: 540px) {
+  .stm-retrieval .stm-action-row > .stm-button {
+    flex: 1 1 auto;
+  }
+  .stm-vector-task {
+    gap: 12px;
+    padding: 14px;
+  }
+  .stm-vector-task-buttons {
+    flex: 1 1 100%;
+  }
 }

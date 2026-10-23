@@ -246,11 +246,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
             placeholder={"每行一个选项，如：\n朋友\n家人\n同事"}
             onChange={(event) => set("optionsText", event.target.value)}
           />
-          {errors.options ? (
-            <span className="stm-form-error">{errors.options}</span>
-          ) : (
-            <span className="stm-form-hint">每行一个选项，保存后不可重复</span>
-          )}
+          {errors.options ? <span className="stm-form-error">{errors.options}</span> : null}
         </label>
       ) : null}
       {fieldTypeNeedsReference(draft.type) ? (
@@ -271,11 +267,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
               </option>
             ))}
           </select>
-          {errors.reference ? (
-            <span className="stm-form-error">{errors.reference}</span>
-          ) : (
-            <span className="stm-form-hint">只能引用当前记忆空间内的表</span>
-          )}
+          {errors.reference ? <span className="stm-form-error">{errors.reference}</span> : null}
         </label>
       ) : null}
       <label className="stm-form-row">
@@ -297,6 +289,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
             checked={draft.required}
             onChange={(event) => set("required", event.target.checked)}
           />
+          <span className="stm-check-box" aria-hidden="true"></span>
           必填
         </label>
         <label className="stm-form-check">
@@ -306,6 +299,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
             checked={draft.enabled}
             onChange={(event) => set("enabled", event.target.checked)}
           />
+          <span className="stm-check-box" aria-hidden="true"></span>
           启用
         </label>
       </div>

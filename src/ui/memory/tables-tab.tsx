@@ -1,3 +1,4 @@
+import { EditorDialog } from "../shell/editor-dialog.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   MemoryField,
@@ -32,6 +33,7 @@ import type { VectorIndexService } from "../../features/vector-index/vector-inde
 import { listTablePresets } from "../../features/table-presets/preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import type { VectorIndexConfiguration } from "../../features/memory/index.ts";
+import { PanelBar } from "../shell/panel-bar.tsx";
 import {
   emptyFieldDraft,
   fieldDraftFromField,
@@ -71,8 +73,14 @@ export function TablesTab(props: {
   readonly settings: PluginSettings;
   /** 整库数据版本（导入备份后自增，驱动重取） */
   readonly dataVersion: number;
+  /** 手机表格详情打开时通知面板壳隐藏一级顶栏 */
+  readonly onDetailOpenChange?: (open: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState<ReadonlySet<MemoryTableId>>(new Set());
+  const [selectedTableId, setSelectedTableId] = useState<MemoryTableId | null>(null);
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [detailTab, setDetailTab] = useState<"fields" | "info" | "strategy" | "vector">("fields");
+  const [sortingTableId, setSortingTableId] = useState<MemoryTableId | null>(null);
+  const [search, setSearch] = useState("");
   const [tables, setTables] = useState<readonly TableListItemViewModel[] | undefined>(undefined);
   // 原始表/字段数据（编辑器需要 prompt、position、options 等视图模型未携带的字段）
   const [rawTables, setRawTables] = useState<readonly MemoryTable[] | undefined>(undefined);
@@ -81,21 +89,15 @@ export function TablesTab(props: {
   >(new Map());
   // 变更后重新拉取（Dexie 是事实源；重渲染永远基于最新数据）
   const [reloadKey, setReloadKey] = useState(0);
-  // 首个表格只自动展开一次（跨空间不重复展开）
-  const autoExpandedRef = useRef(false);
-  // 编辑器状态：建表 / 编辑表 / 字段管理模式 / 字段编辑器
+  // 编辑器状态：建表 / 字段编辑器
   const [creatingTable, setCreatingTable] = useState(false);
-  const [editingTableId, setEditingTableId] = useState<MemoryTableId | null>(null);
-  const [fieldEditMode, setFieldEditMode] = useState<ReadonlySet<MemoryTableId>>(new Set());
   const [fieldEditor, setFieldEditor] = useState<FieldEditorState>(null);
-  // 显示策略编辑器状态（ticket 10）：打开的表格 + 预览记录/加载错误/保存中
-  const [strategyEditorTableId, setStrategyEditorTableId] = useState<MemoryTableId | null>(null);
+  // 显示策略预览（ticket 10）：预览记录/加载错误/保存中
   const [strategyPreviewRecords, setStrategyPreviewRecords] = useState<readonly MemoryRecord[]>([]);
   const [strategyPreviewError, setStrategyPreviewError] = useState<string | null>(null);
   const [strategySaving, setStrategySaving] = useState(false);
-  const [vectorEditorTableId, setVectorEditorTableId] = useState<MemoryTableId | null>(null);
   const [vectorSaving, setVectorSaving] = useState(false);
-  // 打开中的策略编辑器表格（异步加载预览记录的竞态守卫：快速切换/关闭后丢弃过期结果）
+  // 打开中的策略预览表（异步加载预览记录的竞态守卫：快速切换/关闭后丢弃过期结果）
   const strategyEditorTableRef = useRef<MemoryTableId | null>(null);
 
   const active = activeStatus(props.status);
@@ -104,10 +106,10 @@ export function TablesTab(props: {
   // 显示策略预览计算：Memory previewDisplayText 绑定当前空间/表（只读，不落库）
   const computePreview = useCallback(
     (strategy: MemoryTableDisplayStrategy, payload: MemoryRecordPayload) => {
-      if (!spaceId || !strategyEditorTableId) return Promise.resolve("");
-      return props.records.previewDisplayText(spaceId, strategyEditorTableId, strategy, payload);
+      if (!spaceId || !selectedTableId) return Promise.resolve("");
+      return props.records.previewDisplayText(spaceId, selectedTableId, strategy, payload);
     },
-    [props.records, spaceId, strategyEditorTableId],
+    [props.records, spaceId, selectedTableId],
   );
 
   useEffect(() => {
@@ -115,8 +117,12 @@ export function TablesTab(props: {
       setTables(undefined);
       setRawTables(undefined);
       setFieldsByTable(new Map());
+      setSelectedTableId(null);
+      setMobileView("list");
+      setDetailTab("fields");
       strategyEditorTableRef.current = null;
-      setStrategyEditorTableId(null);
+      setStrategyPreviewRecords([]);
+      setStrategyPreviewError(null);
       return;
     }
     let cancelled = false;
@@ -129,17 +135,14 @@ export function TablesTab(props: {
         if (cancelled) return;
         const fieldsByTable = new Map(list.map((table, index) => [table.id, fieldLists[index]!]));
         const viewModel = buildTableListViewModel(list, fieldsByTable);
-        // 切空间后旧表格 id 失效；首个表格只自动展开一次
+        // 切空间后旧表格 id 失效，回退到第一张表
         const validIds = new Set(viewModel.map((table) => table.id));
-        setExpanded((prev) => {
-          const next = new Set([...prev].filter((id) => validIds.has(id)));
-          if (!autoExpandedRef.current && viewModel.length > 0) next.add(viewModel[0]!.id);
-          return next;
-        });
-        autoExpandedRef.current = true;
         setRawTables(list);
         setFieldsByTable(fieldsByTable);
         setTables(viewModel);
+        setSelectedTableId((prev) =>
+          prev && validIds.has(prev) ? prev : (viewModel[0]?.id ?? null),
+        );
         // 编辑器指向的表/字段可能已被删除：失效即关闭
         setFieldEditor((prev) => {
           if (!prev || !validIds.has(prev.tableId)) return null;
@@ -147,14 +150,6 @@ export function TablesTab(props: {
             prev.mode === "edit" &&
             !(fieldsByTable.get(prev.tableId) ?? []).some((field) => field.id === prev.fieldId)
           ) {
-            return null;
-          }
-          return prev;
-        });
-        setEditingTableId((prev) => (prev && validIds.has(prev) ? prev : null));
-        setStrategyEditorTableId((prev) => {
-          if (prev && !validIds.has(prev)) {
-            strategyEditorTableRef.current = null;
             return null;
           }
           return prev;
@@ -168,19 +163,37 @@ export function TablesTab(props: {
     };
   }, [props.tables, props.fields, spaceId, reloadKey, props.dataVersion]);
 
+  useEffect(() => {
+    props.onDetailOpenChange?.(mobileView === "detail");
+    return () => props.onDetailOpenChange?.(false);
+  }, [mobileView, props.onDetailOpenChange]);
+
+  useEffect(() => {
+    setSortingTableId(null);
+    setFieldEditor(null);
+  }, [selectedTableId]);
+
   if (!props.settings.enabled) {
-    return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复表格展示与同步" />;
+    return (
+      <div className="stm-tables-message">
+        <Placeholder title="插件已停用" hint="在设置中重新启用后恢复表格展示与同步" />
+      </div>
+    );
   }
   if (!active) {
     return (
-      <Placeholder
-        title={
-          props.status && props.status.kind !== "active" && props.status.kind !== "branch-detected"
-            ? props.status.humanMsg
-            : "正在加载…"
-        }
-        hint="切换到已保存的对话后自动恢复"
-      />
+      <div className="stm-tables-message">
+        <Placeholder
+          title={
+            props.status &&
+            props.status.kind !== "active" &&
+            props.status.kind !== "branch-detected"
+              ? props.status.humanMsg
+              : "正在加载…"
+          }
+          hint="切换到已保存的对话后自动恢复"
+        />
+      </div>
     );
   }
   // 守卫后的窄化常量：闭包内不依赖 TS 对联合类型收窄的保留
@@ -225,21 +238,19 @@ export function TablesTab(props: {
     bumpData();
   }
 
-  function toggleExpand(tableId: MemoryTableId): void {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(tableId)) {
-        next.delete(tableId);
-      } else {
-        next.add(tableId);
-      }
-      return next;
-    });
+  function selectTable(tableId: MemoryTableId): void {
+    setSelectedTableId(tableId);
+    setDetailTab("fields");
+    setSortingTableId(null);
+    setMobileView("detail");
   }
 
-  /** 打开字段编辑器时确保卡片展开（新建/编辑入口都可见） */
+  function backToList(): void {
+    setMobileView("list");
+  }
+
+  /** 打开字段编辑器；详情已经承载入口，不再需要展开卡片 */
   function openFieldEditor(state: Exclude<FieldEditorState, null>): void {
-    setExpanded((prev) => new Set(prev).add(state.tableId));
     setFieldEditor(state);
   }
 
@@ -247,14 +258,20 @@ export function TablesTab(props: {
     const positions = (rawTables ?? []).map((table) => table.position);
     const position = positions.length === 0 ? 0 : Math.max(...positions) + 1;
     try {
-      await props.tables.create(currentSpaceId, {
+      const created = await props.tables.create(currentSpaceId, {
         key: draft.key,
         position,
         name: draft.name,
         description: draft.description,
         prompt: draft.prompt,
       });
-      setCreatingTable(false);
+      if (created) {
+        setSelectedTableId(created.id);
+        setDetailTab("fields");
+        setSortingTableId(null);
+        setMobileView("detail");
+        setCreatingTable(false);
+      }
     } catch (error) {
       reportError(error);
     }
@@ -269,7 +286,7 @@ export function TablesTab(props: {
         description: draft.description,
         prompt: draft.prompt,
       });
-      setEditingTableId(null);
+      reportSuccess("表格信息已保存");
     } catch (error) {
       reportError(error);
     }
@@ -287,8 +304,14 @@ export function TablesTab(props: {
     } catch (error) {
       reportError(error);
     }
+    setSelectedTableId(null);
+    setMobileView("list");
+    setDetailTab("fields");
+    setSortingTableId(null);
     setFieldEditor(null);
-    setEditingTableId(null);
+    strategyEditorTableRef.current = null;
+    setStrategyPreviewRecords([]);
+    setStrategyPreviewError(null);
     bumpData();
   }
 
@@ -385,22 +408,16 @@ export function TablesTab(props: {
   }
 
   function toggleFieldEditMode(tableId: MemoryTableId): void {
-    setFieldEditMode((prev) => {
-      const next = new Set(prev);
-      if (next.has(tableId)) {
-        next.delete(tableId);
-      } else {
-        next.add(tableId);
-      }
-      return next;
-    });
+    setSortingTableId((prev) => (prev === tableId ? null : tableId));
   }
 
-  /** 打开显示策略编辑器：展开卡片 + 加载该表现有记录（最多 5 条）供预览 */
+  /** 打开显示策略页：切到该表并加载现有记录（最多 5 条）供预览 */
   async function openStrategyEditor(tableId: MemoryTableId): Promise<void> {
-    setExpanded((prev) => new Set(prev).add(tableId));
+    setSelectedTableId(tableId);
+    setDetailTab("strategy");
+    setSortingTableId(null);
+    setMobileView("detail");
     strategyEditorTableRef.current = tableId;
-    setStrategyEditorTableId(tableId);
     setStrategyPreviewRecords([]);
     setStrategyPreviewError(null);
     try {
@@ -426,8 +443,6 @@ export function TablesTab(props: {
     try {
       await props.fields.setDisplayStrategy(currentSpaceId, tableId, strategy);
       reportSuccess("显示策略已保存");
-      strategyEditorTableRef.current = null;
-      setStrategyEditorTableId(null);
     } catch (error) {
       reportError(error);
     } finally {
@@ -437,234 +452,295 @@ export function TablesTab(props: {
   }
 
   function closeStrategyEditor(): void {
-    strategyEditorTableRef.current = null;
-    setStrategyEditorTableId(null);
+    setDetailTab("fields");
   }
 
+  const query = search.trim().toLowerCase();
+  const filteredTables = query
+    ? tables.filter((table) =>
+        `${table.name} ${table.key} ${table.description}`.toLowerCase().includes(query),
+      )
+    : tables;
+  const selectedTable = selectedTableId
+    ? (tables.find((table) => table.id === selectedTableId) ?? null)
+    : null;
+  const selectedRawTable = selectedTable
+    ? (rawTables.find((table) => table.id === selectedTable.id) ?? null)
+    : null;
+  const selectedFields = selectedTableId ? (fieldsByTable.get(selectedTableId) ?? []) : [];
+  const selectedDependentFieldIds = selectedRawTable
+    ? displayStrategyDependentFieldIds(selectedRawTable.displayStrategy)
+    : new Set<MemoryFieldId>();
+  const sorting = selectedTableId !== null && sortingTableId === selectedTableId;
+  const totalFields = selectedTable?.fields.length ?? 0;
+  const enabledFields = selectedTable?.enabledFieldCount ?? 0;
+  const fieldStatus =
+    totalFields > 0 && enabledFields === totalFields ? "全部启用" : `已启用 ${enabledFields}`;
+  const detailOpen = mobileView === "detail" && selectedTable !== null;
+
+  const fieldEditorFields = fieldEditor ? (fieldsByTable.get(fieldEditor.tableId) ?? []) : [];
+  const editingField =
+    fieldEditor?.mode === "edit"
+      ? (fieldEditorFields.find((field) => field.id === fieldEditor.fieldId) ?? null)
+      : null;
+  const fieldEditorInitial =
+    fieldEditor?.mode === "create"
+      ? emptyFieldDraft("short_text")
+      : editingField
+        ? fieldDraftFromField(editingField)
+        : null;
+
   return (
-    <>
-      <div className="stm-table-actions stm-table-actions--top">
-        <button
-          type="button"
-          className="stm-button stm-button--primary"
-          data-action="create-table"
-          onClick={() => setCreatingTable(true)}
-        >
-          新建表格
-        </button>
-        {creatingTable && (
-          <TableEditorForm
-            title="新建表格"
-            initial={EMPTY_TABLE_DRAFT}
-            submitLabel="创建表格"
-            onSave={(draft) => void createTable(draft)}
-            onCancel={() => setCreatingTable(false)}
-          />
-        )}
-      </div>
-      {tables.length === 0 ? (
-        <Placeholder title="还没有记忆表格" hint="点击上方「新建表格」开始记录" />
-      ) : null}
-      <ul className="stm-table-list">
-        {tables.map((table) => {
-          const isExpanded = expanded.has(table.id);
-          const isManagingFields = fieldEditMode.has(table.id);
-          const fieldCountText =
-            table.fields.length === 0
-              ? "无字段"
-              : `${table.enabledFieldCount}/${table.fields.length} 字段启用`;
-          const rawTable = rawTables.find((item) => item.id === table.id);
-          const tableFields = fieldsByTable.get(table.id) ?? [];
-          const dependentFieldIds = displayStrategyDependentFieldIds(
-            rawTable?.displayStrategy ?? null,
-          );
-          return (
-            <li key={table.id} className="stm-table-card">
-              {/* 整行可点击展开/收起（点开关除外；展开按钮 stopPropagation 避免双触发） */}
-              <div
-                className="stm-table-row"
-                onClick={(event) => {
-                  if ((event.target as HTMLElement).closest(".stm-switch")) return;
-                  toggleExpand(table.id);
-                }}
+    <div className={`stm-tables-workbench${detailOpen ? " stm-tables-workbench--detail" : ""}`}>
+      <aside className="stm-table-rail">
+        <div className="stm-table-rail-head">
+          <div className="stm-table-rail-title-row">
+            <span className="stm-table-rail-title">{tables.length} 张表</span>
+            <button
+              type="button"
+              className="stm-button"
+              data-action="create-table"
+              onClick={() => setCreatingTable(true)}
+            >
+              <i className="fa-solid fa-plus" aria-hidden="true"></i>
+              新建
+            </button>
+          </div>
+          <div className="stm-table-search">
+            <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input
+              className="stm-input"
+              type="search"
+              value={search}
+              placeholder="搜索表格或 Key"
+              aria-label="搜索表格"
+              data-stm-field="table-search"
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        </div>
+        <div className="stm-table-rail-list">
+          {filteredTables.map((table) => {
+            const active = table.id === selectedTableId;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                className={`stm-table-rail-row${active ? " is-active" : ""}${
+                  table.enabled ? "" : " is-off"
+                }`}
+                data-action="expand-table"
+                data-table-id={table.id}
+                aria-expanded={active}
+                onClick={() => selectTable(table.id)}
               >
+                <span className="stm-table-glyph" aria-hidden="true">
+                  {table.name.slice(0, 1) || "表"}
+                </span>
+                <span className="stm-table-rail-main">
+                  <span className="stm-table-rail-name">{table.name}</span>
+                  <span className="stm-table-rail-meta">{table.fields.length} 字段</span>
+                </span>
+                <span
+                  className={`stm-status-dot${table.enabled ? "" : " stm-status-dot--off"}`}
+                  aria-hidden="true"
+                ></span>
+              </button>
+            );
+          })}
+          {filteredTables.length === 0 ? (
+            <div className="stm-table-rail-empty">
+              {tables.length === 0 ? "还没有记忆表格" : `没有匹配「${search}」的表格`}
+            </div>
+          ) : null}
+        </div>
+      </aside>
+
+      {selectedTable && selectedRawTable ? (
+        <section className="stm-table-detail-screen">
+          {mobileView === "detail" ? (
+            <PanelBar
+              variant="detail"
+              leading={
                 <button
                   type="button"
-                  className="stm-expand"
-                  data-action="expand-table"
-                  data-table-id={table.id}
-                  aria-expanded={isExpanded}
-                  aria-label={isExpanded ? "收起字段" : "展开字段"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleExpand(table.id);
-                  }}
+                  className="stm-header-back"
+                  data-action="back-to-table-list"
+                  aria-label="返回表格索引"
+                  onClick={backToList}
                 >
-                  <i
-                    className={`fa-solid ${isExpanded ? "fa-chevron-up" : "fa-chevron-down"}`}
-                    aria-hidden="true"
-                  />
+                  <i className="fa-solid fa-chevron-left" aria-hidden="true"></i>
+                  <span>表格</span>
                 </button>
-                <div className="stm-table-row-main">
-                  <div className="stm-table-name">{table.name}</div>
-                  <div className="stm-table-meta">
-                    {table.key} · {fieldCountText} ·{" "}
-                    {displayStrategySummary(rawTable?.displayStrategy ?? null, tableFields)}
-                  </div>
-                </div>
-                <label className="stm-switch">
+              }
+              title={selectedTable.name}
+              subtitle={selectedTable.key}
+              trailing={
+                <label
+                  className="stm-switch"
+                  title={`${selectedTable.enabled ? "停用" : "启用"} ${selectedTable.name}`}
+                >
                   <input
                     type="checkbox"
                     data-action="toggle-table"
-                    data-table-id={table.id}
-                    checked={table.enabled}
-                    onChange={(event) => void toggleTable(table.id, event.target.checked)}
+                    data-table-id={selectedTable.id}
+                    checked={selectedTable.enabled}
+                    aria-label={`启用 ${selectedTable.name}`}
+                    onChange={(event) => void toggleTable(selectedTable.id, event.target.checked)}
+                  />
+                  <span className="stm-switch-track" aria-hidden="true"></span>
+                </label>
+              }
+            />
+          ) : null}
+
+          <div className="stm-table-detail-scroll">
+            <div className="stm-table-detail-head">
+              <div className="stm-table-detail-title-row">
+                <span className="stm-table-glyph stm-table-glyph--lg" aria-hidden="true">
+                  {selectedTable.name.slice(0, 1) || "表"}
+                </span>
+                <div className="stm-table-detail-title">
+                  <div className="stm-table-detail-name">{selectedTable.name}</div>
+                  <div className="stm-table-detail-key">{selectedTable.key}</div>
+                </div>
+                <label
+                  className="stm-switch"
+                  title={`${selectedTable.enabled ? "停用" : "启用"} ${selectedTable.name}`}
+                >
+                  <input
+                    type="checkbox"
+                    data-action="toggle-table"
+                    data-table-id={selectedTable.id}
+                    checked={selectedTable.enabled}
+                    aria-label={`启用 ${selectedTable.name}`}
+                    onChange={(event) => void toggleTable(selectedTable.id, event.target.checked)}
                   />
                   <span className="stm-switch-track" aria-hidden="true"></span>
                 </label>
               </div>
-              {/* 全部表格统一支持编辑/新增字段/显示策略/删除（不再区分系统表与自定义表） */}
-              <div className="stm-table-actions">
-                <button
-                  type="button"
-                  className="stm-table-action"
-                  data-action="edit-table"
-                  data-table-id={table.id}
-                  aria-pressed={editingTableId === table.id}
-                  onClick={() => setEditingTableId(editingTableId === table.id ? null : table.id)}
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  className="stm-table-action"
-                  data-action="add-field"
-                  data-table-id={table.id}
-                  onClick={() => openFieldEditor({ mode: "create", tableId: table.id })}
-                >
-                  新增字段
-                </button>
-                <button
-                  type="button"
-                  className="stm-table-action"
-                  data-action="edit-display-strategy"
-                  data-table-id={table.id}
-                  aria-pressed={strategyEditorTableId === table.id}
-                  onClick={() => {
-                    if (strategyEditorTableId === table.id) {
-                      closeStrategyEditor();
-                    } else {
-                      void openStrategyEditor(table.id);
-                    }
-                  }}
-                >
-                  显示策略
-                </button>
-                <button
-                  type="button"
-                  className="stm-table-action"
-                  data-action="edit-vector-index"
-                  data-table-id={table.id}
-                  aria-pressed={vectorEditorTableId === table.id}
-                  onClick={() =>
-                    setVectorEditorTableId(vectorEditorTableId === table.id ? null : table.id)
-                  }
-                >
-                  向量索引
-                </button>
-                <button
-                  type="button"
-                  className="stm-table-action stm-table-action--danger"
-                  data-action="delete-table"
-                  data-table-id={table.id}
-                  onClick={() => void deleteTable(table.id, table.name)}
-                >
-                  删除
-                </button>
+              {selectedTable.description ? (
+                <div className="stm-table-detail-desc">{selectedTable.description}</div>
+              ) : null}
+              <div className="stm-table-detail-meta">
+                {selectedTable.enabled ? null : <span className="stm-badge">已停用</span>}
+                <span>
+                  {displayStrategySummary(selectedRawTable.displayStrategy, selectedFields)}
+                </span>
               </div>
-              {editingTableId === table.id && rawTable && (
-                <TableEditorForm
-                  title="编辑表格"
-                  initial={{
-                    key: rawTable.key,
-                    name: rawTable.name,
-                    description: rawTable.description,
-                    prompt: rawTable.prompt,
-                  }}
-                  submitLabel="保存"
-                  onSave={(draft) => void saveTableEdit(table.id, draft)}
-                  onCancel={() => setEditingTableId(null)}
-                />
-              )}
-              {strategyEditorTableId === table.id && rawTable && (
-                <DisplayStrategyEditor
-                  title="显示策略"
-                  initial={emptyDisplayStrategyDraft(rawTable.displayStrategy)}
-                  fields={tableFields}
-                  previewRecords={strategyPreviewRecords}
-                  previewError={strategyPreviewError}
-                  computePreview={computePreview}
-                  saving={strategySaving}
-                  onSave={(strategy) => void saveDisplayStrategy(table.id, strategy)}
-                  onCancel={closeStrategyEditor}
-                />
-              )}
-              {vectorEditorTableId === table.id && rawTable && (
-                <VectorIndexEditor
-                  key={table.id}
-                  vector={props.vector}
-                  records={props.records}
-                  memorySpaceId={currentSpaceId}
-                  tableId={table.id}
-                  initial={rawTable.vectorIndex}
-                  fields={tableFields}
-                  presets={listTablePresets(props.settings.tablePresets, SYSTEM_TABLE_PRESET)}
-                  saving={vectorSaving}
-                  onCancel={() => setVectorEditorTableId(null)}
-                  onSave={async (config: VectorIndexConfiguration) => {
-                    if (!spaceId) return;
-                    setVectorSaving(true);
-                    try {
-                      await props.tables.update(spaceId, table.id, { vectorIndex: config });
-                      setVectorEditorTableId(null);
-                      setReloadKey((key) => key + 1);
-                      reportSuccess("向量索引配置已保存");
-                    } finally {
-                      setVectorSaving(false);
-                    }
-                  }}
-                />
-              )}
-              {rawTable && (
-                <TableVectorActions
-                  vector={props.vector}
-                  memorySpaceId={currentSpaceId}
-                  tableId={table.id}
-                  enabled={rawTable.vectorIndex?.enabled ?? false}
-                />
-              )}
-              {isExpanded && (
-                <>
-                  <div className="stm-field-edit-toggle">
-                    <button
-                      type="button"
-                      className="stm-table-action"
-                      data-action="toggle-field-edit"
-                      data-table-id={table.id}
-                      aria-pressed={isManagingFields}
-                      onClick={() => toggleFieldEditMode(table.id)}
-                    >
-                      {isManagingFields ? "完成字段管理" : "管理字段"}
-                    </button>
+            </div>
+
+            <div className="stm-table-tabs" role="tablist" aria-label="表格详情">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "fields"}
+                data-action="set-table-tab"
+                data-tab="fields"
+                data-table-id={selectedTable.id}
+                onClick={() => {
+                  setDetailTab("fields");
+                  setSortingTableId(null);
+                }}
+              >
+                字段 {totalFields}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "info"}
+                data-action="edit-table"
+                data-tab="info"
+                data-table-id={selectedTable.id}
+                onClick={() => {
+                  setDetailTab("info");
+                  setSortingTableId(null);
+                }}
+              >
+                表格信息
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "strategy"}
+                data-action="edit-display-strategy"
+                data-table-id={selectedTable.id}
+                onClick={() => void openStrategyEditor(selectedTable.id)}
+              >
+                显示策略
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "vector"}
+                data-action="edit-vector-index"
+                data-table-id={selectedTable.id}
+                onClick={() => setDetailTab("vector")}
+              >
+                向量索引
+              </button>
+            </div>
+
+            <div className="stm-table-detail-body">
+              {detailTab === "fields" ? (
+                <div className="stm-fields-panel">
+                  <div className="stm-fields-toolbar">
+                    <div className="stm-fields-title">{fieldStatus}</div>
+                    <div className="stm-fields-actions">
+                      {totalFields > 0 ? (
+                        <button
+                          type="button"
+                          className="stm-button"
+                          data-action="toggle-field-edit"
+                          data-table-id={selectedTable.id}
+                          aria-pressed={sorting}
+                          onClick={() => toggleFieldEditMode(selectedTable.id)}
+                        >
+                          {sorting ? "完成" : "排序"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="stm-button stm-button--primary"
+                        data-action="add-field"
+                        data-table-id={selectedTable.id}
+                        onClick={() =>
+                          openFieldEditor({ mode: "create", tableId: selectedTable.id })
+                        }
+                      >
+                        <i className="fa-solid fa-plus" aria-hidden="true"></i>
+                        新增字段
+                      </button>
+                    </div>
                   </div>
-                  {table.fields.length > 0 && (
+
+                  {selectedTable.fields.length > 0 ? (
                     <ul className="stm-field-list">
-                      {table.fields.map((field, fieldIndex) => {
-                        const isDependent = dependentFieldIds.has(field.id);
+                      {selectedTable.fields.map((field, fieldIndex) => {
+                        const isDependent = selectedDependentFieldIds.has(field.id);
                         return (
                           <li key={field.id} className="stm-field-row">
-                            <div className="stm-field-info">
-                              <div className="stm-field-name">
+                            {sorting ? (
+                              <span className="stm-field-grip" aria-hidden="true">
+                                <i className="fa-solid fa-grip-vertical"></i>
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="stm-field-main"
+                              data-action="edit-field"
+                              data-table-id={selectedTable.id}
+                              data-field-id={field.id}
+                              aria-label={`编辑字段 ${field.name}`}
+                              onClick={() =>
+                                openFieldEditor({
+                                  mode: "edit",
+                                  tableId: selectedTable.id,
+                                  fieldId: field.id,
+                                })
+                              }
+                            >
+                              <span className="stm-field-name">
                                 {field.name}
                                 {field.required ? (
                                   <span className="stm-field-required" title="必填">
@@ -679,39 +755,40 @@ export function TablesTab(props: {
                                     显示策略依赖
                                   </span>
                                 ) : null}
-                              </div>
-                              <div className="stm-field-tag">
+                              </span>
+                              <span className="stm-field-tag">
                                 {field.key} · {field.typeLabel}
-                              </div>
-                            </div>
+                              </span>
+                            </button>
                             <label
-                              className="stm-switch"
+                              className={`stm-switch${isDependent ? " is-disabled" : ""}`}
                               title={isDependent ? "该字段被显示策略依赖，不能停用" : undefined}
                             >
                               <input
                                 type="checkbox"
                                 data-action="toggle-field"
-                                data-table-id={table.id}
+                                data-table-id={selectedTable.id}
                                 data-field-id={field.id}
+                                aria-label={`启用字段 ${field.name}`}
                                 checked={field.enabled}
                                 disabled={isDependent}
                                 onChange={(event) =>
-                                  void toggleField(table.id, field.id, event.target.checked)
+                                  void toggleField(selectedTable.id, field.id, event.target.checked)
                                 }
                               />
                               <span className="stm-switch-track" aria-hidden="true"></span>
                             </label>
-                            {isManagingFields && (
-                              <div className="stm-field-edit-row">
+                            {sorting ? (
+                              <div className="stm-field-sort-actions">
                                 <button
                                   type="button"
                                   className="stm-field-action"
                                   data-action="move-field-up"
-                                  data-table-id={table.id}
+                                  data-table-id={selectedTable.id}
                                   data-field-id={field.id}
                                   disabled={fieldIndex === 0}
                                   aria-label={`上移字段 ${field.name}`}
-                                  onClick={() => void moveField(table.id, field.id, -1)}
+                                  onClick={() => void moveField(selectedTable.id, field.id, -1)}
                                 >
                                   <i className="fa-solid fa-arrow-up" aria-hidden="true"></i>
                                 </button>
@@ -719,90 +796,216 @@ export function TablesTab(props: {
                                   type="button"
                                   className="stm-field-action"
                                   data-action="move-field-down"
-                                  data-table-id={table.id}
+                                  data-table-id={selectedTable.id}
                                   data-field-id={field.id}
-                                  disabled={fieldIndex === table.fields.length - 1}
+                                  disabled={fieldIndex === selectedTable.fields.length - 1}
                                   aria-label={`下移字段 ${field.name}`}
-                                  onClick={() => void moveField(table.id, field.id, 1)}
+                                  onClick={() => void moveField(selectedTable.id, field.id, 1)}
                                 >
                                   <i className="fa-solid fa-arrow-down" aria-hidden="true"></i>
                                 </button>
-                                <button
-                                  type="button"
-                                  className="stm-field-action"
-                                  data-action="edit-field"
-                                  data-table-id={table.id}
-                                  data-field-id={field.id}
-                                  aria-label={`编辑字段 ${field.name}`}
-                                  onClick={() =>
-                                    openFieldEditor({
-                                      mode: "edit",
-                                      tableId: table.id,
-                                      fieldId: field.id,
-                                    })
-                                  }
-                                >
-                                  <i className="fa-solid fa-pen" aria-hidden="true"></i>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="stm-field-action stm-field-action--danger"
-                                  data-action="delete-field"
-                                  data-table-id={table.id}
-                                  data-field-id={field.id}
-                                  disabled={isDependent}
-                                  title={isDependent ? "该字段被显示策略依赖，不能删除" : undefined}
-                                  aria-label={`删除字段 ${field.name}`}
-                                  onClick={() => void deleteField(table.id, field.id, field.name)}
-                                >
-                                  <i className="fa-solid fa-trash" aria-hidden="true"></i>
-                                </button>
                               </div>
-                            )}
+                            ) : null}
                           </li>
                         );
                       })}
                     </ul>
+                  ) : (
+                    <div className="stm-fields-empty">
+                      <div className="stm-fields-empty-title">还没有字段</div>
+                      <button
+                        type="button"
+                        className="stm-button stm-button--primary"
+                        data-action="add-field"
+                        data-table-id={selectedTable.id}
+                        onClick={() =>
+                          openFieldEditor({ mode: "create", tableId: selectedTable.id })
+                        }
+                      >
+                        <i className="fa-solid fa-plus" aria-hidden="true"></i>
+                        新增字段
+                      </button>
+                    </div>
                   )}
-                </>
-              )}
-              {/* 字段编辑器（打开即显示，不依赖卡片展开） */}
-              {fieldEditor?.tableId === table.id && (
-                <FieldEditorForm
-                  key={fieldEditor.mode === "create" ? "create" : fieldEditor.fieldId}
-                  title={fieldEditor.mode === "create" ? "新增字段" : "编辑字段"}
-                  initial={
-                    fieldEditor.mode === "create"
-                      ? emptyFieldDraft("short_text")
-                      : (() => {
-                          const field = tableFields.find((item) => item.id === fieldEditor.fieldId);
-                          // 重载间隙字段可能已不存在：退化为空草稿，由 reload 后的
-                          // 失效清理（effect）关闭编辑器，不在此处抛错
-                          return field ? fieldDraftFromField(field) : emptyFieldDraft("short_text");
-                        })()
+                </div>
+              ) : null}
+
+              {detailTab === "info" ? (
+                <div className="stm-table-pane">
+                  <TableEditorForm
+                    key={`info-${selectedRawTable.id}-${selectedRawTable.updatedAt}`}
+                    title="表格信息"
+                    initial={{
+                      key: selectedRawTable.key,
+                      name: selectedRawTable.name,
+                      description: selectedRawTable.description,
+                      prompt: selectedRawTable.prompt,
+                    }}
+                    submitLabel="保存修改"
+                    onSave={(draft) => void saveTableEdit(selectedTable.id, draft)}
+                    onCancel={() => setDetailTab("fields")}
+                  />
+                  <div className="stm-danger-zone">
+                    <div>
+                      <div className="stm-danger-title">删除表格</div>
+                      <div className="stm-danger-desc">
+                        将同时删除 {totalFields} 个字段与其中的记录，且不可恢复。
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="stm-button stm-button--danger"
+                      data-action="delete-table"
+                      data-table-id={selectedTable.id}
+                      onClick={() => void deleteTable(selectedTable.id, selectedTable.name)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {detailTab === "vector" ? (
+                <div className="stm-table-pane stm-vector-pane">
+                  <VectorIndexEditor
+                    key={selectedTable.id}
+                    vector={props.vector}
+                    records={props.records}
+                    memorySpaceId={currentSpaceId}
+                    tableId={selectedTable.id}
+                    initial={selectedRawTable.vectorIndex}
+                    fields={selectedFields}
+                    presets={listTablePresets(props.settings.tablePresets, SYSTEM_TABLE_PRESET)}
+                    saving={vectorSaving}
+                    onCancel={() => setDetailTab("fields")}
+                    onSave={async (config: VectorIndexConfiguration) => {
+                      setVectorSaving(true);
+                      try {
+                        await props.tables.update(currentSpaceId, selectedTable.id, {
+                          vectorIndex: config,
+                        });
+                        setReloadKey((key) => key + 1);
+                        reportSuccess("向量索引配置已保存");
+                      } finally {
+                        setVectorSaving(false);
+                      }
+                    }}
+                  />
+                  <TableVectorActions
+                    vector={props.vector}
+                    memorySpaceId={currentSpaceId}
+                    tableId={selectedTable.id}
+                    enabled={selectedRawTable.vectorIndex?.enabled ?? false}
+                  />
+                </div>
+              ) : null}
+
+              {detailTab === "strategy" ? (
+                <div className="stm-table-pane">
+                  <DisplayStrategyEditor
+                    key={`strategy-${selectedRawTable.id}-${selectedRawTable.updatedAt}`}
+                    title="显示策略"
+                    initial={emptyDisplayStrategyDraft(selectedRawTable.displayStrategy)}
+                    fields={selectedFields}
+                    previewRecords={strategyPreviewRecords}
+                    previewError={strategyPreviewError}
+                    computePreview={computePreview}
+                    saving={strategySaving}
+                    onSave={(strategy) => void saveDisplayStrategy(selectedTable.id, strategy)}
+                    onCancel={closeStrategyEditor}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="stm-table-detail-screen stm-table-detail-screen--empty">
+          <Placeholder
+            title={tables.length === 0 ? "还没有记忆表格" : "选择一张表格"}
+            hint={
+              tables.length === 0
+                ? "点击左侧「新建」开始记录"
+                : "从左侧索引选择表格后在这里编辑结构"
+            }
+          />
+        </section>
+      )}
+
+      {creatingTable ? (
+        <EditorDialog
+          label="新建表格"
+          section="create-table-modal"
+          onClose={() => setCreatingTable(false)}
+        >
+          <div className="stm-modal-body">
+            <TableEditorForm
+              title="新建表格"
+              initial={EMPTY_TABLE_DRAFT}
+              submitLabel="创建表格"
+              onSave={(draft) => void createTable(draft)}
+              onCancel={() => setCreatingTable(false)}
+            />
+          </div>
+        </EditorDialog>
+      ) : null}
+
+      {fieldEditor && fieldEditorInitial ? (
+        <EditorDialog
+          label={fieldEditor.mode === "create" ? "新增字段" : "编辑字段"}
+          section="field-editor-modal"
+          onClose={() => setFieldEditor(null)}
+        >
+          <div className="stm-modal-body">
+            <FieldEditorForm
+              key={fieldEditor.mode === "create" ? "create" : fieldEditor.fieldId}
+              title={fieldEditor.mode === "create" ? "新增字段" : "编辑字段"}
+              initial={fieldEditorInitial}
+              existingKeys={
+                fieldEditor.mode === "edit" && editingField
+                  ? fieldEditorFields
+                      .filter((field) => field.id !== editingField.id)
+                      .map((field) => field.key)
+                  : fieldEditorFields.map((field) => field.key)
+              }
+              referenceTables={rawTables}
+              typeLocked={fieldEditor.mode === "edit"}
+              submitLabel={fieldEditor.mode === "create" ? "创建字段" : "保存字段"}
+              onSave={
+                fieldEditor.mode === "create"
+                  ? (draft) => void createField(fieldEditor.tableId, draft)
+                  : (draft) =>
+                      editingField
+                        ? void saveFieldEdit(fieldEditor.tableId, editingField.id, draft)
+                        : undefined
+              }
+              onCancel={() => setFieldEditor(null)}
+            />
+            {editingField ? (
+              <div className="stm-modal-danger">
+                <button
+                  type="button"
+                  className="stm-button stm-button--danger"
+                  data-action="delete-field"
+                  data-table-id={fieldEditor.tableId}
+                  data-field-id={editingField.id}
+                  disabled={selectedDependentFieldIds.has(editingField.id)}
+                  title={
+                    selectedDependentFieldIds.has(editingField.id)
+                      ? "该字段被显示策略依赖，请先修改显示策略"
+                      : undefined
                   }
-                  existingKeys={
-                    fieldEditor.mode === "edit"
-                      ? tableFields
-                          .filter((field) => field.id !== fieldEditor.fieldId)
-                          .map((field) => field.key)
-                      : tableFields.map((field) => field.key)
+                  onClick={() =>
+                    void deleteField(fieldEditor.tableId, editingField.id, editingField.name)
                   }
-                  referenceTables={rawTables}
-                  typeLocked={fieldEditor.mode === "edit"}
-                  submitLabel={fieldEditor.mode === "create" ? "创建字段" : "保存字段"}
-                  onSave={
-                    fieldEditor.mode === "create"
-                      ? (draft) => void createField(table.id, draft)
-                      : (draft) => void saveFieldEdit(table.id, fieldEditor.fieldId, draft)
-                  }
-                  onCancel={() => setFieldEditor(null)}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </>
+                >
+                  删除字段
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </EditorDialog>
+      ) : null}
+    </div>
   );
 }

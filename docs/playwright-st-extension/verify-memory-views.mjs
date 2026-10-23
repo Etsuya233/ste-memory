@@ -13,6 +13,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { switchTab, openSettingsGroup } from "./ui-navigation.mjs";
 
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
 const TEST_CHARACTER = "Seraphina";
@@ -304,9 +305,9 @@ async function main() {
       () => document.getElementById("stm-panel")?.classList.contains("stm-panel--open"),
       "面板打开",
     );
-    await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
-    });
+    await switchTab(page, "settings");
+    await openSettingsGroup(page, "macro");
+    await page.locator('#stm-panel [data-macro-scope="global"]').click();
     await waitUntil(
       page,
       () => !!document.querySelector('#stm-panel [data-stm-section="memory-views"]'),

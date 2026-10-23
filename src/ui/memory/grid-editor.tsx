@@ -76,7 +76,11 @@ export function GridEditor(props: GridEditorProps) {
   ].join(" ");
   const referenceLabels = buildReferenceLabelMap(props.referenceRecords);
   return (
-    <div className="stm-grid-scroll">
+    <div
+      className="stm-grid-scroll"
+      inert={props.savingRowKeys.size > 0}
+      aria-busy={props.savingRowKeys.size > 0}
+    >
       <div className="stm-grid" style={{ gridTemplateColumns: template }}>
         {/* 表头行：行号列 + 字段列（右缘把手可拖拽调宽） */}
         <div className="stm-grid-cell stm-grid-head stm-grid-rownum">
@@ -260,6 +264,7 @@ function GridRow(props: {
                 style={{ WebkitLineClamp: gridViewLineCount(props.rowHeight) }}
                 title={gridDisplayValueText(field, value, props.referenceLabels)}
                 data-stm-field={dataField}
+                aria-label={field.name}
                 onClick={field.enabled ? () => props.onEditRow(row.key, field.id) : undefined}
               >
                 {gridDisplayValueText(field, value, props.referenceLabels)}
@@ -393,7 +398,7 @@ function GridRowResizeHandle(props: {
 
 // ---- 单元格输入（按字段类型；编辑模式控件铺满单元格） ----
 
-function renderFieldInput(
+export function renderFieldInput(
   field: MemoryField,
   draft: { readonly values: Readonly<Record<string, RecordFormValue>> },
   referenceRecords: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
@@ -410,6 +415,7 @@ function renderFieldInput(
         <textarea
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -420,6 +426,7 @@ function renderFieldInput(
         <textarea
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           placeholder="逗号或换行分隔多个值"
           value={
@@ -436,6 +443,7 @@ function renderFieldInput(
           step={field.type === "decimal" ? "any" : "1"}
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -447,6 +455,7 @@ function renderFieldInput(
           <input
             type="checkbox"
             data-stm-field={dataField}
+            aria-label={field.name}
             autoFocus={autoFocus}
             checked={value === true}
             onChange={(event) => updateValue(field.id, event.target.checked)}
@@ -460,6 +469,7 @@ function renderFieldInput(
           type="date"
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -471,6 +481,7 @@ function renderFieldInput(
           type="datetime-local"
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -481,6 +492,7 @@ function renderFieldInput(
         <select
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -501,6 +513,7 @@ function renderFieldInput(
           size={Math.min(Math.max(field.options.length, 1), 3)}
           className="stm-input stm-input--multiselect"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={Array.isArray(value) ? [...value] : []}
           onChange={(event) =>
@@ -525,6 +538,7 @@ function renderFieldInput(
         <select
           className="stm-input"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={typeof value === "string" ? value : ""}
           onChange={(event) => updateValue(field.id, event.target.value)}
@@ -548,6 +562,7 @@ function renderFieldInput(
           size={Math.min(Math.max(options.length, 1), 3)}
           className="stm-input stm-input--multiselect"
           data-stm-field={dataField}
+          aria-label={field.name}
           autoFocus={autoFocus}
           value={Array.isArray(value) ? [...value] : []}
           onChange={(event) =>

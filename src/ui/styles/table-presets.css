@@ -9,6 +9,7 @@
 /* 选择器行：下拉占满剩余宽度，按钮按内容宽度 */
 .stm-preset-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin: 4px 0;
@@ -41,9 +42,9 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px 8px;
-  border: 1px solid var(--SmartThemeBorderColor, #8882);
-  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
 }
 
 .stm-preset-card-main {
@@ -73,7 +74,7 @@
 
 .stm-preset-badge {
   padding: 0 6px;
-  border: 1px solid var(--SmartThemeBorderColor, #8884);
+  border: 1px solid var(--stm-border);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 400;
@@ -86,8 +87,8 @@
   gap: 4px;
   padding: 8px;
   margin: 6px 0;
-  border: 1px dashed var(--SmartThemeBorderColor, #8884);
-  border-radius: 6px;
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
 }
 
 /* 表单行内输入与按钮不互相挤压（与 Agent 连接表单同款） */
@@ -101,11 +102,11 @@
 .stm-preset-preview {
   max-height: 320px;
   overflow: auto;
-  padding: 6px 8px;
+  padding: 12px;
   margin: 4px 0;
-  border: 1px solid var(--SmartThemeBorderColor, #8882);
-  border-radius: 6px;
-  background: rgb(0 0 0 / 8%);
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
+  background: var(--stm-bg, var(--stm-ink-bg));
 }
 
 .stm-preset-preview-body {
@@ -187,7 +188,7 @@
 .stm-preset-info-summary {
   padding: 12px 16px;
   font-size: 12px;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   cursor: pointer;
 }
 
@@ -209,7 +210,7 @@
 .stm-preset-field-constraints > summary {
   min-height: 44px;
   padding: 12px 0;
-  color: var(--stm-ink-secondary);
+  color: var(--stm-fg-2, var(--stm-ink-secondary));
   font-size: 12px;
   cursor: pointer;
 }

@@ -50,7 +50,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
 const noopTest = async (): Promise<ConnectionTestResult> => ({ ok: true, models: [] });
 
 describe("AgentConnectionManager（连接管理区块冒烟）", () => {
-  it("标题 + 明文存储提示 + 连接列表（名称/URL/模型/密钥掩码 chip）就位", () => {
+  it("连接列表展示名称、URL 和模型，不重复页面标题", () => {
     const html = renderToString(
       <AgentConnectionManager
         settings={settings()}
@@ -58,8 +58,7 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
         onTestConnection={noopTest}
       />,
     );
-    expect(html).toContain("Agent 连接");
-    expect(html).toContain("明文存于浏览器本地");
+    expect(html).toContain('data-stm-field="agent-connections"');
     expect(html).toContain('data-stm-field="connection-list"');
     expect(html).toContain("DeepSeek 主用");
     // renderToString 在 JSX 文本节点间插 <!-- -->，URL 与模型分开断言
@@ -92,7 +91,7 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
         onTestConnection={noopTest}
       />,
     );
-    expect(html).toContain("还没有 Agent 连接");
+    expect(html).toContain("暂无独立连接");
     expect(html).not.toContain('data-stm-field="connection-row"');
   });
 
@@ -146,6 +145,8 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
     expect(html).toContain('data-stm-field="connection-base-url"');
     expect(html).toContain('data-stm-field="connection-api-key"');
     expect(html).toContain('type="password"');
+    expect(html).toContain("明文存于浏览器本地");
+    expect(html).toContain("连接与密钥存储");
     expect(html).toContain('data-stm-field="connection-model"');
     expect(html).toContain('data-stm-field="connection-model-select"');
   });

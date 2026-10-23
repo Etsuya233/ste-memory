@@ -12,14 +12,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--SmartThemeBorderColor, #8882);
-  border-radius: 6px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
 }
 
 .stm-connection-name {
   font-weight: 600;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .stm-connection-meta {
@@ -35,10 +36,10 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px;
-  margin: 6px 0;
-  border: 1px dashed var(--SmartThemeBorderColor, #8884);
-  border-radius: 6px;
+  padding: 14px;
+  margin: 10px 0;
+  border: 1px solid var(--stm-border);
+  border-radius: 10px;
 }
 
 .stm-connection-model-row {
@@ -95,15 +96,39 @@
 
 .stm-connection-test-ok {
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--SmartThemeGoodColor, #3a8);
-  background: var(--SmartThemeGoodColor, #3a8) 1a;
+  background: color-mix(in srgb, var(--stm-success) 10%, transparent);
 }
 
 .stm-connection-test-fail {
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--SmartThemeAlertColor, #d33);
-  background: var(--SmartThemeAlertColor, #d33) 1a;
+  background: color-mix(in srgb, var(--stm-danger) 10%, transparent);
   word-break: break-all;
+}
+
+@media (max-width: 540px) {
+  .stm-connection-form-row,
+  .stm-connection-selector-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .stm-connection-form-row .stm-input,
+  .stm-connection-selector-row .stm-input {
+    width: 100%;
+    flex: none;
+  }
+  .stm-connection-model-row {
+    flex-wrap: wrap;
+  }
+  .stm-connection-model-row select.stm-input {
+    flex: 1 1 100%;
+  }
+  .stm-connection-meta {
+    flex-basis: 100%;
+    white-space: normal;
+  }
 }

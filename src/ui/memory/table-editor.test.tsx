@@ -99,6 +99,13 @@ describe("FieldEditorForm（字段定义编辑器投影）", () => {
     expect(html).toContain('data-stm-field="field-type"');
     expect(html).toContain('data-stm-field="field-required"');
     expect(html).toContain('data-stm-field="field-enabled"');
+    // Visible checkbox surfaces stay adjacent to the native, keyboard-operable inputs.
+    expect(html).toMatch(
+      /data-stm-field="field-required"[^>]*\/><span class="stm-check-box" aria-hidden="true"><\/span>/,
+    );
+    expect(html).toMatch(
+      /data-stm-field="field-enabled"[^>]*\/><span class="stm-check-box" aria-hidden="true"><\/span>/,
+    );
     expect(html).toContain('data-stm-field="field-prompt"');
     // 12 种类型全部出现在下拉里
     for (const label of [
@@ -175,7 +182,7 @@ describe("FieldEditorForm（字段定义编辑器投影）", () => {
     expect(html).toContain('data-stm-field="field-reference-table"');
     expect(html).toContain("角色档案");
     expect(html).toContain("记忆索引");
-    expect(html).toContain("只能引用当前记忆空间内的表");
+    expect(html).toContain('value="table-2"');
     expect(html).not.toContain('data-stm-field="field-options"');
   });
 

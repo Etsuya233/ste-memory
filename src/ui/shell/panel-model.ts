@@ -34,7 +34,7 @@ export interface PanelState {
 }
 
 export class PanelModel {
-  #state: PanelState = { open: false, tab: "tables" };
+  #state: PanelState = { open: false, tab: "records" };
   readonly #listeners = new Set<() => void>();
 
   getState(): PanelState {

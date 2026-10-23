@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>Memory UI · isolated preview</title><link rel="stylesheet" href="style.css"><style>
+html,body,#app { margin:0; min-height:100%; } body { background:#24262b; color:#e6e7eb; font-family:system-ui,sans-serif; } button,input,select,textarea { font:inherit; } button { cursor:pointer; }
+.preview-label { position:fixed; left:16px; bottom:16px; color:#969aa6; font-size:12px; }
+/* Local icon stand-ins keep navigation controls visible without loading ST assets. */
+.fa-solid { display:inline-block; font-style:normal; min-width:1em; text-align:center; }
+.fa-solid::before { content:"·"; } .fa-bars::before { content:"☰"; } .fa-xmark::before { content:"×"; } .fa-chevron-left::before { content:"‹"; } .fa-plus::before { content:"+"; } .fa-magnifying-glass::before { content:"⌕"; } .fa-arrow-up::before { content:"↑"; } .fa-arrow-down::before { content:"↓"; } .fa-chevron-right::before { content:"›"; } .fa-pen::before { content:"✎"; } .fa-ellipsis::before { content:"…"; }
+@media(max-width:640px) { .preview-label { display:none; } }
+</style></head><body><div class="preview-label">隔离内存预览 · 刷新重置 · 不连接 SillyTavern</div><div id="app"></div><script type="module" src="app.js"></script></body></html>

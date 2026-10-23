@@ -30,13 +30,18 @@ import {
   reportWarning,
 } from "../shell/ui-helpers.tsx";
 import { formatDisplayTime } from "../shell/space-info.ts";
-import { recordSourceLabel, revisionSummaryLine } from "./record-list-model.ts";
+import { recordSourceLabel } from "./record-list-model.ts";
 import {
   recordFieldValueText,
   recordFormDraftFromPayload,
+  emptyRecordFormDraft,
+  recordFormPatchFromDraft,
+  recordPayloadFromDraft,
+  validateRecordFormDraft,
+  type RecordFormDraft,
   type RecordFormValue,
 } from "./record-form-model.ts";
-import { GridEditor } from "./grid-editor.tsx";
+import { GridEditor, renderFieldInput } from "./grid-editor.tsx";
 import { VectorRecordStatus } from "./vector-record-status.tsx";
 import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
@@ -128,6 +133,23 @@ export function RecordsTab(props: {
   const [savingRows, setSavingRows] = useState<readonly string[]>([]);
   // 窄屏式选择器：搜索框默认折叠在右侧，点击展开
   const [searchOpen, setSearchOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [editor, setEditor] = useState<{
+    original: MemoryRecord | null;
+    draft: RecordFormDraft;
+  } | null>(null);
+  const [formErrors, setFormErrors] = useState<Readonly<Record<string, string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [savingRecord, setSavingRecord] = useState(false);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const listScrollTop = useRef(0);
+  const showingRecord = editor !== null || detailRecordId !== null;
+  useEffect(() => {
+    const body = viewRef.current?.closest(".stm-panel-body");
+    if (body) body.scrollTop = showingRecord ? 0 : listScrollTop.current;
+  }, [showingRecord]);
+  const editorStateRef = useRef({ editor, fields, savingRecord, savingGrid });
+  editorStateRef.current = { editor, fields, savingRecord, savingGrid };
   const newRowCounter = useRef(0);
   // 引用字段的目标表记录（单选/多选引用下拉与勾选组的数据源）
   const [referenceRecords, setReferenceRecords] = useState<
@@ -136,6 +158,23 @@ export function RecordsTab(props: {
 
   const active = activeStatus(props.status);
   const spaceId = active?.space.id;
+  const dataScopeRef = useRef({ spaceId, dataVersion: props.dataVersion });
+  dataScopeRef.current = { spaceId, dataVersion: props.dataVersion };
+  const previousSpaceId = useRef(spaceId);
+  useEffect(() => {
+    if (previousSpaceId.current === spaceId) return;
+    previousSpaceId.current = spaceId;
+    setEditor(null);
+    setTables(undefined);
+    setSelectedTableId(null);
+    setFields([]);
+    setRecordPage(undefined);
+    setDetailRecordId(null);
+    setDetailRecord(undefined);
+    setSearchInput("");
+    setSearch("");
+    setPage(1);
+  }, [spaceId]);
 
   /** 数据变更收尾：刷新列表 + 立即重建记忆宏快照（消除指纹轮询陈旧窗口） */
   function bumpData(): void {
@@ -176,6 +215,7 @@ export function RecordsTab(props: {
   // 搜索防抖：输入停顿 300ms 后生效并回到第一页（网格有未保存修改时先确认丢弃）
   useEffect(() => {
     const timer = setTimeout(() => {
+      if (searchInput.trim() === search) return;
       if (!confirmDiscardIfDirty()) {
         setSearchInput(search);
         return;
@@ -299,13 +339,17 @@ export function RecordsTab(props: {
   // 离开守卫（切 Tab / 关面板）：有未保存修改时先确认，拒绝则留在原地
   useEffect(() => {
     const register = props.registerLeaveGuard;
-    if (!register) return;
-    const guard: LeaveGuard = () => {
-      if (!gridHasUnsavedChanges()) return true;
-      return window.confirm("记录网格里有未保存的修改，放弃这些修改吗？");
+    register?.(confirmDiscardIfDirty);
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedRecordChanges()) return;
+      event.preventDefault();
+      event.returnValue = "";
     };
-    register(guard);
-    return () => register(null);
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      register?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
   }, [props.registerLeaveGuard]);
 
   // 详情：记录 + 修订历史 + 读时显示文本
@@ -365,7 +409,7 @@ export function RecordsTab(props: {
           props.runtime.vector.preview(scope),
           props.runtime.vector.getStatus(scope),
         ]);
-        if (previews.length === 0) return [record.id, "无分组"] as const;
+        if (previews.length === 0) return [record.id, ""] as const;
         const ready = previews.filter((preview) =>
           state.vectors.some(
             (vector) =>
@@ -419,7 +463,11 @@ export function RecordsTab(props: {
   const currentSpaceId = active.space.id;
   const referenceLabels = buildReferenceLabelMap(referenceRecords);
   if (tables === undefined) {
-    return <Placeholder title="正在加载…" hint="记录列表准备中" />;
+    return (
+      <div className="stm-empty" role="status">
+        正在加载…
+      </div>
+    );
   }
   if (tables.length === 0) {
     return <Placeholder title="还没有表格" hint="先在「表格」页创建自定义表格与字段" />;
@@ -438,23 +486,39 @@ export function RecordsTab(props: {
     gridRows.some(
       (row) => row.recordId === detailRecordId && gridRowIsDirty(fields, row, originals),
     );
+  const formChanged =
+    editor !== null &&
+    (editor.original === null ||
+      recordFormPatchFromDraft(fields, editor.original, editor.draft).changed);
 
   /** 当前是否有未保存改动（读 ref 最新状态；离开守卫与导航确认共用） */
-  function gridHasUnsavedChanges(): boolean {
+  function hasUnsavedRecordChanges(): boolean {
+    if (editorStateRef.current.savingRecord || editorStateRef.current.savingGrid) return true;
     const { fields: currentFields, gridRows: rows, recordPage: page } = gridStateRef.current;
     const originals = new Map((page?.records ?? []).map((record) => [record.id, record]));
-    return hasUnsavedGridChanges(currentFields, rows, originals);
+    const { editor: currentEditor } = editorStateRef.current;
+    const formDirty =
+      currentEditor !== null &&
+      (currentEditor.original
+        ? recordFormPatchFromDraft(currentFields, currentEditor.original, currentEditor.draft)
+            .changed
+        : JSON.stringify(currentEditor.draft) !==
+          JSON.stringify(emptyRecordFormDraft(currentFields)));
+    return hasUnsavedGridChanges(currentFields, rows, originals) || formDirty;
   }
 
-  /** 网格有未保存修改时先确认放弃（返回是否可继续） */
+  /** 有未保存修改时先确认放弃（返回是否可继续） */
   function confirmDiscardIfDirty(): boolean {
-    if (!gridHasUnsavedChanges()) return true;
-    return window.confirm("记录网格里有未保存的修改，放弃这些修改吗？");
+    if (editorStateRef.current.savingRecord || editorStateRef.current.savingGrid) return false;
+    if (!hasUnsavedRecordChanges()) return true;
+    return window.confirm("有未保存的记录修改，放弃这些修改吗？");
   }
 
   function selectTable(tableId: MemoryTableId): void {
+    if (tableId === selectedTableId) return;
     if (!confirmDiscardIfDirty()) return;
     setSelectedTableId(tableId);
+    setEditor(null);
     setPage(1);
     setSearchInput("");
     setSearch("");
@@ -464,7 +528,62 @@ export function RecordsTab(props: {
   }
 
   function openRecord(recordId: MemoryRecordId): void {
+    listScrollTop.current = viewRef.current!.closest(".stm-panel-body")!.scrollTop;
+    setDetailRecord(undefined);
     setDetailRecordId(recordId);
+  }
+
+  function openEditor(original: MemoryRecord | null): void {
+    if (!confirmDiscardIfDirty()) return;
+    if (detailRecordId === null) {
+      listScrollTop.current = viewRef.current!.closest(".stm-panel-body")!.scrollTop;
+    }
+    discardGrid();
+    setFormErrors({});
+    setFormError(null);
+    setEditor({
+      original,
+      draft: original
+        ? recordFormDraftFromPayload(fields, original.payload)
+        : emptyRecordFormDraft(fields),
+    });
+  }
+
+  async function saveRecord(): Promise<void> {
+    if (!editor || !selectedTableId) return;
+    const saveScope = dataScopeRef.current;
+    const errors = validateRecordFormDraft(fields, editor.draft);
+    setFormErrors(errors);
+    setFormError(null);
+    if (Object.keys(errors).length > 0) return;
+    setSavingRecord(true);
+    try {
+      const record = editor.original
+        ? await props.runtime.records.update(currentSpaceId, selectedTableId, editor.original.id, {
+            expectedRevisionId: editor.original.revisionId,
+            patch: recordFormPatchFromDraft(fields, editor.original, editor.draft).patch,
+            revisionSource: "user",
+          })
+        : await props.runtime.records.create(currentSpaceId, selectedTableId, {
+            payload: recordPayloadFromDraft(fields, editor.draft),
+            source: { type: "manual" },
+          });
+      if (!record) throw new Error("记录已不存在，请重新打开表格");
+      if (
+        dataScopeRef.current.spaceId !== saveScope.spaceId ||
+        dataScopeRef.current.dataVersion !== saveScope.dataVersion
+      )
+        return;
+      setEditor(null);
+      setDetailRecord(record);
+      setDetailRecordId(record.id);
+      reportSuccess("记录已保存");
+      bumpData();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingRecord(false);
+    }
   }
 
   function addGridRow(): void {
@@ -542,6 +661,7 @@ export function RecordsTab(props: {
 
   async function saveGrid(): Promise<void> {
     if (!spaceId || !selectedTableId) return;
+    const saveScope = dataScopeRef.current;
     const originals = new Map((recordPage?.records ?? []).map((record) => [record.id, record]));
     const nextErrors = validateGridRows(fields, gridRows);
     setGridErrors(nextErrors);
@@ -611,6 +731,11 @@ export function RecordsTab(props: {
       setSavingRows([]);
       setSavingGrid(false);
     }
+    if (
+      dataScopeRef.current.spaceId !== saveScope.spaceId ||
+      dataScopeRef.current.dataVersion !== saveScope.dataVersion
+    )
+      return;
     const failedCount = Object.keys(failures).length + Object.keys(nextErrors).length;
     if (failedCount === 0) {
       reportSuccess(
@@ -675,7 +800,9 @@ export function RecordsTab(props: {
 
   async function deleteRecord(): Promise<void> {
     if (!selectedTableId || !detailRecord || !detailRecordId) return;
+    if (!confirmDiscardIfDirty()) return;
     if (!window.confirm("确定删除这条记录吗？删除后不可恢复。")) return;
+    const deleteScope = dataScopeRef.current;
     try {
       await props.runtime.records.delete(
         currentSpaceId,
@@ -684,6 +811,11 @@ export function RecordsTab(props: {
         detailRecord.revisionId,
         "user",
       );
+      if (
+        dataScopeRef.current.spaceId !== deleteScope.spaceId ||
+        dataScopeRef.current.dataVersion !== deleteScope.dataVersion
+      )
+        return;
       reportSuccess("记录已删除");
       setDetailRecordId(null);
       bumpData();
@@ -693,18 +825,19 @@ export function RecordsTab(props: {
   }
 
   return (
-    <div className="stm-record-view">
-      <div className="stm-record-toolbar">
+    <div className="stm-record-view" ref={viewRef}>
+      <div className="stm-record-toolbar" hidden={detailRecordId !== null || editor !== null}>
         <div className="stm-record-actions">
           <button
             type="button"
             className="stm-button"
             data-action="add-grid-row"
-            onClick={addGridRow}
+            disabled={savingGrid}
+            onClick={() => (viewMode === "grid" ? addGridRow() : openEditor(null))}
           >
-            + 新行
+            {viewMode === "grid" ? "+ 新行" : "+ 新建记录"}
           </button>
-          {dirty ? (
+          {viewMode === "grid" && dirty ? (
             <button
               type="button"
               className="stm-button"
@@ -714,15 +847,42 @@ export function RecordsTab(props: {
               放弃修改
             </button>
           ) : null}
-          <button
-            type="button"
-            className="stm-button stm-button--primary"
-            data-action="save-grid"
-            disabled={savingGrid}
-            onClick={() => void saveGrid()}
-          >
-            {savingGrid ? "保存中…" : "保存"}
-          </button>
+          {viewMode === "grid" ? (
+            <button
+              type="button"
+              className="stm-button stm-button--primary"
+              data-action="save-grid"
+              disabled={savingGrid || !dirty}
+              onClick={() => void saveGrid()}
+            >
+              {savingGrid ? "保存中…" : "保存修改"}
+            </button>
+          ) : null}
+          <div className="stm-record-view-switch" role="group" aria-label="记录显示方式">
+            <button
+              type="button"
+              className="stm-record-chip"
+              aria-pressed={viewMode === "list"}
+              data-action="records-list-view"
+              onClick={() => {
+                if (confirmDiscardIfDirty()) {
+                  discardGrid();
+                  setViewMode("list");
+                }
+              }}
+            >
+              列表
+            </button>
+            <button
+              type="button"
+              className="stm-record-chip"
+              aria-pressed={viewMode === "grid"}
+              data-action="records-grid-view"
+              onClick={() => setViewMode("grid")}
+            >
+              批量编辑
+            </button>
+          </div>
         </div>
         <div className="stm-record-selector-row">
           {!searchOpen ? (
@@ -757,7 +917,6 @@ export function RecordsTab(props: {
               autoFocus
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              onBlur={() => setSearchOpen(false)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setSearchOpen(false);
               }}
@@ -774,12 +933,107 @@ export function RecordsTab(props: {
               <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             </button>
           )}
+          {searchOpen ? (
+            <button
+              type="button"
+              className="stm-record-search-toggle"
+              aria-label="关闭搜索"
+              onClick={() => setSearchOpen(false)}
+            >
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
-      <div className="stm-record-table-meta">
-        {currentTable.key} · {currentTable.name}
+      <div className="stm-record-table-meta" hidden={detailRecordId !== null || editor !== null}>
+        {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
       </div>
-      {detailRecordId ? (
+      {editor ? (
+        <form
+          className="stm-record-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveRecord();
+          }}
+        >
+          <div className="stm-record-detail-header">
+            <h3>{editor.original ? "编辑记录" : "新建记录"}</h3>
+            <span className="stm-record-table-meta">{currentTable.name}</span>
+          </div>
+          <fieldset className="stm-record-form-fields" disabled={savingRecord}>
+            {fields.map((field) => (
+              <div
+                key={field.id}
+                className="stm-record-form-field"
+                role="group"
+                aria-label={field.name}
+              >
+                <span className="stm-record-field-name">
+                  {field.name}
+                  {field.required ? <span className="stm-field-required"> *</span> : null}
+                  {!field.enabled ? "（已停用）" : ""}
+                </span>
+                {field.enabled ? (
+                  renderFieldInput(
+                    field,
+                    editor.draft,
+                    referenceRecords,
+                    (fieldId, value) =>
+                      setEditor((current) =>
+                        current
+                          ? {
+                              ...current,
+                              draft: { values: { ...current.draft.values, [fieldId]: value } },
+                            }
+                          : current,
+                      ),
+                    false,
+                  )
+                ) : (
+                  <span className="stm-record-field-value">
+                    {recordFieldValueText(
+                      field,
+                      editor.original?.payload[field.id],
+                      referenceLabels,
+                    )}
+                  </span>
+                )}
+                {formErrors[field.id] ? (
+                  <span className="stm-grid-row-error" role="alert">
+                    {formErrors[field.id]}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </fieldset>
+          {formError ? (
+            <p className="stm-grid-row-error" role="alert">
+              {formError}
+            </p>
+          ) : null}
+          <div className="stm-record-form-actions">
+            <button
+              type="button"
+              className="stm-button"
+              data-action="cancel-record"
+              disabled={savingRecord}
+              onClick={() => {
+                if (confirmDiscardIfDirty()) setEditor(null);
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              className="stm-button stm-button--primary"
+              data-action="save-record"
+              disabled={savingRecord || !formChanged}
+            >
+              {savingRecord ? "保存中…" : "保存记录"}
+            </button>
+          </div>
+        </form>
+      ) : detailRecordId ? (
         detailRecord ? (
           <RecordDetail
             record={detailRecord}
@@ -789,6 +1043,7 @@ export function RecordsTab(props: {
             referenceLabels={referenceLabels}
             unsavedDraft={detailDirty}
             onBack={() => setDetailRecordId(null)}
+            onEdit={() => openEditor(detailRecord)}
             onDelete={() => void deleteRecord()}
             onJumpFloor={(floor) => props.runtime.st.scrollToFloor(floor)}
             getMessageAt={(floor) => props.runtime.st.getMessageAt(floor)}
@@ -797,22 +1052,45 @@ export function RecordsTab(props: {
             tableId={currentTable.id}
           />
         ) : (
-          <Placeholder title="正在加载…" hint="记录详情读取中" />
+          <div className="stm-empty" role="status">
+            正在加载…
+          </div>
         )
-      ) : (
-        <>
-          {loadError ? <Placeholder title="记录加载失败" hint={loadError} /> : null}
-          {!loadError && loading && gridRows.length === 0 ? (
-            <Placeholder title="正在加载…" hint="记录读取中" />
-          ) : null}
-          {!loadError && !loading ? (
-            <>
-              {gridRows.length === 0 ? (
-                <Placeholder
-                  title="还没有记录"
-                  hint={search.length > 0 ? "换个关键词试试" : "点击「+ 新行」写下第一条记忆"}
-                />
-              ) : null}
+      ) : null}
+      <div className="stm-record-results" hidden={detailRecordId !== null || editor !== null}>
+        {loadError ? <Placeholder title="记录加载失败" hint={loadError} /> : null}
+        {!loadError && loading && gridRows.length === 0 ? (
+          <div className="stm-empty" role="status">
+            正在加载…
+          </div>
+        ) : null}
+        {!loadError && !loading ? (
+          <>
+            {gridRows.length === 0 ? (
+              <div className="stm-empty">
+                <div className="stm-empty-title">{search ? "没有匹配记录" : "还没有记录"}</div>
+                <button
+                  type="button"
+                  className="stm-button"
+                  onClick={() => {
+                    if (search) setSearchInput("");
+                    else if (viewMode === "grid") addGridRow();
+                    else openEditor(null);
+                  }}
+                >
+                  {search ? "清除搜索" : "新建记录"}
+                </button>
+              </div>
+            ) : null}
+            {viewMode === "list" ? (
+              <RecordSummaryList
+                records={recordPage?.records ?? []}
+                fields={fields}
+                referenceLabels={referenceLabels}
+                vectorSummaries={vectorSummaries}
+                onOpenRecord={openRecord}
+              />
+            ) : (
               <GridEditor
                 vectorSummaries={vectorSummaries}
                 fields={fields}
@@ -834,38 +1112,90 @@ export function RecordsTab(props: {
                 onResizeField={resizeField}
                 onResizeRowHeight={resizeRowHeight}
               />
-              <div className="stm-pagination">
-                <button
-                  type="button"
-                  className="stm-page-button"
-                  data-action="record-page-prev"
-                  disabled={(recordPage?.page ?? 1) <= 1}
-                  onClick={() => {
-                    if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 1) - 1);
-                  }}
-                >
-                  上一页
-                </button>
-                <span className="stm-pagination-info">
-                  {recordPage && recordPage.totalPages > 0 ? recordPage.page : 0} /{" "}
-                  {recordPage?.totalPages ?? 0}（共 {recordPage?.total ?? 0} 条）
-                </span>
-                <button
-                  type="button"
-                  className="stm-page-button"
-                  data-action="record-page-next"
-                  disabled={(recordPage?.page ?? 0) >= (recordPage?.totalPages ?? 0)}
-                  onClick={() => {
-                    if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 0) + 1);
-                  }}
-                >
-                  下一页
-                </button>
-              </div>
-            </>
-          ) : null}
-        </>
-      )}
+            )}
+            <div className="stm-pagination">
+              <button
+                type="button"
+                className="stm-page-button"
+                data-action="record-page-prev"
+                disabled={(recordPage?.page ?? 1) <= 1}
+                onClick={() => {
+                  if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 1) - 1);
+                }}
+              >
+                上一页
+              </button>
+              <span className="stm-pagination-info">
+                {recordPage && recordPage.totalPages > 0 ? recordPage.page : 0} /{" "}
+                {recordPage?.totalPages ?? 0}（共 {recordPage?.total ?? 0} 条）
+              </span>
+              <button
+                type="button"
+                className="stm-page-button"
+                data-action="record-page-next"
+                disabled={(recordPage?.page ?? 0) >= (recordPage?.totalPages ?? 0)}
+                onClick={() => {
+                  if (confirmDiscardIfDirty()) setPage((recordPage?.page ?? 0) + 1);
+                }}
+              >
+                下一页
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function RecordSummaryList(props: {
+  readonly records: readonly MemoryRecord[];
+  readonly fields: readonly MemoryField[];
+  readonly referenceLabels: ReadonlyMap<string, string>;
+  readonly vectorSummaries: ReadonlyMap<MemoryRecordId, string>;
+  readonly onOpenRecord: (recordId: MemoryRecordId) => void;
+}) {
+  return (
+    <div className="stm-record-summary-list" aria-label="记录列表">
+      {props.records.map((record) => {
+        const previewFields = props.fields
+          .filter((field) => field.enabled)
+          .map((field) => ({
+            field,
+            text: recordFieldValueText(field, record.payload[field.id], props.referenceLabels),
+          }))
+          .filter(({ text }) => text !== "—" && text.trim() !== record.displayText.trim())
+          .slice(0, 3);
+        const vectorSummary = props.vectorSummaries.get(record.id);
+        return (
+          <button
+            type="button"
+            key={record.id}
+            className="stm-record-summary"
+            data-action="open-record"
+            data-record-id={record.id}
+            onClick={() => props.onOpenRecord(record.id)}
+          >
+            <span className="stm-record-summary-title">{record.displayText}</span>
+            {previewFields.length > 0 ? (
+              <span className="stm-record-summary-values">
+                {previewFields.map(({ field, text }) => (
+                  <span key={field.id}>
+                    <span className="stm-record-summary-label">{field.name}</span>
+                    {text}
+                  </span>
+                ))}
+              </span>
+            ) : null}
+            <span className="stm-record-summary-meta">
+              <span>
+                {recordSourceLabel(record.source)} · {formatDisplayTime(record.updatedAt)}
+              </span>
+              {vectorSummary ? <span>{vectorSummary}</span> : null}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -886,10 +1216,10 @@ function RecordDetail(props: {
   readonly unsavedDraft: boolean;
   readonly onBack: () => void;
   readonly onDelete: () => void;
+  readonly onEdit: () => void;
   readonly onJumpFloor: (floor: number) => FloorJumpOutcome;
   readonly getMessageAt: (floor: number) => StChatMessage | undefined;
 }) {
-  const revisionLine = revisionSummaryLine(props.history);
   const noEvidence = !recordHasEvidence(props.record.fieldEvidence);
   return (
     <div className="stm-record-detail">
@@ -911,6 +1241,14 @@ function RecordDetail(props: {
           </span>
         ) : null}
         <div className="stm-record-detail-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="edit-record"
+            onClick={props.onEdit}
+          >
+            编辑
+          </button>
           <button
             type="button"
             className="stm-table-action stm-table-action--danger"
@@ -936,7 +1274,6 @@ function RecordDetail(props: {
           更新于 {formatDisplayTime(props.record.updatedAt)}
         </span>
       </div>
-      {revisionLine ? <div className="stm-record-revision">{revisionLine}</div> : null}
       {noEvidence ? (
         <div className="stm-no-evidence">
           {props.record.source.type === "manual" ? "无证据（手动记录）" : "无证据"}
@@ -988,6 +1325,25 @@ function RecordDetail(props: {
           );
         })}
       </ul>
+      {props.history.length > 0 ? (
+        <details className="stm-record-history">
+          <summary>修订历史 · {props.history.length}</summary>
+          {props.history.map((entry) => (
+            <div key={entry.id} className="stm-record-history-entry">
+              <span className="stm-record-meta-time">
+                {formatDisplayTime(entry.archivedAt)} ·{" "}
+                {entry.revisionSource === "user" ? "手动修订" : "Agent 修订"}
+              </span>
+              {props.fields.map((field) => (
+                <div key={field.id}>
+                  <span className="stm-record-summary-label">{field.name}</span>
+                  {recordFieldValueText(field, entry.payload[field.id], props.referenceLabels)}
+                </div>
+              ))}
+            </div>
+          ))}
+        </details>
+      ) : null}
       <VectorRecordStatus
         vector={props.vector}
         memorySpaceId={props.memorySpaceId}

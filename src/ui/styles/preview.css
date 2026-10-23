@@ -11,7 +11,7 @@
 
 .stm-preset-preview-hint {
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.5;
   color: var(--stm-ink-secondary);
 }
@@ -22,7 +22,7 @@
 
 .stm-preset-preview-group-title {
   margin: 0 0 4px;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   font-weight: 600;
   color: var(--stm-ink-secondary);
 }
@@ -41,7 +41,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   color: var(--stm-ink);
 }
 
@@ -57,7 +57,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--stm-font-mono);
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.55;
   color: var(--stm-ink);
   border-top: 1px solid var(--stm-border);
@@ -75,6 +75,26 @@
   background: rgba(0, 0, 0, 0.45);
 }
 
+.stm-editor-dialog {
+  margin: 0;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  color: var(--stm-fg);
+  background: transparent;
+  font: inherit;
+}
+
+.stm-editor-dialog:not([open]) {
+  display: none;
+}
+
+.stm-editor-dialog::backdrop {
+  background: var(--stm-scrim);
+}
+
 .stm-modal {
   display: flex;
   flex-direction: column;
@@ -89,7 +109,7 @@
 
 .stm-modal-title {
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   font-weight: 600;
   color: var(--stm-ink);
   border-bottom: 1px solid var(--stm-border);
@@ -106,7 +126,7 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--stm-fs-xs);
   line-height: 1.55;
   color: var(--stm-ink);
 }

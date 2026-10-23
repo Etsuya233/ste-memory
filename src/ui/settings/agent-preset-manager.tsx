@@ -266,7 +266,6 @@ export function AgentPresetManager(props: {
 
   return (
     <div className="stm-setting-group" data-stm-section="agent-presets">
-      <div className="stm-setting-group-title">Agent 提示词预设</div>
       <div className="stm-setting-row">
         <div className="stm-setting-label">
           <div className="stm-setting-name">当前预设</div>

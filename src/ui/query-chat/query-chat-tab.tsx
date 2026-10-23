@@ -183,11 +183,7 @@ export function QueryChatTab(props: {
         {messages.length === 0 ? (
           <Placeholder
             title={mode === "query" ? "有什么想问记忆的吗？" : "想记点什么？"}
-            hint={
-              mode === "query"
-                ? "查询 Agent 会基于当前空间的表格记录如实回答"
-                : "描述要新增或修改的记录，填写 Agent 会先征求你的同意再提交"
-            }
+            hint={mode === "fill" ? "提交前会请你确认" : ""}
           />
         ) : (
           messages.map((message) =>
@@ -210,11 +206,7 @@ export function QueryChatTab(props: {
           type="text"
           data-action="query-chat-input"
           placeholder={
-            running
-              ? "Agent 正在回答…"
-              : mode === "query"
-                ? "向记忆空间提问，Enter 发送"
-                : "描述记录变更，Enter 发送"
+            running ? "Agent 正在回答…" : mode === "query" ? "问问这段记忆…" : "想新增或修改什么？"
           }
           value={input}
           disabled={running}

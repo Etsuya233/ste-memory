@@ -21,6 +21,7 @@ import type { EntryPlacement, PluginSettings } from "../../features/settings/plu
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import { executeSpaceImport, planSpaceImport } from "../../features/chat-binding/space-import.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
+import { AppearanceSettings } from "../shell/appearance-settings.tsx";
 import { EmbeddingConnectionEditor } from "./embedding-connection-editor.tsx";
 import type { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import {
@@ -36,13 +37,11 @@ import {
   agentConnectionsSummary,
   agentPresetsSummary,
   cleaningSummary,
-  isExpanded as isSettingsGroupExpanded,
   loadExpandedGroups,
+  saveExpandedGroups,
   macroSummary,
   mirrorSummary,
-  saveExpandedGroups,
   tablePresetsSummary,
-  toggleGroup as toggleSettingsGroup,
   type SettingsGroupKey,
 } from "../shell/settings-collapsed-model.ts";
 import {
@@ -116,29 +115,38 @@ export function MacroSettingsFields(props: {
 }) {
   return (
     <div className="stm-setting-subgroup" data-stm-section="macro-settings">
-      <input
-        className="stm-input"
-        type="text"
-        data-stm-field="macro-name"
-        value={props.macroName}
-        placeholder="{{ste}}"
-        onChange={(event) => props.onNameChange(event.target.value)}
-      />
-      <input
-        className="stm-input"
-        type="number"
-        min="0"
-        step="100"
-        data-stm-field="macro-limit"
-        value={props.macroLimit}
-        onChange={(event) => props.onLimitChange(event.target.value)}
-      />
-      <div className="stm-setting-hint">
-        前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开 当前记忆：
-        {"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full / 表
-        Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
-        超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
-      </div>
+      <label className="stm-form-row">
+        <span className="stm-form-label">宏前缀</span>{" "}
+        <input
+          className="stm-input"
+          type="text"
+          data-stm-field="macro-name"
+          value={props.macroName}
+          placeholder="{{ste}}"
+          onChange={(event) => props.onNameChange(event.target.value)}
+        />
+      </label>
+      <label className="stm-form-row">
+        <span className="stm-form-label">输出字符上限</span>
+        <input
+          className="stm-input"
+          type="number"
+          min="0"
+          step="100"
+          data-stm-field="macro-limit"
+          value={props.macroLimit}
+          onChange={(event) => props.onLimitChange(event.target.value)}
+        />
+      </label>
+      <details className="stm-setting-help">
+        <summary>宏语法与截断规则</summary>{" "}
+        <div className="stm-setting-hint">
+          前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开 当前记忆：
+          {"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full / 表
+          Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
+          超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
+        </div>
+      </details>
     </div>
   );
 }
@@ -460,17 +468,9 @@ export function SettingsTab(props: {
     return props.macroOverview().find((row) => row.name === name)?.text ?? "";
   }
 
-  // ---- 折叠状态（纯展示偏好，持久化到 localStorage，不进 PluginSettings） ----
-  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<SettingsGroupKey>>(() => {
-    try {
-      return loadExpandedGroups(safeLocalStorage());
-    } catch {
-      return new Set();
-    }
-  });
-  useEffect(() => {
-    saveExpandedGroups(safeLocalStorage(), expandedGroups);
-  }, [expandedGroups]);
+  const [activeGroup, setActiveGroup] = useState<
+    SettingsGroupKey | "embedding-connection" | "appearance" | null
+  >(() => [...loadExpandedGroups(safeLocalStorage())][0] ?? null);
   const presetLeaveGuard = useRef<(() => boolean) | null>(null);
   const registerPresetLeaveGuard = useCallback(
     (guard: (() => boolean) | null) => {
@@ -480,9 +480,14 @@ export function SettingsTab(props: {
     [props.registerLeaveGuard],
   );
 
-  function toggleGroup(key: SettingsGroupKey): void {
-    if (key === "table-presets" && presetLeaveGuard.current && !presetLeaveGuard.current()) return;
-    setExpandedGroups((prev) => toggleSettingsGroup(prev, key));
+  function toggleGroup(key: SettingsGroupKey | "embedding-connection" | "appearance" | null): void {
+    if (key === activeGroup) return;
+    if (presetLeaveGuard.current && !presetLeaveGuard.current()) return;
+    setActiveGroup(key);
+    saveExpandedGroups(
+      safeLocalStorage(),
+      new Set(key && key !== "embedding-connection" && key !== "appearance" ? [key] : []),
+    );
   }
 
   // ---- 面板安全区（本机显示偏好，localStorage；仅移动断点消费，桌面惰性） ----
@@ -527,13 +532,48 @@ export function SettingsTab(props: {
   }
 
   return (
-    <>
+    <div className="stm-settings-navigation" data-settings-page={activeGroup ?? "categories"}>
+      {activeGroup ? (
+        <button
+          type="button"
+          className="stm-button stm-settings-back"
+          data-action="settings-back"
+          onClick={() => toggleGroup(null)}
+        >
+          <i className="fa-solid fa-arrow-left" aria-hidden="true" /> 返回设置
+        </button>
+      ) : null}
+      <div
+        className="stm-setting-group"
+        data-group="appearance"
+        hidden={activeGroup !== null && activeGroup !== "appearance"}
+      >
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="appearance"
+          aria-expanded={activeGroup === "appearance"}
+          onClick={() => toggleGroup("appearance")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title">外观</div>
+            <div className="stm-setting-group-summary">主题与阅读体验</div>
+          </div>
+          <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+        </button>
+        {activeGroup === "appearance" && (
+          <div className="stm-setting-group-body">
+            <AppearanceSettings />
+          </div>
+        )}
+      </div>
       {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
-      <div className="stm-setting-group" data-group="plugin-toggle">
+      <div className="stm-setting-group" data-group="plugin-toggle" hidden={activeGroup !== null}>
         <div className="stm-setting-row">
           <div className="stm-setting-label">
             <div className="stm-setting-name">插件总开关</div>
-            <div className="stm-setting-hint">关闭后暂停空间绑定与同步；面板仍可打开重新启用</div>
+            <div className="stm-setting-hint">关闭后暂停绑定与同步</div>
           </div>
           <label className="stm-switch">
             <input
@@ -547,25 +587,52 @@ export function SettingsTab(props: {
         </div>
       </div>
 
-      <div className="stm-setting-group" data-group="embedding-connection">
-        <div className="stm-setting-group-title">Embedding 连接</div>
-        <EmbeddingConnectionEditor
-          key={JSON.stringify(props.settings.embeddingConnection)}
-          connection={props.settings.embeddingConnection}
-          onSave={(connection) =>
-            changeSettings(() => props.settingsService.setEmbeddingConnection(connection))
-          }
-        />
+      <div
+        className="stm-setting-group"
+        data-group="embedding-connection"
+        hidden={activeGroup !== null && activeGroup !== "embedding-connection"}
+      >
+        <button
+          type="button"
+          className="stm-setting-group-header"
+          data-action="toggle-settings-group"
+          data-group="embedding-connection"
+          aria-expanded={activeGroup === "embedding-connection"}
+          onClick={() => toggleGroup("embedding-connection")}
+        >
+          <div className="stm-setting-group-header-main">
+            <div className="stm-setting-group-title">向量连接</div>
+            <div className="stm-setting-group-summary">
+              {props.settings.embeddingConnection?.model ?? "配置 embedding 服务，用于索引和检索"}
+            </div>
+          </div>
+          <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+        </button>
+        {activeGroup === "embedding-connection" && (
+          <div className="stm-setting-group-body">
+            <EmbeddingConnectionEditor
+              key={JSON.stringify(props.settings.embeddingConnection)}
+              connection={props.settings.embeddingConnection}
+              onSave={(connection) =>
+                changeSettings(() => props.settingsService.setEmbeddingConnection(connection))
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* 记忆宏：常用首位 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="macro">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="macro"
+        hidden={activeGroup !== null && activeGroup !== "macro"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="macro"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "macro")}
+          aria-expanded={activeGroup === "macro"}
           onClick={() => toggleGroup("macro")}
         >
           <div className="stm-setting-group-header-main">
@@ -577,11 +644,11 @@ export function SettingsTab(props: {
             </div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "macro") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "macro" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "macro") && (
+        {activeGroup === "macro" && (
           <div className="stm-setting-group-body">
             {/* 作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 */}
             <div className="stm-macro-scope-tabs" role="tablist" aria-label="记忆宏作用域">
@@ -663,13 +730,17 @@ export function SettingsTab(props: {
       </div>
 
       {/* 表格预设：新空间默认 / 当前空间应用 / 预设管理（spec table-presets） */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="table-presets">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="table-presets"
+        hidden={activeGroup !== null && activeGroup !== "table-presets"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="table-presets"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "table-presets")}
+          aria-expanded={activeGroup === "table-presets"}
           onClick={() => toggleGroup("table-presets")}
         >
           <div className="stm-setting-group-header-main">
@@ -679,11 +750,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">{tablePresetsSummary(props.settings)}</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "table-presets") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "table-presets" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "table-presets") && (
+        {activeGroup === "table-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
               registerLeaveGuard={registerPresetLeaveGuard}
@@ -710,13 +781,14 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="agent-connections"
+        hidden={activeGroup !== null && activeGroup !== "agent-connections"}
       >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="agent-connections"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "agent-connections")}
+          aria-expanded={activeGroup === "agent-connections"}
           onClick={() => toggleGroup("agent-connections")}
         >
           <div className="stm-setting-group-header-main">
@@ -728,11 +800,11 @@ export function SettingsTab(props: {
             </div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-connections") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "agent-connections" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "agent-connections") && (
+        {activeGroup === "agent-connections" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentConnectionManager
               settings={props.settings}
@@ -773,21 +845,23 @@ export function SettingsTab(props: {
                 ))}
               </select>
             </label>
-            <div className="stm-setting-hint">
-              每批独立计时，超时中止且不提交该批；默认 600 秒。
-            </div>
+            <div className="stm-setting-hint">超时后不提交当前批次</div>
           </div>
         )}
       </div>
 
       {/* Agent 提示词预设 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="agent-presets">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="agent-presets"
+        hidden={activeGroup !== null && activeGroup !== "agent-presets"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="agent-presets"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "agent-presets")}
+          aria-expanded={activeGroup === "agent-presets"}
           onClick={() => toggleGroup("agent-presets")}
         >
           <div className="stm-setting-group-header-main">
@@ -797,11 +871,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">{agentPresetsSummary(props.settings)}</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "agent-presets") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "agent-presets" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "agent-presets") && (
+        {activeGroup === "agent-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentPresetManager
               settings={props.settings}
@@ -815,13 +889,17 @@ export function SettingsTab(props: {
       </div>
 
       {/* 清洗规则 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="cleaning">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="cleaning"
+        hidden={activeGroup !== null && activeGroup !== "cleaning"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="cleaning"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "cleaning")}
+          aria-expanded={activeGroup === "cleaning"}
           onClick={() => toggleGroup("cleaning")}
         >
           <div className="stm-setting-group-header-main">
@@ -833,11 +911,11 @@ export function SettingsTab(props: {
             </div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "cleaning") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "cleaning" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "cleaning") && (
+        {activeGroup === "cleaning" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <CleaningRulesManager
               settings={props.settings}
@@ -857,13 +935,17 @@ export function SettingsTab(props: {
       </div>
 
       {/* 数据备份 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="backup">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="backup"
+        hidden={activeGroup !== null && activeGroup !== "backup"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="backup"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "backup")}
+          aria-expanded={activeGroup === "backup"}
           onClick={() => toggleGroup("backup")}
         >
           <div className="stm-setting-group-header-main">
@@ -873,11 +955,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">导出/导入全库</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "backup") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "backup" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "backup") && (
+        {activeGroup === "backup" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-actions">
               <button
@@ -909,9 +991,7 @@ export function SettingsTab(props: {
                 event.target.value = "";
               }}
             />
-            <div className="stm-setting-hint">
-              导出下载全库 JSON 备份文件；导入前校验文件并整体替换当前数据
-            </div>
+            <div className="stm-setting-hint">导入将整体替换当前数据</div>
             <div className="stm-setting-divider" />
             <div className="stm-setting-actions">
               <button
@@ -945,22 +1025,23 @@ export function SettingsTab(props: {
                 event.target.value = "";
               }}
             />
-            <div className="stm-setting-hint">
-              仅备份/恢复当前对话的记忆空间；spaceId
-              不匹配或当前对话无绑定时克隆新空间（原空间保留）
-            </div>
+            <div className="stm-setting-hint">空间不匹配时创建副本，保留原空间</div>
           </div>
         )}
       </div>
 
       {/* 对话文件镜像 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="mirror">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="mirror"
+        hidden={activeGroup !== null && activeGroup !== "mirror"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="mirror"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "mirror")}
+          aria-expanded={activeGroup === "mirror"}
           onClick={() => toggleGroup("mirror")}
         >
           <div className="stm-setting-group-header-main">
@@ -972,18 +1053,16 @@ export function SettingsTab(props: {
             </div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "mirror") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "mirror" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "mirror") && (
+        {activeGroup === "mirror" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
               <div className="stm-setting-label">
                 <div className="stm-setting-name">随对话文件同步记忆镜像</div>
-                <div className="stm-setting-hint">
-                  记忆快照写入聊天文件随对话走；换设备或本地库被清时自动恢复
-                </div>
+                <div className="stm-setting-hint">换设备或清除本地数据后可从对话恢复</div>
               </div>
               <label className="stm-switch">
                 <input
@@ -998,7 +1077,6 @@ export function SettingsTab(props: {
             <div className="stm-setting-row">
               <div className="stm-setting-label">
                 <div className="stm-setting-name">镜像包含修订历史</div>
-                <div className="stm-setting-hint">关闭后镜像不含修订记录，体积更小</div>
               </div>
               <label className="stm-switch">
                 <input
@@ -1021,13 +1099,17 @@ export function SettingsTab(props: {
       </div>
 
       {/* 版本与运行状态 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="version">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="version"
+        hidden={activeGroup !== null && activeGroup !== "version"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="version"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "version")}
+          aria-expanded={activeGroup === "version"}
           onClick={() => toggleGroup("version")}
         >
           <div className="stm-setting-group-header-main">
@@ -1037,11 +1119,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">{`v${props.version} · ${runtimeStatusLabel(props.status)}`}</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "version") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "version" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "version") && (
+        {activeGroup === "version" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
               <div className="stm-setting-name">版本</div>
@@ -1056,13 +1138,17 @@ export function SettingsTab(props: {
       </div>
 
       {/* 面板入口：呼出/收起记忆面板的按钮所在表面（全局设置，切换即时生效） */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="entry">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="entry"
+        hidden={activeGroup !== null && activeGroup !== "entry"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="entry"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "entry")}
+          aria-expanded={activeGroup === "entry"}
           onClick={() => toggleGroup("entry")}
         >
           <div className="stm-setting-group-header-main">
@@ -1074,11 +1160,11 @@ export function SettingsTab(props: {
             </div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "entry") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "entry" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "entry") && (
+        {activeGroup === "entry" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
               {ENTRY_PLACEMENT_OPTIONS.map((placement) => (
@@ -1098,21 +1184,22 @@ export function SettingsTab(props: {
             {actualPlacementNote(entryPlan) && (
               <div className="stm-setting-hint">{actualPlacementNote(entryPlan)}</div>
             )}
-            <div className="stm-setting-hint">
-              选魔法棒或两者时，底部魔法棒菜单会出现「记忆面板」入口；切换即时生效。
-            </div>
           </div>
         )}
       </div>
 
       {/* 面板安全区：本机显示偏好（localStorage），仅移动断点消费 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="safe-area">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="safe-area"
+        hidden={activeGroup !== null && activeGroup !== "safe-area"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="safe-area"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "safe-area")}
+          aria-expanded={activeGroup === "safe-area"}
           onClick={() => toggleGroup("safe-area")}
         >
           <div className="stm-setting-group-header-main">
@@ -1122,11 +1209,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">{safeAreaSummary(safeArea)}</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "safe-area") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "safe-area" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "safe-area") && (
+        {activeGroup === "safe-area" && (
           <div className="stm-setting-group-body">
             <div className="stm-safe-area-grid">
               {SAFE_AREA_EDGES.map((edge) => (
@@ -1167,22 +1254,23 @@ export function SettingsTab(props: {
                 清空
               </button>
             </div>
-            <div className="stm-setting-hint">
-              TauriTavern 等宿主不向页面报告系统安全区时，全屏抽屉会顶进灵动岛/手势条区域；
-              按设备实际遮挡调整四边留空（仅移动端生效，桌面浮动窗口不受影响）。
-            </div>
+            <div className="stm-setting-hint">单位 px，仅移动端生效</div>
           </div>
         )}
       </div>
 
       {/* 危险操作：钉底 */}
-      <div className="stm-setting-group stm-setting-group--collapsible" data-group="danger">
+      <div
+        className="stm-setting-group stm-setting-group--collapsible"
+        data-group="danger"
+        hidden={activeGroup !== null && activeGroup !== "danger"}
+      >
         <button
           type="button"
           className="stm-setting-group-header"
           data-action="toggle-settings-group"
           data-group="danger"
-          aria-expanded={isSettingsGroupExpanded(expandedGroups, "danger")}
+          aria-expanded={activeGroup === "danger"}
           onClick={() => toggleGroup("danger")}
         >
           <div className="stm-setting-group-header-main">
@@ -1192,11 +1280,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-group-summary">操作不可恢复</div>
           </div>
           <i
-            className={`fa-solid ${isSettingsGroupExpanded(expandedGroups, "danger") ? "fa-chevron-up" : "fa-chevron-down"}`}
+            className={`fa-solid ${activeGroup === "danger" ? "fa-chevron-up" : "fa-chevron-right"}`}
             aria-hidden="true"
           />
         </button>
-        {isSettingsGroupExpanded(expandedGroups, "danger") && (
+        {activeGroup === "danger" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-hint">
               以下操作会清空当前对话记忆空间的内容，且对话文件镜像中的副本也会随之清空，操作不可恢复；按预设重建请使用上方「表格预设」分组。
@@ -1218,6 +1306,6 @@ export function SettingsTab(props: {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

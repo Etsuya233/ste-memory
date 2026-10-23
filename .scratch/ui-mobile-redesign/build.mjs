@@ -1,0 +1,12 @@
+import { build } from "esbuild";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { aggregateStyles } from "../../scripts/build-lib.ts";
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const out = path.join(dir, "preview");
+await mkdir(out, { recursive: true });
+await build({ entryPoints: [path.join(dir, "entry.tsx")], outfile: path.join(out, "app.js"), bundle: true, jsx: "automatic", format: "esm", platform: "browser", target: "es2022", sourcemap: true, define: { "process.env.NODE_ENV": JSON.stringify("development"), __STE_MEMORY_VERSION__: JSON.stringify("preview") } });
+await writeFile(path.join(out, "style.css"), aggregateStyles(), "utf8");
+await writeFile(path.join(out, "index.html"), await readFile(path.join(dir, "index.html"), "utf8"), "utf8");
+console.log(`Preview built: ${out}`);

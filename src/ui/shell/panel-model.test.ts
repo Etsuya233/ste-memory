@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { PANEL_TAB_LABELS, PANEL_TABS, PanelModel } from "./panel-model.ts";
 
 describe("PanelModel（面板开关与 Tab 状态机）", () => {
-  it("初始状态：关闭、表格 Tab", () => {
+  it("初始状态：关闭、记录 Tab", () => {
     const model = new PanelModel();
-    expect(model.getState()).toEqual({ open: false, tab: "tables" });
+    expect(model.getState()).toEqual({ open: false, tab: "records" });
   });
 
   it("toggle 开 ↔ 关", () => {

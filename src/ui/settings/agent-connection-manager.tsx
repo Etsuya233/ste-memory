@@ -92,16 +92,9 @@ export function AgentConnectionManager(props: {
 
   return (
     <div className="stm-setting-group" data-stm-field="agent-connections">
-      <div className="stm-setting-group-title">Agent 连接</div>
-      <div className="stm-setting-hint">
-        为表格填写 Agent / 查询 Agent 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走 ST
-        服务端转发，无 CORS。密钥以明文存于浏览器本地。未配置任何连接时 Agent 跟随 ST 当前连接。
-      </div>
       <div className="stm-connection-list" data-stm-field="connection-list">
         {settings.agentConnections.length === 0 && (
-          <div className="stm-setting-hint">
-            还没有 Agent 连接——新建一个，或在下方保持「跟随 ST 当前连接」。
-          </div>
+          <div className="stm-setting-hint">暂无独立连接</div>
         )}
         {settings.agentConnections.map((connection) => (
           <div className="stm-connection-row" data-stm-field="connection-row" key={connection.id}>
@@ -302,6 +295,14 @@ export function AgentConnectionForm(props: {
           {props.testResult.text}
         </div>
       )}
+      <details className="stm-setting-help">
+        <summary>连接与密钥存储</summary>{" "}
+        <div className="stm-setting-hint">
+          为表格填写 Agent / 查询 Agent 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走
+          ST 服务端转发，无 CORS。密钥以明文存于浏览器本地。未配置任何连接时 Agent 跟随 ST
+          当前连接。
+        </div>
+      </details>
     </div>
   );
 }

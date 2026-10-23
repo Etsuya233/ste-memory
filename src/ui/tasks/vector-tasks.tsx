@@ -147,10 +147,12 @@ export function VectorTasks(props: {
 
   return (
     <section className="stm-task-card stm-vector-tasks" data-stm-section="vector-tasks">
-      <div className="stm-task-card-title">向量任务</div>
-      <p className="stm-setting-hint">
-        每条记录的每个分组对应一项任务。请求依次按当前手动、后台手动、当前自动、后台自动处理；已发出的请求完成后重新排序。
-      </p>
+      <details className="stm-vector-queue-info">
+        <summary>队列如何处理</summary>
+        <p className="stm-setting-hint">
+          每条记录的每个分组对应一项任务。请求依次按当前手动、后台手动、当前自动、后台自动处理；已发出的请求完成后重新排序。
+        </p>
+      </details>
       <div className="stm-vector-task-counts">
         全局未结束 {result ? result.queued + result.running : 0} · 运行中 {result?.running ?? 0} ·
         阻塞 {result?.blocked ?? 0} · 当前筛选 {result?.total ?? 0}

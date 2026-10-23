@@ -5,34 +5,6 @@
  * 色板/字体全部走令牌；操作按钮保持触控友好（≥36px，行高 44px）
  * ============================================================ */
 
-.stm-button--primary {
-  background: var(--stm-accent);
-  border-color: var(--stm-accent);
-  color: var(--stm-ink-bg);
-  font-weight: 600;
-}
-
-.stm-button--primary:hover {
-  border-color: var(--stm-accent);
-  filter: brightness(1.08);
-}
-
-/* 危险操作（spec reset-space 设置 Tab）：危险色描边 + 危险色文字 */
-.stm-button--danger {
-  color: var(--stm-danger);
-  border-color: var(--stm-danger);
-}
-
-.stm-button--danger:hover:not(:disabled) {
-  border-color: var(--stm-danger);
-  background: var(--stm-danger-dim);
-}
-
-.stm-button--danger:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
 /* 顶部操作行（建表入口）与卡片内操作行 */
 .stm-table-actions {
   display: flex;
@@ -53,9 +25,9 @@
   padding: 6px 12px;
   background: none;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--stm-radius);
   color: var(--stm-ink-secondary);
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   font-family: var(--stm-font);
   cursor: pointer;
 }
@@ -92,7 +64,7 @@
 /* 字段管理模式入口（卡片展开区顶部） */
 .stm-field-edit-toggle {
   padding: 4px 10px 2px;
-  border-top: 1px dashed var(--stm-border);
+  border-top: 1px solid var(--stm-border);
 }
 
 /* 字段管理操作行（图标按钮，触控目标 44×44）；窄屏自动换行到第二行 */
@@ -111,9 +83,9 @@
   height: 44px;
   background: none;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--stm-radius);
   color: var(--stm-ink-secondary);
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   cursor: pointer;
 }
 
@@ -135,10 +107,10 @@
 .stm-field-dep {
   margin-left: 6px;
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: var(--stm-fs-xs);
   font-weight: 400;
-  color: var(--stm-accent);
-  border: 1px solid var(--stm-accent);
+  color: var(--stm-accent-text);
+  border: 1px solid var(--stm-accent-soft);
   border-radius: 4px;
   vertical-align: 1px;
 }
@@ -153,7 +125,7 @@
 }
 
 .stm-strategy-chips-label {
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
 }
 
@@ -165,7 +137,7 @@
   border: 1px solid var(--stm-border);
   border-radius: 999px;
   color: var(--stm-ink);
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   font-family: var(--stm-font);
   cursor: pointer;
 }
@@ -179,13 +151,13 @@
   margin-top: 6px;
   padding: 8px 10px;
   background: var(--stm-ink-bg);
-  border: 1px dashed var(--stm-border);
-  border-radius: 8px;
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
 }
 
 .stm-strategy-preview-title {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   color: var(--stm-accent);
 }
 
@@ -202,11 +174,11 @@
   padding: 6px 8px;
   background: var(--stm-surface);
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
+  border-radius: var(--stm-radius);
 }
 
 .stm-strategy-preview-text {
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   line-height: 1.45;
   color: var(--stm-ink);
   overflow-wrap: anywhere;
@@ -214,7 +186,7 @@
 
 .stm-strategy-preview-meta {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -230,12 +202,12 @@
   padding: 10px;
   background: var(--stm-surface);
   border: 1px solid var(--stm-border);
-  border-radius: 10px;
+  border-radius: var(--stm-radius);
 }
 
 .stm-editor-title {
   margin-bottom: 2px;
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   font-weight: 600;
   color: var(--stm-accent);
 }
@@ -254,7 +226,7 @@
 }
 
 .stm-form-label {
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   color: var(--stm-ink-secondary);
 }
 
@@ -264,12 +236,12 @@
 }
 
 .stm-form-error {
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   color: var(--stm-danger);
 }
 
 .stm-form-hint {
-  font-size: 11px;
+  font-size: var(--stm-fs-xs);
   color: var(--stm-ink-secondary);
   opacity: 0.75;
 }
@@ -279,7 +251,7 @@
 }
 
 .stm-form-warning {
-  font-size: 12px;
+  font-size: var(--stm-fs-sm);
   color: var(--stm-warning);
 }
 
@@ -288,7 +260,7 @@
   align-items: center;
   gap: 6px;
   min-height: 44px;
-  font-size: 13px;
+  font-size: var(--stm-fs-sm);
   cursor: pointer;
   user-select: none;
 }
@@ -305,14 +277,20 @@
   width: 100%;
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-input-bg);
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
-  font-size: 14px;
+  border-radius: var(--stm-radius);
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-md);
   font-family: var(--stm-font);
   resize: vertical;
   line-height: 1.5;
+}
+
+.stm-textarea:focus {
+  outline: none;
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
 }
 
 .stm-textarea:disabled {
@@ -322,15 +300,21 @@
 .stm-select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--stm-control-h);
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-ink-bg);
+  background: var(--stm-input-bg);
   border: 1px solid var(--stm-border);
-  border-radius: 8px;
-  color: var(--stm-ink);
-  font-size: 14px;
+  border-radius: var(--stm-radius);
+  color: var(--stm-fg);
+  font-size: var(--stm-fs-md);
   font-family: var(--stm-font);
+}
+
+.stm-select:focus {
+  outline: none;
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
 }
 
 .stm-select:disabled {
@@ -344,73 +328,708 @@
   margin-top: 6px;
 }
 
-/* 桌面（与 ST 移动断点一致：≥1001px）：居中大尺寸浮动窗口。
- * 几何全部走 CSS 变量（--stm-x/y/w/h/tx/ty）：默认居中 + 720×680；
- * 顶栏拖拽 / 右下角缩放由 JS 写变量（panel-window.ts + panel-shell.tsx），
- * 变量只在桌面媒体查询消费——移动端抽屉布局对它们完全惰性。
- * translate 同时承担居中（-50%,-50%）与开合微动效（收起时上移 6px）；
- * 拖拽后位置变量生效、tx/ty 归零，微动效退化为纯淡入淡出。 */
-@media (min-width: 1001px) {
-  .stm-panel {
-    left: var(--stm-x, 50%);
-    top: var(--stm-y, 50%);
-    right: auto;
-    bottom: auto;
-    width: var(--stm-w, min(720px, calc(100vw - 64px)));
-    height: var(--stm-h, min(680px, calc(100dvh - 64px)));
-    max-width: calc(100vw - 32px);
-    max-height: calc(100dvh - 32px);
-    border-radius: 12px;
-    border: 1px solid var(--stm-border);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+/* ---------- 表格工作台（原型 01 落地） ---------- */
+
+.stm-tables-message {
+  height: 100%;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.stm-tables-workbench {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 218px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.stm-tables-workbench *,
+.stm-tables-workbench *::before,
+.stm-tables-workbench *::after {
+  box-sizing: border-box;
+}
+
+.stm-table-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--stm-surface) 42%, var(--stm-bg));
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius-card);
+}
+
+.stm-table-rail-head {
+  flex: none;
+  padding: 13px 10px 8px;
+}
+
+.stm-table-rail-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.stm-table-rail-title {
+  font-size: var(--stm-fs-sm);
+  font-weight: 650;
+}
+
+.stm-table-rail-sub {
+  margin-top: 2px;
+  font-size: var(--stm-fs-xs);
+  color: var(--stm-fg-2);
+}
+
+.stm-table-search {
+  position: relative;
+}
+
+.stm-table-search > .fa-solid {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-sm);
+  pointer-events: none;
+}
+
+.stm-table-search .stm-input {
+  margin: 0;
+  padding-left: 32px;
+}
+
+.stm-table-rail-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+  scrollbar-width: thin;
+}
+
+.stm-table-rail-row {
+  position: relative;
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 7px;
+  border: none;
+  border-radius: var(--stm-radius);
+  background: transparent;
+  color: var(--stm-fg);
+  text-align: left;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-table-rail-row:hover {
+  background: var(--stm-hover);
+}
+
+.stm-table-rail-row.is-active {
+  background: var(--stm-accent-tint);
+}
+
+.stm-table-rail-row.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--stm-accent);
+}
+
+.stm-table-rail-row.is-off .stm-table-rail-name {
+  color: var(--stm-fg-2);
+}
+
+.stm-table-rail-row.is-off .stm-table-glyph {
+  opacity: 0.55;
+}
+
+.stm-table-rail-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-table-rail-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--stm-fs-sm);
+  font-weight: 550;
+}
+
+.stm-table-rail-meta {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--stm-fs-xs);
+  color: var(--stm-fg-2);
+}
+
+.stm-table-rail-empty {
+  padding: 28px 10px;
+  text-align: center;
+  font-size: var(--stm-fs-xs);
+  line-height: 1.6;
+  color: var(--stm-fg-2);
+}
+
+.stm-table-glyph {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--stm-radius);
+  background: var(--stm-accent-tint);
+  color: var(--stm-accent-text);
+  font-size: var(--stm-fs-xs);
+  font-weight: 650;
+}
+
+.stm-table-glyph--lg {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--stm-radius);
+  font-size: var(--stm-fs-md);
+}
+
+.stm-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stm-success);
+}
+
+.stm-status-dot--off {
+  background: var(--stm-fg-3);
+}
+
+.stm-table-detail-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--stm-bg);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius-card);
+}
+
+.stm-table-detail-screen--empty {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.stm-table-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+  scrollbar-width: thin;
+}
+
+.stm-table-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.stm-table-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.stm-table-detail-name {
+  font-size: var(--stm-fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stm-table-detail-key {
+  margin-top: 1px;
+  font-family: var(--stm-font-mono);
+  font-size: var(--stm-fs-xs);
+  color: var(--stm-fg-2);
+}
+
+.stm-table-detail-desc {
+  margin-top: 8px;
+  font-size: var(--stm-fs-sm);
+  line-height: 1.5;
+  color: var(--stm-fg-2);
+}
+
+.stm-table-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+  font-size: var(--stm-fs-xs);
+  color: var(--stm-fg-2);
+}
+
+.stm-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--stm-border);
+  border-radius: 999px;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.stm-table-tabs {
+  display: flex;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 3px;
+  background: var(--stm-surface-2);
+  border-radius: 11px;
+}
+
+.stm-table-tabs button {
+  flex: 1;
+  min-height: var(--stm-control-h);
+  padding: 0 8px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-sm);
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-table-tabs button[aria-selected="true"] {
+  background: var(--stm-raised);
+  color: var(--stm-fg);
+  font-weight: 600;
+  box-shadow: 0 1px 3px var(--stm-scrim);
+}
+
+.stm-table-detail-body {
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.stm-table-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stm-fields-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.stm-fields-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+
+.stm-fields-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--stm-fs-sm);
+  font-weight: 600;
+}
+
+.stm-fields-status {
+  font-size: var(--stm-fs-xs);
+  font-weight: 400;
+  color: var(--stm-fg-2);
+}
+
+.stm-fields-status::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.stm-fields-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stm-field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--stm-surface);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius-card);
+}
+
+.stm-field-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 50px;
+  padding: 6px 10px;
+}
+
+.stm-field-row + .stm-field-row {
+  border-top: 1px solid var(--stm-border);
+}
+
+.stm-field-grip {
+  flex: none;
+  width: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-sm);
+}
+
+.stm-field-sort-actions .stm-field-action {
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-md);
+}
+
+.stm-field-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-family: var(--stm-font);
+  cursor: pointer;
+}
+
+.stm-field-main:hover .stm-field-name {
+  color: var(--stm-accent-text);
+}
+
+.stm-field-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--stm-fs-sm);
+  line-height: 1.4;
+}
+
+.stm-field-required {
+  margin-left: 4px;
+  color: var(--stm-warning);
+}
+
+.stm-field-tag {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--stm-font-mono);
+  font-size: var(--stm-fs-xs);
+  color: var(--stm-fg-2);
+}
+
+.stm-field-sort-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.stm-fields-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.stm-fields-empty-title {
+  font-size: var(--stm-fs-md);
+  font-weight: 600;
+}
+
+.stm-fields-empty-desc {
+  max-width: 280px;
+  font-size: var(--stm-fs-sm);
+  line-height: 1.55;
+  color: var(--stm-fg-2);
+}
+
+.stm-table-detail-body .stm-editor {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.stm-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--stm-danger) 36%, var(--stm-border));
+  border-radius: var(--stm-radius);
+  background: var(--stm-danger-dim);
+}
+
+.stm-danger-title {
+  font-size: var(--stm-fs-sm);
+  font-weight: 600;
+}
+
+.stm-danger-desc {
+  margin-top: 2px;
+  font-size: var(--stm-fs-xs);
+  line-height: 1.45;
+  color: var(--stm-fg-2);
+}
+
+/* 字段编辑弹层：复用预览模态框，表单去掉内嵌卡片外观 */
+.stm-modal.stm-modal--editor {
+  width: min(560px, 100%);
+}
+
+.stm-modal--editor .stm-modal-body {
+  padding: 0;
+}
+
+.stm-modal--editor .stm-editor {
+  margin: 0;
+  padding: 14px;
+  background: transparent;
+  border: none;
+}
+
+.stm-modal-danger {
+  padding: 0 14px 14px;
+}
+
+.stm-modal-danger .stm-button {
+  width: 100%;
+}
+
+@keyframes stm-sheet-up {
+  from {
+    transform: translateY(24px);
     opacity: 0;
-    transform: translate(var(--stm-tx, -50%), calc(var(--stm-ty, -50%) - 6px));
-    transition:
-      opacity 0.18s ease,
-      transform 0.18s ease,
-      visibility 0.18s;
   }
-
-  .stm-panel.stm-panel--open {
+  to {
+    transform: translateY(0);
     opacity: 1;
-    transform: translate(var(--stm-tx, -50%), var(--stm-ty, -50%));
-  }
-
-  /* 拖拽/缩放进行中：关闭过渡，避免尺寸/平移变化被 0.18s 动画拖尾 */
-  .stm-panel.stm-panel--dragging {
-    transition: none;
-  }
-
-  /* 顶栏 = 拖拽手柄（交互元素保持自身光标）；缩放手柄在桌面显示 */
-  .stm-panel-header {
-    cursor: grab;
-    touch-action: none;
-  }
-
-  .stm-panel.stm-panel--dragging .stm-panel-header {
-    cursor: grabbing;
-  }
-
-  .stm-panel-resize {
-    display: block;
   }
 }
 
-@media (max-width: 1000px) {
-  /* 移动端触控目标 ≥44px（spec §11）；chip 行保持横向滑动 */
-  .stm-record-chip,
-  .stm-record-search-toggle {
-    min-height: 44px;
+@container stm-panel (max-width: 640px) {
+  .stm-modal-overlay.stm-modal-overlay--sheet {
+    align-items: flex-end;
+    padding: 0;
   }
+
+  .stm-modal-overlay--sheet .stm-modal--editor {
+    width: 100%;
+    max-height: 88%;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    animation: stm-sheet-up 0.22s ease;
+  }
+
+  .stm-modal-overlay--sheet .stm-modal--editor::before {
+    content: "";
+    flex: none;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 2px;
+    border-radius: 999px;
+    background: var(--stm-fg-3);
+  }
+}
+
+/* 自定义复选框：18px 方框、5px 圆角、强调色填充 + 勾 */
+.stm-form-check {
+  position: relative;
+  gap: 8px;
+}
+
+.stm-form-check input:has(+ .stm-check-box) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stm-check-box {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--stm-border);
+  border-radius: 5px;
+  background: var(--stm-input-bg);
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.stm-check-box::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  margin-top: -1px;
+  border-left: 2px solid var(--stm-accent-fg);
+  border-bottom: 2px solid var(--stm-accent-fg);
+  transform: rotate(-45deg) scale(0);
+  transition: transform 0.12s ease;
+}
+
+.stm-form-check:hover input:not(:disabled) + .stm-check-box {
+  border-color: var(--stm-fg-3);
+}
+
+.stm-form-check input:checked + .stm-check-box {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent);
+}
+
+.stm-form-check input:checked + .stm-check-box::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+.stm-form-check input:focus-visible + .stm-check-box {
+  border-color: var(--stm-accent);
+  box-shadow: 0 0 0 3px var(--stm-ring);
+}
+
+.stm-form-check input:disabled + .stm-check-box {
+  opacity: 0.45;
+}
+
+@container stm-panel (max-width: 640px) {
+  .stm-tables-workbench {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0;
+  }
+
+  .stm-table-rail,
+  .stm-table-detail-screen {
+    border: none;
+    border-radius: 0;
+  }
+
+  .stm-tables-workbench:not(.stm-tables-workbench--detail) .stm-table-detail-screen {
+    display: none;
+  }
+
+  .stm-tables-workbench--detail .stm-table-rail {
+    display: none;
+  }
+
+  .stm-table-detail-scroll {
+    padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  .stm-table-detail-title-row {
+    display: none;
+  }
+
+  .stm-panel-header--detail {
+    display: flex;
+  }
+}
+
+@container stm-panel (min-width: 641px) {
+  .stm-panel-header--detail {
+    display: none;
+  }
+}
+
+/* Editors sit directly in the detail pane; only grouped content needs a surface. */
+.stm-table-pane > .stm-editor {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.stm-vector-pane .stm-vector-table-actions {
+  margin: 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--stm-border);
+}
+
+.stm-table-pane .stm-form-row {
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.stm-vector-pane .stm-vector-task-buttons,
+.stm-vector-pane .stm-vector-group-head,
+.stm-vector-pane .stm-vector-field {
+  flex-wrap: wrap;
+}
+
+.stm-table-tabs {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.stm-table-tabs button {
+  flex: 1 0 auto;
+  white-space: nowrap;
+  border-radius: var(--stm-radius);
+}
+
+.stm-tables-workbench :focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stm-panel {
-    transition: none;
-  }
-
-  .stm-switch-track,
-  .stm-switch-track::after {
+  .stm-modal-overlay--sheet .stm-modal--editor,
+  .stm-check-box,
+  .stm-check-box::after {
+    animation: none;
     transition: none;
   }
 }

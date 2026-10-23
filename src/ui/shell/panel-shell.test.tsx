@@ -254,14 +254,14 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-action="resize-panel"');
   });
 
-  it("初始：收起态（aria-hidden）+ 空间名 + 七个 Tab + 表格区块", () => {
+  it("初始：收起态（aria-hidden）+ 空间名 + 七个导航入口 + 记录区块", () => {
     const html = renderShell(new PanelModel());
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("爱丽丝 - story");
     for (const label of ["表格", "记录", "任务", "问答", "日志", "设置"]) {
       expect(html).toContain(label);
     }
-    expect(html).toContain('data-stm-section="tables"');
+    expect(html).toContain('data-stm-section="records"');
     expect(html).toContain('id="stm-panel"');
   });
 
@@ -273,11 +273,11 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('aria-hidden="false"');
   });
 
-  it("默认表格 Tab：aria-selected 标记正确", () => {
+  it("默认记录 Tab：aria-selected 标记正确", () => {
     const model = new PanelModel();
     const html = renderShell(model);
     expect(html).toContain('data-tab="tables"');
-    // 只有一个 Tab 处于选中态（表格是默认 Tab）
+    // 只有一个 Tab 处于选中态（记录是默认 Tab）
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
     expect(html).toContain('data-tab="settings"');
   });
@@ -585,7 +585,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).not.toContain("爱丽丝 - story");
   });
 
-  it("设置 Tab：折叠与重排序（spec 移动端优化）", () => {
+  it("设置 Tab：分类摘要与单组导航", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const html = renderShell(model);
@@ -608,7 +608,10 @@ describe("PanelShell（面板骨架投影）", () => {
       expect(html).toContain(`data-action="toggle-settings-group"`);
     }
     expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(10);
-    expect(html).toContain("fa-chevron-down");
+    expect(html).toContain("fa-chevron-right");
+    expect(html).toContain('data-settings-page="categories"');
+    expect(html).toContain('data-group="appearance"');
+    expect(html).not.toContain('data-stm-section="embedding-connection"');
     // 摘要在折叠态可见
     expect(html).toContain("{{ste}}");
     expect(html).toContain("未配置");
@@ -644,6 +647,10 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(collapsed).toContain("未调整");
     // 展开态：四边数字输入（默认 0，带中文标签）+ 两个预设按钮 + 清空按钮
     const expanded = renderWithExpanded(model, ["safe-area"]);
+    expect(expanded).toContain('data-settings-page="safe-area"');
+    expect(expanded).toContain('data-action="settings-back"');
+    expect(expanded).toContain('data-group="macro" hidden=""');
+    expect(expanded).not.toContain('data-action="macro-scope"');
     for (const edge of ["top", "bottom", "left", "right"]) {
       expect(expanded).toContain(`data-stm-field="safe-area-${edge}"`);
     }

@@ -1,3 +1,4 @@
+import { useAppearance } from "./appearance-settings.tsx";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
 import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
@@ -35,7 +36,7 @@ import type { QueryChatService } from "../../features/query-chat/query-chat-serv
 import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
 import type { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
 import { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
-import { PANEL_TAB_LABELS, PANEL_TABS, type PanelModel } from "./panel-model.ts";
+import { PANEL_TAB_LABELS, type PanelModel } from "./panel-model.ts";
 import { buildSpaceInfo } from "./space-info.ts";
 import { RecordsTab, type LeaveGuard } from "../memory/record-view.tsx";
 import { TablesTab } from "../memory/tables-tab.tsx";
@@ -283,6 +284,19 @@ export function PanelShell(props: {
   }, [status?.kind === "active" ? status.space.id : null]);
   const [queryChatStore] = useState(() => new QueryChatStore());
 
+  const appearance = useAppearance();
+  const [navOpen, setNavOpen] = useState(false);
+  const [tablesDetailOpen, setTablesDetailOpen] = useState(false);
+  const [taskKind, setTaskKind] = useState<"fill" | "vector">("fill");
+  const navRef = useRef<HTMLElement | null>(null);
+  const navTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const navWasOpen = useRef(false);
+  useEffect(() => {
+    if (navOpen)
+      navRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+    else if (navWasOpen.current) navTriggerRef.current?.focus();
+    navWasOpen.current = navOpen;
+  }, [navOpen]);
   const info = buildSpaceInfo(status, settings);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
   const [dataVersion, setDataVersion] = useState(0);
@@ -498,15 +512,62 @@ export function PanelShell(props: {
   return (
     <aside
       id="stm-panel"
+      data-theme={appearance.theme}
+      data-accent={appearance.accent}
+      data-font={appearance.font}
+      data-size={appearance.size}
+      data-table-detail={state.tab === "tables" && tablesDetailOpen}
+      onKeyDown={(event) => {
+        if (!navOpen) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setNavOpen(false);
+        }
+        if (event.key === "Tab") {
+          const buttons = navRef.current!.querySelectorAll<HTMLButtonElement>("button");
+          const first = buttons[0]!;
+          const last = buttons[buttons.length - 1]!;
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
+      }}
       ref={panelRef}
       popover="manual"
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      <header className="stm-panel-header" data-action="drag-panel" onPointerDown={beginHeaderDrag}>
-        <div className="stm-space-info">
-          <div className="stm-space-title">{info.title}</div>
-          {info.detail ? <div className="stm-space-status">{info.detail}</div> : null}
+      <header
+        className="stm-panel-header"
+        data-action="drag-panel"
+        onPointerDown={beginHeaderDrag}
+        inert={navOpen}
+      >
+        <button
+          type="button"
+          className="stm-header-nav"
+          ref={navTriggerRef}
+          aria-label="打开导航"
+          aria-expanded={navOpen}
+          aria-controls="stm-navigation"
+          data-action="open-navigation"
+          onClick={() => setNavOpen(true)}
+        >
+          <i className="fa-solid fa-bars" aria-hidden="true" />
+        </button>
+        <div className="stm-header-title-wrap">
+          <div className="stm-header-title">{PANEL_TAB_LABELS[state.tab]}</div>
+          <div
+            className="stm-space-title"
+            title={[info.title, info.detail].filter(Boolean).join(" · ")}
+          >
+            {info.title}
+          </div>
         </div>
         <button
           type="button"
@@ -521,29 +582,97 @@ export function PanelShell(props: {
           <i className="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
       </header>
-      <nav className="stm-tabbar" role="tablist" aria-label={`${PLUGIN_DISPLAY_NAME} 面板`}>
-        {PANEL_TABS.map((tab) => (
+      {navOpen && (
+        <button
+          type="button"
+          className="stm-drawer-scrim"
+          aria-label="关闭导航"
+          tabIndex={-1}
+          onClick={() => {
+            setNavOpen(false);
+          }}
+        />
+      )}
+      <nav
+        id="stm-navigation"
+        ref={navRef}
+        className="stm-navigation"
+        data-open={navOpen}
+        inert={!navOpen}
+        aria-hidden={!navOpen}
+        aria-label="记忆面板导航"
+      >
+        <div className="stm-navigation-heading">
+          <span>记忆工作台</span>
           <button
-            key={tab}
             type="button"
-            className="stm-tab"
-            role="tab"
-            data-tab={tab}
-            data-action="tab"
-            aria-selected={tab === state.tab}
+            className="stm-header-nav"
+            aria-label="关闭导航"
             onClick={() => {
-              if (!confirmLeaveTab()) return;
-              props.model.setTab(tab);
+              setNavOpen(false);
             }}
           >
-            {PANEL_TAB_LABELS[tab]}
+            <i className="fa-solid fa-xmark" aria-hidden="true" />
           </button>
+        </div>
+        <div className="stm-navigation-context">
+          <strong>{info.title}</strong>
+          {info.detail && <span>{info.detail}</span>}
+        </div>
+        {[
+          { label: "日常使用", tabs: ["records", "retrieval", "query", "tasks"] as const },
+          { label: "管理", tabs: ["tables", "settings", "logs"] as const },
+        ].map((group) => (
+          <div className="stm-navigation-group" key={group.label}>
+            <div className="stm-section-label">{group.label}</div>
+            <div role="tablist" aria-label={group.label}>
+              {group.tabs.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className="stm-tab"
+                  role="tab"
+                  data-tab={tab}
+                  data-action="tab"
+                  aria-selected={tab === state.tab}
+                  onClick={() => {
+                    if (tab !== state.tab && !confirmLeaveTab()) return;
+                    props.model.setTab(tab);
+                    setNavOpen(false);
+                  }}
+                >
+                  <i
+                    className={
+                      "fa-solid " +
+                      {
+                        records: "fa-book-open",
+                        retrieval: "fa-magnifying-glass",
+                        query: "fa-comment",
+                        tasks: "fa-list-check",
+                        tables: "fa-table",
+                        settings: "fa-sliders",
+                        logs: "fa-clock-rotate-left",
+                      }[tab]
+                    }
+                    aria-hidden="true"
+                  />
+                  <span>{PANEL_TAB_LABELS[tab]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
-      <main className="stm-panel-body">
+      <main className="stm-panel-body" inert={navOpen}>
+        {info.tone === "warning" && (
+          <div className="stm-context-warning" role="status">
+            {info.detail || info.title}
+          </div>
+        )}
         {state.tab === "tables" && (
           <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
             <TablesTab
+              onDetailOpenChange={setTablesDetailOpen}
               vector={props.runtime.vector}
               tables={props.runtime.tables}
               fields={props.runtime.fields}
@@ -570,22 +699,42 @@ export function PanelShell(props: {
         )}
         {state.tab === "tasks" && (
           <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
-            <TasksTab
-              runtime={props.runtime}
-              status={status}
-              settings={settings}
-              onSettingsChange={setSettings}
-              onViewLogs={(runId) => {
-                setLogFocusRunId(runId);
-                props.model.setTab("logs");
-              }}
-            />
-            <VectorTasks
-              vector={props.runtime.vector}
-              spaces={props.runtime.spaces}
-              tables={props.runtime.tables}
-              currentSpaceId={status?.kind === "active" ? status.space.id : undefined}
-            />
+            <div className="stm-segmented stm-task-kind" aria-label="任务类型">
+              <button
+                type="button"
+                aria-pressed={taskKind === "fill"}
+                onClick={() => setTaskKind("fill")}
+              >
+                填表任务
+              </button>
+              <button
+                type="button"
+                aria-pressed={taskKind === "vector"}
+                onClick={() => setTaskKind("vector")}
+              >
+                向量任务
+              </button>
+            </div>
+            <div hidden={taskKind !== "fill"}>
+              <TasksTab
+                runtime={props.runtime}
+                status={status}
+                settings={settings}
+                onSettingsChange={setSettings}
+                onViewLogs={(runId) => {
+                  setLogFocusRunId(runId);
+                  props.model.setTab("logs");
+                }}
+              />
+            </div>
+            <div hidden={taskKind !== "vector"}>
+              <VectorTasks
+                vector={props.runtime.vector}
+                spaces={props.runtime.spaces}
+                tables={props.runtime.tables}
+                currentSpaceId={status?.kind === "active" ? status.space.id : undefined}
+              />
+            </div>
           </section>
         )}
         <section
@@ -594,15 +743,6 @@ export function PanelShell(props: {
           data-stm-section="retrieval"
           role="tabpanel"
         >
-          {props.runtime.memoryRecall && (
-            <MemoryRecallPanel
-              service={props.runtime.memoryRecall}
-              onRecord={(tableId, recordId) => {
-                setRecordFocus({ tableId, recordId });
-                props.model.setTab("records");
-              }}
-            />
-          )}
           <RetrievalTab
             key={props.runtime.retrieval.getState().epoch}
             service={props.runtime.retrieval}
@@ -615,6 +755,16 @@ export function PanelShell(props: {
             onIndex={() => props.model.setTab("tables")}
             onSettings={() => props.model.setTab("settings")}
           />
+
+          {props.runtime.memoryRecall && (
+            <MemoryRecallPanel
+              service={props.runtime.memoryRecall}
+              onRecord={(tableId, recordId) => {
+                setRecordFocus({ tableId, recordId });
+                props.model.setTab("records");
+              }}
+            />
+          )}
         </section>
         {state.tab === "query" && (
           <section className="stm-tab-section" data-stm-section="query" role="tabpanel">

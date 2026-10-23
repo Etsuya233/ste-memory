@@ -54,11 +54,7 @@ export function EmbeddingConnectionEditor(props: {
       className="stm-setting-group-body stm-vector-connection"
       data-stm-section="embedding-connection"
     >
-      <p className="stm-setting-hint">
-        向量化会将选中字段文本直接发送到此 embedding 端点。请确保端点允许当前 SillyTavern
-        站点跨域访问。支持 OpenAI 兼容的 /embeddings 路径；可填写 /v1 基础地址或完整 /embeddings
-        地址。
-      </p>
+      <p className="stm-setting-hint">选中字段会发送到此服务</p>
       <label className="stm-form-row">
         <span className="stm-form-label">端点</span>
         <input
@@ -99,10 +95,6 @@ export function EmbeddingConnectionEditor(props: {
           onChange={(event) => setDraft({ ...draft, maxInputChars: Number(event.target.value) })}
         />
       </label>
-      <p className="stm-setting-hint">
-        按服务文档填写字符上限；字符数不能代替 token
-        数，服务返回的长度错误会显示在对应向量任务中。默认 8000 字符须按所选模型核对。
-      </p>
       <label className="stm-form-row">
         <span className="stm-form-label">向量维度（可选）</span>
         <input
@@ -144,6 +136,18 @@ export function EmbeddingConnectionEditor(props: {
           </button>
         )}
       </div>
+      <details className="stm-setting-help">
+        <summary>端点与模型限制</summary>{" "}
+        <p className="stm-setting-hint">
+          向量化会将选中字段文本直接发送到此 embedding 端点。请确保端点允许当前 SillyTavern
+          站点跨域访问。支持 OpenAI 兼容的 /embeddings 路径；可填写 /v1 基础地址或完整 /embeddings
+          地址。
+        </p>
+        <p className="stm-setting-hint">
+          按服务文档填写字符上限；字符数不能代替 token
+          数，服务返回的长度错误会显示在对应向量任务中。默认 8000 字符须按所选模型核对。
+        </p>
+      </details>
     </div>
   );
 }

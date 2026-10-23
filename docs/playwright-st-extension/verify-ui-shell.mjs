@@ -6,6 +6,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import { homedir as osHomedir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { switchTab, openSettingsGroup } from "./ui-navigation.mjs";
 
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
 const TEST_CHARACTER = "Seraphina";
@@ -135,7 +136,7 @@ async function main() {
     // 1. 加载插件（移动端视口）
     await page.goto(ST_URL, { waitUntil: "domcontentloaded" });
     const initText = await waitForNewSteLog(page, (t) => t.includes("已加载"), 0, "插件初始化日志");
-    check("插件加载：初始化日志", initText.includes("v0.1.0"), initText);
+    check("插件加载：初始化日志", /v\d+\.\d+\.\d+/.test(initText), initText);
 
     // 2. 打开测试角色对话 → 自动建空间（面板表格列表的数据前提）
     await page.waitForFunction(() => SillyTavern.getContext().characters.length > 0, null, { timeout: 15000 });
@@ -207,9 +208,12 @@ async function main() {
       JSON.stringify(mobileStyle),
     );
 
+    const defaultTab = await page.locator('#stm-navigation .stm-tab[aria-selected="true"]').getAttribute("data-tab");
+    check("首次打开默认记录页", defaultTab === "records", defaultTab);
+
     // popover 默认 fit-content 曾让移动端抽屉随各 Tab 内容收缩。
     for (const tab of ["tables", "records", "tasks", "retrieval", "query", "logs", "settings"]) {
-      await page.locator(`#stm-panel .stm-tab[data-tab="${tab}"]`).click();
+      await switchTab(page, tab);
       const bounds = await page.evaluate(() => {
         const panel = document.getElementById("stm-panel");
         const rect = panel.getBoundingClientRect();
@@ -228,7 +232,7 @@ async function main() {
         JSON.stringify(bounds),
       );
     }
-    await page.locator('#stm-panel .stm-tab[data-tab="tables"]').click();
+    await switchTab(page, "tables");
 
     // 4. 面板骨架：空间信息 + 底部 Tab 四枚 + 表格列表（系统表启停）
     const skeleton = await page.evaluate(() => {
@@ -236,8 +240,8 @@ async function main() {
       const title = panel.querySelector(".stm-space-title")?.textContent ?? "";
       const tabs = [...panel.querySelectorAll(".stm-tab")].map((t) => t.textContent.trim());
       // React 条件渲染：DOM 中只存在激活区块，存在即激活
-      const activeSection = panel.querySelector(".stm-tab-section")?.dataset.stmSection;
-      return { title, tabs, activeSection, tableCards: panel.querySelectorAll(".stm-table-card").length };
+      const activeSection = panel.querySelector(".stm-tab-section:not([hidden])")?.dataset.stmSection;
+      return { title, tabs, activeSection, tableCards: panel.querySelectorAll('.stm-table-rail-row[data-action="expand-table"]').length };
     });
     check(
       "面板显示当前空间名称",
@@ -245,52 +249,34 @@ async function main() {
       `${skeleton.title}（期望 ${spaceName}）`,
     );
     check(
-      "底部 Tab：表格/记录/任务/问答/日志/设置",
+      "导航：记录/检索/问答/任务/表格/设置/日志",
       JSON.stringify(skeleton.tabs) ===
-        JSON.stringify(["表格", "记录", "任务", "问答", "日志", "设置"]),
+        JSON.stringify(["记录", "检索", "问答", "任务", "表格", "设置", "日志"]),
       JSON.stringify(skeleton.tabs),
     );
-    check("默认激活表格 Tab", skeleton.activeSection === "tables");
+    check("进入表格索引页", skeleton.activeSection === "tables");
     check(
       "表格列表渲染 8 张系统表",
       skeleton.tableCards === 8,
       `cards=${skeleton.tableCards}`,
     );
 
-    // 首个表格自动展开：字段行可见
-    const firstFields = await page.evaluate(() => {
-      const rows = document.querySelectorAll("#stm-panel .stm-field-row");
-      return [...rows].map((r) => r.querySelector(".stm-field-name")?.textContent ?? "");
-    });
-    check("首个表格默认展开字段", firstFields.length > 0, `fields=${firstFields.length}`);
-
-    // 优化项 2：点击表格行（开关/展开按钮之外）可展开/收起字段
-    await page.evaluate(() => {
-      document.querySelectorAll("#stm-panel .stm-table-card")[1].querySelector(".stm-table-row-main").click();
-    });
-    await waitMs(400);
-    const rowExpandState = await page.evaluate(() => {
-      const card = document.querySelectorAll("#stm-panel .stm-table-card")[1];
-      return { expanded: card.querySelector(".stm-field-list") !== null, ariaExpanded: card.querySelector(".stm-expand")?.getAttribute("aria-expanded") };
-    });
-    check(
-      "点击表格行（非开关区域）展开字段",
-      rowExpandState.expanded === true && rowExpandState.ariaExpanded === "true",
-      JSON.stringify(rowExpandState),
-    );
-    await page.evaluate(() => {
-      document.querySelectorAll("#stm-panel .stm-table-card")[1].querySelector(".stm-table-row-main").click();
-    });
-    await waitMs(400);
-    const rowCollapseState = await page.evaluate(() => {
-      const card = document.querySelectorAll("#stm-panel .stm-table-card")[1];
-      return { collapsed: card.querySelector(".stm-field-list") === null, ariaExpanded: card.querySelector(".stm-expand")?.getAttribute("aria-expanded") };
-    });
-    check(
-      "再次点击表格行收起字段",
-      rowCollapseState.collapsed === true && rowCollapseState.ariaExpanded === "false",
-      JSON.stringify(rowCollapseState),
-    );
+    // 移动端先显示索引，点选进入单张表详情，再返回索引。
+    check("手机表格页默认显示索引", !(await page.locator('.stm-tables-workbench').getAttribute("class")).includes("stm-tables-workbench--detail"));
+    const tableRows = page.locator('#stm-panel [data-action="expand-table"]');
+    await tableRows.nth(1).click();
+    await page.locator('#stm-panel [data-action="back-to-table-list"]').waitFor({ state: "visible" });
+    const rowExpandState = await page.evaluate(() => ({
+      detail: document.querySelector('.stm-tables-workbench')?.classList.contains('stm-tables-workbench--detail'),
+      fields: document.querySelectorAll('#stm-panel .stm-field-row').length,
+      selected: document.querySelectorAll('#stm-panel [data-action="expand-table"]')[1]?.getAttribute('aria-expanded'),
+    }));
+    check("点击表格进入字段详情", rowExpandState.detail && rowExpandState.fields > 0 && rowExpandState.selected === "true", JSON.stringify(rowExpandState));
+    await page.locator('#stm-panel [data-action="back-to-table-list"]').click();
+    check("返回表格索引", !(await page.locator('.stm-tables-workbench').getAttribute("class")).includes("stm-tables-workbench--detail"));
+    await tableRows.first().click();
+    await page.locator('#stm-panel .stm-field-row').first().waitFor({ state: "visible" });
+    check("首张表详情显示字段", await page.locator('#stm-panel .stm-field-row').count() > 0);
 
     // 5. 表格启停落库：停用第一个表格 → Dexie enabled=false + UI 反映
     const firstTableId = await page.evaluate(
@@ -341,7 +327,9 @@ async function main() {
     check("字段停用：Dexie 落库", true);
     // 恢复现场：表格与字段重新启用
     await page.evaluate(() => {
-      document.querySelectorAll('#stm-panel input[data-action="toggle-table"], #stm-panel input[data-action="toggle-field"]')
+      const table = document.querySelector('#stm-panel input[data-action="toggle-table"]');
+      if (!table.checked) table.click();
+      document.querySelectorAll('#stm-panel input[data-action="toggle-field"]')
         .forEach((input) => { if (!input.checked) input.click(); });
     });
     await waitForDbState(
@@ -351,14 +339,13 @@ async function main() {
     );
 
     // 7. 记录/任务 Tab：记录视图（ticket 11 替换占位）；设置 Tab 内容与插件开关持久化
-    await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="records"]')?.click();
-    });
+    await switchTab(page, "records");
     await waitUntil(
       page,
       () => !!document.querySelector('#stm-panel [data-action="select-table"]'),
       "记录 Tab 表格 chip 就位",
     );
+    await page.locator('#stm-panel [data-action="records-grid-view"]').click();
     const recordsTab = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="records"]');
       return {
@@ -376,9 +363,7 @@ async function main() {
 
     // 7b. 问答 Tab（ticket 20）：结构就位——模式切换（查询/填写）、输入行、空状态邀请；
     // 动态行为（真实 LLM 流式/提交）为手动验收，不进本脚本
-    await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="query"]')?.click();
-    });
+    await switchTab(page, "query");
     const queryTab = await page.evaluate(() => {
       const section = document.querySelector('#stm-panel [data-stm-section="query"]');
       const modes = [...section.querySelectorAll('[data-action="query-chat-mode"]')].map((b) => ({
@@ -424,62 +409,56 @@ async function main() {
       JSON.stringify(fillMode),
     );
 
-    await page.evaluate(() => {
-      document.querySelector('#stm-panel .stm-tab[data-tab="settings"]')?.click();
-    });
-    // 展开常用分组（默认折叠，需先展开再校验内部控件）
-    await page.evaluate(() => {
-      const expand = (group) => {
-        const btn = document.querySelector(`#stm-panel button[data-action="toggle-settings-group"][data-group="${group}"]`);
-        if (btn && btn.getAttribute("aria-expanded") === "false") btn.click();
-      };
-      // 按 spec 常用顺序展开，便于后续校验
-      ["macro", "version", "backup", "mirror"].forEach(expand);
-      // 宏名/上限输入已移入「宏设置」分区（内置/全局/对话级/宏设置，默认全局宏）：先切分区
-      document.querySelector('#stm-panel button[data-macro-scope="settings"]')?.click();
-    });
-    await waitMs(150);
-    const settings = await page.evaluate(() => {
-      const section = document.querySelector('#stm-panel [data-stm-section="settings"]');
-      const text = section?.textContent ?? "";
-      const macroInput = section.querySelector('input[data-stm-field="macro-name"]');
-      const limitInput = section.querySelector('input[data-stm-field="macro-limit"]');
+    await switchTab(page, "settings");
+    const settingsBack = page.locator('#stm-panel [data-action="settings-back"]');
+    if (await settingsBack.isVisible()) await settingsBack.click();
+    const categories = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-settings-page="categories"]');
+      const titles = [...section.querySelectorAll('button[data-action="toggle-settings-group"]')].map(b => b.textContent ?? "");
+      const idx = (name) => titles.findIndex(title => title.includes(name));
       return {
-        hasPluginSwitch: !!section?.querySelector('input[data-action="toggle-plugin"]'),
-        pluginSwitchOn: section?.querySelector('input[data-action="toggle-plugin"]')?.checked ?? null,
-        version: text.match(/v\d+\.\d+\.\d+/)?.[0] ?? "",
-        hasStatus: text.includes("运行状态") && text.includes("空间同步正常"),
-        // ticket 15：宏名与上限为可编辑输入（默认 {{memoryContext}} / 2000）
-        macroEditable: macroInput?.disabled === false && macroInput?.value === "{{memoryContext}}"
-          && limitInput?.disabled === false && limitInput?.value === "2000",
-        hasBackup: !!section?.querySelector('button[data-action="export-backup"]')
-          && !!section?.querySelector('button[data-action="import-backup"]')
-          && !!section?.querySelector('input[data-stm-field="import-backup-file"]'),
-        hasSpaceBackup: !!section?.querySelector('button[data-action="export-space-backup"]')
-          && !!section?.querySelector('button[data-action="import-space-backup"]')
-          && !!section?.querySelector('input[data-stm-field="import-space-backup-file"]'),
-        // ticket 16：对话文件镜像组（开关 + 包含修订历史 + 状态行）
-        hasMirror: !!section?.querySelector('input[data-action="toggle-mirror"]')
-          && !!section?.querySelector('input[data-action="toggle-mirror-history"]')
-          && !!section?.querySelector('[data-stm-field="mirror-status"]'),
-        // collapsible：默认折叠，标题与摘要可见
-        hasCollapsible: !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="macro"]')
-          && !!section?.querySelector('button[data-action="toggle-settings-group"][data-group="mirror"]'),
-        orderOk: (() => {
-          const titles = [...section.querySelectorAll('button[data-action="toggle-settings-group"]')].map(b => b.textContent ?? "");
-          const idx = (kw) => titles.findIndex(t => t.includes(kw));
-          return idx("记忆宏") < idx("Agent 连接") && idx("Agent 连接") < idx("Agent 提示词预设") && idx("清洗规则") < idx("数据备份");
-        })(),
+        hasPluginSwitch: !!section.querySelector('input[data-action="toggle-plugin"]'),
+        groups: titles.length,
+        hasAppearance: !!section.querySelector('[data-group="appearance"]'),
+        orderOk: idx("记忆宏") < idx("Agent 连接") && idx("Agent 连接") < idx("Agent 提示词预设") && idx("清洗规则") < idx("数据备份"),
       };
     });
-    check("设置 Tab：插件开关 + 版本 + 运行状态", settings.hasPluginSwitch && settings.hasStatus, JSON.stringify(settings));
-    check("设置 Tab：版本号展示", settings.version === "v0.1.0", settings.version);
-    check("设置 Tab：对话文件镜像组（开关 + 修订历史 + 状态行，ticket 16 生效）", settings.hasMirror);
-    check("设置 Tab：记忆宏配置可编辑（宏名默认 {{memoryContext}} + 上限 2000，ticket 15 生效）", settings.macroEditable);
-    check("设置 Tab：数据备份导出/导入入口就位", settings.hasBackup);
-    check("设置 Tab：单空间导出/导入入口就位（issue 26）", settings.hasSpaceBackup);
-    check("设置 Tab：可折叠分组（标题 + 摘要 + 展开）", settings.hasCollapsible, JSON.stringify(settings));
-    check("设置 Tab：重排序（记忆宏 < Agent 连接 < 预设 < 清洗 < 备份）", settings.orderOk);
+    check("设置分类：插件开关、外观及各项配置摘要", categories.hasPluginSwitch && categories.hasAppearance && categories.groups >= 12, JSON.stringify(categories));
+    check("设置分类顺序：记忆宏 < Agent 连接 < 预设 < 清洗 < 备份", categories.orderOk);
+
+    await openSettingsGroup(page, "macro");
+    await page.locator('#stm-panel button[data-macro-scope="settings"]').click();
+    const macroEditable = await page.evaluate(() => {
+      const settings = SillyTavern.getContext().extensionSettings.steMemory;
+      const name = document.querySelector('#stm-panel input[data-stm-field="macro-name"]');
+      const limit = document.querySelector('#stm-panel input[data-stm-field="macro-limit"]');
+      return name?.disabled === false && name.value === settings.macroName && limit?.disabled === false && limit.value === String(settings.macroLimit);
+    });
+    check("记忆宏：宏名和字符上限与当前设置一致且可编辑", macroEditable);
+
+    await openSettingsGroup(page, "version");
+    const versionStatus = await page.locator('#stm-panel [data-group="version"] .stm-setting-group-body').innerText();
+    check("版本与运行状态可查看", /v\d+\.\d+\.\d+/.test(versionStatus) && versionStatus.includes("空间同步正常"), versionStatus);
+
+    await openSettingsGroup(page, "backup");
+    const backup = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-group="backup"]');
+      return {
+        full: !!section.querySelector('[data-action="export-backup"]') && !!section.querySelector('[data-action="import-backup"]') && !!section.querySelector('[data-stm-field="import-backup-file"]'),
+        space: !!section.querySelector('[data-action="export-space-backup"]') && !!section.querySelector('[data-action="import-space-backup"]') && !!section.querySelector('[data-stm-field="import-space-backup-file"]'),
+      };
+    });
+    check("数据备份：整库导出/导入入口保留", backup.full);
+    check("数据备份：单空间导出/导入入口保留", backup.space);
+
+    await openSettingsGroup(page, "mirror");
+    const hasMirror = await page.evaluate(() => {
+      const section = document.querySelector('#stm-panel [data-group="mirror"]');
+      return !!section.querySelector('[data-action="toggle-mirror"]') && !!section.querySelector('[data-action="toggle-mirror-history"]') && !!section.querySelector('[data-stm-field="mirror-status"]');
+    });
+    check("对话文件镜像：开关、修订历史和状态行保留", hasMirror);
+    await page.locator('#stm-panel [data-action="settings-back"]').click();
+    check("设置详情返回分类列表", await page.locator('#stm-panel [data-settings-page="categories"]').isVisible());
 
     // 插件总开关：关闭 → extensionSettings 持久化；打开 → 恢复
     await page.evaluate(() => {

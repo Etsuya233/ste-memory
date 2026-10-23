@@ -360,13 +360,9 @@ export function CleaningRulesManager(props: {
 
   return (
     <div className="stm-setting-group" data-stm-section="cleaning-rules">
-      <div className="stm-setting-group-title">清洗规则</div>
       <div className="stm-setting-row">
         <div className="stm-setting-label">
           <div className="stm-setting-name">当前对话使用的列表</div>
-          <div className="stm-setting-hint">
-            填表任务输入按所选列表的规则清洗（未启用 = 使用原始消息内容）
-          </div>
         </div>
         <select
           className="stm-input"
@@ -387,7 +383,6 @@ export function CleaningRulesManager(props: {
       <div className="stm-setting-row">
         <div className="stm-setting-label">
           <div className="stm-setting-name">编辑列表</div>
-          <div className="stm-setting-hint">列表内规则按顺序执行（上一条输出是下一条输入）</div>
         </div>
         <select
           className="stm-input"

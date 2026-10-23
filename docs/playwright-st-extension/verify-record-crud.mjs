@@ -7,6 +7,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { switchTab } from "./ui-navigation.mjs";
 
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
 const TEST_CHARACTER = "Seraphina";
@@ -153,9 +154,10 @@ async function openPanel(page) {
 }
 
 async function clickTab(page, tab) {
-  await page.evaluate((t) => {
-    document.querySelector(`#stm-panel .stm-tab[data-tab="${t}"]`)?.click();
-  }, tab);
+  await switchTab(page, tab);
+  if (tab === "records") {
+    await page.locator('#stm-panel [data-action="records-grid-view"]').click();
+  }
 }
 
 /** 表格选择：点击 chip（ticket 21：替代原 record-table-select 下拉） */
@@ -305,6 +307,7 @@ async function main() {
     }, { key: TEST_TABLE_KEY, evidenceId: "ev-verify-floor-0" });
 
     await openPanel(page);
+    await clickTab(page, "tables");
 
     // 2. 建自定义表（UI 全流程：建表 → 6 个字段 → 显示策略）
     await page.evaluate(() => {
@@ -324,6 +327,8 @@ async function main() {
     const table = (await readSteMemoryDb(page)).tables.find((t) => t.key === TEST_TABLE_KEY);
     const tableId = table.id;
     check("建表：verify_records 落库", !!table, tableId);
+
+    await page.locator(`#stm-panel [data-action="expand-table"][data-table-id="${tableId}"]`).click();
 
     /** 经 UI 添加一个字段：key/name/type（select 值）/required/options */
     async function addFieldUi({ key, name, type = "short_text", required = false, options = "" }) {
@@ -570,8 +575,9 @@ async function main() {
         const btn = document.querySelector(
           `#stm-panel [data-action="expand-table"][data-table-id="${tid}"]`,
         );
-        if (btn?.getAttribute("aria-expanded") === "false") btn.click();
+        btn.click();
       }, tableId);
+      await page.locator(`#stm-panel [data-action="set-table-tab"][data-table-id="${tableId}"]`).click();
       await waitUntil(
         page,
         (fid) =>
@@ -838,6 +844,8 @@ async function main() {
       { evidenceId: seededEvidenceId, recordId: seededRecordId },
     );
     await clickTab(page, "tables");
+    await page.locator(`#stm-panel [data-action="expand-table"][data-table-id="${tableId}"]`).click();
+    await page.locator(`#stm-panel [data-action="edit-table"][data-table-id="${tableId}"]`).click();
     await waitUntil(
       page,
       (tid) =>

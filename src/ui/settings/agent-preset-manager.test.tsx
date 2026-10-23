@@ -93,7 +93,7 @@ function render(settingsValue: PluginSettings): string {
 describe("AgentPresetManager（预设管理区块冒烟）", () => {
   it("标题 + 预设列表（系统默认 + 用户预设）就位，活动行标记 + 拖拽手柄", () => {
     const html = render(settings());
-    expect(html).toContain("Agent 提示词预设");
+    expect(html).toContain('data-stm-section="agent-presets"');
     expect(html).toContain('data-stm-field="preset-list"');
     expect(html).toContain('data-action="select-agent-preset"');
     expect(html).toContain("系统默认");
