@@ -187,24 +187,12 @@
   white-space: nowrap;
 }
 
-.stm-record-view .stm-bottom-bar {
-  margin: auto calc(-1 * var(--stm-page-padding))
-    calc(-1 * var(--stm-space-5) - env(safe-area-inset-bottom));
-}
 .stm-pagination-info {
   min-width: 64px;
   text-align: center;
   color: var(--stm-fg-2);
   font-size: var(--stm-fs-sm);
   font-variant-numeric: tabular-nums;
-}
-
-.stm-record-view .stm-panel-header--record {
-  position: sticky;
-  top: calc(-1 * var(--stm-page-padding));
-  z-index: 5;
-  flex-shrink: 0;
-  margin: calc(-1 * var(--stm-page-padding)) calc(-1 * var(--stm-page-padding)) 0;
 }
 
 .stm-record-detail,

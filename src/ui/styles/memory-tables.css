@@ -540,7 +540,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px 24px;
+  --stm-page-padding-block: 14px;
+  --stm-page-padding-inline: 16px;
   scrollbar-width: thin;
 }
 
@@ -966,7 +967,7 @@
   }
 
   .stm-table-detail-scroll {
-    padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
+    padding: 14px 16px 24px;
   }
 
   .stm-table-detail-title-row {

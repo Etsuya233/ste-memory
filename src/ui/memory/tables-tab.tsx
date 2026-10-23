@@ -1,3 +1,4 @@
+import { PageLayout } from "../shell/page-layout.tsx";
 import { EditorDialog } from "../shell/editor-dialog.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -558,39 +559,44 @@ export function TablesTab(props: {
 
       {selectedTable && selectedRawTable ? (
         <section className="stm-table-detail-screen">
-          {mobileView === "detail" ? (
-            <PanelBar
-              variant="detail"
-              leading={
-                <PanelBarAction
-                  icon="fa-chevron-left"
-                  label="返回表格索引"
-                  data-action="back-to-table-list"
-                  onClick={backToList}
+          <PageLayout
+            contentClassName="stm-table-detail-scroll"
+            header={
+              mobileView === "detail" ? (
+                <PanelBar
+                  variant="detail"
+                  leading={
+                    <PanelBarAction
+                      icon="fa-chevron-left"
+                      label="返回表格索引"
+                      data-action="back-to-table-list"
+                      onClick={backToList}
+                    />
+                  }
+                  title={selectedTable.name}
+                  subtitle={selectedTable.key}
+                  trailing={
+                    <label
+                      className="stm-switch"
+                      title={`${selectedTable.enabled ? "停用" : "启用"} ${selectedTable.name}`}
+                    >
+                      <input
+                        type="checkbox"
+                        data-action="toggle-table"
+                        data-table-id={selectedTable.id}
+                        checked={selectedTable.enabled}
+                        aria-label={`启用 ${selectedTable.name}`}
+                        onChange={(event) =>
+                          void toggleTable(selectedTable.id, event.target.checked)
+                        }
+                      />
+                      <span className="stm-switch-track" aria-hidden="true"></span>
+                    </label>
+                  }
                 />
-              }
-              title={selectedTable.name}
-              subtitle={selectedTable.key}
-              trailing={
-                <label
-                  className="stm-switch"
-                  title={`${selectedTable.enabled ? "停用" : "启用"} ${selectedTable.name}`}
-                >
-                  <input
-                    type="checkbox"
-                    data-action="toggle-table"
-                    data-table-id={selectedTable.id}
-                    checked={selectedTable.enabled}
-                    aria-label={`启用 ${selectedTable.name}`}
-                    onChange={(event) => void toggleTable(selectedTable.id, event.target.checked)}
-                  />
-                  <span className="stm-switch-track" aria-hidden="true"></span>
-                </label>
-              }
-            />
-          ) : null}
-
-          <div className="stm-table-detail-scroll">
+              ) : null
+            }
+          >
             <div className="stm-table-detail-head">
               <div className="stm-table-detail-title-row">
                 <span className="stm-table-glyph stm-table-glyph--lg" aria-hidden="true">
@@ -913,7 +919,7 @@ export function TablesTab(props: {
                 </div>
               ) : null}
             </div>
-          </div>
+          </PageLayout>
         </section>
       ) : (
         <section className="stm-table-detail-screen stm-table-detail-screen--empty">

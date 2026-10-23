@@ -28,7 +28,7 @@ export type PanelBarVariant = "root" | "detail" | "record";
 
 /**
  * 面板顶栏：一级页与二级详情共用同一套槽位。
- * 各页面负责滚动定位；尺寸与背景材质统一由顶栏令牌控制。
+ * PageLayout 负责滚动与内容避让；尺寸与背景材质由顶栏令牌控制。
  */
 export function PanelBar(props: {
   readonly variant?: PanelBarVariant;

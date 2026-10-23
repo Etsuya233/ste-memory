@@ -1,3 +1,4 @@
+import { PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
@@ -544,42 +545,6 @@ export function PanelShell(props: {
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      <PanelBar
-        dataAction="drag-panel"
-        onPointerDown={beginHeaderDrag}
-        inert={navOpen}
-        title={PANEL_TAB_LABELS[state.tab]}
-        subtitle={
-          <span
-            className="stm-space-title"
-            title={[info.title, info.detail].filter(Boolean).join(" · ")}
-          >
-            {info.title}
-          </span>
-        }
-        leading={
-          <PanelBarAction
-            icon="fa-bars"
-            label="打开导航"
-            ref={navTriggerRef}
-            aria-expanded={navOpen}
-            aria-controls="stm-navigation"
-            data-action="open-navigation"
-            onClick={() => setNavOpen(true)}
-          />
-        }
-        trailing={
-          <PanelBarAction
-            icon="fa-xmark"
-            label="收起面板"
-            data-action="close-panel"
-            onClick={() => {
-              if (!confirmLeaveTab()) return;
-              props.model.close();
-            }}
-          />
-        }
-      />
       {navOpen && (
         <button
           type="button"
@@ -661,7 +626,50 @@ export function PanelShell(props: {
           </div>
         ))}
       </nav>
-      <main className="stm-panel-body" inert={navOpen}>
+      <PageLayout
+        header={
+          <PanelBar
+            dataAction="drag-panel"
+            onPointerDown={beginHeaderDrag}
+            inert={navOpen}
+            title={PANEL_TAB_LABELS[state.tab]}
+            subtitle={
+              <span
+                className="stm-space-title"
+                title={[info.title, info.detail].filter(Boolean).join(" · ")}
+              >
+                {info.title}
+              </span>
+            }
+            leading={
+              <PanelBarAction
+                icon="fa-bars"
+                label="打开导航"
+                ref={navTriggerRef}
+                aria-expanded={navOpen}
+                aria-controls="stm-navigation"
+                data-action="open-navigation"
+                onClick={() => setNavOpen(true)}
+              />
+            }
+            trailing={
+              <PanelBarAction
+                icon="fa-xmark"
+                label="收起面板"
+                data-action="close-panel"
+                onClick={() => {
+                  if (!confirmLeaveTab()) return;
+                  props.model.close();
+                }}
+              />
+            }
+          />
+        }
+        mode={state.tab === "tables" ? "contained" : "scroll"}
+        contentClassName="stm-panel-body"
+        contentAs="main"
+        inert={navOpen}
+      >
         {info.tone === "warning" && (
           <div className="stm-context-warning" role="status">
             {info.detail || info.title}
@@ -813,7 +821,7 @@ export function PanelShell(props: {
             />
           </section>
         )}
-      </main>
+      </PageLayout>
       {/* 桌面浮动窗口：右下角缩放手柄（移动端隐藏；data-action 为验收脚本契约） */}
       <div
         className="stm-panel-resize"

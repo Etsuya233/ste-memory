@@ -1,3 +1,4 @@
+import { PageChrome } from "../shell/page-layout.tsx";
 /**
  * 记录视图（ticket 11）：按表查看/搜索/分页的记录列表、记录详情（字段值 + 字段证据
  * 楼层 chip）、手动创建/编辑/删除。纯逻辑 seam（record-list-model / record-form-model
@@ -17,7 +18,7 @@ import type {
   MemoryTable,
   MemoryTableId,
 } from "../../features/memory/index.ts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { StChatMessage } from "../../infrastructure/sillytavern/chat-adapter.ts";
@@ -143,11 +144,18 @@ export function RecordsTab(props: {
   const [formError, setFormError] = useState<string | null>(null);
   const [savingRecord, setSavingRecord] = useState(false);
   const viewRef = useRef<HTMLDivElement>(null);
+  const editorFormId = useId();
   const listScrollTop = useRef(0);
   const showingRecord = editor !== null || detailRecordId !== null;
   useEffect(() => {
+    // PageChrome replaces the header in a layout effect. Restore after that commit so
+    // the previous viewport height cannot clamp the saved list scroll position.
     const body = viewRef.current?.closest(".stm-panel-body");
-    if (body) body.scrollTop = showingRecord ? 0 : listScrollTop.current;
+    if (!body) return;
+    const frame = requestAnimationFrame(() => {
+      body.scrollTop = showingRecord ? 0 : listScrollTop.current;
+    });
+    return () => cancelAnimationFrame(frame);
   }, [showingRecord]);
   const editorStateRef = useRef({ editor, fields, savingRecord, savingGrid });
   editorStateRef.current = { editor, fields, savingRecord, savingGrid };
@@ -831,26 +839,30 @@ export function RecordsTab(props: {
       ref={viewRef}
     >
       {detailRecordId && !editor ? (
-        <PanelBar
-          variant="record"
-          title={currentTable.name}
-          leading={
-            <PanelBarAction
-              icon="fa-chevron-left"
-              label="返回记录"
-              data-action="back-to-records"
-              onClick={() => setDetailRecordId(null)}
+        <PageChrome
+          header={
+            <PanelBar
+              variant="record"
+              title={currentTable.name}
+              leading={
+                <PanelBarAction
+                  icon="fa-chevron-left"
+                  label="返回记录"
+                  data-action="back-to-records"
+                  onClick={() => setDetailRecordId(null)}
+                />
+              }
+              trailing={
+                detailRecord ? (
+                  <PanelBarAction
+                    icon="fa-pen"
+                    label="编辑记录"
+                    data-action="edit-record"
+                    onClick={() => openEditor(detailRecord)}
+                  />
+                ) : null
+              }
             />
-          }
-          trailing={
-            detailRecord ? (
-              <PanelBarAction
-                icon="fa-pen"
-                label="编辑记录"
-                data-action="edit-record"
-                onClick={() => openEditor(detailRecord)}
-              />
-            ) : null
           }
         />
       ) : null}
@@ -969,34 +981,40 @@ export function RecordsTab(props: {
       </div>
       {editor ? (
         <form
+          id={editorFormId}
           className="stm-record-form"
           onSubmit={(event) => {
             event.preventDefault();
             void saveRecord();
           }}
         >
-          <PanelBar
-            variant="record"
-            title={editor.original ? "编辑记录" : "新建记录"}
-            leading={
-              <PanelBarAction
-                icon="fa-xmark"
-                label="取消"
-                data-action="cancel-record"
-                disabled={savingRecord}
-                onClick={() => {
-                  if (confirmDiscardIfDirty()) setEditor(null);
-                }}
-              />
-            }
-            trailing={
-              <PanelBarAction
-                icon={savingRecord ? "fa-spinner" : "fa-check"}
-                label={savingRecord ? "保存中…" : "保存"}
-                type="submit"
-                emphasis
-                data-action="save-record"
-                disabled={savingRecord || !formChanged}
+          <PageChrome
+            header={
+              <PanelBar
+                variant="record"
+                title={editor.original ? "编辑记录" : "新建记录"}
+                leading={
+                  <PanelBarAction
+                    icon="fa-xmark"
+                    label="取消"
+                    data-action="cancel-record"
+                    disabled={savingRecord}
+                    onClick={() => {
+                      if (confirmDiscardIfDirty()) setEditor(null);
+                    }}
+                  />
+                }
+                trailing={
+                  <PanelBarAction
+                    icon={savingRecord ? "fa-spinner" : "fa-check"}
+                    label={savingRecord ? "保存中…" : "保存"}
+                    type="submit"
+                    form={editorFormId}
+                    emphasis
+                    data-action="save-record"
+                    disabled={savingRecord || !formChanged}
+                  />
+                }
               />
             }
           />
@@ -1130,50 +1148,56 @@ export function RecordsTab(props: {
                 onResizeRowHeight={resizeRowHeight}
               />
             )}
-            <PanelBottomBar
-              label="记录分页"
-              trailing={
-                <PanelBarAction
-                  icon="fa-plus"
-                  label={viewMode === "grid" ? "新行" : "新建记录"}
-                  emphasis
-                  data-action="add-grid-row"
-                  disabled={savingGrid}
-                  onClick={() => (viewMode === "grid" ? addGridRow() : openEditor(null))}
-                />
-              }
-            >
-              <PanelBarAction
-                icon="fa-chevron-left"
-                label="上一页"
-                data-action="record-page-prev"
-                disabled={(recordPage?.page ?? 1) <= 1}
-                onClick={() => {
-                  if (confirmDiscardIfDirty()) {
-                    listScrollTop.current = 0;
-                    viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
-                    setPage((recordPage?.page ?? 1) - 1);
-                  }
-                }}
+            {!showingRecord ? (
+              <PageChrome
+                footer={
+                  <PanelBottomBar
+                    label="记录分页"
+                    trailing={
+                      <PanelBarAction
+                        icon="fa-plus"
+                        label={viewMode === "grid" ? "新行" : "新建记录"}
+                        emphasis
+                        data-action="add-grid-row"
+                        disabled={savingGrid}
+                        onClick={() => (viewMode === "grid" ? addGridRow() : openEditor(null))}
+                      />
+                    }
+                  >
+                    <PanelBarAction
+                      icon="fa-chevron-left"
+                      label="上一页"
+                      data-action="record-page-prev"
+                      disabled={(recordPage?.page ?? 1) <= 1}
+                      onClick={() => {
+                        if (confirmDiscardIfDirty()) {
+                          listScrollTop.current = 0;
+                          viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
+                          setPage((recordPage?.page ?? 1) - 1);
+                        }
+                      }}
+                    />
+                    <span className="stm-pagination-info" aria-live="polite" aria-atomic="true">
+                      {recordPage && recordPage.totalPages > 0 ? recordPage.page : 0} /{" "}
+                      {recordPage?.totalPages ?? 0}
+                    </span>
+                    <PanelBarAction
+                      icon="fa-chevron-right"
+                      label="下一页"
+                      data-action="record-page-next"
+                      disabled={(recordPage?.page ?? 0) >= (recordPage?.totalPages ?? 0)}
+                      onClick={() => {
+                        if (confirmDiscardIfDirty()) {
+                          listScrollTop.current = 0;
+                          viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
+                          setPage((recordPage?.page ?? 0) + 1);
+                        }
+                      }}
+                    />
+                  </PanelBottomBar>
+                }
               />
-              <span className="stm-pagination-info" aria-live="polite" aria-atomic="true">
-                {recordPage && recordPage.totalPages > 0 ? recordPage.page : 0} /{" "}
-                {recordPage?.totalPages ?? 0}
-              </span>
-              <PanelBarAction
-                icon="fa-chevron-right"
-                label="下一页"
-                data-action="record-page-next"
-                disabled={(recordPage?.page ?? 0) >= (recordPage?.totalPages ?? 0)}
-                onClick={() => {
-                  if (confirmDiscardIfDirty()) {
-                    listScrollTop.current = 0;
-                    viewRef.current!.closest(".stm-panel-body")!.scrollTop = 0;
-                    setPage((recordPage?.page ?? 0) + 1);
-                  }
-                }}
-              />
-            </PanelBottomBar>
+            ) : null}
           </>
         ) : null}
       </div>

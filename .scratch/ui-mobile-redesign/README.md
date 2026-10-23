@@ -16,3 +16,5 @@ python -m http.server 8799 --bind 127.0.0.1 --directory .scratch/ui-mobile-redes
 浏览器可通过 `window.__UI_PREVIEW__` 访问 model、runtime 和 getData()，便于验收定位。
 
 服务启动后运行 `node .scratch/ui-mobile-redesign/check.cjs`，检查 360/390/430/1280px 下七个页面、记录保存取消、导航焦点、表格详情、外观和检索跳转。脚本默认使用已安装的 Microsoft Edge；可通过 `BROWSER_CHANNEL` 指定 Playwright 浏览器通道。若 Playwright 不在项目依赖中，将 `PLAYWRIGHT_MODULE` 设为可用 Playwright 包的绝对路径。截图输出在忽略的 `screenshots/`，构建产物在忽略的 `preview/`。
+
+`node .scratch/ui-mobile-redesign/layout-check.cjs` 验证容器动态栏高、短视口与页面栏切换；`glass-check.cjs` 验证玻璃开关、持久化与深浅色。
