@@ -220,13 +220,30 @@ export class ChatSpaceManager {
         }
       }
 
-      // v2 绑定：检查是否为分支对话（chatIdentity 不匹配）
-      if (binding.version === 2) {
-        const currentIdentity = chatIdentityKey(chat);
-        if (currentIdentity !== undefined && binding.chatIdentity !== currentIdentity) {
-          const space = await this.#ports.spaces.find(binding.spaceId);
-          if (space) {
-            // 分支检测：v2 绑定的 chatIdentity 与当前不匹配，空间存在
+      let space = await this.#ports.spaces.find(binding.spaceId);
+      let restored = false;
+      if (!space && this.#ports.mirrorRestore) {
+        // 身份不同也先恢复，复制/分支对话同样需要镜像提供可克隆的源空间。
+        restored = await this.#ports.mirrorRestore.restore(binding);
+        if (restored) {
+          space = await this.#ports.spaces.find(binding.spaceId);
+        }
+      }
+      if (!this.#isCurrentChat(chat)) {
+        // 恢复期间切走：不改新对话绑定，也不发布旧对话状态。
+        return deriveSpaceStatus(binding, space);
+      }
+      const currentIdentity = chatIdentityKey(chat);
+      if (space && binding.version === 2 && currentIdentity !== undefined) {
+        if (binding.chatIdentity !== currentIdentity) {
+          // 单聊角色索引只在本机有效。首次恢复且仅索引改变时接续原对话；
+          // 文件名改变或本地已有空间时仍保留分支确认，避免静默共享记忆。
+          const importedSingleChat =
+            restored &&
+            chat.groupId == null &&
+            /^char:[^:]+:/.test(binding.chatIdentity) &&
+            binding.chatIdentity.replace(/^char:[^:]+:/, "") === chat.chatId;
+          if (!importedSingleChat) {
             return this.#publish({
               kind: "branch-detected",
               binding,
@@ -234,38 +251,13 @@ export class ChatSpaceManager {
               originalChatIdentity: binding.chatIdentity,
             });
           }
-          // 空间缺失：降级到 space-missing
-          return this.#publish({
-            kind: "space-missing",
-            binding,
-            humanMsg: SPACE_MISSING_MESSAGE,
-          });
+          binding = { ...binding, chatIdentity: currentIdentity };
+          this.#ports.bindingStore.write(binding);
         }
       }
-
-      const space = await this.#ports.spaces.find(binding.spaceId);
-      if (!space && this.#ports.mirrorRestore) {
-        // 空间缺失（新设备/本地库被清）：先试从对话文件镜像恢复（ticket 16）——
-        // 恢复成功且仍是当前对话 → active(restored)，否则维持 space-missing
-        const restored = await this.#ports.mirrorRestore.restore(binding);
-        if (restored) {
-          const restoredSpace = await this.#ports.spaces.find(binding.spaceId);
-          if (restoredSpace && this.#isCurrentChat(chat)) {
-            return this.#publish({
-              kind: "active",
-              binding,
-              space: restoredSpace,
-              created: false,
-              restored: true,
-            });
-          }
-        }
-      }
-      const status = deriveSpaceStatus(binding, space);
-      if (!this.#isCurrentChat(chat)) {
-        // 同步期间用户已切走：结果属于旧对话，不发布（新对话的同步已在队列里）
-        return status;
-      }
+      const status: SpaceContextStatus = space
+        ? { kind: "active", binding, space, created: false, restored }
+        : deriveSpaceStatus(binding, space);
       return this.#publish(status);
     }
 

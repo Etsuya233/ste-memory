@@ -36,8 +36,12 @@
 - **恢复（文件 → 本地）**：ChatSpaceManager 的 space-missing 分支调用
   `restoreFromMirror`——镜像有效 + spaceId 与绑定一致才恢复；恢复走
   `MemoryBackupRepository.restoreSpace`（按空间事务写六表，**不碰其他空间**，
-  与全库清空的 restoreSnapshot 语义不同）。恢复成功发布 active（带 restored
-  标记，面板展示「已从文件镜像恢复」）。
+  与全库清空的 restoreSnapshot 语义不同）。恢复先于分支判定；单聊首次恢复时，
+  若文件名相同且仅角色索引变化，则更新绑定为本机身份并发布 active（带 restored
+  标记，面板展示「已从文件镜像恢复」）。文件名变化仍发布 branch-detected，
+  允许用户克隆恢复出的源空间或创建空空间；本地已有空间时保持原有分支确认，
+  不执行镜像覆盖。群聊身份差异继续进入分支确认。v2 绑定未记录跨设备稳定的
+  文件身份，空库下同名文件仅角色索引变化统一按跨设备导入处理。
 - **守卫**：临时/未保存对话不写；绑定无法识别不写；文件里已有无法识别的镜像
   不覆盖（降级安全）；防抖期间切走对话放弃本轮（防抖武装时捕获对话身份，
   触发时比对，且宿主重取 context——ST 的 saveMetadataDebounced 守卫只查

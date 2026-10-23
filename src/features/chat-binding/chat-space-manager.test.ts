@@ -11,6 +11,9 @@ import type {
 import type { MemorySpaceBackup } from "../backup/index.ts";
 import { describe, expect, it, vi } from "vitest";
 import { DexieMemoryBackupRepository } from "../../infrastructure/indexeddb/backup/memory-backup-repository.ts";
+import { DexieMemoryChangeSource } from "../../infrastructure/indexeddb/memory-change-source.ts";
+import { createChatMirrorFile } from "../chat-mirror/index.ts";
+import { ChatMetadataMirrorSync } from "../chat-mirror/chat-metadata-mirror-sync.ts";
 import {
   createServices,
   createTestDatabase,
@@ -19,6 +22,7 @@ import {
 import {
   StChatAdapter,
   CHAT_METADATA_BINDING_KEY,
+  CHAT_METADATA_MIRROR_KEY,
   type StContext,
 } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import {
@@ -299,34 +303,45 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     expect(await h.services.spaces.list()).toHaveLength(0);
   });
 
-  it("镜像恢复成功但同步期间切走对话：不发布 active（结果属于旧对话）", async () => {
-    const h = createHarness();
-    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
-    chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "space-ghost" };
-    const gate = deferred<boolean>();
-    const restore = vi.fn(async () => {
-      await gate.promise;
-      await h.db.memorySpaces.add({
-        id: "space-ghost" as MemorySpaceId,
-        name: "爱丽丝 - story",
-        initializationSource: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-        updatedAt: "2026-08-10T00:00:00.000Z",
+  it.each(["char:3:story", "char:10:story"])(
+    "镜像恢复期间切走对话：不发布旧状态或重写绑定（%s）",
+    async (originalIdentity) => {
+      const h = createHarness();
+      const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+      const originalBinding = {
+        version: 2,
+        spaceId: "space-ghost",
+        chatIdentity: originalIdentity,
+      };
+      chatMetadata[CHAT_METADATA_BINDING_KEY] = originalBinding;
+      const gate = deferred<boolean>();
+      const restore = vi.fn(async () => {
+        await gate.promise;
+        await h.db.memorySpaces.add({
+          id: "space-ghost" as MemorySpaceId,
+          name: "爱丽丝 - story",
+          initializationSource: null,
+          createdAt: "2026-08-10T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+        });
+        return true;
       });
-      return true;
-    });
-    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+      const { manager } = h.createManager(context, { mirrorRestore: { restore } });
 
-    const pending = manager.syncToCurrentChat();
-    // 等恢复端口被调用（入口快照已捕获、恢复挂起中）再切走
-    await vi.waitFor(() => expect(restore).toHaveBeenCalled());
-    context.chatId = "other"; // 恢复期间切走
-    gate.resolve(true);
-    await pending;
+      const pending = manager.syncToCurrentChat();
+      // 等恢复端口被调用（入口快照已捕获、恢复挂起中）再切走
+      await vi.waitFor(() => expect(restore).toHaveBeenCalled());
+      context.chatId = "other"; // 恢复期间切走
+      context.chatMetadata = {};
+      gate.resolve(true);
+      await pending;
 
-    expect(restore).toHaveBeenCalled();
-    expect(manager.getStatus()).toBeUndefined(); // 未发布（结果属于旧对话，新对话的同步已在队列）
-  });
+      expect(restore).toHaveBeenCalled();
+      expect(manager.getStatus()).toBeUndefined(); // 未发布（结果属于旧对话，新对话的同步已在队列）
+      expect(context.chatMetadata).toEqual({});
+      expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual(originalBinding);
+    },
+  );
 
   it("绑定值无法识别（损坏/未来版本）：原样保留、不新建覆盖", async () => {
     const h = createHarness();
@@ -434,7 +449,166 @@ describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
     expect(status.originalChatIdentity).toBe("char:3:original-story");
   });
 
-  it("v2 绑定 + chatIdentity 不匹配 + 空间缺失：space-missing（降级兜底）", async () => {
+  it.each([
+    ["角色编号变化", "char:10:story:2026", "story:2026", "active"],
+    ["复制对话", "char:3:original-story", "story", "branch-detected"],
+    ["跨设备分支", "char:10:original-story", "story", "branch-detected"],
+    ["群聊迁入单聊", "group:10:story", "story", "branch-detected"],
+  ])("空间缺失时先恢复镜像，再判断%s", async (_label, originalIdentity, chatId, kind) => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext(chatId, "爱丽丝", 3);
+    const originalBinding = {
+      version: 2,
+      spaceId: "space-ghost",
+      chatIdentity: originalIdentity,
+    };
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = originalBinding;
+    const restore = vi.fn(async () => {
+      await h.db.memorySpaces.add({
+        id: "space-ghost" as MemorySpaceId,
+        name: "爱丽丝 - 原对话",
+        initializationSource: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      });
+      return true;
+    });
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    const status = await manager.syncToCurrentChat();
+
+    expect(restore).toHaveBeenCalledWith(originalBinding);
+    expect(status).toMatchObject({ kind, space: { id: "space-ghost" } });
+    if (kind === "active") {
+      expect(status).toMatchObject({ restored: true, created: false });
+      expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
+        ...originalBinding,
+        chatIdentity: `char:3:${chatId}`,
+      });
+      expect(await manager.syncToCurrentChat()).toMatchObject({ kind: "active", restored: false });
+      expect(restore).toHaveBeenCalledTimes(1);
+    } else {
+      expect(status).toMatchObject({ originalChatIdentity: originalIdentity });
+      expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual(originalBinding);
+      const resolved = await manager.resolveBranch({ action: "create" });
+      expect(resolved.kind).toBe("active");
+      expect(await h.services.spaces.find("space-ghost" as MemorySpaceId)).toBeDefined();
+      expect(await h.services.spaces.list()).toHaveLength(2);
+    }
+  });
+
+  it("角色编号变化但本地已有空间：保留分支确认且不恢复覆盖", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    const space = await h.services.spaces.create("原对话");
+    const originalBinding = { version: 2, spaceId: space.id, chatIdentity: "char:10:story" };
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = originalBinding;
+    const restore = vi.fn(async () => true);
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    expect(await manager.syncToCurrentChat()).toMatchObject({ kind: "branch-detected" });
+    expect(restore).not.toHaveBeenCalled();
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual(originalBinding);
+  });
+
+  it.each(["story", "story-copy"])("真实镜像恢复及分支克隆保留记录（%s）", async (chatId) => {
+    const source = createHarness();
+    const sourceChat = chatContext("story", "爱丽丝", 10);
+    const { manager: sourceManager } = source.createManager(sourceChat.context);
+    const sourceStatus = (await sourceManager.syncToCurrentChat()) as ActiveStatus;
+    const sourceBackup = new DexieMemoryBackupRepository(source.db);
+    const sourceUnit = (await sourceBackup.loadSnapshot()).spaces[0]!;
+    const field = sourceUnit.fields.find((field) => field.type === "short_text")!;
+    const unit: MemorySpaceBackup = {
+      ...sourceUnit,
+      records: [
+        {
+          id: "record-source" as MemoryRecordId,
+          memorySpaceId: sourceUnit.space.id,
+          tableId: field.tableId,
+          payload: { [field.id]: "跨设备保留的记忆" },
+          fieldEvidence: {},
+          displayText: "跨设备保留的记忆",
+          source: { type: "manual" },
+          revisionId: "revision-source" as MemoryRevisionId,
+          revisionSource: "user",
+          createdAt: sourceUnit.space.createdAt,
+          updatedAt: sourceUnit.space.updatedAt,
+        },
+      ],
+    };
+
+    const target = createHarness();
+    const { context, chatMetadata } = chatContext(chatId, "爱丽丝", 2);
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = sourceStatus.binding;
+    const mirror = createChatMirrorFile(unit, unit.space.id, unit.space.updatedAt, "0.1.4");
+    chatMetadata[CHAT_METADATA_MIRROR_KEY] = mirror;
+    const adapter = new StChatAdapter(() => context);
+    const backup = new DexieMemoryBackupRepository(target.db);
+    const mirrorSync = new ChatMetadataMirrorSync({
+      getChat: () => adapter.getChatSnapshot(),
+      bindingStore: adapter.bindingStore,
+      mirrorStore: adapter.mirrorStore,
+      backup,
+      changes: new DexieMemoryChangeSource(target.db),
+      isEnabled: () => true,
+      includeHistory: () => true,
+      appVersion: () => "0.1.7",
+      now: () => new Date(),
+    });
+    let sequence = 0;
+    const manager = new ChatSpaceManager({
+      getChat: () => adapter.getChatSnapshot(),
+      bindingStore: adapter.bindingStore,
+      spaces: target.services.spaces,
+      installer: { installDefaultStructure: (id) => installDefaultPreset(target.db, id) },
+      mirrorRestore: { restore: (binding) => mirrorSync.restoreFromMirror(binding) },
+      backup,
+      createId: (prefix) => `clone-${prefix}-${++sequence}`,
+    });
+
+    const status = await manager.syncToCurrentChat();
+    expect((await backup.loadSnapshot()).spaces).toEqual([unit]);
+    expect(chatMetadata[CHAT_METADATA_MIRROR_KEY]).toEqual(mirror);
+    if (chatId === "story") {
+      expect(status).toMatchObject({
+        kind: "active",
+        restored: true,
+        binding: { chatIdentity: "char:2:story" },
+      });
+    } else {
+      expect(status.kind).toBe("branch-detected");
+      const resolved = await manager.resolveBranch({
+        action: "clone",
+        sourceSpaceId: unit.space.id,
+      });
+      expect(resolved.kind).toBe("active");
+      const spaces = (await backup.loadSnapshot()).spaces;
+      expect(spaces.find((space) => space.space.id === unit.space.id)).toEqual(unit);
+      const clone = spaces.find((space) => space.space.id !== unit.space.id)!;
+      expect(clone.records).toHaveLength(1);
+      expect(clone.records[0]!.id).not.toBe(unit.records[0]!.id);
+      expect(Object.values(clone.records[0]!.payload)).toEqual(["跨设备保留的记忆"]);
+      expect(clone.tables).toHaveLength(unit.tables.length);
+      expect(clone.fields).toHaveLength(unit.fields.length);
+    }
+  });
+
+  it("身份不匹配且镜像无法恢复：保持绑定和 space-missing", async () => {
+    const h = createHarness();
+    const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
+    const originalBinding = { version: 2, spaceId: "space-ghost", chatIdentity: "char:10:story" };
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = originalBinding;
+    const restore = vi.fn(async () => false);
+    const { manager } = h.createManager(context, { mirrorRestore: { restore } });
+
+    expect(await manager.syncToCurrentChat()).toMatchObject({ kind: "space-missing" });
+    expect(restore).toHaveBeenCalledWith(originalBinding);
+    expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual(originalBinding);
+    expect(await h.services.spaces.list()).toHaveLength(0);
+  });
+
+  it("v2 绑定 + chatIdentity 不匹配 + 空间缺失且没有恢复端口：space-missing", async () => {
     const h = createHarness();
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);
     chatMetadata[CHAT_METADATA_BINDING_KEY] = {
