@@ -51,6 +51,7 @@ import {
  * - 应用过程中固定目标空间与预设、禁止重复提交。
  */
 export function TablePresetManager(props: {
+  readonly onEditingChange?: (editing: boolean) => void;
   readonly presets: TablePresetSettings;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly status: SpaceContextStatus | undefined;
@@ -77,6 +78,11 @@ export function TablePresetManager(props: {
   const [editor, setEditor] = useState<{ initial: ResolvedTablePreset; isNew: boolean } | null>(
     null,
   );
+  const editing = editor !== null;
+  useEffect(() => {
+    props.onEditingChange?.(editing);
+    return () => props.onEditingChange?.(false);
+  }, [editing, props.onEditingChange]);
   const active = props.status?.kind === "active" ? props.status : undefined;
   const space = active?.space;
   const rows = tablePresetRows(props.presets, SYSTEM_TABLE_PRESET);
@@ -311,6 +317,7 @@ export function TablePresetManager(props: {
   if (editor)
     return (
       <TablePresetEditor
+        chrome={props.onEditingChange !== undefined}
         initial={editor.initial}
         isNew={editor.isNew}
         registerLeaveGuard={props.registerLeaveGuard}
@@ -525,7 +532,7 @@ export function TablePresetManager(props: {
                     </div>
                   )}
                 </div>
-                <div className="stm-table-actions">
+                <div className="stm-table-actions stm-preset-card-actions">
                   <button
                     type="button"
                     className="stm-table-action"

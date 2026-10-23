@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 import type { MemoryTableId } from "../../features/memory/index.ts";
 import type {
   ResolvedTablePreset,
@@ -22,6 +25,7 @@ import {
 } from "./table-preset-editor-model.ts";
 
 export function TablePresetEditor(props: {
+  readonly chrome?: boolean;
   readonly initial: ResolvedTablePreset;
   readonly isNew: boolean;
   readonly onSave: (preset: ResolvedTablePreset) => void;
@@ -196,36 +200,66 @@ export function TablePresetEditor(props: {
   );
   return (
     <div className="stm-preset-table-page" data-stm-section="table-preset-editor">
-      <div className="stm-preset-page-header">
-        <button type="button" className="stm-table-action" onClick={close}>
-          <i className="fa-solid fa-arrow-left" aria-hidden="true" /> 返回预设列表
-        </button>
-        <div className="stm-preset-page-title">
-          <strong>
-            {readonly ? "查看预设" : props.isNew ? "新建预设" : "编辑预设"}
-            {draft.name && ` · ${draft.name}`}
-          </strong>
-          {dirty && <span className="stm-preset-badge">未保存</span>}
-        </div>
-        {!readonly && (
-          <button
-            type="button"
-            className="stm-button stm-button--primary"
-            data-action="save-table-preset"
-            disabled={editing}
-            onClick={() => run(() => props.onSave(draft))}
-          >
-            保存预设
+      {props.chrome && (
+        <PageChrome
+          header={
+            <PanelBar
+              title={readonly ? "查看预设" : props.isNew ? "新建预设" : "编辑预设"}
+              subtitle={`${draft.name}${dirty ? " · 未保存" : ""}`}
+              leading={
+                <PanelBarAction
+                  icon={readonly ? "fa-arrow-left" : "fa-xmark"}
+                  label={readonly ? "返回预设列表" : "取消编辑"}
+                  data-action="close-table-preset"
+                  onClick={close}
+                />
+              }
+              trailing={
+                !readonly && (
+                  <PanelBarAction
+                    icon="fa-check"
+                    label="保存预设"
+                    data-action="save-table-preset"
+                    disabled={editing}
+                    onClick={() => run(() => props.onSave(draft))}
+                  />
+                )
+              }
+            />
+          }
+        />
+      )}
+      {!props.chrome && (
+        <div className="stm-preset-page-header">
+          <button type="button" className="stm-table-action" onClick={close}>
+            <i className="fa-solid fa-arrow-left" aria-hidden="true" /> 返回预设列表
           </button>
-        )}
-      </div>
+          <div className="stm-preset-page-title">
+            <strong>
+              {readonly ? "查看预设" : props.isNew ? "新建预设" : "编辑预设"}
+              {draft.name && ` · ${draft.name}`}
+            </strong>
+            {dirty && <span className="stm-preset-badge">未保存</span>}
+          </div>
+          {!readonly && (
+            <button
+              type="button"
+              className="stm-button stm-button--primary"
+              data-action="save-table-preset"
+              disabled={editing}
+              onClick={() => run(() => props.onSave(draft))}
+            >
+              保存预设
+            </button>
+          )}
+        </div>
+      )}
       {error && (
         <div role="alert" className="stm-form-error">
           {error}
         </div>
       )}
-      <details className="stm-table-card stm-preset-info" open={props.isNew}>
-        <summary className="stm-preset-info-summary">预设信息与通用填写规则</summary>
+      <Disclosure icon="fa-sliders" title="预设信息与通用填写规则" open={props.isNew}>
         <fieldset disabled={readonly || editing} className="stm-editor stm-preset-editor-fields">
           <label className="stm-form-row">
             <span className="stm-form-label">预设名称</span>
@@ -256,7 +290,7 @@ export function TablePresetEditor(props: {
             保存只更新预设库，已有空间保持原状。修改 Key 后请检查填写规则中的文字引用。
           </div>
         </fieldset>
-      </details>
+      </Disclosure>
       {!readonly && (
         <div className="stm-table-actions stm-table-actions--top">
           <button

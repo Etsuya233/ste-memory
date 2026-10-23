@@ -18,6 +18,8 @@
 import {
   useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -43,6 +45,10 @@ import {
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import { activeStatus, Placeholder, reportError, reportSuccess } from "../shell/ui-helpers.tsx";
+
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBarAction, PanelBottomBar } from "../shell/panel-bar.tsx";
+import { Tabs } from "../shell/tabs.tsx";
 
 /** 稳定空数组（useSyncExternalStore 快照必须引用稳定，字面量 [] 会触发无限重渲染）。 */
 const EMPTY_MESSAGES: readonly QueryChatMessage[] = [];
@@ -98,13 +104,30 @@ export function QueryChatTab(props: {
   );
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const followMessages = useRef(true);
+  const panelId = useId();
   const running = run !== undefined;
 
-  // 新内容自动滚到底部（滚动容器 = 面板主体 .stm-panel-body，输入行 sticky 吸底）
-  useEffect(() => {
-    const scroller = listRef.current?.closest(".stm-panel-body");
-    if (scroller instanceof HTMLElement) scroller.scrollTop = scroller.scrollHeight;
-  }, [messages]);
+  useLayoutEffect(() => {
+    const scroller = listRef.current?.closest<HTMLElement>(".stm-page-content");
+    if (!scroller) return;
+    followMessages.current = true;
+    const trackPosition = () => {
+      followMessages.current =
+        scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 80;
+    };
+    scroller.addEventListener("scroll", trackPosition, { passive: true });
+    return () => scroller.removeEventListener("scroll", trackPosition);
+  }, [key, props.settings.enabled]);
+
+  useLayoutEffect(() => {
+    if (!followMessages.current) return;
+    const frame = requestAnimationFrame(() => {
+      const scroller = listRef.current?.closest<HTMLElement>(".stm-page-content");
+      if (scroller && followMessages.current) scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [key, messages, props.settings.enabled]);
 
   if (!props.settings.enabled) {
     return <Placeholder title="插件已停用" hint="在设置中重新启用后恢复问答" />;
@@ -134,6 +157,7 @@ export function QueryChatTab(props: {
     const userMessage = createUserMessage(newMessageId(), text);
     const pending = createPendingAssistantMessage(newMessageId());
     const controller = new AbortController();
+    followMessages.current = true;
     store.beginRun(currentKey, userMessage, pending, controller);
     setInput("");
     try {
@@ -152,39 +176,88 @@ export function QueryChatTab(props: {
 
   return (
     <div className="stm-query-chat" data-stm-field="query-chat">
-      <div className="stm-query-chat-toolbar">
-        <div className="stm-query-mode-switch" role="tablist" aria-label="问答模式">
-          {QUERY_CHAT_MODES.map((item) => (
-            <button
-              key={item.mode}
-              type="button"
-              role="tab"
-              className="stm-query-mode"
-              aria-selected={mode === item.mode}
-              data-action="query-chat-mode"
-              data-mode={item.mode}
-              onClick={() => store.setMode(item.mode)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="refresh-records"
-          title="提交变更后手动刷新表格与记录视图"
-          onClick={props.onDataChanged}
-        >
-          <i className="fa-solid fa-rotate" aria-hidden="true"></i> 刷新记录
-        </button>
-      </div>
-      <div className="stm-query-chat-list" ref={listRef} data-stm-field="message-list">
-        {messages.length === 0 ? (
-          <Placeholder
-            title={mode === "query" ? "有什么想问记忆的吗？" : "想记点什么？"}
-            hint={mode === "fill" ? "提交前会请你确认" : ""}
+      <PageChrome
+        headerTrailing={
+          <PanelBarAction
+            icon="fa-rotate"
+            label="刷新记录"
+            data-action="refresh-records"
+            onClick={props.onDataChanged}
           />
+        }
+        footer={
+          <form
+            className="stm-query-chat-input-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            <PanelBottomBar
+              label="问答输入"
+              mainFrame="none"
+              trailing={
+                running ? (
+                  <PanelBarAction
+                    icon="fa-stop"
+                    label="停止"
+                    data-action="query-chat-stop"
+                    onClick={() => store.cancel(currentKey)}
+                  />
+                ) : (
+                  <PanelBarAction
+                    icon="fa-paper-plane"
+                    label="发送"
+                    type="submit"
+                    emphasis
+                    data-action="query-chat-send"
+                    disabled={input.trim().length === 0}
+                  />
+                )
+              }
+            >
+              <input
+                className="stm-input"
+                type="text"
+                aria-label={mode === "query" ? "问答内容" : "填写内容"}
+                data-action="query-chat-input"
+                placeholder={
+                  running
+                    ? "Agent 正在回答…"
+                    : mode === "query"
+                      ? "问问这段记忆…"
+                      : "想新增或修改什么？"
+                }
+                value={input}
+                disabled={running}
+                onChange={(event) => setInput(event.target.value)}
+              />
+            </PanelBottomBar>
+          </form>
+        }
+      />
+      <Tabs
+        label="问答模式"
+        value={mode}
+        options={QUERY_CHAT_MODES.map((item) => ({
+          value: item.mode,
+          label: item.label,
+          panelId: `${panelId}-${item.mode}`,
+          dataAction: "query-chat-mode",
+          dataAttributes: { "data-mode": item.mode },
+        }))}
+        onChange={(value) => store.setMode(value)}
+      />
+      <div
+        className="stm-query-chat-list"
+        id={`${panelId}-${mode}`}
+        role="tabpanel"
+        aria-label={mode === "query" ? "查询消息" : "填写消息"}
+        ref={listRef}
+        data-stm-field="message-list"
+      >
+        {messages.length === 0 ? (
+          <Placeholder title={mode === "query" ? "有什么想问记忆的吗？" : "想记点什么？"} hint="" />
         ) : (
           messages.map((message) =>
             message.kind === "user" ? (
@@ -195,47 +268,6 @@ export function QueryChatTab(props: {
           )
         )}
       </div>
-      <form
-        className="stm-query-chat-input-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <input
-          type="text"
-          data-action="query-chat-input"
-          placeholder={
-            running ? "Agent 正在回答…" : mode === "query" ? "问问这段记忆…" : "想新增或修改什么？"
-          }
-          value={input}
-          disabled={running}
-          onChange={(event) => setInput(event.target.value)}
-        />
-        {running ? (
-          <button
-            type="button"
-            className="stm-query-chat-send"
-            data-action="query-chat-stop"
-            title="停止"
-            aria-label="停止"
-            onClick={() => store.cancel(currentKey)}
-          >
-            <i className="fa-solid fa-stop" aria-hidden="true"></i>
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className="stm-query-chat-send"
-            data-action="query-chat-send"
-            title="发送"
-            aria-label="发送"
-            disabled={input.trim().length === 0}
-          >
-            <i className="fa-solid fa-paper-plane" aria-hidden="true"></i>
-          </button>
-        )}
-      </form>
     </div>
   );
 }
@@ -268,9 +300,11 @@ export function AssistantMessageView(props: {
           className="stm-chat-copy"
           data-action="copy-answer"
           disabled={answerText.length === 0}
+          aria-label="复制回答"
+          title="复制回答"
           onClick={() => void copyAnswer(answerText)}
         >
-          复制回答
+          <i className="fa-solid fa-copy" aria-hidden="true" />
         </button>
       </header>
       {/* 片段时间线（ADR 0013）：按真实发生顺序渲染；仅流式中的当前进料片段受控展开 */}
@@ -282,7 +316,11 @@ export function AssistantMessageView(props: {
         />
       ))}
       {message.commit ? <CommitBanner commit={message.commit} /> : null}
-      {message.error ? <div className="stm-chat-error">{message.error}</div> : null}
+      {message.error ? (
+        <div className="stm-chat-error" role="alert">
+          {message.error}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -427,7 +465,7 @@ function CommitBanner(props: { readonly commit: QueryChatCommitResult }): ReactN
     return (
       <div className="stm-chat-commit" data-stm-field="commit-banner">
         已提交：创建 {commit.created} · 更新 {commit.updated} · 删除 {commit.deleted}
-        （点「刷新记录」后在记录 Tab 查看最新数据）
+        （可刷新记录查看）
       </div>
     );
   }

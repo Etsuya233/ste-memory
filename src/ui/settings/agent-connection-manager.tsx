@@ -8,7 +8,10 @@
  * 交互逻辑（CRUD/回退/规范化/排序）在 agent-connections 纯函数测试覆盖，
  * 组件只做「模型 → DOM」投影与事件接线。
  */
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import {
   AGENT_CONNECTION_TARGETS,
@@ -32,6 +35,8 @@ function createUiId(): string {
 export const FOLLOW_ST_CONNECTION_LABEL = "跟随 ST 当前连接";
 
 export function AgentConnectionManager(props: {
+  readonly onEditingChange?: (editing: boolean) => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settings: PluginSettings;
   readonly onChange: (settings: PluginSettings) => void;
   readonly onTestConnection: (connection: AgentConnection) => Promise<ConnectionTestResult>;
@@ -42,6 +47,29 @@ export function AgentConnectionManager(props: {
   const [models, setModels] = useState<readonly string[]>([]);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
+  const initialDraft = useRef<AgentConnection | null>(null);
+  const dirty =
+    editing !== null && JSON.stringify(editing) !== JSON.stringify(initialDraft.current);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const isEditing = editing !== null;
+  useEffect(() => {
+    props.onEditingChange?.(isEditing);
+    return () => props.onEditingChange?.(false);
+  }, [isEditing, props.onEditingChange]);
+  useEffect(() => {
+    props.registerLeaveGuard?.(
+      () => !dirtyRef.current || window.confirm("连接有未保存的修改，放弃修改并离开吗？"),
+    );
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyRef.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      props.registerLeaveGuard?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [props.registerLeaveGuard]);
 
   async function runTest(draft: AgentConnection): Promise<void> {
     setTesting(true);
@@ -81,51 +109,67 @@ export function AgentConnectionManager(props: {
   }
 
   function startCreate(): void {
-    setEditing({ id: createUiId(), name: "", baseUrl: "", apiKey: "", model: "" });
+    initialDraft.current = { id: createUiId(), name: "", baseUrl: "", apiKey: "", model: "" };
+    setEditing(initialDraft.current);
     setTestResult(null);
   }
 
   function startEdit(connection: AgentConnection): void {
+    initialDraft.current = connection;
     setEditing({ ...connection });
     setTestResult(null);
   }
 
   return (
     <div className="stm-setting-group" data-stm-field="agent-connections">
-      <div className="stm-connection-list" data-stm-field="connection-list">
-        {settings.agentConnections.length === 0 && (
-          <div className="stm-setting-hint">暂无独立连接</div>
-        )}
-        {settings.agentConnections.map((connection) => (
-          <div className="stm-connection-row" data-stm-field="connection-row" key={connection.id}>
-            <span className="stm-connection-name">{connection.name}</span>
-            <span className="stm-connection-meta">
-              {connection.baseUrl} · {connection.model}
-            </span>
-            <button
-              className="stm-button"
-              data-action="edit-connection"
-              onClick={() => startEdit(connection)}
-            >
-              编辑
-            </button>
-            <button
-              className="stm-button"
-              data-action="delete-connection"
-              onClick={() => remove(connection.id)}
-            >
-              删除
+      {!editing && (
+        <>
+          <div className="stm-connection-list stm-grouped-list" data-stm-field="connection-list">
+            {settings.agentConnections.length === 0 && (
+              <div className="stm-setting-hint">暂无独立连接</div>
+            )}
+            {settings.agentConnections.map((connection) => (
+              <div
+                className="stm-connection-row"
+                data-stm-field="connection-row"
+                key={connection.id}
+              >
+                <div className="stm-connection-summary">
+                  <span className="stm-connection-name">{connection.name}</span>
+                  <span
+                    className="stm-connection-meta"
+                    title={`${connection.baseUrl} · ${connection.model}`}
+                  >
+                    {connection.baseUrl} · {connection.model}
+                  </span>
+                </div>
+                <button
+                  className="stm-button"
+                  data-action="edit-connection"
+                  onClick={() => startEdit(connection)}
+                >
+                  编辑
+                </button>
+                <button
+                  className="stm-button"
+                  data-action="delete-connection"
+                  onClick={() => remove(connection.id)}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="stm-setting-actions">
+            <button className="stm-button" data-action="create-connection" onClick={startCreate}>
+              新建连接
             </button>
           </div>
-        ))}
-      </div>
-      <div className="stm-setting-actions">
-        <button className="stm-button" data-action="create-connection" onClick={startCreate}>
-          新建连接
-        </button>
-      </div>
+        </>
+      )}
       {editing && (
         <AgentConnectionForm
+          chrome={props.onEditingChange !== undefined}
           draft={editing}
           models={models}
           testing={testing}
@@ -133,20 +177,25 @@ export function AgentConnectionManager(props: {
           onDraftChange={setEditing}
           onTest={() => void runTest(editing)}
           onSave={() => save(editing)}
-          onCancel={() => setEditing(null)}
+          onCancel={() => {
+            if (!dirty || window.confirm("连接有未保存的修改，放弃修改并返回吗？"))
+              setEditing(null);
+          }}
         />
       )}
       {/* 移动端优先：选择器纵向堆叠，每行一个（面板宽度有限，并排会挤压） */}
-      <div className="stm-connection-selectors" data-stm-field="agent-selectors">
-        {AGENT_CONNECTION_TARGETS.map((target) => (
-          <ConnectionSelector
-            key={target}
-            target={target}
-            settings={settings}
-            onChange={props.onChange}
-          />
-        ))}
-      </div>
+      {!editing && (
+        <div className="stm-connection-selectors" data-stm-field="agent-selectors">
+          {AGENT_CONNECTION_TARGETS.map((target) => (
+            <ConnectionSelector
+              key={target}
+              target={target}
+              settings={settings}
+              onChange={props.onChange}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -195,6 +244,7 @@ function ConnectionSelector(props: {
 
 /** 连接编辑表单（新建/编辑共用）：手写模型 + 右侧 Select 下拉（字典序，测试成功后填充） */
 export function AgentConnectionForm(props: {
+  readonly chrome?: boolean;
   readonly draft: AgentConnection;
   readonly models: readonly string[];
   readonly testing: boolean;
@@ -205,11 +255,48 @@ export function AgentConnectionForm(props: {
   readonly onCancel: () => void;
 }): React.JSX.Element {
   const { draft, models } = props;
+  const formId = useId();
   const canSave =
     draft.name.trim() !== "" && draft.baseUrl.trim() !== "" && draft.model.trim() !== "";
   const canTest = draft.baseUrl.trim() !== "";
   return (
-    <div className="stm-connection-form" data-stm-field="connection-form">
+    <form
+      id={formId}
+      className="stm-connection-form"
+      data-stm-field="connection-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (canSave && !props.testing) props.onSave();
+      }}
+    >
+      {props.chrome && (
+        <PageChrome
+          header={
+            <PanelBar
+              title="编辑 Agent 连接"
+              leading={
+                <PanelBarAction
+                  icon="fa-xmark"
+                  label="取消编辑"
+                  data-action="cancel-connection"
+                  disabled={props.testing}
+                  onClick={props.onCancel}
+                />
+              }
+              trailing={
+                <PanelBarAction
+                  icon="fa-check"
+                  label="保存连接"
+                  type="submit"
+                  form={formId}
+                  data-action="save-connection"
+                  disabled={!canSave || props.testing}
+                />
+              }
+            />
+          }
+        />
+      )}
       <div className="stm-setting-row stm-connection-form-row">
         <label className="stm-setting-label">名称</label>
         <input
@@ -268,6 +355,7 @@ export function AgentConnectionForm(props: {
       </div>
       <div className="stm-setting-actions">
         <button
+          type="button"
           className="stm-button"
           data-action="test-connection"
           disabled={props.testing || !canTest}
@@ -275,17 +363,26 @@ export function AgentConnectionForm(props: {
         >
           {props.testing ? "测试中…" : "测试连接"}
         </button>
-        <button
-          className="stm-button"
-          data-action="save-connection"
-          disabled={!canSave}
-          onClick={props.onSave}
-        >
-          保存
-        </button>
-        <button className="stm-button" data-action="cancel-connection" onClick={props.onCancel}>
-          取消
-        </button>
+        {!props.chrome && (
+          <button
+            className="stm-button"
+            data-action="save-connection"
+            disabled={!canSave}
+            type="submit"
+          >
+            保存
+          </button>
+        )}
+        {!props.chrome && (
+          <button
+            type="button"
+            className="stm-button"
+            data-action="cancel-connection"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+        )}
       </div>
       {props.testResult && (
         <div
@@ -295,14 +392,13 @@ export function AgentConnectionForm(props: {
           {props.testResult.text}
         </div>
       )}
-      <details className="stm-setting-help">
-        <summary>连接与密钥存储</summary>{" "}
+      <Disclosure icon="fa-circle-info" title="连接与密钥存储">
         <div className="stm-setting-hint">
           为表格填写 Agent / 查询 Agent 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走
           ST 服务端转发，无 CORS。密钥以明文存于浏览器本地。未配置任何连接时 Agent 跟随 ST
           当前连接。
         </div>
-      </details>
-    </div>
+      </Disclosure>
+    </form>
   );
 }

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -22,6 +23,10 @@ import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-
 import { executeSpaceImport, planSpaceImport } from "../../features/chat-binding/space-import.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
 import { AppearanceSettings } from "../shell/appearance-settings.tsx";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { Tabs } from "../shell/tabs.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 import { EmbeddingConnectionEditor } from "./embedding-connection-editor.tsx";
 import type { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import {
@@ -138,15 +143,14 @@ export function MacroSettingsFields(props: {
           onChange={(event) => props.onLimitChange(event.target.value)}
         />
       </label>
-      <details className="stm-setting-help">
-        <summary>宏语法与截断规则</summary>{" "}
+      <Disclosure icon="fa-circle-info" title="宏语法与截断规则">
         <div className="stm-setting-hint">
           前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开 当前记忆：
           {"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full / 表
           Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
           超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
         </div>
-      </details>
+      </Disclosure>
     </div>
   );
 }
@@ -471,7 +475,18 @@ export function SettingsTab(props: {
   const [activeGroup, setActiveGroup] = useState<
     SettingsGroupKey | "embedding-connection" | "appearance" | null
   >(() => [...loadExpandedGroups(safeLocalStorage())][0] ?? null);
+  const navigationRef = useRef<HTMLDivElement>(null);
+  const categoryScroll = useRef(0);
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      navigationRef.current
+        ?.closest(".stm-page-content")
+        ?.scrollTo({ top: activeGroup === null ? categoryScroll.current : 0 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeGroup]);
   const presetLeaveGuard = useRef<(() => boolean) | null>(null);
+  const [editorOwnsHeader, setEditorOwnsHeader] = useState(false);
   const registerPresetLeaveGuard = useCallback(
     (guard: (() => boolean) | null) => {
       presetLeaveGuard.current = guard;
@@ -483,6 +498,8 @@ export function SettingsTab(props: {
   function toggleGroup(key: SettingsGroupKey | "embedding-connection" | "appearance" | null): void {
     if (key === activeGroup) return;
     if (presetLeaveGuard.current && !presetLeaveGuard.current()) return;
+    if (activeGroup === null)
+      categoryScroll.current = navigationRef.current!.closest(".stm-page-content")!.scrollTop;
     setActiveGroup(key);
     saveExpandedGroups(
       safeLocalStorage(),
@@ -531,43 +548,100 @@ export function SettingsTab(props: {
     props.entryMount?.replan();
   }
 
+  const categories = [
+    {
+      label: "记忆与提示词",
+      items: [
+        {
+          key: "macro",
+          title: "记忆宏",
+          summary: macroSummary(props.settings, chatScopeMacros.length),
+        },
+        { key: "table-presets", title: "表格预设", summary: tablePresetsSummary(props.settings) },
+        {
+          key: "agent-presets",
+          title: "Agent 提示词预设",
+          summary: agentPresetsSummary(props.settings),
+        },
+        {
+          key: "cleaning",
+          title: "清洗规则",
+          summary: cleaningSummary(props.settings, chatCleaningListId),
+        },
+      ],
+    },
+    {
+      label: "模型连接",
+      items: [
+        {
+          key: "agent-connections",
+          title: "Agent 连接",
+          summary: agentConnectionsSummary(props.settings),
+        },
+        {
+          key: "embedding-connection",
+          title: "向量连接",
+          summary: props.settings.embeddingConnection?.model ?? "配置索引与检索服务",
+        },
+      ],
+    },
+    {
+      label: "界面",
+      items: [
+        { key: "appearance", title: "外观", summary: "主题与阅读体验" },
+        {
+          key: "entry",
+          title: "面板入口",
+          summary: entryGroupSummary(props.settings.entryPlacement, entryPlan),
+        },
+        { key: "safe-area", title: "面板安全区", summary: safeAreaSummary(safeArea) },
+      ],
+    },
+    {
+      label: "数据与运行",
+      items: [
+        { key: "backup", title: "数据备份", summary: "导出与导入记忆数据" },
+        {
+          key: "mirror",
+          title: "对话文件镜像",
+          summary: mirrorSummary(props.settings, props.mirrorStatus),
+        },
+        {
+          key: "version",
+          title: "版本与运行状态",
+          summary: `v${props.version} · ${runtimeStatusLabel(props.status)}`,
+        },
+        { key: "danger", title: "危险操作", summary: "清除当前空间记录" },
+      ],
+    },
+  ] as const;
+  const groupTitle = categories
+    .map((category) => category.items.find((item) => item.key === activeGroup))
+    .find((item) => item !== undefined)?.title;
+
   return (
-    <div className="stm-settings-navigation" data-settings-page={activeGroup ?? "categories"}>
-      {activeGroup ? (
-        <button
-          type="button"
-          className="stm-button stm-settings-back"
-          data-action="settings-back"
-          onClick={() => toggleGroup(null)}
-        >
-          <i className="fa-solid fa-arrow-left" aria-hidden="true" /> 返回设置
-        </button>
+    <div
+      ref={navigationRef}
+      className="stm-settings-navigation"
+      data-settings-page={activeGroup ?? "categories"}
+    >
+      {activeGroup && activeGroup !== "embedding-connection" && !editorOwnsHeader ? (
+        <PageChrome
+          header={
+            <PanelBar
+              title={groupTitle}
+              leading={
+                <PanelBarAction
+                  icon="fa-arrow-left"
+                  label="返回设置"
+                  data-action="settings-back"
+                  onClick={() => toggleGroup(null)}
+                />
+              }
+            />
+          }
+        />
       ) : null}
-      <div
-        className="stm-setting-group"
-        data-group="appearance"
-        hidden={activeGroup !== null && activeGroup !== "appearance"}
-      >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="appearance"
-          aria-expanded={activeGroup === "appearance"}
-          onClick={() => toggleGroup("appearance")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title">外观</div>
-            <div className="stm-setting-group-summary">主题与阅读体验</div>
-          </div>
-          <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-        </button>
-        {activeGroup === "appearance" && (
-          <div className="stm-setting-group-body">
-            <AppearanceSettings />
-          </div>
-        )}
-      </div>
       {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
       <div className="stm-setting-group" data-group="plugin-toggle" hidden={activeGroup !== null}>
         <div className="stm-setting-row">
@@ -575,10 +649,11 @@ export function SettingsTab(props: {
             <div className="stm-setting-name">插件总开关</div>
             <div className="stm-setting-hint">关闭后暂停绑定与同步</div>
           </div>
-          <label className="stm-switch">
+          <label className="stm-switch" data-bar-unframed>
             <input
               type="checkbox"
               data-action="toggle-plugin"
+              aria-label="插件总开关"
               checked={props.settings.enabled}
               onChange={(event) => togglePlugin(event.target.checked)}
             />
@@ -586,31 +661,57 @@ export function SettingsTab(props: {
           </label>
         </div>
       </div>
+      {activeGroup === null &&
+        categories.map((category) => (
+          <section
+            className="stm-settings-category"
+            key={category.label}
+            aria-label={category.label}
+          >
+            <div className="stm-section-label">{category.label}</div>
+            <div className="stm-grouped-list">
+              {category.items.map((item) => (
+                <button
+                  type="button"
+                  className="stm-settings-category-row"
+                  key={item.key}
+                  data-action="toggle-settings-group"
+                  data-group={item.key}
+                  aria-expanded={false}
+                  onClick={() => toggleGroup(item.key)}
+                >
+                  <span className="stm-setting-group-header-main">
+                    <span className="stm-setting-name">{item.title}</span>
+                    <span className="stm-setting-group-summary">{item.summary}</span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+      <div
+        className="stm-setting-group"
+        data-group="appearance"
+        hidden={activeGroup !== "appearance"}
+      >
+        {activeGroup === "appearance" && (
+          <div className="stm-setting-group-body">
+            <AppearanceSettings />
+          </div>
+        )}
+      </div>
 
       <div
         className="stm-setting-group"
         data-group="embedding-connection"
-        hidden={activeGroup !== null && activeGroup !== "embedding-connection"}
+        hidden={activeGroup !== "embedding-connection"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="embedding-connection"
-          aria-expanded={activeGroup === "embedding-connection"}
-          onClick={() => toggleGroup("embedding-connection")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title">向量连接</div>
-            <div className="stm-setting-group-summary">
-              {props.settings.embeddingConnection?.model ?? "配置 embedding 服务，用于索引和检索"}
-            </div>
-          </div>
-          <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-        </button>
         {activeGroup === "embedding-connection" && (
           <div className="stm-setting-group-body">
             <EmbeddingConnectionEditor
+              onClose={() => toggleGroup(null)}
+              registerLeaveGuard={registerPresetLeaveGuard}
               key={JSON.stringify(props.settings.embeddingConnection)}
               connection={props.settings.embeddingConnection}
               onSave={(connection) =>
@@ -625,64 +726,57 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="macro"
-        hidden={activeGroup !== null && activeGroup !== "macro"}
+        hidden={activeGroup !== "macro"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="macro"
-          aria-expanded={activeGroup === "macro"}
-          onClick={() => toggleGroup("macro")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              记忆宏
-            </div>
-            <div className="stm-setting-group-summary">
-              {macroSummary(props.settings, chatScopeMacros.length)}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "macro" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "macro" && (
           <div className="stm-setting-group-body">
             {/* 作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 */}
-            <div className="stm-macro-scope-tabs" role="tablist" aria-label="记忆宏作用域">
-              {MACRO_SCOPE_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  className="stm-macro-scope-tab"
-                  role="tab"
-                  data-action="macro-scope"
-                  data-macro-scope={tab.key}
-                  aria-selected={macroScopeTab === tab.key}
-                  onClick={() => setMacroScopeTab(tab.key)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}；
+            <Tabs
+              label="记忆宏作用域"
+              value={macroScopeTab}
+              options={MACRO_SCOPE_TABS.map((tab) => ({
+                value: tab.key,
+                label: tab.label,
+                panelId: `stm-macro-${tab.key}`,
+                dataAction: "macro-scope",
+                dataAttributes: { "data-macro-scope": tab.key },
+              }))}
+              onChange={setMacroScopeTab}
+            />
+            <div id={`stm-macro-${macroScopeTab}`} role="tabpanel">
+              {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}；
                 Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
-            {macroScopeTab === "builtin" && (
-              <BuiltinMacrosList
-                prefix={props.settings.macroName.replace(/[{}]/g, "")}
-                spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
-                readPreview={readMacroPreview}
-              />
-            )}
+              {macroScopeTab === "builtin" && (
+                <BuiltinMacrosList
+                  prefix={props.settings.macroName.replace(/[{}]/g, "")}
+                  spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+                  readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
+                  readPreview={readMacroPreview}
+                />
+              )}
 
-            {/* 全局宏：视图 CRUD（前缀/上限设置在「宏设置」分区） */}
-            {macroScopeTab === "global" && (
-              <>
-                <MemoryViewsManager
+              {/* 全局宏：视图 CRUD（前缀/上限设置在「宏设置」分区） */}
+              {macroScopeTab === "global" && (
+                <>
+                  <MemoryViewsManager
+                    prefix={props.settings.macroName.replace(/[{}]/g, "")}
+                    spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
+                    readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
+                    readFields={(spaceId, tableId) =>
+                      props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                    }
+                    readPreview={readMacroPreview}
+                    views={props.settings.memoryViews}
+                    onChange={(views) => {
+                      void changeSettings(() => props.settingsService.setMemoryViews(views));
+                    }}
+                  />
+                </>
+              )}
+
+              {/* 对话级宏：聊天 Scope 宏 CRUD（随对话文件走） */}
+              {macroScopeTab === "chat" && (
+                <ChatScopeMacrosManager
                   prefix={props.settings.macroName.replace(/[{}]/g, "")}
                   spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                   readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
@@ -690,41 +784,24 @@ export function SettingsTab(props: {
                     props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                   }
                   readPreview={readMacroPreview}
-                  views={props.settings.memoryViews}
-                  onChange={(views) => {
-                    void changeSettings(() => props.settingsService.setMemoryViews(views));
+                  macros={chatScopeMacros}
+                  onChange={(macros) => {
+                    void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
+                    setChatScopeMacros(macros);
                   }}
                 />
-              </>
-            )}
+              )}
 
-            {/* 对话级宏：聊天 Scope 宏 CRUD（随对话文件走） */}
-            {macroScopeTab === "chat" && (
-              <ChatScopeMacrosManager
-                prefix={props.settings.macroName.replace(/[{}]/g, "")}
-                spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
-                readFields={(spaceId, tableId) =>
-                  props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-                }
-                readPreview={readMacroPreview}
-                macros={chatScopeMacros}
-                onChange={(macros) => {
-                  void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
-                  setChatScopeMacros(macros);
-                }}
-              />
-            )}
-
-            {/* 宏设置：全局前缀 + 字符上限（记忆宏家族共用） */}
-            {macroScopeTab === "settings" && (
-              <MacroSettingsFields
-                macroName={props.settings.macroName}
-                macroLimit={props.settings.macroLimit}
-                onNameChange={updateMacroName}
-                onLimitChange={updateMacroLimit}
-              />
-            )}
+              {/* 宏设置：全局前缀 + 字符上限（记忆宏家族共用） */}
+              {macroScopeTab === "settings" && (
+                <MacroSettingsFields
+                  macroName={props.settings.macroName}
+                  macroLimit={props.settings.macroLimit}
+                  onNameChange={updateMacroName}
+                  onLimitChange={updateMacroLimit}
+                />
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -733,30 +810,12 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="table-presets"
-        hidden={activeGroup !== null && activeGroup !== "table-presets"}
+        hidden={activeGroup !== "table-presets"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="table-presets"
-          aria-expanded={activeGroup === "table-presets"}
-          onClick={() => toggleGroup("table-presets")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              表格预设
-            </div>
-            <div className="stm-setting-group-summary">{tablePresetsSummary(props.settings)}</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "table-presets" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "table-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
+              onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
               presets={props.settings.tablePresets}
               status={props.status}
@@ -781,71 +840,56 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="agent-connections"
-        hidden={activeGroup !== null && activeGroup !== "agent-connections"}
+        hidden={activeGroup !== "agent-connections"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="agent-connections"
-          aria-expanded={activeGroup === "agent-connections"}
-          onClick={() => toggleGroup("agent-connections")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              Agent 连接
-            </div>
-            <div className="stm-setting-group-summary">
-              {agentConnectionsSummary(props.settings)}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "agent-connections" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "agent-connections" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentConnectionManager
+              onEditingChange={setEditorOwnsHeader}
+              registerLeaveGuard={registerPresetLeaveGuard}
               settings={props.settings}
               onChange={(next) => {
                 saveSettings(next);
               }}
               onTestConnection={(connection) => testAgentConnection(connection)}
             />
-            <label className="stm-setting-row">
-              <span className="stm-setting-label">每批填写时限（秒）</span>
-              <select
-                className="stm-select"
-                value={props.settings.fillAgentTimeoutSeconds}
-                onChange={(event) =>
-                  saveSettings({
-                    ...props.settings,
-                    fillAgentTimeoutSeconds: Number(event.target.value),
-                  })
-                }
-              >
-                {[
-                  30,
-                  60,
-                  120,
-                  300,
-                  600,
-                  900,
-                  1800,
-                  ...([30, 60, 120, 300, 600, 900, 1800].includes(
-                    props.settings.fillAgentTimeoutSeconds,
-                  )
-                    ? []
-                    : [props.settings.fillAgentTimeoutSeconds]),
-                ].map((seconds) => (
-                  <option key={seconds} value={seconds}>
-                    {seconds}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="stm-setting-hint">超时后不提交当前批次</div>
+            {!editorOwnsHeader && (
+              <>
+                <label className="stm-form-row stm-settings-timeout">
+                  <span className="stm-form-label">每批填写时限（秒）</span>
+                  <select
+                    className="stm-select"
+                    value={props.settings.fillAgentTimeoutSeconds}
+                    onChange={(event) =>
+                      saveSettings({
+                        ...props.settings,
+                        fillAgentTimeoutSeconds: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[
+                      30,
+                      60,
+                      120,
+                      300,
+                      600,
+                      900,
+                      1800,
+                      ...([30, 60, 120, 300, 600, 900, 1800].includes(
+                        props.settings.fillAgentTimeoutSeconds,
+                      )
+                        ? []
+                        : [props.settings.fillAgentTimeoutSeconds]),
+                    ].map((seconds) => (
+                      <option key={seconds} value={seconds}>
+                        {seconds}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="stm-setting-hint">超时后不提交当前批次</div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -854,27 +898,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="agent-presets"
-        hidden={activeGroup !== null && activeGroup !== "agent-presets"}
+        hidden={activeGroup !== "agent-presets"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="agent-presets"
-          aria-expanded={activeGroup === "agent-presets"}
-          onClick={() => toggleGroup("agent-presets")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              Agent 提示词预设
-            </div>
-            <div className="stm-setting-group-summary">{agentPresetsSummary(props.settings)}</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "agent-presets" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "agent-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentPresetManager
@@ -892,29 +917,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="cleaning"
-        hidden={activeGroup !== null && activeGroup !== "cleaning"}
+        hidden={activeGroup !== "cleaning"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="cleaning"
-          aria-expanded={activeGroup === "cleaning"}
-          onClick={() => toggleGroup("cleaning")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              清洗规则
-            </div>
-            <div className="stm-setting-group-summary">
-              {cleaningSummary(props.settings, chatCleaningListId)}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "cleaning" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "cleaning" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <CleaningRulesManager
@@ -938,27 +942,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="backup"
-        hidden={activeGroup !== null && activeGroup !== "backup"}
+        hidden={activeGroup !== "backup"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="backup"
-          aria-expanded={activeGroup === "backup"}
-          onClick={() => toggleGroup("backup")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              数据备份
-            </div>
-            <div className="stm-setting-group-summary">导出/导入全库</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "backup" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "backup" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-actions">
@@ -1034,29 +1019,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="mirror"
-        hidden={activeGroup !== null && activeGroup !== "mirror"}
+        hidden={activeGroup !== "mirror"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="mirror"
-          aria-expanded={activeGroup === "mirror"}
-          onClick={() => toggleGroup("mirror")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              对话文件镜像
-            </div>
-            <div className="stm-setting-group-summary">
-              {mirrorSummary(props.settings, props.mirrorStatus)}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "mirror" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "mirror" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
@@ -1064,10 +1028,11 @@ export function SettingsTab(props: {
                 <div className="stm-setting-name">随对话文件同步记忆镜像</div>
                 <div className="stm-setting-hint">换设备或清除本地数据后可从对话恢复</div>
               </div>
-              <label className="stm-switch">
+              <label className="stm-switch" data-bar-unframed>
                 <input
                   type="checkbox"
                   data-action="toggle-mirror"
+                  aria-label="随对话文件同步记忆镜像"
                   checked={props.settings.mirror.enabled}
                   onChange={(event) => toggleMirror(event.target.checked)}
                 />
@@ -1078,10 +1043,11 @@ export function SettingsTab(props: {
               <div className="stm-setting-label">
                 <div className="stm-setting-name">镜像包含修订历史</div>
               </div>
-              <label className="stm-switch">
+              <label className="stm-switch" data-bar-unframed>
                 <input
                   type="checkbox"
                   data-action="toggle-mirror-history"
+                  aria-label="镜像包含修订历史"
                   checked={props.settings.mirror.includeHistory}
                   onChange={(event) => toggleMirrorHistory(event.target.checked)}
                 />
@@ -1102,27 +1068,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="version"
-        hidden={activeGroup !== null && activeGroup !== "version"}
+        hidden={activeGroup !== "version"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="version"
-          aria-expanded={activeGroup === "version"}
-          onClick={() => toggleGroup("version")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              版本与运行状态
-            </div>
-            <div className="stm-setting-group-summary">{`v${props.version} · ${runtimeStatusLabel(props.status)}`}</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "version" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "version" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
@@ -1141,29 +1088,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="entry"
-        hidden={activeGroup !== null && activeGroup !== "entry"}
+        hidden={activeGroup !== "entry"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="entry"
-          aria-expanded={activeGroup === "entry"}
-          onClick={() => toggleGroup("entry")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              面板入口
-            </div>
-            <div className="stm-setting-group-summary">
-              {entryGroupSummary(props.settings.entryPlacement, entryPlan)}
-            </div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "entry" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "entry" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-row">
@@ -1192,27 +1118,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="safe-area"
-        hidden={activeGroup !== null && activeGroup !== "safe-area"}
+        hidden={activeGroup !== "safe-area"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="safe-area"
-          aria-expanded={activeGroup === "safe-area"}
-          onClick={() => toggleGroup("safe-area")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              面板安全区
-            </div>
-            <div className="stm-setting-group-summary">{safeAreaSummary(safeArea)}</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "safe-area" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "safe-area" && (
           <div className="stm-setting-group-body">
             <div className="stm-safe-area-grid">
@@ -1263,27 +1170,8 @@ export function SettingsTab(props: {
       <div
         className="stm-setting-group stm-setting-group--collapsible"
         data-group="danger"
-        hidden={activeGroup !== null && activeGroup !== "danger"}
+        hidden={activeGroup !== "danger"}
       >
-        <button
-          type="button"
-          className="stm-setting-group-header"
-          data-action="toggle-settings-group"
-          data-group="danger"
-          aria-expanded={activeGroup === "danger"}
-          onClick={() => toggleGroup("danger")}
-        >
-          <div className="stm-setting-group-header-main">
-            <div className="stm-setting-group-title stm-setting-group-title--collapsible">
-              危险操作
-            </div>
-            <div className="stm-setting-group-summary">操作不可恢复</div>
-          </div>
-          <i
-            className={`fa-solid ${activeGroup === "danger" ? "fa-chevron-up" : "fa-chevron-right"}`}
-            aria-hidden="true"
-          />
-        </button>
         {activeGroup === "danger" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-hint">

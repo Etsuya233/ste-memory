@@ -23,11 +23,13 @@ export const STYLE_SOURCES: readonly string[] = [
   "records.css",
   "tasks.css",
   "vector-index.css",
+  "retrieval.css",
   "agent-presets.css",
   "logs.css",
   "query-chat.css",
   "agent-connections.css",
   "table-presets.css",
+  "settings.css",
   "preview.css",
 ].map((name) => path.join(PACKAGE_ROOT, "src", "ui", "styles", name));
 

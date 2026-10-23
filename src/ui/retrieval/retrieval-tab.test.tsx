@@ -2,6 +2,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
 import type { RetrievalState } from "../../features/vector-retrieval/vector-retrieval-service.ts";
+import { PageLayout } from "../shell/page-layout.tsx";
 import { RetrievalTab } from "./retrieval-tab.tsx";
 
 function renderSearch(state: Partial<RetrievalState> = {}) {
@@ -19,20 +20,22 @@ function renderSearch(state: Partial<RetrievalState> = {}) {
     ...state,
   };
   return renderToString(
-    <RetrievalTab
-      service={{
-        getState: () => snapshot,
-        subscribe: () => () => {},
-        ranges: vi.fn(async () => []),
-        search: vi.fn(async () => {}),
-        cancel: vi.fn(),
-      }}
-      spaceId={"space-1" as MemorySpaceId}
-      connection={undefined}
-      onRecord={vi.fn()}
-      onIndex={vi.fn()}
-      onSettings={vi.fn()}
-    />,
+    <PageLayout>
+      <RetrievalTab
+        service={{
+          getState: () => snapshot,
+          subscribe: () => () => {},
+          ranges: vi.fn(async () => []),
+          search: vi.fn(async () => {}),
+          cancel: vi.fn(),
+        }}
+        spaceId={"space-1" as MemorySpaceId}
+        connection={undefined}
+        onRecord={vi.fn()}
+        onIndex={vi.fn()}
+        onSettings={vi.fn()}
+      />
+    </PageLayout>,
   );
 }
 

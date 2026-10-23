@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useLayoutEffect,
   useRef,
@@ -33,7 +34,10 @@ export function PageLayout(props: {
   const [header, setHeader] = useState<HTMLDivElement | null>(null);
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   const [headerActions, setHeaderActions] = useState<HTMLSpanElement | null>(null);
-  const [headerReplaced, setHeaderReplaced] = useState(false);
+  const [headerOwners, setHeaderOwners] = useState(0);
+  const replaceHeader = useCallback((active: boolean) => {
+    setHeaderOwners((count) => count + (active ? 1 : -1));
+  }, []);
 
   useLayoutEffect(() => {
     const layout = layoutRef.current!;
@@ -56,9 +60,7 @@ export function PageLayout(props: {
   }, [header, footer]);
 
   return (
-    <PageSlotContext
-      value={{ header, footer, headerActions, setHeaderActions, replaceHeader: setHeaderReplaced }}
-    >
+    <PageSlotContext value={{ header, footer, headerActions, setHeaderActions, replaceHeader }}>
       <div
         className="stm-page-layout"
         data-scroll-mode={props.mode ?? "scroll"}
@@ -66,7 +68,7 @@ export function PageLayout(props: {
         inert={props.inert}
       >
         <div className="stm-page-header" ref={setHeader}>
-          <div hidden={headerReplaced}>{props.header}</div>
+          <div hidden={headerOwners > 0}>{props.header}</div>
         </div>
         <Content className={`stm-page-content ${props.contentClassName ?? ""}`}>
           {props.children}

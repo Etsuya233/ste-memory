@@ -9,6 +9,7 @@ export function Tabs<Value extends string>(props: {
     readonly label: ReactNode;
     readonly panelId: string;
     readonly dataAction?: string;
+    readonly dataAttributes?: Readonly<Record<`data-${string}`, string>>;
   }[];
   readonly onChange: (value: Value) => void;
   readonly className?: string;
@@ -18,6 +19,7 @@ export function Tabs<Value extends string>(props: {
     <div className={`stm-tabs ${props.className ?? ""}`} role="tablist" aria-label={props.label}>
       {props.options.map((option, index) => (
         <button
+          {...option.dataAttributes}
           key={option.value}
           ref={(element) => {
             buttons.current[index] = element;

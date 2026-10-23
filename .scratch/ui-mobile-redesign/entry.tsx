@@ -81,6 +81,21 @@ runtime.spaces = { list: async () => [runtime.manager.getStatus().space] };
 runtime.st = { getMessageAt: () => ({ mes: "雨夜旧港的谈话。", name: "林澈", is_user: false }), chatMessageCount: () => 24, scrollToFloor: () => ({ kind: "jumped" }) };
 runtime.backup.restoreSnapshot = unsupported;
 runtime.backup.restoreSpace = unsupported;
+let previewLogs = Array.from({ length: 32 }, (_, index) => ({ id: 32-index, type: "fill-task", key: `run-${index % 4}`, level: ["info", "warn", "error"][index % 3], text: JSON.stringify({ task: `run-${index % 4}`, text: "日志原文：" + "旧港雨夜的记忆。".repeat(35), result: index }, null, 2), createdAt: now }));
+runtime.logs = { recent: async () => previewLogs, byKey: async key => previewLogs.filter(entry => entry.key === key), clearAll: async () => { previewLogs = []; } };
+runtime.queryChat = { run: async ({ onEvent, signal, mode }) => {
+  onEvent({ type: "thinking_delta", text: "正在检索旧港的记忆。" });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  onEvent({ type: "tool_start", callId: "preview", name: "search_memory", args: { query: "旧港" } });
+  onEvent({ type: "tool_result", callId: "preview", name: "search_memory", result: { total: 3 }, isError: false });
+  for (let i = 0; i < 18 && !signal.aborted; i++) {
+    onEvent({ type: "message_delta", text: `第 ${i+1} 条线索：在旧港的雨夜相识，约定在白塔钟声响起时再见。\n\n` });
+    await new Promise(resolve => setTimeout(resolve, 70));
+  }
+  onEvent({ type: "done", stopReason: signal.aborted ? "aborted" : "stop", errorMessage: null, commit: mode === "fill" && !signal.aborted ? { status: "committed", created: 1, updated: 0, deleted: 0 } : undefined });
+  return { stopReason: "stop", answer: "预览回答", commit: undefined };
+} };
+
 const taskData = installTaskPreview(runtime, now);
 const model = new PanelModel();
 const initialTab = new URLSearchParams(location.search).get("tab");

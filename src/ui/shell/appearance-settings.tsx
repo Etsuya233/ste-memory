@@ -48,10 +48,10 @@ export function useAppearance(): Appearance {
 export function AppearanceSettings() {
   const appearance = useAppearance();
   return (
-    <div className="stm-appearance-settings">
+    <div className="stm-appearance-settings stm-grouped-list">
       <div className="stm-setting-row">
         <span>Liquid Glass</span>
-        <label className="stm-switch">
+        <label className="stm-switch" data-bar-unframed>
           <input
             type="checkbox"
             role="switch"

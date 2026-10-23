@@ -5,6 +5,8 @@ import type {
 } from "../../features/vector-retrieval/memory-recall-service.ts";
 import type { MemoryRecordId, MemoryTableId } from "../../features/memory/index.ts";
 
+import { Disclosure } from "../shell/disclosure.tsx";
+
 export function MemoryRecallPanel({
   service,
   onRecord,
@@ -47,25 +49,18 @@ export function MemoryRecallPanel({
   ]);
   return (
     <section className="stm-retrieval stm-memory-recall" data-stm-memory-recall>
-      <details className="stm-recall-configuration" data-recall-configuration>
-        <summary>
-          自动召回{" "}
-          <span>
-            {state.configuration.enabled
-              ? `已开启 · ${state.configuration.bindings.length} 个视图`
-              : "未开启"}
-          </span>
-        </summary>
+      <Disclosure
+        icon="fa-wand-magic-sparkles"
+        title="自动召回"
+        meta={
+          state.configuration.enabled
+            ? `已开启 · ${state.configuration.bindings.length} 个视图`
+            : "未开启"
+        }
+        className="stm-recall-configuration"
+        data-recall-configuration
+      >
         <div className="stm-retrieval-options-body">
-          <details>
-            <summary>宏用法与召回规则</summary>{" "}
-            <p className="stm-setting-hint">
-              将 {"{{memoryRecall}}"}{" "}
-              放进角色卡或提示词预设。开启后每次发送都会检索，即使提示词未使用宏。最多等待 10
-              秒，可跳过；失败时使用空宏继续。独立 dry run 的 token
-              预估不包含召回文本；与真实发送并发时可能计入，均不额外请求 embedding。
-            </p>
-          </details>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -237,7 +232,7 @@ export function MemoryRecallPanel({
             </button>
           </form>
         </div>
-      </details>
+      </Disclosure>
       {error && <p role="alert">{error}</p>}
       <p role="status" className="stm-recall-status" data-recall-status={state.status}>
         {state.message} · {state.elapsedMs} ms · 输出 {state.outputCount} 条
@@ -249,9 +244,16 @@ export function MemoryRecallPanel({
           跳过本次召回
         </button>
       )}
+      <Disclosure icon="fa-circle-info" title="宏用法与召回规则">
+        <p className="stm-setting-hint">
+          将 {"{{memoryRecall}}"}{" "}
+          放进角色卡或提示词预设。开启后每次发送都会检索，即使提示词未使用宏。最多等待 10
+          秒，可跳过；失败时使用空宏继续。独立 dry run 的 token
+          预估不包含召回文本；与真实发送并发时可能计入，均不额外请求 embedding。
+        </p>
+      </Disclosure>
       {state.query && (
-        <details>
-          <summary>实际查询与范围</summary>
+        <Disclosure icon="fa-magnifying-glass" title="实际查询与范围">
           <pre>{state.query}</pre>
           {state.ranges.map((range, index) => (
             <p key={index}>
@@ -262,12 +264,11 @@ export function MemoryRecallPanel({
               · {range.groupIds.join("、")} · 匹配 {range.matched} 条
             </p>
           ))}
-        </details>
+        </Disclosure>
       )}
-      <details>
-        <summary>实际宏文本</summary>
+      <Disclosure icon="fa-code" title="实际宏文本">
         <pre>{state.text || "（空）"}</pre>
-      </details>
+      </Disclosure>
       {state.status === "done" && <RecallHits service={service} onRecord={onRecord} />}
     </section>
   );
@@ -284,11 +285,11 @@ function RecallHits({
   const state = useSyncExternalStore(retrieval.subscribe, retrieval.getState, retrieval.getState);
   const result = state.result;
   return result ? (
-    <details>
-      <summary>
-        召回命中与索引覆盖：{result.hits.length} 条 · {result.coverage.ready}/
-        {result.coverage.expected}
-      </summary>
+    <Disclosure
+      icon="fa-chart-simple"
+      title="召回命中与索引覆盖"
+      meta={`${result.hits.length} 条 · ${result.coverage.ready}/${result.coverage.expected}`}
+    >
       <p>
         实际 Top K {result.request.topK}；最低分 {result.request.minimumScore ?? "关闭"}；查询请求{" "}
         {result.calls} 次。 检查 {result.coverage.checkedAt}；远端{" "}
@@ -300,24 +301,32 @@ function RecallHits({
         ；空内容 {result.coverage.empty}
       </p>
       {state.indexUpdated && <p>索引已有更新，下次发送将使用新索引；本次保留原候选快照。</p>}
-      {result.hits.map((hit) => (
-        <p key={hit.target.record.id}>
-          <button
-            className="stm-button"
-            type="button"
-            onClick={() => onRecord(hit.target.table.id, hit.target.record.id)}
-          >
-            {hit.target.record.displayText}
-          </button>{" "}
-          · {hit.score.toFixed(4)} · {hit.groups.map((group) => group.target.groupName).join("、")}
-        </p>
-      ))}
+      <ol className="stm-grouped-list stm-retrieval-hits">
+        {result.hits.map((hit) => (
+          <li key={JSON.stringify([hit.target.table.id, hit.target.record.id])}>
+            <button
+              className="stm-retrieval-hit"
+              type="button"
+              onClick={() => onRecord(hit.target.table.id, hit.target.record.id)}
+            >
+              <span className="stm-retrieval-hit-copy">
+                <strong>{hit.target.record.displayText}</strong>
+                <span>
+                  {hit.score.toFixed(4)} ·{" "}
+                  {hit.groups.map((group) => group.target.groupName).join("、")}
+                </span>
+              </span>
+              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ol>
       {result.coverage.issues.map((issue) => (
         <p key={issue}>{issue}</p>
       ))}
       {result.coverage.taskStates.map((task, index) => (
         <p key={index}>{task}</p>
       ))}
-    </details>
+    </Disclosure>
   ) : null;
 }

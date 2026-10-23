@@ -1,0 +1,199 @@
+.stm-settings-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-5);
+  min-width: 0;
+}
+
+.stm-settings-navigation > .stm-setting-group {
+  margin: 0;
+}
+
+.stm-settings-navigation > [data-group="plugin-toggle"] {
+  padding: var(--stm-space-3) var(--stm-space-4);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  background: var(--stm-surface);
+}
+
+.stm-settings-category .stm-section-label {
+  margin: 0 0 var(--stm-space-2) var(--stm-space-4);
+}
+
+.stm-settings-category-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--stm-space-3);
+  width: 100%;
+  min-height: var(--stm-control-h);
+  padding: var(--stm-row-padding-y) var(--stm-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--stm-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stm-settings-category-row + .stm-settings-category-row::before,
+.stm-settings-navigation .stm-connection-row + .stm-connection-row::before {
+  position: absolute;
+  top: 0;
+  left: var(--stm-space-4);
+  right: 0;
+  height: 1px;
+  background: var(--stm-border);
+  content: "";
+}
+
+.stm-settings-navigation .stm-setting-group-summary {
+  margin: 0;
+  font-size: var(--stm-fs-sm);
+  line-height: var(--stm-leading-normal);
+}
+
+.stm-settings-category-row > i {
+  color: var(--stm-fg-3);
+  font-size: var(--stm-fs-xs);
+}
+
+.stm-settings-category-row[data-group="danger"] .stm-setting-name {
+  color: var(--stm-danger);
+}
+
+.stm-settings-category-row:active,
+.stm-settings-navigation .stm-connection-row:active {
+  background: var(--stm-surface-2);
+}
+
+.stm-settings-category-row:focus-visible {
+  outline: 2px solid var(--stm-accent);
+  outline-offset: -2px;
+  border-radius: var(--stm-radius);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stm-settings-category-row:hover,
+  .stm-settings-navigation .stm-connection-row:hover {
+    background: var(--stm-surface-2);
+  }
+}
+
+.stm-settings-navigation .stm-setting-group-body,
+.stm-settings-navigation .stm-vector-connection {
+  padding: 0;
+}
+
+.stm-settings-navigation .stm-connection-list {
+  gap: 0;
+  margin: 0;
+}
+
+.stm-settings-navigation .stm-connection-row {
+  position: relative;
+  flex-wrap: nowrap;
+  padding: var(--stm-row-padding-y) var(--stm-space-4);
+  border: 0;
+  border-radius: 0;
+}
+
+.stm-connection-summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--stm-space-1);
+}
+
+.stm-settings-navigation .stm-connection-name,
+.stm-settings-navigation .stm-connection-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stm-settings-navigation .stm-connection-name {
+  font-weight: var(--stm-weight-medium);
+}
+
+.stm-settings-navigation .stm-connection-meta {
+  flex: none;
+  color: var(--stm-fg-2);
+  opacity: 1;
+  font-size: var(--stm-fs-sm);
+}
+
+.stm-settings-navigation .stm-connection-form {
+  gap: var(--stm-space-3);
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.stm-settings-navigation .stm-connection-form-row,
+.stm-settings-navigation .stm-connection-selector-row,
+.stm-settings-navigation .stm-connection-model-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--stm-space-2);
+}
+
+.stm-settings-navigation .stm-connection-form-row .stm-input,
+.stm-settings-navigation .stm-connection-selector-row .stm-input,
+.stm-settings-navigation .stm-connection-model-row select.stm-input {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+.stm-settings-navigation .stm-connection-selectors {
+  gap: var(--stm-space-4);
+  margin-top: var(--stm-space-5);
+}
+
+.stm-settings-timeout {
+  margin-top: var(--stm-space-4);
+}
+
+.stm-settings-navigation .stm-appearance-settings {
+  padding: 0 var(--stm-space-4);
+}
+
+.stm-settings-navigation .stm-appearance-settings > * {
+  padding: var(--stm-row-padding-y) 0;
+  margin: 0;
+}
+
+.stm-settings-navigation .stm-appearance-settings > * + * {
+  border-top: 1px solid var(--stm-border);
+}
+
+.stm-settings-navigation .stm-appearance-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-2);
+  min-width: 0;
+}
+
+.stm-settings-navigation .stm-appearance-field legend {
+  float: left;
+  padding: 0;
+}
+
+.stm-settings-navigation .stm-connection-test-ok,
+.stm-settings-navigation .stm-connection-test-fail {
+  padding: var(--stm-space-3);
+  border-radius: var(--stm-radius);
+  color: var(--stm-success);
+}
+
+.stm-settings-navigation .stm-connection-test-fail {
+  color: var(--stm-danger);
+}
+
+.stm-settings-navigation .stm-preset-info,
+.stm-settings-navigation .stm-table-card,
+.stm-settings-navigation .stm-preset-message {
+  border-radius: var(--stm-radius);
+}

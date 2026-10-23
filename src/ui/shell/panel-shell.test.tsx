@@ -277,12 +277,12 @@ describe("PanelShell（面板骨架投影）", () => {
     const model = new PanelModel();
     const html = renderShell(model);
     expect(html).toContain('data-tab="tables"');
-    // 只有一个 Tab 处于选中态（记录是默认 Tab）
-    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    // 页面导航中仅记录选中；子页面有独立模式选择。
+    expect(html.match(/<button[^>]*data-tab="[^"]+"[^>]*aria-selected="true"/g)).toHaveLength(1);
     expect(html).toContain('data-tab="settings"');
   });
 
-  it("问答 Tab：模式切换/刷新入口/输入行/空状态邀请（ticket 20 验收契约）", () => {
+  it("问答 Tab：模式切换与消息区域的静态投影", () => {
     const model = new PanelModel();
     model.setTab("query");
     const html = renderShell(model);
@@ -294,9 +294,8 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-mode="fill"');
     expect(html).toContain("查询");
     expect(html).toContain("填写");
-    expect(html).toContain('data-action="refresh-records"');
-    expect(html).toContain('data-action="query-chat-input"');
-    expect(html).toContain('data-action="query-chat-send"');
+    // 顶底栏经 Portal 挂载，由浏览器检查操作与输入；SSR 只投影正文。
+    expect(html).toContain('data-stm-field="message-list"');
     // 空状态邀请（默认查询模式）
     expect(html).toContain("有什么想问记忆的吗？");
   });
@@ -348,14 +347,16 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(expanded).toContain('data-macro-scope="chat"');
     expect(expanded).toContain('data-macro-scope="settings"');
     expect(expanded).toContain("宏设置");
-    expect(expanded).toContain('data-macro-scope="global" aria-selected="true"');
+    expect(expanded.match(/<button[^>]*data-macro-scope="global"[^>]*>/)?.[0]).toContain(
+      'aria-selected="true"',
+    );
     // 默认展示全局宏内容（视图管理器）；内置/对话级/宏设置分区未渲染
     expect(expanded).toContain('data-stm-section="memory-views"');
     expect(expanded).not.toContain('data-stm-section="builtin-macros"');
     expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
     expect(expanded).not.toContain('data-stm-section="macro-settings"');
     // 折叠摘要含宏名 + 视图数 + 对话宏数
-    expect(expanded).toContain("0对话宏");
+    expect(renderShell(model)).toContain("0对话宏");
   });
 
   it("设置 Tab：Agent 预设管理器就位（ticket 17）", () => {
@@ -615,19 +616,21 @@ describe("PanelShell（面板骨架投影）", () => {
     // 摘要在折叠态可见
     expect(html).toContain("{{ste}}");
     expect(html).toContain("未配置");
-    // 顺序：插件总开关 < 记忆宏 < 表格预设 < Agent 连接 < Agent 预设 < 清洗规则 < 数据备份 < 对话文件镜像 < 版本 < 面板安全区 < 危险操作
+    // 分类内按常用入口排列，界面类在数据与运行之前。
     const order = [
       "插件总开关",
       "记忆宏",
       "表格预设",
-      "Agent 连接",
       "Agent 提示词预设",
       "清洗规则",
+      "Agent 连接",
+      "向量连接",
+      "外观",
+      "面板入口",
+      "面板安全区",
       "数据备份",
       "对话文件镜像",
       "版本与运行状态",
-      "面板入口",
-      "面板安全区",
       "危险操作",
     ];
     let lastIdx = -1;
@@ -648,7 +651,7 @@ describe("PanelShell（面板骨架投影）", () => {
     // 展开态：四边数字输入（默认 0，带中文标签）+ 两个预设按钮 + 清空按钮
     const expanded = renderWithExpanded(model, ["safe-area"]);
     expect(expanded).toContain('data-settings-page="safe-area"');
-    expect(expanded).toContain('data-action="settings-back"');
+    // 返回操作由 PageChrome 挂载，浏览器覆盖其导航行为。
     expect(expanded).toContain('data-group="macro" hidden=""');
     expect(expanded).not.toContain('data-action="macro-scope"');
     for (const edge of ["top", "bottom", "left", "right"]) {

@@ -22,3 +22,5 @@ python -m http.server 8799 --bind 127.0.0.1 --directory .scratch/ui-mobile-redes
 `tables-check.cjs` 覆盖所有尺寸的表格单列导航、搜索、启停、字段依赖限制、编辑模式删除、编辑保存与脏保护、配置入口及创建删除；`pointer-check.cjs` 覆盖触屏按住整个胶囊放大、释放与取消、减少动态效果和鼠标 Hover。
 
 `tasks-check.cjs` 验证填表与向量任务的操作、筛选、分页、详情、底栏隔离和滚动。`task-fixtures.ts` 提供混合状态任务与可变楼层台账，取消/重试/提交仅修改内存，不运行真实模型请求。
+
+`secondary-check.cjs` 验证设置所有分类、嵌套编辑栏位、检索记录跳转、问答流式回看、停止、模式历史及短视口输入栏。`settings-layout-check.cjs` 与 `settings-editors-check.cjs` 分别覆盖设置分类布局与连接／预设编辑保护。`logs-check.cjs` 覆盖 Key／级别筛选、原文展开、清空确认、错误重试与迟到请求。问答与日志样例仅在内存模拟，流式消息不会调用真实模型。

@@ -770,6 +770,7 @@ export function PanelShell(props: {
           role="tabpanel"
         >
           <RetrievalTab
+            active={state.tab === "retrieval"}
             key={props.runtime.retrieval.getState().epoch}
             service={props.runtime.retrieval}
             connection={settings.embeddingConnection}
