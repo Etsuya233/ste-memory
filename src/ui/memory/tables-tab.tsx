@@ -87,7 +87,6 @@ export function TablesTab(props: {
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [detailTab, setDetailTab] = useState<"fields" | "info" | "strategy" | "vector">("fields");
   const [fieldManagementTableId, setFieldManagementTableId] = useState<MemoryTableId | null>(null);
-  const [configurationOpen, setConfigurationOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [tables, setTables] = useState<readonly TableListItemViewModel[] | undefined>(undefined);
@@ -231,7 +230,6 @@ export function TablesTab(props: {
 
   useEffect(() => {
     setFieldManagementTableId(null);
-    setConfigurationOpen(false);
     setFieldEditor(null);
   }, [selectedTableId]);
 
@@ -510,14 +508,15 @@ export function TablesTab(props: {
   }
 
   function openConfiguration(tab: "info" | "vector"): void {
-    detailFocusTarget.current = ".stm-table-settings > summary";
+    detailFocusTarget.current =
+      tab === "info" ? '[data-action="edit-table"]' : '[data-action="edit-vector-index"]';
     fieldScroll.current = screenRef.current?.closest(".stm-page-content")?.scrollTop ?? 0;
     setDetailTab(tab);
   }
 
   /** 打开显示策略页：切到该表并加载现有记录（最多 5 条）供预览 */
   async function openStrategyEditor(tableId: MemoryTableId): Promise<void> {
-    detailFocusTarget.current = ".stm-table-settings > summary";
+    detailFocusTarget.current = '[data-action="edit-display-strategy"]';
     fieldScroll.current = screenRef.current?.closest(".stm-page-content")?.scrollTop ?? 0;
     setSelectedTableId(tableId);
     setDetailTab("strategy");
@@ -889,57 +888,68 @@ export function TablesTab(props: {
                   </div>
                 )}
               </div>
-              <Disclosure
-                icon="fa-sliders"
-                title="表格配置"
-                meta={selectedTable.enabled ? undefined : "已停用"}
-                className="stm-table-settings"
-                open={configurationOpen}
-                onToggle={(event) => setConfigurationOpen(event.currentTarget.open)}
-              >
-                <div className="stm-table-config-list">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    data-action="edit-table"
-                    data-table-id={selectedTable.id}
-                    onClick={() => openConfiguration("info")}
-                  >
-                    <span>
-                      表格信息<small>{selectedTable.description || selectedTable.key}</small>
-                    </span>
-                    <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    data-action="edit-display-strategy"
-                    data-table-id={selectedTable.id}
-                    onClick={() => void openStrategyEditor(selectedTable.id)}
-                  >
-                    <span>
-                      显示策略
-                      <small>
-                        {displayStrategySummary(selectedRawTable.displayStrategy, selectedFields)}
-                      </small>
-                    </span>
-                    <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    data-action="edit-vector-index"
-                    data-table-id={selectedTable.id}
-                    onClick={() => openConfiguration("vector")}
-                  >
-                    <span>
-                      向量索引
-                      <small>{selectedRawTable.vectorIndex?.enabled ? "已启用" : "未启用"}</small>
-                    </span>
-                    <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                  </button>
+              <section className="stm-table-settings" aria-label="表格配置">
+                <div className="stm-section-label">
+                  表格配置
+                  {selectedTable.enabled ? "" : " · 已停用"}
                 </div>
-              </Disclosure>
+                <ul className="stm-grouped-list stm-settings-item-list">
+                  <li>
+                    <button
+                      type="button"
+                      className="stm-settings-item-row"
+                      disabled={busy}
+                      data-action="edit-table"
+                      data-table-id={selectedTable.id}
+                      onClick={() => openConfiguration("info")}
+                    >
+                      <span className="stm-settings-item-main">
+                        <span className="stm-settings-item-title">表格信息</span>
+                        <span className="stm-settings-item-summary">
+                          {selectedTable.description || selectedTable.key}
+                        </span>
+                      </span>
+                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="stm-settings-item-row"
+                      disabled={busy}
+                      data-action="edit-display-strategy"
+                      data-table-id={selectedTable.id}
+                      onClick={() => void openStrategyEditor(selectedTable.id)}
+                    >
+                      <span className="stm-settings-item-main">
+                        <span className="stm-settings-item-title">显示策略</span>
+                        <span className="stm-settings-item-summary">
+                          {displayStrategySummary(selectedRawTable.displayStrategy, selectedFields)}
+                        </span>
+                      </span>
+                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="stm-settings-item-row"
+                      disabled={busy}
+                      data-action="edit-vector-index"
+                      data-table-id={selectedTable.id}
+                      onClick={() => openConfiguration("vector")}
+                    >
+                      <span className="stm-settings-item-main">
+                        <span className="stm-settings-item-title">向量索引</span>
+                        <span className="stm-settings-item-summary">
+                          {selectedRawTable.vectorIndex?.enabled ? "已启用" : "未启用"}
+                        </span>
+                      </span>
+                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                    </button>
+                  </li>
+                </ul>
+              </section>
             </>
           ) : null}
           {detailTab === "info" ? (

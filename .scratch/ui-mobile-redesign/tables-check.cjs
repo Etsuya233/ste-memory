@@ -125,7 +125,7 @@ const path = require('node:path');
     await action('edit-field').first().waitFor();
     assert.equal(await page.evaluate(() => window.__UI_PREVIEW__.getData().tables[0].name), '修改后的角色档案');
 
-    assert.ok(await page.locator('.stm-table-settings').evaluate(el => el.open), 'configuration remains expanded after saving');
+    assert.ok(await page.locator('.stm-table-settings .stm-settings-item-list').isVisible(), 'configuration list stays visible after saving');
     await openConfig('edit-display-strategy');
     assert.ok(await action('editor-cancel').locator('.fa-chevron-left').count());
     await widthFits();

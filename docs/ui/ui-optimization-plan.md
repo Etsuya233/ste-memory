@@ -111,7 +111,7 @@ Liquid Glass 是默认界面样式，另有 Classic（实色）与 Material（MD
 
 公共容器见 [page-layout.tsx](../../src/ui/shell/page-layout.tsx)，栏和图标操作见 [panel-bar.tsx](../../src/ui/shell/panel-bar.tsx)，展开区见 [disclosure.tsx](../../src/ui/shell/disclosure.tsx)。视觉参数见 [tokens.css](../../src/ui/styles/tokens.css)，公共布局和材质见 [panel-shell.css](../../src/ui/styles/panel-shell.css)。记录页的调用方式见 [record-view.tsx](../../src/ui/memory/record-view.tsx)，分组样式见 [records.css](../../src/ui/styles/records.css)。
 
-表格管理的编辑模式使用铅笔入口，字段行提供删除动作，依赖字段禁删；不再展示上下移动按钮。表格配置的展开状态在当前表内保留，切表重置。配置子页以左箭头返回，保留未保存确认；创建与字段编辑使用取消按钮。新建表与关闭面板共用顶栏右侧操作组，正文不再展示表数量。
+表格管理的编辑模式使用铅笔入口，字段行提供删除动作，依赖字段禁删；不再展示上下移动按钮。表格配置以静态分组列表展示，不再折叠。配置子页以左箭头返回，保留未保存确认；创建与字段编辑使用取消按钮。新建表与关闭面板共用顶栏右侧操作组，正文不再展示表数量。
 
 字段行的 Hover/Active 背景由整行容器承担，覆盖文字、留白和开关区域；文字编辑、开关与删除保持独立点击目标。顶底栏操作组支持 `auto`、`none`、`always` 框样式：PanelBar 使用 leadingFrame/trailingFrame，PanelBottomBar 使用 mainFrame/trailingFrame。默认 auto，直接子控件标记 `data-bar-unframed` 时去掉胶囊背景、边框、阴影与模糊；always 强制保留胶囊，none 强制移除。表格启用开关使用无框标记。
 

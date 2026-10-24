@@ -85,7 +85,7 @@ const fs = require('node:fs');
   await go('tables');await page.locator('[data-action="expand-table"]').first().click();
   assert.equal(await page.locator('.stm-panel-header--root').isVisible(),false);await shot('table-fields');
   await page.locator('[data-action="edit-field"]').first().click();await shot('field-edit');await page.locator('[data-action="editor-cancel"]').click();
-  await page.locator('.stm-table-settings summary').click();
+  assert.ok(await page.locator('.stm-table-settings [data-action="edit-table"]').isVisible());
   await page.locator('[data-action="edit-table"]').click();await width();await page.locator('[data-action="editor-submit"]').click();
   await page.locator('[data-action="edit-vector-index"]').click();await width();await page.locator('[data-action="editor-cancel"]').click();await page.locator('[data-action="back-to-table-list"]').click();
   assert.ok(await page.locator('[data-action="open-navigation"]').isVisible());
