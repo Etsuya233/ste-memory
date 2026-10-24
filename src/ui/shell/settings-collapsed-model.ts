@@ -4,6 +4,7 @@
  */
 
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
+import { resolveMacroRegistrationName } from "../../features/macros/macro-name.ts";
 import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import { FOLLOW_ST_CONNECTION_LABEL } from "../settings/agent-connection-manager.tsx";
 import { BUILTIN_AGENT_PRESET_ID } from "../../features/agent-presets/preset-model.ts";
@@ -97,9 +98,11 @@ export function isExpanded(groups: ReadonlySet<SettingsGroupKey>, key: SettingsG
 // ---- 折叠头摘要（折叠态一行 12px 副标题） ----
 
 export function macroSummary(settings: PluginSettings, chatScopeMacroCount: number): string {
-  const name = settings.macroName.trim() === "" ? "未配置" : settings.macroName;
+  const raw = settings.macroName.trim();
+  const name =
+    raw === "" ? "未配置" : resolveMacroRegistrationName(raw) === undefined ? "宏前缀无效" : raw;
   const views = settings.memoryViews.length;
-  return `${name} · ${views}视图 · ${chatScopeMacroCount}对话宏`;
+  return `${name} · ${views} 个全局宏 · ${chatScopeMacroCount} 个对话宏`;
 }
 
 export function agentConnectionsSummary(settings: PluginSettings): string {

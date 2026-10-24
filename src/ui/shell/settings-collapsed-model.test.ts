@@ -95,12 +95,17 @@ describe("折叠头摘要", () => {
         } as never,
       ],
     };
-    expect(macroSummary(settings, 2)).toBe("{{memoryContext}} · 1视图 · 2对话宏");
+    expect(macroSummary(settings, 2)).toBe("{{memoryContext}} · 1 个全局宏 · 2 个对话宏");
   });
 
   it("macroSummary：空宏名 → 未配置", () => {
     const settings = { ...DEFAULT_SETTINGS, macroName: "  ", memoryViews: [] } as PluginSettings;
-    expect(macroSummary(settings, 0)).toBe("未配置 · 0视图 · 0对话宏");
+    expect(macroSummary(settings, 0)).toBe("未配置 · 0 个全局宏 · 0 个对话宏");
+  });
+
+  it("macroSummary：非法宏前缀 → 明确提示", () => {
+    const settings = { ...DEFAULT_SETTINGS, macroName: "{{记忆}}", memoryViews: [] };
+    expect(macroSummary(settings, 0)).toBe("宏前缀无效 · 0 个全局宏 · 0 个对话宏");
   });
 
   it("agentConnectionsSummary：未配置", () => {

@@ -427,14 +427,16 @@ async function main() {
     check("设置分类顺序：记忆宏 < Agent 连接 < 预设 < 清洗 < 备份", categories.orderOk);
 
     await openSettingsGroup(page, "macro");
-    await page.locator('#stm-panel button[data-macro-scope="settings"]').click();
+    await page.locator('#stm-panel [data-action="open-macro-settings"]').click();
+    await page.waitForSelector('#stm-panel [data-stm-section="macro-settings"] input[data-stm-field="macro-name"]');
     const macroEditable = await page.evaluate(() => {
       const settings = SillyTavern.getContext().extensionSettings.steMemory;
       const name = document.querySelector('#stm-panel input[data-stm-field="macro-name"]');
       const limit = document.querySelector('#stm-panel input[data-stm-field="macro-limit"]');
       return name?.disabled === false && name.value === settings.macroName && limit?.disabled === false && limit.value === String(settings.macroLimit);
     });
-    check("记忆宏：宏名和字符上限与当前设置一致且可编辑", macroEditable);
+    check("记忆宏：宏前缀和字符上限与当前设置一致且可编辑", macroEditable);
+    await page.locator('#stm-panel [data-action="close-macro-settings"]').click();
 
     await openSettingsGroup(page, "version");
     const versionStatus = await page.locator('#stm-panel [data-group="version"] .stm-setting-group-body').innerText();

@@ -23,6 +23,8 @@ python -m http.server 8799 --bind 127.0.0.1 --directory .scratch/ui-mobile-redes
 
 `tasks-check.cjs` 验证填表与向量任务的操作、筛选、分页、详情、底栏隔离和滚动。`task-fixtures.ts` 提供混合状态任务与可变楼层台账，取消/重试/提交仅修改内存，不运行真实模型请求。
 
+`macro-refactor-check.cjs` 覆盖记忆宏三作用域、空态邀请、编辑器宏表达式、宏设置校验/预算、对话宏覆盖提示、内置宏分组与 360/430px 横向溢出。
+
 `secondary-check.cjs`、`settings-layout-check.cjs`、`settings-editors-check.cjs`、`settings-navigation-check.cjs` 与 `settings-details-check.cjs` 保留前轮验收记录。其中依赖 Agent 即时输入保存、原生名称 prompt 或清洗底部操作墙的选择器与流程需适配当前显式保存页面后再运行，不能作为本轮交互通过的依据。`logs-check.cjs` 保留日志页面回归。
 
 本轮设置操作流通过 cua_repl 按390px视口人工验收，覆盖清单与结果见 `settings-flow-audit.md`；未执行 Playwright。连接请求、备份恢复与数据清空没有作用于用户数据。隔离镜像状态固定为 idle，无法用于证明真实镜像订阅更新。

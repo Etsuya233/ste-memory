@@ -55,16 +55,17 @@ export function isConditionField(field: MemoryField): boolean {
 
 /**
  * 草稿校验：返回错误文案；undefined = 合法。
- * 名称（非空/无空白/无 :: | }} + 全局唯一，排除自身）、表必选、筛选字段选了
- * 必须给值、条数为空或 1..100 整数。
+ * 名称（非空/无空白/无 :: | }} + 作用域内唯一，排除自身）、表必选、筛选字段
+ * 选了必须给值、条数为空或 1..100 整数。UI 称「宏名」，此处统一转换领域词。
  */
 export function validateMemoryViewDraft(
   draft: MemoryViewDraft,
   existingNames: readonly string[],
+  conflictMessage = "宏名已存在（全局宏名唯一）",
 ): string | undefined {
   const nameError = validateMemoryViewName(draft.name);
-  if (nameError !== undefined) return nameError;
-  if (existingNames.includes(draft.name)) return "视图名已存在（视图名全局唯一）";
+  if (nameError !== undefined) return nameError.replaceAll("视图名", "宏名");
+  if (existingNames.includes(draft.name)) return conflictMessage;
   if (draft.tableKey === "") return "请选择表格";
   if (draft.conditionFieldKey !== "" && draft.conditionValues.length === 0) {
     return "已选筛选字段，请至少填一个筛选值";
@@ -129,16 +130,15 @@ export function viewConfigErrors(
   return errors;
 }
 
-/** 折叠行摘要（筛选/条数/投影一行展示） */
-export function viewSummaryText(view: MemoryView): string {
+/** 折叠行摘要（筛选/条数/投影；没配置的部分省略，避免每行重复「无筛选」） */
+export function viewSelectionSummary(view: MemoryView, conditionFieldName?: string): string {
   const parts: string[] = [];
-  parts.push(
-    view.condition
-      ? `筛选 ${view.condition.fieldKey} ∈ ${view.condition.values.join("、")}`
-      : "无筛选",
-  );
-  parts.push(`最多 ${view.limit ?? MEMORY_VIEW_LIMIT_MAX} 条`);
-  parts.push(view.projection.length > 0 ? `显示 ${view.projection.join("、")}` : "显示文本");
+  if (view.condition) {
+    const field = conditionFieldName ?? view.condition.fieldKey;
+    parts.push(`${field} ∈ ${view.condition.values.join("、")}`);
+  }
+  if (view.limit !== null) parts.push(`最多 ${view.limit} 条`);
+  if (view.projection.length > 0) parts.push(`显示 ${view.projection.length} 个字段`);
   return parts.join(" · ");
 }
 

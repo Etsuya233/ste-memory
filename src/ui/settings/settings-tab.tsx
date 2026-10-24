@@ -26,7 +26,6 @@ import { AppearanceSettings } from "../shell/appearance-settings.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
 import { Tabs } from "../shell/tabs.tsx";
-import { Disclosure } from "../shell/disclosure.tsx";
 import { EmbeddingConnectionEditor } from "./embedding-connection-editor.tsx";
 import type { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import {
@@ -76,6 +75,8 @@ import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
 import { MemoryViewsManager } from "./memory-views-manager.tsx";
 import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
 import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
+import { MacroSettingsPage, MacroSettingsSummary } from "./macro-settings-page.tsx";
+import { macroBudgetInfo, macroNameStatus } from "./macro-ui-model.ts";
 import { TablePresetManager } from "./table-preset-manager.tsx";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
@@ -98,62 +99,15 @@ import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 
 // ---- 设置 Tab ----
 
-/** 记忆宏组内作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 / 宏设置（全局设置） */
-type MacroScopeTab = "builtin" | "global" | "chat" | "settings";
+/** 记忆宏组内作用域分区：全局宏 / 对话宏 / 内置宏（只读）；宏设置独立子页。 */
+type MacroScopeTab = "global" | "chat" | "builtin";
 
 const MACRO_SCOPE_TABS: readonly { readonly key: MacroScopeTab; readonly label: string }[] = [
-  { key: "builtin", label: "内置宏" },
   { key: "global", label: "全局宏" },
-  { key: "chat", label: "对话级宏" },
-  { key: "settings", label: "宏设置" },
+  { key: "chat", label: "对话宏" },
+  { key: "builtin", label: "内置宏" },
 ];
 
-/**
- * 宏设置分区（「记忆宏」组「宏设置」tab）：全局前缀 + 字符上限，记忆宏家族共用。
- * 纯展示：输入绑定 settings，变更经 onNameChange/onLimitChange 写库并 kick。
- */
-export function MacroSettingsFields(props: {
-  readonly macroName: string;
-  readonly macroLimit: number;
-  readonly onNameChange: (value: string) => void;
-  readonly onLimitChange: (value: string) => void;
-}) {
-  return (
-    <div className="stm-setting-subgroup" data-stm-section="macro-settings">
-      <label className="stm-form-row">
-        <span className="stm-form-label">宏前缀</span>{" "}
-        <input
-          className="stm-input"
-          type="text"
-          data-stm-field="macro-name"
-          value={props.macroName}
-          placeholder="{{ste}}"
-          onChange={(event) => props.onNameChange(event.target.value)}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">输出字符上限</span>
-        <input
-          className="stm-input"
-          type="number"
-          min="0"
-          step="100"
-          data-stm-field="macro-limit"
-          value={props.macroLimit}
-          onChange={(event) => props.onLimitChange(event.target.value)}
-        />
-      </label>
-      <Disclosure icon="fa-circle-info" title="宏语法与截断规则" open>
-        <div className="stm-setting-hint">
-          前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开 当前记忆：
-          {"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full / 表
-          Key）、全局视图或对话级宏（同名优先级 对话 &gt; 全局 &gt; 内置）；
-          超过上方字符上限从尾部截断并附「……（已截断）」标记；不填前缀则不注入
-        </div>
-      </Disclosure>
-    </div>
-  );
-}
 export function SettingsTab(props: {
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settingsService: SettingsService;
@@ -211,8 +165,10 @@ export function SettingsTab(props: {
   useEffect(() => {
     setChatScopeMacros(props.cleaning.readChatScopeMacros());
   }, [props.status, props.cleaning]);
-  // 「记忆宏」组内作用域分区（内置/全局/对话级）；默认全局（原有行为）
+  // 「记忆宏」组内作用域分区（全局/对话/内置）；默认全局
   const [macroScopeTab, setMacroScopeTab] = useState<MacroScopeTab>("global");
+  // 宏设置独立子页（宏名/输出上限/预算/说明）
+  const [macroSettingsOpen, setMacroSettingsOpen] = useState(false);
   const [dataOperation, setDataOperation] = useState<string | null>(null);
   async function runDataOperation(name: string, operation: () => Promise<void>) {
     setDataOperation(name);
@@ -470,13 +426,12 @@ export function SettingsTab(props: {
     void changeSettings(() => props.settingsService.setMacroName(value));
   }
 
-  function updateMacroLimit(value: string): void {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) return;
-    void changeSettings(() => props.settingsService.setMacroLimit(parsed));
+  function updateMacroLimit(value: number): void {
+    if (!Number.isInteger(value) || value < 0) return;
+    void changeSettings(() => props.settingsService.setMacroLimit(value));
   }
 
-  /** 宏预览读取口（内置/全局/对话级行共用）：完整宏名 → 预计算快照文本（未知 = 空串） */
+  /** 宏预览读取口（内置/全局/对话宏行共用）：完整宏名 → 预计算快照文本（未知 = 空串） */
   function readMacroPreview(name: string): string {
     return props.macroOverview().find((row) => row.name === name)?.text ?? "";
   }
@@ -516,10 +471,18 @@ export function SettingsTab(props: {
     if (activeGroup === null)
       categoryScroll.current = navigationRef.current!.closest(".stm-page-content")!.scrollTop;
     setActiveGroup(key);
+    setMacroSettingsOpen(false);
+    setMacroCreateAction(null);
     saveExpandedGroups(
       safeLocalStorage(),
       new Set(key && key !== "embedding-connection" && key !== "appearance" ? [key] : []),
     );
+  }
+
+  function changeMacroScopeTab(tab: MacroScopeTab): void {
+    if (tab === macroScopeTab) return;
+    setMacroCreateAction(null);
+    setMacroScopeTab(tab);
   }
 
   // ---- 面板安全区（本机显示偏好，localStorage；仅移动断点消费，桌面惰性） ----
@@ -633,6 +596,15 @@ export function SettingsTab(props: {
   const groupTitle = categories
     .map((category) => category.items.find((item) => item.key === activeGroup))
     .find((item) => item !== undefined)?.title;
+  // 记忆宏：合法注册名 + 预计算快照预算（只在宏页读取，避免其他设置页构建行）
+  const macroStatus = macroNameStatus(props.settings.macroName);
+  const macroPrefix = macroStatus.kind === "valid" ? macroStatus.registrationName : "";
+  const macroBudget =
+    activeGroup === "macro"
+      ? macroBudgetInfo(props.macroOverview(), props.settings.macroName)
+      : undefined;
+  const macroSpaceId = props.status?.kind === "active" ? props.status.space.id : undefined;
+  const macroHasActiveSpace = macroSpaceId !== undefined;
 
   return (
     <div
@@ -640,7 +612,10 @@ export function SettingsTab(props: {
       className="stm-settings-navigation"
       data-settings-page={activeGroup ?? "categories"}
     >
-      {activeGroup && activeGroup !== "embedding-connection" && !editorOwnsHeader ? (
+      {activeGroup &&
+      activeGroup !== "embedding-connection" &&
+      !editorOwnsHeader &&
+      !macroSettingsOpen ? (
         <PageChrome
           header={
             <PanelBar
@@ -759,91 +734,104 @@ export function SettingsTab(props: {
       >
         {activeGroup === "macro" && (
           <div className="stm-setting-group-body stm-macro-page">
-            {/* 作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 */}
-            {!editorOwnsHeader && (
-              <Tabs
-                label="记忆宏作用域"
-                value={macroScopeTab}
-                options={MACRO_SCOPE_TABS.map((tab) => ({
-                  value: tab.key,
-                  label: tab.label,
-                  panelId: `stm-macro-${tab.key}`,
-                  dataAction: "macro-scope",
-                  dataAttributes: { "data-macro-scope": tab.key },
-                }))}
-                onChange={setMacroScopeTab}
+            {macroSettingsOpen ? (
+              <MacroSettingsPage
+                macroName={props.settings.macroName}
+                macroLimit={props.settings.macroLimit}
+                hasActiveSpace={macroHasActiveSpace}
+                budget={macroBudget}
+                onNameChange={updateMacroName}
+                onLimitChange={updateMacroLimit}
+                onBack={() => setMacroSettingsOpen(false)}
               />
-            )}
-            <div id={`stm-macro-${macroScopeTab}`} role="tabpanel">
-              {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}；
-                Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
-              {macroScopeTab === "builtin" && (
-                <BuiltinMacrosList
-                  prefix={props.settings.macroName.replace(/[{}]/g, "")}
-                  spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                  readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
-                  readPreview={readMacroPreview}
-                />
-              )}
-
-              {/* 全局宏：视图 CRUD（前缀/上限设置在「宏设置」分区） */}
-              {macroScopeTab === "global" && (
-                <>
-                  <MemoryViewsManager
-                    onCreateActionChange={setMacroCreateAction}
-                    onEditingChange={setEditorOwnsHeader}
-                    registerLeaveGuard={registerPresetLeaveGuard}
-                    prefix={props.settings.macroName.replace(/[{}]/g, "")}
-                    spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                    readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
-                    readFields={(spaceId, tableId) =>
-                      props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-                    }
-                    readPreview={readMacroPreview}
-                    views={props.settings.memoryViews}
-                    onChange={(views) => {
-                      void changeSettings(() => props.settingsService.setMemoryViews(views));
-                    }}
+            ) : (
+              <>
+                {/* 宏设置摘要条：宏前缀 + 默认快照体积/截断；进入独立设置页 */}
+                {!editorOwnsHeader && (
+                  <MacroSettingsSummary
+                    macroName={props.settings.macroName}
+                    macroLimit={props.settings.macroLimit}
+                    hasActiveSpace={macroHasActiveSpace}
+                    budget={macroBudget}
+                    onOpen={() => setMacroSettingsOpen(true)}
                   />
-                </>
-              )}
+                )}
+                {/* 作用域分区：全局宏 / 对话宏 / 内置宏（只读） */}
+                {!editorOwnsHeader && (
+                  <Tabs
+                    label="记忆宏作用域"
+                    value={macroScopeTab}
+                    options={MACRO_SCOPE_TABS.map((tab) => ({
+                      value: tab.key,
+                      label: tab.label,
+                      panelId: `stm-macro-${tab.key}`,
+                      dataAction: "macro-scope",
+                      dataAttributes: { "data-macro-scope": tab.key },
+                    }))}
+                    onChange={changeMacroScopeTab}
+                  />
+                )}
+                <div id={`stm-macro-${macroScopeTab}`} role="tabpanel">
+                  {/* 内置宏：默认快照 / 完整数据 / Agent 预设宏（只读，带输出体积） */}
+                  {macroScopeTab === "builtin" && (
+                    <BuiltinMacrosList
+                      prefix={macroPrefix}
+                      spaceId={macroSpaceId}
+                      readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
+                      readPreview={readMacroPreview}
+                    />
+                  )}
 
-              {/* 对话级宏：聊天 Scope 宏 CRUD（随对话文件走） */}
-              {macroScopeTab === "chat" && (
-                <ChatScopeMacrosManager
-                  chatIdentity={
-                    props.status?.kind === "active" && props.status.binding.version === 2
-                      ? props.status.binding.chatIdentity
-                      : undefined
-                  }
-                  onCreateActionChange={setMacroCreateAction}
-                  onEditingChange={setEditorOwnsHeader}
-                  registerLeaveGuard={registerPresetLeaveGuard}
-                  prefix={props.settings.macroName.replace(/[{}]/g, "")}
-                  spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
-                  readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
-                  readFields={(spaceId, tableId) =>
-                    props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
-                  }
-                  readPreview={readMacroPreview}
-                  macros={chatScopeMacros}
-                  onChange={(macros) => {
-                    void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
-                    setChatScopeMacros(macros);
-                  }}
-                />
-              )}
+                  {/* 全局宏：列表 CRUD（宏名/上限在独立宏设置页） */}
+                  {macroScopeTab === "global" && (
+                    <MemoryViewsManager
+                      onCreateActionChange={setMacroCreateAction}
+                      onEditingChange={setEditorOwnsHeader}
+                      registerLeaveGuard={registerPresetLeaveGuard}
+                      prefix={macroPrefix}
+                      spaceId={macroSpaceId}
+                      readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
+                      readFields={(spaceId, tableId) =>
+                        props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                      }
+                      readPreview={readMacroPreview}
+                      chatMacroNames={chatScopeMacros.map((macro) => macro.name)}
+                      views={props.settings.memoryViews}
+                      onChange={(views) => {
+                        void changeSettings(() => props.settingsService.setMemoryViews(views));
+                      }}
+                    />
+                  )}
 
-              {/* 宏设置：全局前缀 + 字符上限（记忆宏家族共用） */}
-              {macroScopeTab === "settings" && (
-                <MacroSettingsFields
-                  macroName={props.settings.macroName}
-                  macroLimit={props.settings.macroLimit}
-                  onNameChange={updateMacroName}
-                  onLimitChange={updateMacroLimit}
-                />
-              )}
-            </div>
+                  {/* 对话宏：随对话文件走，同名优先于全局/内置宏 */}
+                  {macroScopeTab === "chat" && (
+                    <ChatScopeMacrosManager
+                      chatIdentity={
+                        props.status?.kind === "active" && props.status.binding.version === 2
+                          ? props.status.binding.chatIdentity
+                          : undefined
+                      }
+                      onCreateActionChange={setMacroCreateAction}
+                      onEditingChange={setEditorOwnsHeader}
+                      registerLeaveGuard={registerPresetLeaveGuard}
+                      prefix={macroPrefix}
+                      spaceId={macroSpaceId}
+                      readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
+                      readFields={(spaceId, tableId) =>
+                        props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
+                      }
+                      readPreview={readMacroPreview}
+                      globalMacroNames={props.settings.memoryViews.map((view) => view.name)}
+                      macros={chatScopeMacros}
+                      onChange={(macros) => {
+                        void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
+                        setChatScopeMacros(macros);
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

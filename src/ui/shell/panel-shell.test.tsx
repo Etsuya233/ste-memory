@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS } from "../../features/settings/plugin-settings.ts";
 import { SETTINGS_COLLAPSED_STORAGE_KEY } from "./settings-collapsed-model.ts";
 import { PanelModel } from "./panel-model.ts";
 import { PanelShell, ToolbarButton, WandEntry, type PanelRuntime } from "./panel-shell.tsx";
-import { MacroSettingsFields } from "../settings/settings-tab.tsx";
+import { MacroSettingsFields } from "../settings/macro-settings-page.tsx";
 
 function activeStatus(): SpaceContextStatus {
   return {
@@ -173,6 +173,10 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
   };
 }
 
+function text(html: string): string {
+  return html.replaceAll("<!-- -->", "");
+}
+
 function renderShell(model: PanelModel, runtime: PanelRuntime = fakeRuntime()): string {
   return renderToString(<PanelShell runtime={runtime} model={model} />);
 }
@@ -320,43 +324,57 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(expanded).not.toContain('data-stm-field="macro-limit"');
   });
 
-  it("宏设置分区（渲染契约）：前缀/上限输入默认值 + 说明就位（宏设置 tab 内容）", () => {
-    const html = renderToString(
-      <MacroSettingsFields
-        macroName="{{ste}}"
-        macroLimit={2000}
-        onNameChange={() => undefined}
-        onLimitChange={() => undefined}
-      />,
+  it("宏设置页（渲染契约）：宏名/上限默认值 + 注册状态 + 预算 + 合并说明", () => {
+    const html = text(
+      renderToString(
+        <MacroSettingsFields
+          macroName="{{ste}}"
+          macroLimit={2000}
+          hasActiveSpace
+          budget={{ defaultCharacters: 428, truncatedCount: 1, macroCount: 3 }}
+          onNameChange={() => undefined}
+          onLimitChange={() => undefined}
+        />,
+      ),
     );
     expect(html).toContain('data-stm-section="macro-settings"');
     expect(html).toContain('data-stm-field="macro-name"');
     expect(html).toContain('value="{{ste}}"');
+    expect(html).toContain('data-stm-field="macro-name-status"');
+    expect(html).toContain("已注册为");
     expect(html).toContain('data-stm-field="macro-limit"');
     expect(html).toContain('value="2000"');
-    expect(html).toContain("超过上方字符上限从尾部截断并附「……（已截断）」标记");
+    expect(html).toContain('data-stm-field="macro-budget"');
+    expect(html).toContain("428 / 2000 字");
+    expect(html).toContain("有 1 个宏的输出已按上限截断");
+    expect(html).toContain("使用说明");
+    expect(html).toContain("……（已截断）");
   });
 
-  it("设置 Tab：记忆宏组合并——内置/全局/对话级/宏设置分区切换就位（默认全局宏）", () => {
+  it("设置 Tab：记忆宏组三作用域 + 宏设置摘要条（默认全局宏）", () => {
     const model = new PanelModel();
     model.setTab("settings");
     const expanded = renderWithExpanded(model, ["macro"]);
-    // 分区切换条：四个 tab，默认选中全局宏
+    // 分区切换条：全局/对话/内置三个 tab，默认选中全局宏
     expect(expanded).toContain('data-action="macro-scope"');
-    expect(expanded).toContain('data-macro-scope="builtin"');
+    expect(expanded).toContain('data-macro-scope="global"');
     expect(expanded).toContain('data-macro-scope="chat"');
-    expect(expanded).toContain('data-macro-scope="settings"');
-    expect(expanded).toContain("宏设置");
+    expect(expanded).toContain('data-macro-scope="builtin"');
+    expect(expanded).not.toContain('data-macro-scope="settings"');
     expect(expanded.match(/<button[^>]*data-macro-scope="global"[^>]*>/)?.[0]).toContain(
       'aria-selected="true"',
     );
-    // 默认展示全局宏内容（视图管理器）；内置/对话级/宏设置分区未渲染
+    // 宏名/上限摘要条进入独立设置页
+    expect(expanded).toContain('data-action="open-macro-settings"');
+    expect(expanded).toContain('data-stm-field="macro-status"');
+    expect(expanded).toContain("默认快照 0 / 2000 字");
+    // 默认展示全局宏内容（全局宏管理器）；内置/对话宏/设置页未渲染
     expect(expanded).toContain('data-stm-section="memory-views"');
     expect(expanded).not.toContain('data-stm-section="builtin-macros"');
     expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
     expect(expanded).not.toContain('data-stm-section="macro-settings"');
-    // 折叠摘要含宏名 + 视图数 + 对话宏数
-    expect(renderShell(model)).toContain("0对话宏");
+    // 折叠摘要含宏名 + 全局宏数 + 对话宏数
+    expect(renderShell(model)).toContain("0 个全局宏 · 0 个对话宏");
   });
 
   it("设置 Tab：Agent 预设管理器就位（ticket 17）", () => {

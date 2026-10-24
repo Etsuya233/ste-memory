@@ -86,12 +86,16 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     );
     expect(html).toContain('data-stm-section="memory-views"');
     expect(html).toContain("未完成伏笔");
-    expect(html).toContain("筛选 status ∈ 埋设中、已触发 · 最多 50 条 · 显示 name、status");
+    expect(html).toContain("{{ste::未完成伏笔}}");
+    expect(html).toContain("plots · status ∈ 埋设中、已触发 · 最多 50 条");
     expect(html).toContain('data-action="add-memory-view"');
     expect(html).not.toContain('data-action="delete-memory-view"');
     expect(html).toContain('data-action="edit-memory-view"');
-    expect(html).not.toContain('data-action="preview-memory-view"');
-    expect(html).toContain("{{宏名::视图名}}");
+    expect(html).toContain('data-action="copy-memory-view-token"');
+    expect(html).toContain('data-action="preview-macro"');
+    expect(html).toContain("fa-regular fa-eye");
+    expect(html).toContain('data-stm-field="memory-views-usage-hint"');
+    expect(html).toContain("{{ste::宏名}}");
   });
 
   it("无活动空间：列表可看但新建禁用 + 提示", () => {
@@ -111,9 +115,10 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     expect(html).toContain('data-stm-field="memory-views-no-space"');
     expect(html).toContain("当前没有活动记忆空间");
     expect(html).toContain('data-action="add-memory-view" disabled=""');
+    expect(html).toContain('data-action="edit-memory-view" disabled=""');
   });
 
-  it("空视图列表：无行渲染，只有新建入口", () => {
+  it("空视图列表：空态邀请 + 新建入口（不再是一片空白）", () => {
     const html = text(
       renderToString(
         <MemoryViewsManager
@@ -128,7 +133,10 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
       ),
     );
     expect(html).not.toContain('data-stm-field="memory-view-');
+    expect(html).toContain("还没有全局宏");
+    expect(html).toContain('data-stm-section="macro-empty"');
     expect(html).toContain('data-action="add-memory-view"');
+    expect(html).toContain("{{ste::名字}}");
   });
 });
 
@@ -137,6 +145,7 @@ describe("MemoryViewEditor（编辑器表单冒烟）", () => {
     const html = text(
       renderToString(
         <MemoryViewEditor
+          prefix="ste"
           draft={memoryViewDraftFromView(view())}
           tables={[table("plots", "伏笔")]}
           fields={[field("name"), field("status", "single_select", ["埋设中", "已触发", "已回收"])]}
@@ -158,6 +167,9 @@ describe("MemoryViewEditor（编辑器表单冒烟）", () => {
     expect(html).toContain('data-action="toggle-projection-field"');
     expect(html).toContain('data-action="save-memory-view"');
     expect(html).toContain('data-action="cancel-memory-view"');
+    expect(html).toContain("{{ste::未完成伏笔}}");
+    expect(html).toContain('data-action="select-all-projection"');
+    expect(html).toContain('data-action="clear-projection"');
     // 已选筛选值勾选态
     expect(html).toContain('checked=""');
   });
@@ -166,6 +178,7 @@ describe("MemoryViewEditor（编辑器表单冒烟）", () => {
     const html = text(
       renderToString(
         <MemoryViewEditor
+          prefix="ste"
           draft={{ ...memoryViewDraftFromView(view()), conditionFieldKey: "title" }}
           tables={[]}
           fields={[field("title", "short_text")]}
@@ -178,17 +191,18 @@ describe("MemoryViewEditor（编辑器表单冒烟）", () => {
     );
     expect(html).toContain('data-stm-field="memory-view-condition-values"');
     expect(html).not.toContain('data-action="toggle-condition-value"');
-    expect(html).toContain("逗号分隔");
+    expect(html).toContain("回车或逗号");
   });
 
   it("校验错误文案渲染", () => {
     const html = text(
       renderToString(
         <MemoryViewEditor
+          prefix="ste"
           draft={memoryViewDraftFromView(view({ name: "非法 名" }))}
           tables={[]}
           fields={[]}
-          error="视图名不能包含空白"
+          error="宏名不能包含空白"
           onDraftChange={() => undefined}
           onSave={() => undefined}
           onCancel={() => undefined}
@@ -196,6 +210,6 @@ describe("MemoryViewEditor（编辑器表单冒烟）", () => {
       ),
     );
     expect(html).toContain('data-stm-field="memory-view-error"');
-    expect(html).toContain("视图名不能包含空白");
+    expect(html).toContain("宏名不能包含空白");
   });
 });

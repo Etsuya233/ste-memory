@@ -277,11 +277,11 @@ async function main() {
     );
     await switchTab(page, "settings");
     await openSettingsGroup(page, "macro");
-    await page.locator('#stm-panel [data-macro-scope="settings"]').click();
+    await page.locator('#stm-panel [data-action="open-macro-settings"]').click();
     await waitUntil(
       page,
-      () => !!document.querySelector('#stm-panel [data-stm-section="settings"] input[data-stm-field="macro-name"]'),
-      "设置面板宏名输入就位",
+      () => !!document.querySelector('#stm-panel [data-stm-section="macro-settings"] input[data-stm-field="macro-name"]'),
+      "宏设置页宏名输入就位",
     );
     await setFieldValue(page, '#stm-panel input[data-stm-field="macro-name"]', "{{myMemory}}");
     await waitUntil(

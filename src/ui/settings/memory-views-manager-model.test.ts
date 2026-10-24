@@ -15,7 +15,7 @@ import {
   memoryViewFromDraft,
   validateMemoryViewDraft,
   viewConfigErrors,
-  viewSummaryText,
+  viewSelectionSummary,
 } from "./memory-views-manager-model.ts";
 
 function table(key: string, name: string): MemoryTable {
@@ -191,14 +191,15 @@ describe("viewConfigErrors（面板配置错误检测，与服务翻译层同语
   });
 });
 
-describe("viewSummaryText（折叠行摘要）", () => {
-  it("筛选/条数/投影一行展示；空值显示缺省", () => {
-    expect(viewSummaryText(view())).toBe(
-      "筛选 status ∈ 埋设中、已触发 · 最多 50 条 · 显示 name、status",
+describe("viewSelectionSummary（折叠行摘要）", () => {
+  it("筛选/条数/投影一行展示；未配置项省略（不重复「无筛选」）", () => {
+    expect(viewSelectionSummary(view())).toBe(
+      "status ∈ 埋设中、已触发 · 最多 50 条 · 显示 2 个字段",
     );
-    expect(viewSummaryText(view({ condition: null, limit: null, projection: [] }))).toBe(
-      "无筛选 · 最多 100 条 · 显示文本",
+    expect(viewSelectionSummary(view(), "状态")).toBe(
+      "状态 ∈ 埋设中、已触发 · 最多 50 条 · 显示 2 个字段",
     );
+    expect(viewSelectionSummary(view({ condition: null, limit: null, projection: [] }))).toBe("");
   });
 });
 
