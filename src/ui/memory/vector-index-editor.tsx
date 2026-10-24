@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   MemoryField,
   MemoryRecord,
@@ -16,7 +16,10 @@ import {
 } from "../../features/memory/index.ts";
 import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { importPresetVectorIndexGroups } from "../../features/table-presets/preset-vector-index.ts";
+import { Disclosure } from "../shell/disclosure.tsx";
+import { Segmented } from "../shell/segmented.tsx";
 import { createUiId } from "../shell/ui-helpers.tsx";
+import { VectorGroupEditor, type VectorFieldOption } from "./vector-group-editor.tsx";
 
 const emptyConfig: VectorIndexConfiguration = {
   enabled: false,
@@ -24,6 +27,17 @@ const emptyConfig: VectorIndexConfiguration = {
   updateMode: "manual",
   groups: [],
 };
+
+const sourceOptions = [
+  { value: "automatic", label: "自动" },
+  { value: "preset", label: "预设" },
+  { value: "custom", label: "自定义" },
+] as const;
+
+const updateOptions = [
+  { value: "manual", label: "手动" },
+  { value: "automatic", label: "自动" },
+] as const;
 
 export function VectorIndexEditor(props: {
   readonly formId?: string;
@@ -39,37 +53,50 @@ export function VectorIndexEditor(props: {
   readonly onSave: (config: VectorIndexConfiguration) => Promise<void>;
   readonly onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState<VectorIndexConfiguration>(props.initial ?? emptyConfig);
-  useEffect(() => {
-    props.onDirtyChange?.(JSON.stringify(draft) !== JSON.stringify(props.initial ?? emptyConfig));
-  }, [draft, props.initial, props.onDirtyChange]);
+  const initial = props.initial ?? emptyConfig;
+  const [draft, setDraft] = useState<VectorIndexConfiguration>(initial);
   const [error, setError] = useState("");
   const [sampleRecords, setSampleRecords] = useState<readonly MemoryRecord[]>([]);
   const [sampleRecordId, setSampleRecordId] = useState("");
   const [samplePreviews, setSamplePreviews] = useState<readonly VectorPreview[]>([]);
+  const [sampleError, setSampleError] = useState("");
   const [summary, setSummary] = useState<Awaited<
     ReturnType<VectorIndexService["previewDraftSummary"]>
   > | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [presetId, setPresetId] = useState("");
   const [presetTableKey, setPresetTableKey] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<ReadonlySet<string>>(new Set());
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  const debouncedDraft = useDebounced(draft, 220);
   const selectedPreset = props.presets.find((preset) => preset.id === presetId);
   const groups = effectiveVectorIndexGroups(draft, props.fields);
   const fieldsById = new Map(props.fields.map((field) => [field.id, field]));
+  const fieldOptions: readonly VectorFieldOption[] = props.fields.map((field) => ({
+    id: field.id,
+    name: field.name,
+    enabled: field.enabled,
+  }));
+
+  useEffect(() => {
+    props.onDirtyChange?.(JSON.stringify(draft) !== JSON.stringify(initial));
+  }, [draft, initial, props.onDirtyChange]);
 
   useEffect(() => {
     let cancelled = false;
     void props.records
       .list(props.memorySpaceId, props.tableId, { page: 1, pageSize: 20 })
       .then((page) => {
-        if (!cancelled) {
-          const records = page?.records ?? [];
-          setSampleRecords(records);
-          setSampleRecordId(records[0]?.id ?? "");
-        }
+        if (cancelled) return;
+        const records = page?.records ?? [];
+        setSampleRecords(records);
+        setSampleRecordId(records[0]?.id ?? "");
       })
       .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setSampleError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => {
       cancelled = true;
@@ -77,37 +104,14 @@ export function VectorIndexEditor(props: {
   }, [props.records, props.memorySpaceId, props.tableId]);
 
   useEffect(() => {
-    if (!sampleRecordId) {
-      setSamplePreviews([]);
-      return;
-    }
-    let cancelled = false;
-    void props.vector
-      .previewDraft(
-        {
-          memorySpaceId: props.memorySpaceId,
-          tableId: props.tableId,
-          recordId: sampleRecordId as MemoryRecord["id"],
-        },
-        draft,
-      )
-      .then((previews) => {
-        if (!cancelled) setSamplePreviews(previews);
-      })
-      .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.vector, props.memorySpaceId, props.tableId, sampleRecordId, draft]);
-
-  useEffect(() => {
     let cancelled = false;
     setSummary(null);
     setSummaryError("");
     void props.vector
-      .previewDraftSummary({ memorySpaceId: props.memorySpaceId, tableId: props.tableId }, draft)
+      .previewDraftSummary(
+        { memorySpaceId: props.memorySpaceId, tableId: props.tableId },
+        debouncedDraft,
+      )
       .then((next) => {
         if (!cancelled) setSummary(next);
       })
@@ -117,13 +121,62 @@ export function VectorIndexEditor(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.vector, props.memorySpaceId, props.tableId, draft]);
+  }, [props.vector, props.memorySpaceId, props.tableId, debouncedDraft]);
+
+  useEffect(() => {
+    if (!previewOpen || !sampleRecordId) return;
+    let cancelled = false;
+    void props.vector
+      .previewDraft(
+        {
+          memorySpaceId: props.memorySpaceId,
+          tableId: props.tableId,
+          recordId: sampleRecordId as MemoryRecord["id"],
+        },
+        debouncedDraft,
+      )
+      .then((previews) => {
+        if (!cancelled) {
+          setSamplePreviews(previews);
+          setSampleError("");
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) setSampleError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    props.vector,
+    props.memorySpaceId,
+    props.tableId,
+    sampleRecordId,
+    previewOpen,
+    debouncedDraft,
+  ]);
+
+  useEffect(() => {
+    if (draft.source !== "preset" || presetId || props.presets.length === 0) return;
+    setPresetId(props.presets[0]!.id);
+  }, [draft.source, presetId, props.presets]);
+
+  useEffect(() => {
+    if (presetTableKey || !selectedPreset) return;
+    const first = selectedPreset.tables[0];
+    if (first) setPresetTableKey(first.key);
+  }, [presetTableKey, selectedPreset]);
+
+  useEffect(() => {
+    if (!error) return;
+    errorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [error]);
 
   function changeSource(source: VectorIndexConfiguration["source"]): void {
     if (
       draft.source === "custom" &&
       source !== "custom" &&
-      JSON.stringify(draft.groups) !== JSON.stringify(props.initial?.groups ?? []) &&
+      JSON.stringify(draft.groups) !== JSON.stringify(initial.groups) &&
       !window.confirm("自定义分组有未保存修改，切换来源后草稿将丢失，继续吗？")
     )
       return;
@@ -131,22 +184,12 @@ export function VectorIndexEditor(props: {
       setDraft({
         ...draft,
         source,
-        groups: groups.map((group) => ({
-          ...group,
-          fieldIds: [...group.fieldIds],
-        })),
+        groups: groups.map((group) => ({ ...group, fieldIds: [...group.fieldIds] })),
       });
     } else {
       setDraft({ ...draft, source, groups: source === "custom" ? draft.groups : [] });
     }
     setError("");
-  }
-
-  function updateGroup(id: string, change: (group: VectorIndexGroup) => VectorIndexGroup): void {
-    setDraft({
-      ...draft,
-      groups: draft.groups.map((group) => (group.id === id ? change(group) : group)),
-    });
   }
 
   function importPreset(): void {
@@ -172,6 +215,69 @@ export function VectorIndexEditor(props: {
     }
   }
 
+  const recordCount = summary?.records;
+  const vectorCount = summary?.vectors;
+  const pending = summary?.pending ?? 0;
+  const legend = summary
+    ? (
+        [
+          { key: "ready", label: "已就绪", count: summary.ready, tone: "success" },
+          { key: "pending", label: "待更新", count: summary.pending, tone: "accent" },
+          { key: "unavailable", label: "待连接", count: summary.unavailable, tone: "warning" },
+          { key: "invalid", label: "失效", count: summary.invalid, tone: "danger" },
+          { key: "tooLong", label: "超长", count: summary.tooLong, tone: "danger" },
+          { key: "empty", label: "无内容", count: summary.empty, tone: "quiet" },
+        ] as const
+      ).filter((item) => item.count > 0 || item.key === "ready" || item.key === "pending")
+    : [];
+  const notices: {
+    readonly key: string;
+    readonly tone: string;
+    readonly icon: string;
+    readonly text: string;
+  }[] = [];
+  if (draft.enabled && summary) {
+    if (summary.records === 0) {
+      notices.push({ key: "records", tone: "quiet", icon: "fa-inbox", text: "暂无记录" });
+    } else if (groups.length === 0) {
+      notices.push({
+        key: "fields",
+        tone: "warning",
+        icon: "fa-filter-circle-xmark",
+        text: "没有可索引的字段",
+      });
+    }
+    if (summary.unavailable > 0) {
+      notices.push({
+        key: "connection",
+        tone: "warning",
+        icon: "fa-plug-circle-xmark",
+        text:
+          summary.unavailable >= summary.vectors
+            ? "未连接 embedding 服务"
+            : `${summary.unavailable} 个目标等待连接`,
+      });
+    }
+    if (summary.invalid > 0) {
+      notices.push({
+        key: "invalid",
+        tone: "danger",
+        icon: "fa-link-slash",
+        text: `${summary.invalid} 个字段已失效`,
+      });
+    }
+    if (summary.tooLong > 0) {
+      notices.push({
+        key: "tooLong",
+        tone: "danger",
+        icon: "fa-scissors",
+        text: `${summary.tooLong} 个输入超长`,
+      });
+    }
+  }
+  const previewChars = samplePreviews.reduce((total, item) => total + item.input.length, 0);
+  const hasEnabledField = props.fields.some((field) => field.enabled);
+
   return (
     <form
       id={props.formId}
@@ -183,336 +289,378 @@ export function VectorIndexEditor(props: {
       }}
     >
       <fieldset className="stm-editor-fields" disabled={props.saving}>
-        {!props.formId ? <div className="stm-editor-title">向量索引配置</div> : null}
-        <p className="stm-setting-hint">
-          选中的字段文本会发送到设置中的 embedding
-          端点。配置来源决定字段组合，更新方式决定何时提交请求。已提交的任务会继续执行，可到任务页取消。
-        </p>
-        <label className="stm-form-row">
-          <span className="stm-form-label">启用索引</span>
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">配置来源</span>
-          <select
-            className="stm-input"
-            value={draft.source}
-            onChange={(event) =>
-              changeSource(event.target.value as VectorIndexConfiguration["source"])
-            }
-          >
-            <option value="automatic">自动配置</option>
-            <option value="preset">使用预设配置</option>
-            <option value="custom">自定义配置</option>
-          </select>
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">更新方式</span>
-          <select
-            className="stm-input"
-            value={draft.updateMode}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                updateMode: event.target.value as VectorIndexConfiguration["updateMode"],
-              })
-            }
-          >
-            <option value="manual">手动更新</option>
-            <option value="automatic">自动更新</option>
-          </select>
-        </label>
-        {draft.source === "automatic" && (
-          <p className="stm-setting-hint">
-            全部启用业务字段按表格顺序组成一组。保存后字段变化会动态调整；手动更新时仍需点击向量化。
-          </p>
-        )}
-        {draft.source === "preset" && (
-          <div className="stm-vector-import">
-            {!draft.presetGroups?.length && (
-              <p className="stm-setting-hint">尚无预设配置，请从表格预设导入。</p>
-            )}
-            <label className="stm-form-row">
-              <span className="stm-form-label">从表格预设导入配置</span>
-              <select
-                className="stm-input"
-                value={presetId}
-                onChange={(event) => {
-                  setPresetId(event.target.value);
-                  setPresetTableKey("");
-                }}
-              >
-                <option value="">选择预设</option>
-                {props.presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
+        <section className="stm-vector-hero" data-state={draft.enabled ? "on" : "off"}>
+          <div className="stm-vector-hero-head">
+            <span className="stm-vector-state">
+              <span className="stm-vector-state-dot" aria-hidden="true" />
+              索引
+            </span>
+            <label className="stm-switch">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="启用索引"
+                checked={draft.enabled}
+                onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+              />
+              <span className="stm-switch-track" aria-hidden="true" />
             </label>
-            {selectedPreset && (
-              <label className="stm-form-row">
-                <span className="stm-form-label">来源表格</span>
+          </div>
+          <div className="stm-vector-hero-numbers">
+            <span>
+              <strong>{recordCount ?? "—"}</strong> 条记录
+            </span>
+            {draft.enabled ? (
+              <>
+                <i className="fa-solid fa-arrow-right stm-vector-hero-arrow" aria-hidden="true" />
+                <span>
+                  <strong>{vectorCount ?? "—"}</strong> 个向量
+                </span>
+                <span className="stm-vector-hero-groups">{groups.length} 组</span>
+              </>
+            ) : (
+              <span className="stm-vector-hero-groups">已关闭</span>
+            )}
+          </div>
+          {draft.enabled && vectorCount !== undefined && vectorCount > 0 ? (
+            <>
+              <div
+                className="stm-vector-meter"
+                role="img"
+                aria-label={legend.map((item) => `${item.label} ${item.count}`).join("，")}
+              >
+                {legend
+                  .filter((item) => item.count > 0)
+                  .map((item) => (
+                    <span
+                      key={item.key}
+                      data-tone={item.tone}
+                      style={{ flexGrow: item.count }}
+                      aria-hidden="true"
+                    />
+                  ))}
+              </div>
+              <ul className="stm-vector-legend">
+                {legend.map((item) => (
+                  <li
+                    key={item.key}
+                    data-tone={item.tone}
+                    data-idle={item.count === 0 ? "true" : undefined}
+                  >
+                    <span className="stm-vector-dot" aria-hidden="true" />
+                    {item.label} {item.count}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {summaryError ? (
+            <p className="stm-vector-hero-note" data-tone="danger" role="status">
+              统计失败：{summaryError}
+            </p>
+          ) : null}
+          {notices.length > 0 ? (
+            <ul className="stm-vector-notices">
+              {notices.map((notice) => (
+                <li key={notice.key} data-tone={notice.tone}>
+                  <i className={`fa-solid ${notice.icon}`} aria-hidden="true" />
+                  {notice.text}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        <section className="stm-vector-card stm-vector-card--index">
+          <div className="stm-vector-control stm-vector-control--source">
+            <span className="stm-vector-label">字段来源</span>
+            <Segmented
+              label="字段来源"
+              value={draft.source}
+              options={sourceOptions}
+              disabled={props.saving}
+              onChange={changeSource}
+            />
+          </div>
+
+          <div className="stm-vector-source-slot">
+            {draft.source === "automatic" ? (
+              groups.length > 0 ? (
+                <div className="stm-vector-source-view">
+                  <div className="stm-vector-summary-head">
+                    <span className="stm-vector-summary-name">{groups[0]!.name}</span>
+                    <span className="stm-vector-summary-meta">
+                      {groups[0]!.fieldIds.length} 字段
+                    </span>
+                  </div>
+                  <div className="stm-vector-chain">
+                    {groups[0]!.fieldIds.map((fieldId) => {
+                      const field = fieldsById.get(fieldId);
+                      return (
+                        <span className="stm-vector-chain-item" key={fieldId}>
+                          {field?.name ?? "已删除字段"}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="stm-vector-empty" data-tone="warning">
+                  没有启用字段
+                </div>
+              )
+            ) : null}
+
+            {draft.source === "preset" ? (
+              <div className="stm-vector-preset">
+                <div className="stm-vector-import">
+                  <label className="stm-vector-import-field">
+                    <span className="stm-vector-import-label">预设</span>
+                    <select
+                      className="stm-input"
+                      aria-label="表格预设"
+                      value={presetId}
+                      onChange={(event) => {
+                        setPresetId(event.target.value);
+                        setPresetTableKey("");
+                      }}
+                    >
+                      <option value="">选择预设</option>
+                      {props.presets.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="stm-vector-import-field">
+                    <span className="stm-vector-import-label">表格</span>
+                    <select
+                      className="stm-input"
+                      aria-label="来源表格"
+                      value={presetTableKey}
+                      disabled={!selectedPreset}
+                      onChange={(event) => setPresetTableKey(event.target.value)}
+                    >
+                      <option value="">选择表格</option>
+                      {selectedPreset?.tables.map((table) => (
+                        <option key={table.key} value={table.key}>
+                          {table.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="stm-button stm-button--primary stm-vector-import-submit"
+                    disabled={!presetTableKey}
+                    onClick={importPreset}
+                  >
+                    导入
+                  </button>
+                </div>
+                {draft.presetGroups?.length ? (
+                  <div className="stm-vector-source-view">
+                    {draft.presetGroups.map((group) => (
+                      <div className="stm-vector-summary-group" key={group.id}>
+                        <div className="stm-vector-summary-head">
+                          <span className="stm-vector-summary-name">{group.name}</span>
+                          <span className="stm-vector-summary-meta">
+                            {group.fieldIds.length} 字段
+                          </span>
+                        </div>
+                        <div className="stm-vector-chain">
+                          {group.fieldIds.map((fieldId) => {
+                            const field = fieldsById.get(fieldId);
+                            return (
+                              <span
+                                className="stm-vector-chain-item"
+                                data-invalid={!field?.enabled || undefined}
+                                key={fieldId}
+                              >
+                                {field?.name ?? "已删除字段"}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="stm-vector-empty">尚未导入</div>
+                )}
+              </div>
+            ) : null}
+
+            {draft.source === "custom" ? (
+              <VectorGroupEditor
+                groups={draft.groups}
+                fields={fieldOptions}
+                disabled={props.saving}
+                onChange={(next) =>
+                  setDraft({
+                    ...draft,
+                    groups: next as readonly VectorIndexGroup[],
+                  })
+                }
+              />
+            ) : null}
+          </div>
+
+          <div className="stm-vector-divider" role="separator" />
+          <div className="stm-vector-control stm-vector-control--update">
+            <div className="stm-vector-label-row">
+              <span className="stm-vector-label">更新方式</span>
+              <span className="stm-vector-effect" data-tone={draft.updateMode}>
+                {draft.updateMode === "automatic"
+                  ? pending > 0
+                    ? `保存后生成 ${pending} 个`
+                    : "已是最新"
+                  : "保存后不生成"}
+              </span>
+            </div>
+            <Segmented
+              label="更新方式"
+              value={draft.updateMode}
+              options={updateOptions}
+              disabled={props.saving}
+              onChange={(updateMode) => setDraft({ ...draft, updateMode })}
+            />
+          </div>
+        </section>
+
+        <div className="stm-vector-preview" ref={previewRef}>
+          <Disclosure
+            icon="fa-eye"
+            title="输入预览"
+            meta={
+              groups.length > 0
+                ? `${groups.length} 组${previewOpen && previewChars > 0 ? ` · ${previewChars} 字符` : ""}`
+                : "暂无分组"
+            }
+            open={previewOpen}
+            onToggle={(event) => {
+              const open = event.currentTarget.open;
+              setPreviewOpen(open);
+              if (!open) return;
+              const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+              requestAnimationFrame(() =>
+                previewRef.current?.scrollIntoView({
+                  block: "start",
+                  behavior: reduced ? "auto" : "smooth",
+                }),
+              );
+            }}
+          >
+            {sampleRecords.length > 0 ? (
+              <label className="stm-vector-sample">
+                <span className="stm-vector-sample-label">示例</span>
                 <select
                   className="stm-input"
-                  value={presetTableKey}
-                  onChange={(event) => setPresetTableKey(event.target.value)}
+                  aria-label="示例记录"
+                  value={sampleRecordId}
+                  onChange={(event) => setSampleRecordId(event.target.value)}
                 >
-                  <option value="">选择表格</option>
-                  {selectedPreset.tables.map((table) => (
-                    <option key={table.key} value={table.key}>
-                      {table.name}
+                  {sampleRecords.map((record) => (
+                    <option key={record.id} value={record.id}>
+                      {record.displayText}
                     </option>
                   ))}
                 </select>
               </label>
-            )}
-            <button type="button" className="stm-button" onClick={importPreset}>
-              导入到草稿
-            </button>
-            <p className="stm-setting-hint">
-              仅按字段 Key 精确匹配。导入成功后保存为本表独立快照，不改变表结构或更新方式。
-            </p>
-          </div>
-        )}
-        {draft.source === "custom" && (
-          <div className="stm-vector-groups">
-            {draft.groups.map((group, index) => (
-              <div className="stm-vector-group" key={group.id}>
-                <div className="stm-vector-group-head">
-                  <input
-                    className="stm-input"
-                    aria-label={`分组 ${index + 1} 名称`}
-                    value={group.name}
-                    onChange={(event) =>
-                      updateGroup(group.id, (old) => ({ ...old, name: event.target.value }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    disabled={index === 0}
-                    onClick={() =>
-                      setDraft({ ...draft, groups: moveGroup(draft.groups, index, -1) })
-                    }
-                  >
-                    上移
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    disabled={index === draft.groups.length - 1}
-                    onClick={() =>
-                      setDraft({ ...draft, groups: moveGroup(draft.groups, index, 1) })
-                    }
-                  >
-                    下移
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action stm-table-action--danger"
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        groups: draft.groups.filter((item) => item.id !== group.id),
-                      })
-                    }
-                  >
-                    删除组
-                  </button>
-                </div>
-                <div className="stm-vector-fields">
-                  {group.fieldIds.map((fieldId, fieldIndex) => {
-                    const field = fieldsById.get(fieldId);
-                    return (
-                      <div className="stm-vector-field" key={`${fieldId}-${fieldIndex}`}>
-                        <span className={field?.enabled ? "" : "stm-form-error"}>
-                          {field
-                            ? `${field.name}${field.enabled ? "" : "（已停用）"}`
-                            : `已删除字段 ${fieldId}`}
-                        </span>
-                        <button
-                          type="button"
-                          className="stm-table-action"
-                          disabled={fieldIndex === 0}
-                          onClick={() =>
-                            updateGroup(group.id, (old) => ({
-                              ...old,
-                              fieldIds: moveGroup(old.fieldIds, fieldIndex, -1),
-                            }))
-                          }
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="stm-table-action"
-                          disabled={fieldIndex === group.fieldIds.length - 1}
-                          onClick={() =>
-                            updateGroup(group.id, (old) => ({
-                              ...old,
-                              fieldIds: moveGroup(old.fieldIds, fieldIndex, 1),
-                            }))
-                          }
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className="stm-table-action stm-table-action--danger"
-                          onClick={() =>
-                            updateGroup(group.id, (old) => ({
-                              ...old,
-                              fieldIds: old.fieldIds.filter((_, i) => i !== fieldIndex),
-                            }))
-                          }
-                        >
-                          移除
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                <select
-                  className="stm-input"
-                  aria-label={`给 ${group.name} 添加字段`}
-                  value=""
-                  onChange={(event) =>
-                    updateGroup(group.id, (old) => ({
-                      ...old,
-                      fieldIds: [...old.fieldIds, event.target.value as MemoryField["id"]],
-                    }))
-                  }
-                >
-                  <option value="">添加字段</option>
-                  {props.fields
-                    .filter((field) => field.enabled && !group.fieldIds.includes(field.id))
-                    .map((field) => (
-                      <option key={field.id} value={field.id}>
-                        {field.name}
-                      </option>
-                    ))}
-                </select>
+            ) : null}
+            {groups.length === 0 ? (
+              <div className="stm-vector-empty">
+                {hasEnabledField ? "暂无分组" : "没有启用字段"}
               </div>
-            ))}
-            <button
-              type="button"
-              className="stm-button"
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  groups: [
-                    ...draft.groups,
-                    { id: createUiId(), name: `分组 ${draft.groups.length + 1}`, fieldIds: [] },
-                  ],
-                })
-              }
-            >
-              新增分组
-            </button>
-            <p className="stm-setting-hint">
-              同一个字段可用于多个分组。组内字段按上方顺序组成输入。
-            </p>
-          </div>
-        )}
-        <div className="stm-vector-preview">
-          <strong>整表存量范围（草稿）</strong>
-          {summary ? (
-            <p>
-              整表记录 {summary.records} 条 · 目标向量 {summary.vectors} 个 · 可复用 {summary.ready}
-              个 · 待生成目标 {summary.pending} 个 · 无内容 {summary.empty} 个 · 配置失效{" "}
-              {summary.invalid}个 · 超长 {summary.tooLong} 个 · 待连接 {summary.unavailable} 个
-            </p>
-          ) : summaryError ? (
-            <p className="stm-form-error" role="alert">
-              整表范围统计失败：{summaryError}
-            </p>
-          ) : (
-            <p>正在统计整表范围…</p>
-          )}
-          <p className="stm-setting-hint">
-            当前仅统计草稿，不发送请求。
-            {!draft.enabled
-              ? "索引已停用，保存仅保留配置；上述范围仅供预览。"
-              : draft.updateMode === "automatic"
-                ? "保存后将按上述范围自动创建向量任务，遵守任务去重和取消、失败抑制规则；可复用的向量不重复生成，无内容不发送请求。"
-                : "手动更新模式保存不发送请求，需在保存后手动提交向量化任务。"}
-          </p>
-          <strong>分组与输入预览（草稿）</strong>
-          {sampleRecords.length > 0 && (
-            <label className="stm-form-row">
-              <span className="stm-form-label">示例记录</span>
-              <select
-                className="stm-input"
-                value={sampleRecordId}
-                onChange={(event) => setSampleRecordId(event.target.value)}
-              >
-                {sampleRecords.map((record) => (
-                  <option key={record.id} value={record.id}>
-                    {record.displayText}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {groups.length === 0 ? (
-            <p>暂无可用字段</p>
-          ) : (
-            groups.map((group) => (
-              <div className="stm-vector-preview-group" key={group.id}>
-                <strong>{group.name}</strong>
-                <div>
-                  {group.fieldIds
-                    .map((id) => {
-                      const field = fieldsById.get(id);
-                      return field
-                        ? `${field.name}${field.enabled ? "" : "（已停用，配置失效）"}`
-                        : `已删除字段 ${id}（配置失效）`;
-                    })
-                    .join(" → ")}
-                </div>
-                {sampleRecordId ? (
-                  <>
-                    <pre>
-                      {samplePreviews.find((preview) => preview.groupId === group.id)?.input ||
-                        "（无内容）"}
-                    </pre>
-                    <div className="stm-setting-hint">
-                      {(() => {
-                        const preview = samplePreviews.find((item) => item.groupId === group.id);
-                        return preview
-                          ? `${preview.input.length} 字符 · ${preview.status === "too_long" || preview.status === "configuration_invalid" ? preview.error : preview.status === "empty" ? "无内容，不发请求" : preview.status === "unavailable" ? "等待连接" : "未超出连接字符上限"}`
-                          : "正在计算预览";
-                      })()}
+            ) : (
+              groups.map((group) => {
+                const preview = samplePreviews.find((item) => item.groupId === group.id);
+                const status = preview ? previewStatus(preview) : null;
+                const expanded = expandedGroupIds.has(group.id);
+                const expandable =
+                  (preview?.input.length ?? 0) > 180 ||
+                  (preview?.input.split("\n").length ?? 0) > 4;
+                return (
+                  <section className="stm-vector-sample-group" key={group.id}>
+                    <header className="stm-vector-sample-head">
+                      <span className="stm-vector-sample-name">{group.name}</span>
+                      <span className="stm-vector-sample-size">
+                        {preview ? `${preview.input.length} 字符` : ""}
+                      </span>
+                    </header>
+                    <div className="stm-vector-chain stm-vector-chain--small">
+                      {group.fieldIds.map((fieldId) => {
+                        const field = fieldsById.get(fieldId);
+                        return (
+                          <span
+                            className="stm-vector-chain-item"
+                            data-invalid={!field?.enabled || undefined}
+                            key={fieldId}
+                          >
+                            {field?.name ?? "已删除字段"}
+                          </span>
+                        );
+                      })}
                     </div>
-                  </>
-                ) : (
-                  <pre>
-                    {group.fieldIds
-                      .map((id) => fieldsById.get(id))
-                      .filter((field) => field?.enabled)
-                      .map((field) => `${field!.name}：〈字段值〉`)
-                      .join("\n")}
-                  </pre>
-                )}
-              </div>
-            ))
-          )}
-          <p className="stm-setting-hint">
-            {sampleRecordId
-              ? "预览使用当前草稿与已保存的示例记录，不发送请求。"
-              : "尚无记录，字段值与长度需在创建记录后预览。"}
-          </p>
+                    {preview ? (
+                      <pre
+                        className="stm-vector-input"
+                        data-expanded={expanded ? "true" : undefined}
+                      >
+                        {preview.input || "（空）"}
+                      </pre>
+                    ) : (
+                      <div className="stm-vector-sample-loading" aria-hidden="true" />
+                    )}
+                    <div className="stm-vector-sample-foot">
+                      {preview ? (
+                        status ? (
+                          <span className="stm-vector-sample-status" data-tone={status.tone}>
+                            {status.text}
+                          </span>
+                        ) : (
+                          <span className="stm-vector-sample-status" data-tone="success">
+                            可生成
+                          </span>
+                        )
+                      ) : (
+                        <span />
+                      )}
+                      {expandable && preview ? (
+                        <button
+                          type="button"
+                          className="stm-vector-sample-more"
+                          onClick={() =>
+                            setExpandedGroupIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(group.id)) next.delete(group.id);
+                              else next.add(group.id);
+                              return next;
+                            })
+                          }
+                        >
+                          {expanded ? "收起" : "展开"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </section>
+                );
+              })
+            )}
+            {sampleError ? (
+              <p className="stm-form-error" role="alert">
+                {sampleError}
+              </p>
+            ) : null}
+          </Disclosure>
         </div>
-        {error && (
-          <div className="stm-form-error" role="alert">
+
+        {error ? (
+          <div className="stm-form-error" role="alert" ref={errorRef}>
             {error}
           </div>
-        )}
+        ) : null}
       </fieldset>
       {!props.formId ? (
         <div className="stm-editor-actions">
@@ -521,7 +669,7 @@ export function VectorIndexEditor(props: {
             className="stm-button"
             onClick={() => {
               if (
-                JSON.stringify(draft) === JSON.stringify(props.initial ?? emptyConfig) ||
+                JSON.stringify(draft) === JSON.stringify(initial) ||
                 window.confirm("向量配置有未保存修改，放弃草稿吗？")
               )
                 props.onCancel();
@@ -535,7 +683,7 @@ export function VectorIndexEditor(props: {
             disabled={props.saving}
             onClick={() => void save()}
           >
-            {props.saving ? "保存中…" : "保存向量配置"}
+            {props.saving ? "保存中…" : "保存"}
           </button>
         </div>
       ) : null}
@@ -543,8 +691,22 @@ export function VectorIndexEditor(props: {
   );
 }
 
-function moveGroup<T>(items: readonly T[], index: number, delta: number): T[] {
-  const next = [...items];
-  [next[index], next[index + delta]] = [next[index + delta]!, next[index]!];
-  return next;
+function previewStatus(
+  preview: VectorPreview,
+): { readonly text: string; readonly tone: string } | null {
+  if (preview.status === "ready") return null;
+  if (preview.status === "empty") return { text: "无内容", tone: "quiet" };
+  if (preview.status === "unavailable") return { text: "等待连接", tone: "warning" };
+  if (preview.status === "too_long")
+    return { text: preview.error ?? "超出长度上限", tone: "danger" };
+  return { text: preview.error ?? "配置失效", tone: "danger" };
+}
+
+function useDebounced<Value>(value: Value, delay: number): Value {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
 }

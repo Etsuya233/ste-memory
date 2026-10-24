@@ -88,6 +88,7 @@ export function TablesTab(props: {
   const [detailTab, setDetailTab] = useState<"fields" | "info" | "strategy" | "vector">("fields");
   const [fieldManagementTableId, setFieldManagementTableId] = useState<MemoryTableId | null>(null);
   const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [tables, setTables] = useState<readonly TableListItemViewModel[] | undefined>(undefined);
   // 原始表/字段数据（编辑器需要 prompt、position、options 等视图模型未携带的字段）
@@ -324,6 +325,7 @@ export function TablesTab(props: {
     )
       return;
     setDirty(false);
+    setMaintenanceOpen(false);
     if (creatingTable) setCreatingTable(false);
     else if (fieldEditor) setFieldEditor(null);
     else if (detailTab !== "fields") setDetailTab("fields");
@@ -1004,13 +1006,21 @@ export function TablesTab(props: {
                   }
                 }}
               />
-              <Disclosure icon="fa-database" title="索引维护">
-                <TableVectorActions
-                  vector={props.vector}
-                  memorySpaceId={currentSpaceId}
-                  tableId={selectedTable.id}
-                  enabled={selectedRawTable.vectorIndex?.enabled ?? false}
-                />
+              <Disclosure
+                icon="fa-screwdriver-wrench"
+                title="索引维护"
+                meta={selectedRawTable.vectorIndex?.enabled ? undefined : "已停用"}
+                open={maintenanceOpen}
+                onToggle={(event) => setMaintenanceOpen(event.currentTarget.open)}
+              >
+                {maintenanceOpen ? (
+                  <TableVectorActions
+                    vector={props.vector}
+                    memorySpaceId={currentSpaceId}
+                    tableId={selectedTable.id}
+                    enabled={selectedRawTable.vectorIndex?.enabled ?? false}
+                  />
+                ) : null}
               </Disclosure>
             </div>
           ) : null}

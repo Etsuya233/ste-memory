@@ -1,216 +1,100 @@
 import { Disclosure } from "../shell/disclosure.tsx";
+import { Segmented } from "../shell/segmented.tsx";
+import { VectorGroupEditor } from "../memory/vector-group-editor.tsx";
 import type {
   TablePresetTable,
   TablePresetVectorIndex,
 } from "../../features/table-presets/preset-model.ts";
 
+/** 预设中的向量索引：分组以字段 Key 保存，实例化时才换成空间内字段身份。 */
 export function PresetVectorIndexEditor(props: {
   readonly table: TablePresetTable;
   readonly readonly: boolean;
   readonly onChange: (value: TablePresetVectorIndex) => void;
 }) {
-  const config = props.table.vectorIndex ?? {
+  const config: TablePresetVectorIndex = props.table.vectorIndex ?? {
     enabled: false,
-    updateMode: "manual" as const,
+    updateMode: "manual",
     groups: [],
   };
   const enabledFields = props.table.fields.filter((field) => field.enabled);
+  const groups = config.groups.map((group, index) => ({
+    id: `group-${index}`,
+    name: group.name,
+    fieldIds: group.fieldKeys,
+  }));
+  const fields = props.table.fields.map((field) => ({
+    id: field.key,
+    name: field.name,
+    enabled: field.enabled,
+  }));
+
+  function updateGroups(
+    next: readonly { id: string; name: string; fieldIds: readonly string[] }[],
+  ) {
+    props.onChange({
+      ...config,
+      groups: next.map((group) => ({ name: group.name, fieldKeys: [...group.fieldIds] })),
+    });
+  }
+
   return (
     <div className="stm-editor stm-vector-editor" data-stm-section="preset-vector-index">
-      <div className="stm-editor-title">向量索引预设</div>
-
       <fieldset disabled={props.readonly}>
-        <label className="stm-form-row">
-          <span className="stm-form-label">启用索引</span>
-          <input
-            type="checkbox"
-            checked={config.enabled}
-            onChange={(event) => props.onChange({ ...config, enabled: event.target.checked })}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">更新方式</span>
-          <select
-            className="stm-input"
-            value={config.updateMode}
-            onChange={(event) =>
-              props.onChange({
-                ...config,
-                updateMode: event.target.value as TablePresetVectorIndex["updateMode"],
-              })
-            }
-          >
-            <option value="manual">手动更新</option>
-            <option value="automatic">自动更新</option>
-          </select>
-        </label>
-        {config.groups.map((group, groupIndex) => (
-          <div className="stm-vector-group" key={groupIndex}>
-            <div className="stm-vector-group-head">
+        <section className="stm-vector-hero" data-state={config.enabled ? "on" : "off"}>
+          <div className="stm-vector-hero-head">
+            <span className="stm-vector-state">
+              <span className="stm-vector-state-dot" aria-hidden="true" />
+              索引
+            </span>
+            <label className="stm-switch">
               <input
-                className="stm-input"
-                aria-label={`向量分组 ${groupIndex + 1} 名称`}
-                value={group.name}
-                onChange={(event) =>
-                  props.onChange({
-                    ...config,
-                    groups: config.groups.map((item, index) =>
-                      index === groupIndex ? { ...item, name: event.target.value } : item,
-                    ),
-                  })
-                }
+                type="checkbox"
+                role="switch"
+                aria-label="启用索引"
+                checked={config.enabled}
+                onChange={(event) => props.onChange({ ...config, enabled: event.target.checked })}
               />
-              <button
-                type="button"
-                className="stm-table-action"
-                disabled={groupIndex === 0}
-                onClick={() =>
-                  props.onChange({ ...config, groups: moved(config.groups, groupIndex, -1) })
-                }
-              >
-                上移
-              </button>
-              <button
-                type="button"
-                className="stm-table-action"
-                disabled={groupIndex === config.groups.length - 1}
-                onClick={() =>
-                  props.onChange({ ...config, groups: moved(config.groups, groupIndex, 1) })
-                }
-              >
-                下移
-              </button>
-              <button
-                type="button"
-                className="stm-table-action stm-table-action--danger"
-                onClick={() =>
-                  props.onChange({
-                    ...config,
-                    groups: config.groups.filter((_, index) => index !== groupIndex),
-                  })
-                }
-              >
-                删除组
-              </button>
-            </div>
-            {group.fieldKeys.map((key, fieldIndex) => {
-              const field = props.table.fields.find((item) => item.key === key);
-              return (
-                <div className="stm-vector-field" key={`${key}-${fieldIndex}`}>
-                  <span className={field?.enabled ? "" : "stm-form-error"}>
-                    {field
-                      ? `${field.name}${field.enabled ? "" : "（已停用）"}`
-                      : `已删除字段 ${key}`}
-                  </span>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    disabled={fieldIndex === 0}
-                    onClick={() =>
-                      props.onChange({
-                        ...config,
-                        groups: config.groups.map((item, index) =>
-                          index === groupIndex
-                            ? { ...item, fieldKeys: moved(item.fieldKeys, fieldIndex, -1) }
-                            : item,
-                        ),
-                      })
-                    }
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    disabled={fieldIndex === group.fieldKeys.length - 1}
-                    onClick={() =>
-                      props.onChange({
-                        ...config,
-                        groups: config.groups.map((item, index) =>
-                          index === groupIndex
-                            ? { ...item, fieldKeys: moved(item.fieldKeys, fieldIndex, 1) }
-                            : item,
-                        ),
-                      })
-                    }
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action stm-table-action--danger"
-                    onClick={() =>
-                      props.onChange({
-                        ...config,
-                        groups: config.groups.map((item, index) =>
-                          index === groupIndex
-                            ? {
-                                ...item,
-                                fieldKeys: item.fieldKeys.filter((_, i) => i !== fieldIndex),
-                              }
-                            : item,
-                        ),
-                      })
-                    }
-                  >
-                    移除
-                  </button>
-                </div>
-              );
-            })}
-            <select
-              className="stm-input"
-              aria-label={`给 ${group.name} 添加字段`}
-              value=""
-              onChange={(event) =>
-                props.onChange({
-                  ...config,
-                  groups: config.groups.map((item, index) =>
-                    index === groupIndex
-                      ? { ...item, fieldKeys: [...item.fieldKeys, event.target.value] }
-                      : item,
-                  ),
-                })
-              }
-            >
-              <option value="">添加字段</option>
-              {enabledFields
-                .filter((field) => !group.fieldKeys.includes(field.key))
-                .map((field) => (
-                  <option key={field.key} value={field.key}>
-                    {field.name}
-                  </option>
-                ))}
-            </select>
+              <span className="stm-switch-track" aria-hidden="true" />
+            </label>
           </div>
-        ))}
-        <button
-          type="button"
-          className="stm-button"
-          onClick={() =>
-            props.onChange({
-              ...config,
-              groups: [
-                ...config.groups,
-                { name: `分组 ${config.groups.length + 1}`, fieldKeys: [] },
-              ],
-            })
-          }
-        >
-          新增分组
-        </button>
+          <div className="stm-vector-hero-numbers">
+            <span>
+              <strong>{enabledFields.length}</strong> 个启用字段
+            </span>
+            <span className="stm-vector-hero-groups">{groups.length} 组</span>
+          </div>
+        </section>
+
+        <section className="stm-vector-card">
+          <div className="stm-vector-control">
+            <span className="stm-vector-label">更新方式</span>
+            <Segmented
+              label="更新方式"
+              value={config.updateMode}
+              options={[
+                { value: "manual", label: "手动" },
+                { value: "automatic", label: "自动" },
+              ]}
+              disabled={props.readonly}
+              onChange={(updateMode) => props.onChange({ ...config, updateMode })}
+            />
+          </div>
+          <div className="stm-vector-divider" />
+          <VectorGroupEditor
+            groups={groups}
+            fields={fields}
+            disabled={props.readonly}
+            onChange={updateGroups}
+          />
+        </section>
+
+        <Disclosure icon="fa-circle-info" title="应用范围">
+          <p className="stm-setting-hint">
+            分组在创建或应用预设时复制到空间。已有空间独立保存；编辑预设不会发送向量请求。
+          </p>
+        </Disclosure>
       </fieldset>
-      <Disclosure icon="fa-circle-info" title="应用范围">
-        <p className="stm-setting-hint">
-          分组在创建或应用预设时复制到空间。已有空间独立保存；编辑预设不会发送向量请求。
-        </p>
-      </Disclosure>
     </div>
   );
-}
-
-function moved<T>(values: readonly T[], index: number, delta: number): T[] {
-  const next = [...values];
-  [next[index], next[index + delta]] = [next[index + delta]!, next[index]!];
-  return next;
 }

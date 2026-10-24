@@ -14,6 +14,39 @@ const now = "2026-10-23T06:00:00.000Z";
 const stamp = { memorySpaceId: "space-1", createdAt: now, updatedAt: now };
 let settings = structuredClone(DEFAULT_SETTINGS);
 settings.embeddingConnection = { baseUrl: "https://preview.invalid/v1", apiKey: "", model: "local-preview", maxInputChars: 4000, timeoutSeconds: 10 };
+// 与预览表字段 Key 对齐的用户预设，用于验证「从预设导入」。
+settings.tablePresets = {
+  ...settings.tablePresets,
+  userPresets: [{
+    id: "preset-preview",
+    name: "人物档案",
+    description: "与预览表字段一致的人物索引预设。",
+    prompt: "",
+    tables: [{
+      key: "people",
+      name: "角色档案",
+      description: "",
+      prompt: "",
+      enabled: true,
+      displayStrategy: { type: "field", fieldKey: "name" },
+      fields: [
+        { key: "name", name: "名称", type: "short_text", enabled: true },
+        { key: "summary", name: "经历与关系", type: "long_text", enabled: true },
+        { key: "state", name: "当前状态", type: "single_select", enabled: true },
+        { key: "date", name: "相识日期", type: "date", enabled: true },
+        { key: "trusted", name: "建立信任", type: "boolean", enabled: true },
+      ],
+      vectorIndex: {
+        enabled: true,
+        updateMode: "manual",
+        groups: [
+          { name: "身份", fieldKeys: ["name", "state"] },
+          { name: "经历", fieldKeys: ["summary"] },
+        ],
+      },
+    }],
+  }],
+};
 let tables = [
   { id: "table-people", key: "people", name: "角色档案", description: "人物关系、经历与当前状态。", prompt: "按对话更新人物信息，保留已知事实。" },
   { id: "table-events", key: "events", name: "重要事件", description: "旅途中的转折与未完成的约定。", prompt: "记录时间、地点与事件的结果。" },
@@ -86,10 +119,34 @@ runtime.records = {
   update: async (_space, tableId, id, input) => { const original = records.find(record => record.id === id); if (!original) throw new Error("记录不存在"); history.set(id, [{ ...original, archivedAt: now }, ...(history.get(id) ?? [])]); const record = { ...original, payload: { ...original.payload, ...input.patch }, revisionId: crypto.randomUUID(), updatedAt: new Date().toISOString() }; record.displayText = String(record.payload[`${tableId}-name`] ?? record.displayText); records = records.map(item => item.id === id ? record : item); return record; },
   delete: async (_space, tableId, id) => { records = records.filter(record => record.id !== id); return true; },
 };
+const previewGroups = (config) => config.source === "custom"
+  ? config.groups ?? []
+  : config.source === "preset"
+    ? config.presetGroups ?? []
+    : fields.some(field => field.tableId === previewScope.tableId && field.enabled)
+      ? [{ id: "automatic", name: "全部启用字段", fieldIds: fields.filter(field => field.tableId === previewScope.tableId && field.enabled).map(field => field.id) }]
+      : [];
+let previewScope = { memorySpaceId: "space-1", tableId: "table-people" };
 runtime.vector = {
-  preview: async () => [], previewDraft: async () => [],
-  previewDraftSummary: async () => ({ records: records.length, vectors: records.length, ready: records.length, pending: 0, empty: 0, invalid: 0, tooLong: 0, unavailable: 0 }),
-  getTableSummary: async ({ tableId }) => ({ records: records.filter(record => record.tableId === tableId).length, ready: 3, stale: 1, errors: 0, empty: 0, queued: 0 }),
+  preview: async () => [], previewDraft: async (scope, config) => {
+    previewScope = scope;
+    const record = records.find(item => item.id === scope.recordId);
+    return previewGroups(config).map(group => ({
+      groupId: group.id,
+      groupName: group.name,
+      input: group.fieldIds.map(id => `${fields.find(field => field.id === id)?.name ?? "字段"}：${record?.payload[id] ?? ""}`).join("\n"),
+      fingerprint: "preview",
+      status: "ready",
+      error: null,
+    }));
+  },
+  previewDraftSummary: async (scope, config) => {
+    previewScope = scope;
+    const list = records.filter(record => record.tableId === scope.tableId);
+    const targets = list.length * previewGroups(config).length;
+    return { records: list.length, vectors: targets, ready: targets, pending: 0, empty: 0, invalid: 0, tooLong: 0, unavailable: 0 };
+  },
+  getTableSummary: async ({ tableId }) => ({ records: records.filter(record => record.tableId === tableId).length, ready: records.filter(record => record.tableId === tableId).length, stale: 0, errors: 0, empty: 0, queued: 0 }),
   getStatus: async () => ({ connection: "ready", error: null, tasks: [], vectors: [] }),
   listTasks: async () => ({ items: [], total: 0, queued: 0, running: 0 }), submit: async () => ({ created: 0, reused: 3, promoted: 0, skipped: 0 }), clear: async () => {}, cancel: async () => {}, cancelMany: async () => {}, retry: async () => {},
 };
