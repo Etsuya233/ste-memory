@@ -1,6 +1,10 @@
 import { FieldList, FieldListRow } from "../memory/field-list.tsx";
+import { TableConfigSection, TableFieldsPanel } from "../memory/table-detail-sections.tsx";
 import { FIELD_TYPE_LABELS } from "../memory/table-list-model.ts";
-import { presetFieldUsedForDisplay } from "./table-preset-editor-model.ts";
+import {
+  presetDisplayStrategySummary,
+  presetFieldUsedForDisplay,
+} from "./table-preset-editor-model.ts";
 import { SettingsActionMenu } from "./settings-action-menu.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
@@ -104,11 +108,7 @@ export function TablePresetManager(props: {
   );
   function openDetail(id: string | null) {
     rememberScroll();
-    const preset = id ? resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, id) : null;
-    if (preset && !preset.builtIn) {
-      setDetailId(null);
-      setEditor({ initial: preset, isNew: false });
-    } else setDetailId(id);
+    setDetailId(id);
     setDetailTableKey(null);
     setDetailFieldKey(null);
   }
@@ -446,7 +446,7 @@ export function TablePresetManager(props: {
                 );
             changePresets(next);
             rememberScroll();
-            setDetailId(null);
+            setDetailId(draft.id);
             setDetailTableKey(null);
             setDetailFieldKey(null);
             setEditor(null);
@@ -461,6 +461,29 @@ export function TablePresetManager(props: {
     : null;
   const detailTable = selected?.tables.find((table) => table.key === detailTableKey);
   const detailField = detailTable?.fields.find((field) => field.key === detailFieldKey);
+  function editSelected(): void {
+    if (!selected) return;
+    openEditor(
+      selected.builtIn
+        ? {
+            isNew: true,
+            initialTableKey: detailTableKey ?? undefined,
+            initialFieldKey: detailFieldKey ?? undefined,
+            initial: {
+              ...selected,
+              id: createUiId(),
+              name: `${selected.name} 副本`,
+              builtIn: false,
+            },
+          }
+        : {
+            isNew: false,
+            initial: selected,
+            initialTableKey: detailTableKey ?? undefined,
+            initialFieldKey: detailFieldKey ?? undefined,
+          },
+    );
+  }
   function createPreset() {
     openEditor({
       isNew: true,
@@ -655,12 +678,12 @@ export function TablePresetManager(props: {
                   title={detailField?.name ?? detailTable?.name ?? selected.name}
                   subtitle={
                     detailField
-                      ? `${detailTable?.name} · 内置 · 只读`
+                      ? `${detailTable?.name} · ${selected.builtIn ? "内置" : "用户"}预设 · 只读`
                       : detailTable
-                        ? `${detailTable.key} · 内置 · 只读`
+                        ? `${detailTable.key} · ${selected.builtIn ? "内置" : "用户"}预设 · 只读`
                         : selected.builtIn
-                          ? "内置预设"
-                          : "表格预设"
+                          ? "内置预设 · 只读"
+                          : "用户预设 · 只读"
                   }
                   leading={
                     <PanelBarAction
@@ -682,7 +705,14 @@ export function TablePresetManager(props: {
                   }
                   trailing={
                     <>
-                      {" "}
+                      <PanelBarAction
+                        icon="fa-pen"
+                        label={selected.builtIn ? "复制并编辑预设" : "编辑预设"}
+                        emphasis
+                        data-action="edit-table-preset"
+                        disabled={busy}
+                        onClick={editSelected}
+                      />
                       <SettingsActionMenu
                         actions={[
                           {
@@ -727,37 +757,18 @@ export function TablePresetManager(props: {
               }
             />
           )}
-          <div className="stm-setting-actions">
-            <button
-              type="button"
-              className="stm-button"
-              data-action="edit-table-preset"
-              onClick={() =>
-                openEditor(
-                  selected.builtIn
-                    ? {
-                        isNew: true,
-                        initialTableKey: detailTableKey ?? undefined,
-                        initialFieldKey: detailFieldKey ?? undefined,
-                        initial: {
-                          ...selected,
-                          id: createUiId(),
-                          name: `${selected.name} 副本`,
-                          builtIn: false,
-                        },
-                      }
-                    : {
-                        isNew: false,
-                        initial: selected,
-                        initialTableKey: detailTableKey ?? undefined,
-                        initialFieldKey: detailFieldKey ?? undefined,
-                      },
-                )
-              }
-            >
-              复制编辑
-            </button>
-          </div>
+          {!props.onEditingChange && (
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="edit-table-preset"
+                onClick={editSelected}
+              >
+                {selected.builtIn ? "复制并编辑" : "编辑预设"}
+              </button>
+            </div>
+          )}
           {detailTable ? (
             detailField ? (
               <div className="stm-preset-editor-fields" data-stm-field="preset-field-detail">
@@ -801,101 +812,103 @@ export function TablePresetManager(props: {
                 )}
               </div>
             ) : (
-              <div className="stm-fields-panel">
-                <div className="stm-fields-toolbar">
-                  <div className="stm-fields-title">
-                    {detailTable.fields.length} 个字段 · 已启用{" "}
-                    {detailTable.fields.filter((field) => field.enabled).length}
-                  </div>
-                </div>
-                <FieldList>
-                  {detailTable.fields.map((field) => (
-                    <FieldListRow
-                      key={field.key}
-                      name={field.name}
-                      fieldKey={field.key}
-                      typeLabel={FIELD_TYPE_LABELS[field.type]}
-                      required={field.required}
-                      dependent={presetFieldUsedForDisplay(detailTable, field.key)}
-                      button={{
-                        "data-action": "view-preset-field",
-                        "aria-label": `查看字段 ${field.name}`,
-                        onClick: () => {
-                          rememberScroll();
-                          setDetailFieldKey(field.key);
-                        },
-                      }}
-                      actions={
-                        !field.enabled ? (
-                          <span className="stm-setting-hint">已停用</span>
-                        ) : undefined
-                      }
-                    />
-                  ))}
-                </FieldList>
-                <Disclosure
-                  icon="fa-sliders"
-                  title="表格配置"
-                  className="stm-table-settings"
-                  meta={detailTable.enabled ? undefined : "已停用"}
+              <>
+                <TableFieldsPanel
+                  status={
+                    detailTable.fields.length > 0 &&
+                    detailTable.fields.every((field) => field.enabled)
+                      ? "全部启用"
+                      : `已启用 ${detailTable.fields.filter((field) => field.enabled).length}`
+                  }
                 >
-                  <div className="stm-preset-editor-fields">
-                    {detailTable.description && (
-                      <div className="stm-form-row">
-                        <span className="stm-form-label">描述</span>
-                        <span>{detailTable.description}</span>
-                      </div>
-                    )}
-                    {detailTable.prompt && (
-                      <div className="stm-form-row">
-                        <span className="stm-form-label">表格填写规则</span>
-                        <span>{detailTable.prompt}</span>
-                      </div>
-                    )}
-                    <div className="stm-form-row">
-                      <span className="stm-form-label">显示策略</span>
-                      <span>
-                        {!detailTable.displayStrategy
-                          ? "默认"
-                          : detailTable.displayStrategy.type === "field"
-                            ? detailTable.displayStrategy.fieldKey
-                            : detailTable.displayStrategy.template}
-                      </span>
-                    </div>
-                    <div className="stm-form-row">
-                      <span className="stm-form-label">向量索引</span>
-                      <span>{detailTable.vectorIndex?.enabled ? "已启用" : "未启用"}</span>
-                    </div>
-                  </div>
-                </Disclosure>
-              </div>
+                  {detailTable.fields.length > 0 ? (
+                    <FieldList>
+                      {detailTable.fields.map((field) => (
+                        <FieldListRow
+                          key={field.key}
+                          name={field.name}
+                          fieldKey={field.key}
+                          typeLabel={FIELD_TYPE_LABELS[field.type]}
+                          required={field.required}
+                          dependent={presetFieldUsedForDisplay(detailTable, field.key)}
+                          button={{
+                            "data-action": "view-preset-field",
+                            "aria-label": `查看字段 ${field.name}`,
+                            onClick: () => {
+                              rememberScroll();
+                              setDetailFieldKey(field.key);
+                            },
+                          }}
+                          actions={
+                            !field.enabled ? (
+                              <span className="stm-setting-hint">已停用</span>
+                            ) : undefined
+                          }
+                        />
+                      ))}
+                    </FieldList>
+                  ) : null}
+                </TableFieldsPanel>
+                <TableConfigSection
+                  meta={detailTable.enabled ? undefined : "已停用"}
+                  items={[
+                    {
+                      key: "info",
+                      title: "表格信息",
+                      summary: detailTable.description || detailTable.key,
+                    },
+                    {
+                      key: "strategy",
+                      title: "显示策略",
+                      summary: presetDisplayStrategySummary(detailTable),
+                    },
+                    {
+                      key: "vector",
+                      title: "向量索引",
+                      summary: detailTable.vectorIndex?.enabled ? "已启用" : "未启用",
+                    },
+                  ]}
+                />
+                {detailTable.prompt ? (
+                  <p className="stm-setting-hint">表格填写规则：{detailTable.prompt}</p>
+                ) : null}
+              </>
             )
           ) : (
             <>
-              <ul className="stm-grouped-list stm-settings-item-list">
-                {selected.tables.map((table) => (
-                  <li key={table.key}>
+              {selected.tables.length > 0 ? (
+                <div className="stm-table-rail-list stm-grouped-list">
+                  {selected.tables.map((table) => (
                     <button
+                      key={table.key}
                       type="button"
-                      className="stm-settings-item-row"
+                      className={`stm-table-rail-row${table.enabled ? "" : " is-off"}`}
                       data-action="view-preset-table"
                       onClick={() => {
                         rememberScroll();
                         setDetailTableKey(table.key);
                       }}
                     >
-                      <span className="stm-settings-item-main">
-                        <span className="stm-settings-item-title">{table.name}</span>
-                        <span className="stm-settings-item-summary">
-                          {table.key} · {table.fields.length} 个字段
+                      <span className="stm-table-rail-main">
+                        <span className="stm-table-rail-name">{table.name}</span>
+                        <span className="stm-table-rail-meta">
+                          {table.fields.length} 个字段
                           {table.enabled ? "" : " · 已停用"}
+                          {table.description ? ` · ${table.description}` : ""}
                         </span>
                       </span>
-                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                      <i
+                        className="fa-solid fa-chevron-right stm-table-chevron"
+                        aria-hidden="true"
+                      />
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  ))}
+                </div>
+              ) : (
+                <div className="stm-fields-empty">
+                  <div className="stm-fields-empty-title">还没有表格</div>
+                </div>
+              )}
               {selected.description && <p className="stm-setting-hint">{selected.description}</p>}
               <Disclosure icon="fa-eye" title="完整结构预览">
                 <PresetStructurePreview preset={selected} />

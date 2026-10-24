@@ -507,6 +507,13 @@
 .stm-table-settings .stm-disclosure-body {
   padding: 0;
 }
+/* 预设详情中的配置行只展示摘要，不提供点击反馈。 */
+.stm-table-settings .stm-settings-item-row--static,
+.stm-table-settings .stm-settings-item-row--static:active,
+.stm-table-settings .stm-settings-item-row--static:hover {
+  cursor: default;
+  background: transparent;
+}
 .stm-tables-workbench .stm-editor {
   margin: 0;
   padding: 0;

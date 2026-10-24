@@ -120,8 +120,8 @@ const path = require("node:path");
       () => window.__UI_PREVIEW__.runtime.settings.read().tablePresets.userPresets[0],
     );
     assert.equal(saved.tables[0].fields[0].name, "已验证名称");
-    await action("open-table-preset").filter({ hasText: saved.name }).click();
-    await action("open-preset-table").first().click();
+    await action("view-preset-table").first().click();
+    await action("edit-table-preset").click();
     await action("edit-field").first().click();
     assert.equal(
       await p.locator('[data-stm-field="field-name"]').inputValue(),

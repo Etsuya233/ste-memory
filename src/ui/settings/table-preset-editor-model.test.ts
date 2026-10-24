@@ -6,6 +6,7 @@ import {
   validateTablePresetContent,
 } from "../../features/table-presets/preset-transfer.ts";
 import {
+  presetDisplayStrategySummary,
   presetFieldUsedForDisplay,
   renamePresetDisplayField,
   replacePresetTable,
@@ -56,6 +57,20 @@ describe("预设编辑的引用与显示策略", () => {
         "title",
       ),
     ).toEqual({ type: "field", fieldKey: "title" });
+  });
+
+  it("显示策略摘要与表格详情共用同一文案口径", () => {
+    const table = STORY_MEMORY_PRESET.tables.find(
+      (candidate) => candidate.displayStrategy?.type === "field",
+    )!;
+    expect(presetDisplayStrategySummary(table)).toMatch(/^显示字段：/);
+    expect(presetDisplayStrategySummary({ ...table, displayStrategy: null })).toBe("默认");
+    expect(
+      presetDisplayStrategySummary({
+        ...table,
+        displayStrategy: { type: "template", template: "{name} / {nickname}" },
+      }),
+    ).toBe("显示模板：{name} / {nickname}");
   });
 
   it("编辑保存时拒绝悬空引用与非法约束", () => {

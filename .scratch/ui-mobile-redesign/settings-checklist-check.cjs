@@ -129,6 +129,7 @@ const path = require("node:path");
         document.querySelector('[data-action="settings-more"]').getAttribute("aria-expanded") ===
         "false",
     );
+    await action("edit-table-preset").click();
     await action("open-preset-table").first().click();
     const tableTitle = await p.locator(".stm-header-title:visible").innerText();
     assert.equal(
@@ -154,6 +155,7 @@ const path = require("node:path");
     await shot("preset-table-order");
     await action("close-table-preset").click();
     await action("close-table-preset").click();
+    await action("back-preset-list").click();
     await action("open-preset-apply").click();
     assert.equal(
       await p.locator('[data-stm-field="preset-source-label"]').innerText(),

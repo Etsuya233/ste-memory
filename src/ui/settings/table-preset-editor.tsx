@@ -1,4 +1,5 @@
 import { FieldList, FieldListRow } from "../memory/field-list.tsx";
+import { TableConfigSection, TableFieldsPanel } from "../memory/table-detail-sections.tsx";
 import { SettingsActionMenu, type SettingsMenuAction } from "./settings-action-menu.tsx";
 import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
@@ -22,6 +23,7 @@ import {
 import { FIELD_TYPE_LABELS } from "../memory/table-list-model.ts";
 import { PresetVectorIndexEditor } from "./preset-vector-index-editor.tsx";
 import {
+  presetDisplayStrategySummary,
   presetFieldUsedForDisplay,
   renamePresetDisplayField,
   replacePresetTable,
@@ -49,6 +51,7 @@ export function TablePresetEditor(props: {
   const [strategyEditor, setStrategyEditor] = useState<string | null>(null);
   const [vectorEditor, setVectorEditor] = useState<string | null>(null);
   const [tableEditor, setTableEditor] = useState<number | "new" | null>(null);
+  const [managingFields, setManagingFields] = useState(false);
   const [fieldEditor, setFieldEditor] = useState<{ table: number; field: number | "new" } | null>(
     () =>
       props.initialFieldKey
@@ -241,6 +244,7 @@ export function TablePresetEditor(props: {
     setConfigPage(null);
     setStrategyEditor(null);
     setVectorEditor(null);
+    setManagingFields(false);
     setSelectedTableKey(key);
   }
   function openTableForm(index: number | "new") {
@@ -323,7 +327,7 @@ export function TablePresetEditor(props: {
                     ? selectedTable.name
                     : readonly
                       ? draft.name
-                      : props.isNew
+                      : props.isNew && !draft.name.trim()
                         ? "新建预设"
                         : "编辑预设";
   const nested =
@@ -348,33 +352,13 @@ export function TablePresetEditor(props: {
             : close;
   const strategy = selectedTable?.displayStrategy;
   const canDeleteField = field && fieldTable && !presetFieldUsedForDisplay(fieldTable, field.key);
+  const fieldStatus = selectedTable
+    ? selectedTable.fields.length > 0 && selectedTable.fields.every((item) => item.enabled)
+      ? "全部启用"
+      : `已启用 ${selectedTable.fields.filter((item) => item.enabled).length}`
+    : "";
   const menuActions: SettingsMenuAction[] = selectedTable
     ? [
-        {
-          label: "表格信息",
-          dataAction: "edit-table",
-          onSelect: () => openTableForm(selectedTableIndex),
-        },
-        {
-          label: "显示策略",
-          dataAction: "edit-display-strategy",
-          onSelect: () => {
-            rememberScroll();
-            setStrategyEditor(selectedTable.key);
-            setVectorEditor(null);
-            setConfigPage(null);
-          },
-        },
-        {
-          label: "向量索引",
-          dataAction: "edit-preset-vector-index",
-          onSelect: () => {
-            rememberScroll();
-            setVectorEditor(selectedTable.key);
-            setStrategyEditor(null);
-            setConfigPage(null);
-          },
-        },
         {
           label: "字段顺序",
           dataAction: "order-preset-fields",
@@ -394,14 +378,6 @@ export function TablePresetEditor(props: {
       ]
     : [
         ...(props.presetActions?.(draft) ?? []),
-        {
-          label: "新建表格",
-          dataAction: "create-table",
-          onSelect: () => {
-            setConfigPage(null);
-            openTableForm("new");
-          },
-        },
         {
           label: "表格顺序",
           dataAction: "order-preset-tables",
@@ -693,132 +669,184 @@ export function TablePresetEditor(props: {
         />
       ) : selectedTable ? (
         <>
-          <div className="stm-fields-toolbar">
-            <div className="stm-fields-title">{selectedTable.fields.length} 个字段</div>
-            <div className="stm-bar-group stm-fields-actions">
-              <PanelBarAction
-                icon="fa-plus"
-                label="新建字段"
-                data-action="add-field"
-                onClick={() => openFieldForm(selectedTableIndex, "new")}
-              />
-            </div>
-          </div>
-          <FieldList>
-            {selectedTable.fields.map((f, fi) => {
-              const dependent = presetFieldUsedForDisplay(selectedTable, f.key);
-              return (
-                <FieldListRow
-                  key={f.key}
-                  name={f.name}
-                  fieldKey={f.key}
-                  typeLabel={FIELD_TYPE_LABELS[f.type]}
-                  required={f.required}
-                  dependent={dependent}
-                  button={{
-                    "data-action": "edit-field",
-                    disabled: readonly,
-                    onClick: () => openFieldForm(selectedTableIndex, fi),
-                  }}
-                  toggle={{
-                    checked: f.enabled,
-                    disabled: readonly || dependent,
-                    onChange: (event) =>
-                      updateTable(selectedTableIndex, {
-                        ...selectedTable,
-                        fields: selectedTable.fields.map((item, i) =>
-                          i === fi ? { ...item, enabled: event.target.checked } : item,
-                        ),
-                      }),
-                  }}
+          <TableFieldsPanel
+            status={fieldStatus}
+            actions={
+              <>
+                {selectedTable.fields.length > 0 ? (
+                  <PanelBarAction
+                    icon={managingFields ? "fa-check" : "fa-pen"}
+                    label={managingFields ? "完成编辑" : "编辑字段列表"}
+                    data-action="toggle-preset-field-edit"
+                    aria-pressed={managingFields}
+                    disabled={readonly}
+                    onClick={() => setManagingFields((prev) => !prev)}
+                  />
+                ) : null}
+                <PanelBarAction
+                  icon="fa-plus"
+                  label="新建字段"
+                  data-action="add-field"
+                  disabled={readonly}
+                  onClick={() => openFieldForm(selectedTableIndex, "new")}
                 />
-              );
-            })}
-          </FieldList>
-          {selectedTable.fields.length === 0 && <div className="stm-empty">还没有字段</div>}
-          <Disclosure icon="fa-sliders" title="表格配置" className="stm-table-settings">
-            <div className="stm-table-config-list">
-              <button
-                type="button"
-                data-action="configure-preset-table"
-                onClick={() => openTableForm(selectedTableIndex)}
-              >
-                <span>
-                  表格信息<small>{selectedTable.description || selectedTable.key}</small>
-                </span>
-                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                data-action="configure-preset-display"
-                onClick={() => {
-                  rememberScroll();
-                  setStrategyEditor(selectedTable.key);
-                }}
-              >
-                <span>
-                  显示策略<small>{selectedTable.displayStrategy ? "已配置" : "未配置"}</small>
-                </span>
-                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                data-action="configure-preset-vector"
-                onClick={() => {
-                  rememberScroll();
-                  setVectorEditor(selectedTable.key);
-                }}
-              >
-                <span>
-                  向量索引<small>{selectedTable.vectorIndex?.enabled ? "已启用" : "未启用"}</small>
-                </span>
-                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-              </button>
-            </div>
-          </Disclosure>
+              </>
+            }
+          >
+            {selectedTable.fields.length > 0 ? (
+              <FieldList>
+                {selectedTable.fields.map((f, fi) => {
+                  const dependent = presetFieldUsedForDisplay(selectedTable, f.key);
+                  return (
+                    <FieldListRow
+                      key={f.key}
+                      name={f.name}
+                      fieldKey={f.key}
+                      typeLabel={FIELD_TYPE_LABELS[f.type]}
+                      required={f.required}
+                      dependent={dependent}
+                      button={{
+                        "data-action": "edit-field",
+                        disabled: readonly,
+                        onClick: () => openFieldForm(selectedTableIndex, fi),
+                      }}
+                      toggle={{
+                        checked: f.enabled,
+                        disabled: readonly || dependent,
+                        onChange: (event) =>
+                          updateTable(selectedTableIndex, {
+                            ...selectedTable,
+                            fields: selectedTable.fields.map((item, i) =>
+                              i === fi ? { ...item, enabled: event.target.checked } : item,
+                            ),
+                          }),
+                      }}
+                      actions={
+                        managingFields ? (
+                          <div className="stm-bar-group stm-field-management-actions">
+                            <PanelBarAction
+                              icon="fa-trash-can"
+                              label={`删除字段 ${f.name}`}
+                              danger
+                              data-action="delete-preset-field"
+                              disabled={readonly || dependent}
+                              title={
+                                dependent
+                                  ? "该字段被显示策略依赖，请先修改显示策略"
+                                  : `删除字段 ${f.name}`
+                              }
+                              onClick={() => deleteField(selectedTableIndex, fi)}
+                            />
+                          </div>
+                        ) : null
+                      }
+                    />
+                  );
+                })}
+              </FieldList>
+            ) : null}
+          </TableFieldsPanel>
+          <TableConfigSection
+            meta={selectedTable.enabled ? undefined : "已停用"}
+            items={[
+              {
+                key: "info",
+                title: "表格信息",
+                summary: selectedTable.description || selectedTable.key,
+                action: "configure-preset-table",
+                disabled: readonly,
+                onClick: readonly ? undefined : () => openTableForm(selectedTableIndex),
+              },
+              {
+                key: "strategy",
+                title: "显示策略",
+                summary: presetDisplayStrategySummary(selectedTable),
+                action: "configure-preset-display",
+                disabled: readonly,
+                onClick: readonly
+                  ? undefined
+                  : () => {
+                      rememberScroll();
+                      setStrategyEditor(selectedTable.key);
+                      setVectorEditor(null);
+                      setConfigPage(null);
+                    },
+              },
+              {
+                key: "vector",
+                title: "向量索引",
+                summary: selectedTable.vectorIndex?.enabled ? "已启用" : "未启用",
+                action: "configure-preset-vector",
+                disabled: readonly,
+                onClick: readonly
+                  ? undefined
+                  : () => {
+                      rememberScroll();
+                      setVectorEditor(selectedTable.key);
+                      setStrategyEditor(null);
+                      setConfigPage(null);
+                    },
+              },
+            ]}
+          />
         </>
       ) : (
         <>
-          <ul className="stm-grouped-list stm-settings-item-list">
-            {draft.tables.map((table) => (
-              <li
-                key={table.key}
-                className="stm-settings-item-with-toggle"
-                data-table-key={table.key}
-              >
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
-                  data-action="open-preset-table"
-                  onClick={() => openTable(table.key)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{table.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {table.key} · {table.fields.length} 个字段
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
-                <label className="stm-switch">
-                  <input
-                    type="checkbox"
-                    aria-label={`启用表格 ${table.name}`}
-                    checked={table.enabled}
-                    disabled={readonly}
-                    onChange={(event) =>
-                      updateTable(draft.tables.indexOf(table), {
-                        ...table,
-                        enabled: event.target.checked,
-                      })
-                    }
-                  />
-                  <span className="stm-switch-track" aria-hidden="true" />
-                </label>
-              </li>
-            ))}
-          </ul>
-          {draft.tables.length === 0 && <div className="stm-empty">还没有预设表格</div>}
+          <TableFieldsPanel
+            status={`${draft.tables.length} 张表`}
+            emptyTitle="还没有预设表格"
+            actions={
+              <PanelBarAction
+                icon="fa-plus"
+                label="新建表格"
+                data-action="create-table"
+                disabled={readonly}
+                onClick={() => openTableForm("new")}
+              />
+            }
+          >
+            {draft.tables.length > 0 ? (
+              <ul className="stm-grouped-list stm-settings-item-list">
+                {draft.tables.map((table) => (
+                  <li
+                    key={table.key}
+                    className="stm-settings-item-with-toggle"
+                    data-table-key={table.key}
+                  >
+                    <button
+                      type="button"
+                      className="stm-settings-item-row"
+                      data-action="open-preset-table"
+                      onClick={() => openTable(table.key)}
+                    >
+                      <span className="stm-settings-item-main">
+                        <span className="stm-settings-item-title">{table.name}</span>
+                        <span className="stm-settings-item-summary">
+                          {table.key} · {table.fields.length} 个字段
+                        </span>
+                      </span>
+                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                    </button>
+                    <label className="stm-switch">
+                      <input
+                        type="checkbox"
+                        aria-label={`启用表格 ${table.name}`}
+                        checked={table.enabled}
+                        disabled={readonly}
+                        onChange={(event) =>
+                          updateTable(draft.tables.indexOf(table), {
+                            ...table,
+                            enabled: event.target.checked,
+                          })
+                        }
+                      />
+                      <span className="stm-switch-track" aria-hidden="true" />
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </TableFieldsPanel>
         </>
       )}
     </div>
