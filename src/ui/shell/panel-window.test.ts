@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GEOMETRY_STORAGE_KEY,
+  PANEL_NAV_DOCK_MIN_WIDTH,
   PANEL_MIN_HEIGHT,
   PANEL_MIN_WIDTH,
   PANEL_VIEWPORT_MARGIN,
@@ -13,6 +14,7 @@ import {
   parseGeometry,
   saveGeometry,
   serializeGeometry,
+  shouldDockNavigation,
   type PanelGeometry,
   type PanelGeometryStorage,
 } from "./panel-window.ts";
@@ -106,6 +108,19 @@ describe("parseGeometry / serializeGeometry", () => {
   it("与 serializeGeometry 往返一致", () => {
     const geo: PanelGeometry = { x: 10, y: 20, width: 800, height: 600 };
     expect(parseGeometry(serializeGeometry(geo))).toEqual(geo);
+  });
+});
+
+describe("shouldDockNavigation（按面板自身宽度决定导航）", () => {
+  it("达到阈值才常驻，窄于阈值回到抽屉", () => {
+    expect(shouldDockNavigation(PANEL_NAV_DOCK_MIN_WIDTH - 1)).toBe(false);
+    expect(shouldDockNavigation(PANEL_NAV_DOCK_MIN_WIDTH)).toBe(true);
+    expect(shouldDockNavigation(720)).toBe(true);
+    expect(shouldDockNavigation(390)).toBe(false);
+  });
+
+  it("隐藏面板的 0 宽读数不算常驻", () => {
+    expect(shouldDockNavigation(0)).toBe(false);
   });
 });
 

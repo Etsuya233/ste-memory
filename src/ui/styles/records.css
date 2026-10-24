@@ -72,9 +72,9 @@
   flex: 0 0 auto;
   min-height: var(--stm-control-h);
   padding: var(--stm-space-2) var(--stm-space-4);
-  border: 1px solid var(--stm-border);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--stm-surface);
+  background: var(--stm-surface-2);
   color: var(--stm-fg-2);
   font: inherit;
   font-size: var(--stm-fs-sm);
@@ -84,16 +84,17 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .stm-record-chip:hover {
+  .stm-record-chip:not(.stm-record-chip--active):hover {
     color: var(--stm-fg);
-    background: var(--stm-surface-2);
+    background: var(--stm-surface-3);
   }
 }
 
 .stm-record-chip--active {
-  border-color: var(--stm-accent);
+  border-color: transparent;
   color: var(--stm-accent-text);
   background: var(--stm-accent-tint);
+  font-weight: var(--stm-weight-semibold);
 }
 
 .stm-record-chip--disabled {

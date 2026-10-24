@@ -2,7 +2,11 @@
 export async function switchTab(page, tab) {
   const tableBack = page.locator('#stm-panel [data-action="back-to-table-list"]');
   if (await tableBack.isVisible()) await tableBack.click();
-  await page.locator('#stm-panel [data-action="open-navigation"]').click();
+  const navigation = page.locator("#stm-navigation");
+  // 大屏默认固定显示导航；移动端（或用户手动收起后）才需要点汉堡按钮。
+  if (!(await navigation.isVisible())) {
+    await page.locator('#stm-panel [data-action="open-navigation"]').click();
+  }
   await page.locator(`#stm-navigation .stm-tab[data-tab="${tab}"]`).click();
   await page.locator(`#stm-panel .stm-tab-section[data-stm-section="${tab}"]:not([hidden])`).waitFor({ state: "visible" });
 }

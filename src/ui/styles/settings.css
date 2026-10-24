@@ -404,6 +404,154 @@
   color: var(--stm-accent-text);
 }
 
+.stm-appearance-style-grid,
+.stm-appearance-theme-grid,
+.stm-appearance-accent-grid {
+  display: grid;
+  gap: var(--stm-space-2);
+  min-width: 0;
+}
+
+.stm-appearance-style-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.stm-settings-navigation .stm-appearance-style-grid > button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 64px;
+  padding: var(--stm-space-3);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  background: var(--stm-surface);
+  color: var(--stm-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stm-appearance-style-grid > button[aria-pressed="true"] {
+  border-color: var(--stm-accent);
+  background: color-mix(in srgb, var(--stm-accent) 10%, var(--stm-surface));
+  color: var(--stm-accent-text);
+}
+
+.stm-appearance-style-name {
+  display: flex;
+  align-items: center;
+  gap: var(--stm-space-2);
+  font-size: var(--stm-fs-sm);
+  font-weight: var(--stm-weight-semibold);
+}
+
+.stm-appearance-style-summary {
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-xs);
+  line-height: var(--stm-leading-normal);
+}
+
+.stm-appearance-theme-grid {
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+}
+
+.stm-settings-navigation .stm-appearance-theme-grid > button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 72px;
+  padding: var(--stm-space-2);
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  background: var(--stm-surface);
+  color: var(--stm-fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stm-appearance-theme-grid > button[aria-pressed="true"] {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent-tint);
+  color: var(--stm-accent-text);
+}
+
+.stm-appearance-theme-swatch {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  width: 100%;
+  height: 38px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--stm-fg) 24%, transparent);
+  border-radius: calc(var(--stm-radius) - 4px);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
+}
+
+.stm-appearance-theme-swatch > span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 32%);
+}
+
+.stm-appearance-theme-swatch--custom {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--stm-accent) 55%, transparent);
+}
+
+.stm-appearance-theme-label {
+  font-size: var(--stm-fs-xs);
+  line-height: var(--stm-leading-tight);
+}
+
+.stm-appearance-theme-grid .stm-appearance-check {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+}
+
+.stm-appearance-accent-grid {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+}
+
+.stm-settings-navigation .stm-appearance-accent-grid > button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--stm-control-h);
+  padding: var(--stm-space-2) 4px;
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+  background: var(--stm-surface-2);
+  color: var(--stm-fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stm-appearance-accent-grid > button[aria-pressed="true"] {
+  border-color: var(--stm-accent);
+  background: var(--stm-accent-tint);
+  color: var(--stm-accent-text);
+}
+
+.stm-appearance-accent-grid .stm-appearance-check {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font-size: 9px;
+}
+
+.stm-appearance-accent-label {
+  font-size: var(--stm-fs-xs);
+  line-height: var(--stm-leading-tight);
+}
+
 .stm-settings-navigation .stm-appearance-field .stm-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -432,48 +580,55 @@
 .stm-appearance-check {
   margin-left: auto;
   visibility: hidden;
+  color: var(--stm-fg);
   font-size: var(--stm-fs-xs);
 }
 [aria-pressed="true"] > .stm-appearance-check {
   visibility: visible;
 }
 .stm-appearance-swatch {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   flex: none;
-  background: var(--stm-sample-neutral);
+  background: var(--stm-palette-neutral);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
-[data-appearance-option="accent"][data-value="teal"] .stm-appearance-swatch {
-  background: var(--stm-palette-teal);
+.stm-appearance-swatch--custom {
+  display: grid;
+  place-items: center;
+  background: conic-gradient(from 210deg, #0d9488, #2563eb, #8b5cf6, #e11d48, #d97706, #0d9488);
+  color: #ffffff;
+  font-size: 9px;
 }
-[data-appearance-option="accent"][data-value="blue"] .stm-appearance-swatch {
-  background: var(--stm-sample-blue);
-}
-[data-appearance-option="accent"][data-value="indigo"] .stm-appearance-swatch {
-  background: var(--stm-sample-indigo);
-}
-.stm-appearance-theme {
-  width: 28px;
-  height: 24px;
+.stm-appearance-color-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  padding: 4px;
+  align-items: center;
+  gap: var(--stm-space-3);
+  padding-top: var(--stm-space-2);
+  color: var(--stm-fg-2);
+  font-size: var(--stm-fs-sm);
+}
+.stm-appearance-color-row input[type="color"] {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
   border: 1px solid var(--stm-border);
-  border-radius: 4px;
-  background: var(--stm-palette-dark-bg);
+  border-radius: 10px;
+  background: var(--stm-surface);
+  cursor: pointer;
 }
-.stm-appearance-theme > span {
-  height: 2px;
-  background: var(--stm-palette-dark-fg);
+.stm-appearance-color-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 1px;
 }
-[data-appearance-option="theme"][data-value="light"] .stm-appearance-theme {
-  background: var(--stm-palette-light-bg);
+.stm-appearance-color-row input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 6px;
 }
-[data-appearance-option="theme"][data-value="light"] .stm-appearance-theme > span {
-  background: var(--stm-palette-light-fg);
+.stm-appearance-color-row code {
+  color: var(--stm-fg);
+  font-family: var(--stm-font-mono);
+  font-size: var(--stm-fs-xs);
 }
 [data-appearance-option="font"][data-value="serif"] {
   font-family: var(--stm-serif);

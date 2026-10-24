@@ -2,6 +2,7 @@ import { Tabs } from "./tabs.tsx";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
+import { presentAppearance } from "./appearance-model.ts";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
 import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
@@ -17,7 +18,14 @@ import type { VectorRetrievalService } from "../../features/vector-retrieval/vec
  * 契约：改动必须同步改脚本。data-action / data-stm-field 属性保留（脚本按它们
  * 定位元素），行为全部走 React 事件。
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import type { SteMemoryRuntime } from "../../runtime.ts";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import { PLUGIN_DISPLAY_NAME } from "../../constants.ts";
@@ -25,6 +33,7 @@ import {
   DESKTOP_MEDIA_QUERY,
   clampGeometry,
   loadGeometry,
+  shouldDockNavigation,
   safeLocalStorage,
   saveGeometry,
   type PanelGeometry,
@@ -249,6 +258,22 @@ function viewportSize(): ViewportSize {
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
+/** 媒体查询订阅（SSR 首屏按窄屏处理，浏览器挂载后立即校正）。 */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && window.matchMedia?.(query).matches === true,
+  );
+  useEffect(() => {
+    const media = window.matchMedia?.(query);
+    if (!media) return;
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
 // ---- 面板骨架 ----
 
 export function PanelShell(props: {
@@ -288,17 +313,38 @@ export function PanelShell(props: {
   const [queryChatStore] = useState(() => new QueryChatStore());
 
   const appearance = useAppearance();
+  const presentation = presentAppearance(appearance);
+  // 视口断点仅用于「面板尚未显示、还量不到自身宽度」时的初值。
+  const isDesktopViewport = useMediaQuery(DESKTOP_MEDIA_QUERY);
+  const [panelWide, setPanelWide] = useState<boolean | null>(() => {
+    if (typeof window === "undefined") return null;
+    const savedWidth = loadGeometry(safeLocalStorage())?.width;
+    return savedWidth === undefined ? null : shouldDockNavigation(savedWidth);
+  });
+  // 宽面板：导航固定在左侧；窄面板：收起为覆盖内容的抽屉。
+  const [navDocked, setNavDocked] = useState(true);
   const [navOpen, setNavOpen] = useState(false);
+  const isWidePanel = panelWide ?? isDesktopViewport;
+  const navVisible = isWidePanel ? navDocked : navOpen;
   const [taskKind, setTaskKind] = useState<"fill" | "vector">("fill");
   const navRef = useRef<HTMLElement | null>(null);
   const navTriggerRef = useRef<HTMLButtonElement | null>(null);
   const navWasOpen = useRef(false);
   useEffect(() => {
-    if (navOpen)
+    // 常驻导航不抢占焦点；只有窄面板的覆盖式抽屉需要把焦点送入第一个 Tab。
+    if (navOpen && !isWidePanel)
       navRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
     else if (navWasOpen.current) navTriggerRef.current?.focus();
-    navWasOpen.current = navOpen;
-  }, [navOpen]);
+    navWasOpen.current = navOpen && !isWidePanel;
+  }, [navOpen, isWidePanel]);
+  useEffect(() => {
+    // 从抽屉宽度拉宽成常驻布局时，关闭遗留的 drawer 状态，避免再拉窄时意外弹开。
+    if (isWidePanel) setNavOpen(false);
+  }, [isWidePanel]);
+  function closeNavigation(): void {
+    if (isWidePanel) setNavDocked(false);
+    else setNavOpen(false);
+  }
   const info = buildSpaceInfo(status, settings);
   // 数据版本：导入备份等整库变更后自增，驱动表格列表等依赖数据的区块重取
   const [dataVersion, setDataVersion] = useState(0);
@@ -346,6 +392,22 @@ export function PanelShell(props: {
 
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
+
+  // 导航是否常驻跟随面板自身宽度（桌面窗口可被缩到手机大小）；窗口隐藏时忽略 0 宽读数。
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const measure = (): void => {
+      const width = panel.getBoundingClientRect().width;
+      if (width <= 0) return;
+      const next = shouldDockNavigation(width);
+      setPanelWide((current) => (current === next ? current : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
 
   // ST 的 html 带 transform；顶层浮层让 fixed 几何始终以视口为准。
   // manual 保留点击外部不收起的行为，开关仍由 PanelModel 管理。
@@ -514,19 +576,23 @@ export function PanelShell(props: {
   return (
     <aside
       id="stm-panel"
-      data-glass={appearance.liquidGlass}
+      data-style={appearance.style}
+      data-tone={presentation.tone}
       data-theme={appearance.theme}
       data-accent={appearance.accent}
       data-font={appearance.font}
       data-size={appearance.size}
+      data-nav-docked={isWidePanel ? navDocked : undefined}
+      data-nav-open={navOpen}
+      style={presentation.variables as CSSProperties}
       onKeyDown={(event) => {
-        if (!navOpen) return;
+        if (!navVisible) return;
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          setNavOpen(false);
+          closeNavigation();
         }
-        if (event.key === "Tab") {
+        if (event.key === "Tab" && navOpen && !isWidePanel) {
           const buttons = navRef.current!.querySelectorAll<HTMLButtonElement>("button");
           const first = buttons[0]!;
           const last = buttons[buttons.length - 1]!;
@@ -544,35 +610,31 @@ export function PanelShell(props: {
       className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
       aria-hidden={!state.open}
     >
-      {navOpen && (
+      {navOpen && !isWidePanel && (
         <button
           type="button"
           className="stm-drawer-scrim"
           aria-label="关闭导航"
           tabIndex={-1}
-          onClick={() => {
-            setNavOpen(false);
-          }}
+          onClick={closeNavigation}
         />
       )}
       <nav
         id="stm-navigation"
         ref={navRef}
         className="stm-navigation"
-        data-open={navOpen}
-        inert={!navOpen}
-        aria-hidden={!navOpen}
+        data-open={navVisible}
+        inert={!navVisible}
+        aria-hidden={!navVisible}
         aria-label="记忆面板导航"
       >
         <div className="stm-navigation-heading">
-          <span>记忆工作台</span>
+          <span>{PLUGIN_DISPLAY_NAME}</span>
           <button
             type="button"
             className="stm-header-nav"
-            aria-label="关闭导航"
-            onClick={() => {
-              setNavOpen(false);
-            }}
+            aria-label="收起导航"
+            onClick={closeNavigation}
           >
             <i className="fa-solid fa-xmark" aria-hidden="true" />
           </button>
@@ -600,7 +662,7 @@ export function PanelShell(props: {
                   onClick={() => {
                     if (tab !== state.tab && !confirmLeaveTab()) return;
                     props.model.setTab(tab);
-                    setNavOpen(false);
+                    if (!isWidePanel) setNavOpen(false);
                   }}
                 >
                   <i
@@ -630,7 +692,7 @@ export function PanelShell(props: {
           <PanelBar
             dataAction="drag-panel"
             onPointerDown={beginHeaderDrag}
-            inert={navOpen}
+            inert={navOpen && !isWidePanel}
             title={PANEL_TAB_LABELS[state.tab]}
             subtitle={
               <span
@@ -643,12 +705,16 @@ export function PanelShell(props: {
             leading={
               <PanelBarAction
                 icon="fa-bars"
-                label="打开导航"
+                label={navVisible ? "收起导航" : "显示导航"}
                 ref={navTriggerRef}
-                aria-expanded={navOpen}
+                aria-expanded={navVisible}
                 aria-controls="stm-navigation"
                 data-action="open-navigation"
-                onClick={() => setNavOpen(true)}
+                data-active={navVisible ? "true" : undefined}
+                onClick={() => {
+                  if (isWidePanel) setNavDocked((docked) => !docked);
+                  else setNavOpen((open) => !open);
+                }}
               />
             }
             trailing={
@@ -669,7 +735,7 @@ export function PanelShell(props: {
         }
         contentClassName="stm-panel-body"
         contentAs="main"
-        inert={navOpen}
+        inert={navOpen && !isWidePanel}
       >
         {info.tone === "warning" && (
           <div className="stm-context-warning" role="status">

@@ -1,50 +1,54 @@
-/* ---------- 设计令牌与基础重置（墨灰主题 v2：色阶 → 语义 → 旋钮三层） ---------- */
+/* ---------- 设计令牌与基础重置（样式 × 主题 × 强调色三层） ---------- */
 
 /*
  * STE Memory 设计令牌 —— 全插件唯一的色值/字体/尺寸定义处。
  *
- * 三层结构（原型 .scratch/ui-redesign/prototype.html 为准）：
- *   色阶层（本文件固定值） → 语义令牌（组件唯一入口，--stm-*） → 旋钮层
- *   （#stm-panel 上的 data-theme / data-accent / data-font / data-size）。
+ * 结构：
+ *   1. 主题：每个预设/自定义主题只提供一块底色（--stm-bg，由 React 内联写入）；
+ *      面板按底色亮度挂 data-tone="dark" | "light"，据此推导 surface / 文本 / 边框。
+ *   2. 强调色：预设或自定义色写入 --stm-accent，前景色按对比度选择。
+ *   3. 样式：data-style="glass" | "classic" | "material" 决定栏材质、圆角与阴影。
  *
- * 深色是默认（:root），面板外的顶部入口按钮不受旋钮影响；
- * 主题/强调色/字体/字号覆盖一律挂在 #stm-panel[...] 上。
+ * 不再有「亮色 / 暗色」开关：用户只需选主题和强调色。
  * 旧令牌名保留为别名、值指向新语义，其余样式文件无需跟随改名。
  */
 
 :root {
   /* Appearance samples share the actual palette and font stacks. */
   --stm-palette-teal: #0d9488;
-  --stm-palette-blue-dark: #0a84ff;
-  --stm-palette-blue-light: #2563eb;
-  --stm-palette-indigo-dark: #6366f1;
-  --stm-palette-indigo-light: #4f46e5;
+  --stm-palette-blue: #2563eb;
+  --stm-palette-indigo: #6366f1;
+  --stm-palette-violet: #8b5cf6;
+  --stm-palette-rose: #e11d48;
+  --stm-palette-amber: #d97706;
+  --stm-palette-neutral: #71717a;
   --stm-palette-dark-bg: #09090b;
   --stm-palette-dark-fg: #fafafa;
-  --stm-palette-light-bg: #fafafa;
+  --stm-palette-light-bg: #f5f3ee;
   --stm-palette-light-fg: #18181b;
   --stm-serif:
     "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman",
     serif;
 
+  /* 面板外的入口按钮与加载占位使用固定深色值 */
   --stm-bg: var(--stm-palette-dark-bg);
-  --stm-surface: #121215;
-  --stm-surface-2: #1a1a1f;
-  --stm-surface-3: #27272a;
-  --stm-raised: #0e0e11;
-  --stm-float-bg: #1a1a1f;
-  --stm-border: #24242a;
+  --stm-surface: #151517;
+  --stm-surface-2: #202022;
+  --stm-surface-3: #323234;
+  --stm-raised: #0b0b0d;
+  --stm-float-bg: #202022;
+  --stm-border: #2a2a2d;
 
   --stm-fg: var(--stm-palette-dark-fg);
   --stm-fg-2: #a1a1aa;
-  --stm-fg-3: #6f6f78;
+  --stm-fg-3: #71717a;
 
-  --stm-hover: rgba(255, 255, 255, 0.06);
-  --stm-pressed: rgba(255, 255, 255, 0.1);
-  --stm-input-bg: rgba(255, 255, 255, 0.04);
-  --stm-switch-track: #2e2e34;
-  --stm-scrim: rgba(0, 0, 0, 0.55);
-  --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --stm-hover: rgb(255 255 255 / 6%);
+  --stm-pressed: rgb(255 255 255 / 10%);
+  --stm-input-bg: rgb(255 255 255 / 4%);
+  --stm-switch-track: #36363a;
+  --stm-scrim: rgb(0 0 0 / 55%);
+  --stm-shadow-pop: 0 10px 30px rgb(0 0 0 / 55%);
 
   --stm-success: #4ade80;
   --stm-warning: #fbbf24;
@@ -71,9 +75,10 @@
   --stm-page-padding: 16px;
   --stm-row-padding-y: 12px;
   --stm-bar-height: 60px;
-  --stm-glass-fade: 48px;
+  --stm-glass-fade: 16px;
   --stm-bar-shadow: none;
   --stm-bar-backdrop: none;
+  --stm-nav-width: 248px;
 
   --stm-font:
     system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -87,7 +92,7 @@
   --stm-fs-md: calc(15px * var(--stm-font-scale));
   --stm-fs-lg: calc(17px * var(--stm-font-scale));
 
-  /* 强调色（默认青绿）：面板外入口按钮的固定色；面板内由 data-accent 覆盖 */
+  /* 强调色（默认青绿）：面板外入口按钮的固定色；面板内由外观设置覆盖 */
   --stm-accent: #0d9488;
   --stm-accent-text: #5eead4;
   --stm-accent-fg: #ffffff;
@@ -100,55 +105,97 @@
   --stm-ink-secondary: var(--stm-fg-2);
   --stm-ink-bg: var(--stm-surface);
   --stm-font-mono: var(--stm-mono);
-  --stm-code-bg: rgba(255, 255, 255, 0.06);
+  --stm-code-bg: rgb(255 255 255 / 6%);
   --stm-accent-2: var(--stm-accent);
   --stm-success-dim: color-mix(in srgb, var(--stm-success) 14%, transparent);
   --stm-warning-dim: color-mix(in srgb, var(--stm-warning) 14%, transparent);
   --stm-danger-dim: color-mix(in srgb, var(--stm-danger) 14%, transparent);
 }
 
-/* ---------- 旋钮 1：主题（深 / 浅） ---------- */
-#stm-panel[data-theme="light"] {
-  color-scheme: light;
-  --stm-sample-blue: var(--stm-palette-blue-light);
-  --stm-sample-indigo: var(--stm-palette-indigo-light);
-  --stm-sample-neutral: var(--stm-palette-light-fg);
+/* ---------- 面板基础：主题底色由 React 写入 --stm-bg ---------- */
+#stm-panel {
+  color-scheme: dark;
+  --stm-accent-text: color-mix(in srgb, var(--stm-accent) 58%, var(--stm-fg));
+  --stm-accent-tint: color-mix(in srgb, var(--stm-accent) 14%, transparent);
+  --stm-accent-soft: color-mix(in srgb, var(--stm-accent) 32%, transparent);
+  --stm-ring: color-mix(in srgb, var(--stm-accent) 30%, transparent);
+  --stm-success-dim: color-mix(in srgb, var(--stm-success) 14%, transparent);
+  --stm-warning-dim: color-mix(in srgb, var(--stm-warning) 14%, transparent);
+  --stm-danger-dim: color-mix(in srgb, var(--stm-danger) 14%, transparent);
+  --stm-bar-bg: var(--stm-bg);
+  --stm-bar-border: var(--stm-border);
+  --stm-fs-xs: calc(12px * var(--stm-font-scale));
+  --stm-fs-sm: calc(13px * var(--stm-font-scale));
+  --stm-fs-md: calc(15px * var(--stm-font-scale));
+  --stm-fs-lg: calc(17px * var(--stm-font-scale));
 
-  --stm-bg: var(--stm-palette-light-bg);
-  --stm-surface: #ffffff;
-  --stm-surface-2: #f4f4f5;
-  --stm-surface-3: #e4e4e7;
-  --stm-raised: #ffffff;
-  --stm-float-bg: #ffffff;
-  --stm-border: #e4e4e7;
-
-  --stm-fg: var(--stm-palette-light-fg);
-  --stm-fg-2: #71717a;
-  --stm-fg-3: #a1a1aa;
-
-  --stm-hover: rgba(0, 0, 0, 0.04);
-  --stm-pressed: rgba(0, 0, 0, 0.07);
-  --stm-input-bg: rgba(0, 0, 0, 0.03);
-  --stm-switch-track: #d4d4d8;
-  --stm-scrim: rgba(0, 0, 0, 0.35);
-  --stm-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.18);
-
-  --stm-success: #16a34a;
-  --stm-warning: #d97706;
-  --stm-danger: #dc2626;
-  --stm-code-bg: rgba(0, 0, 0, 0.05);
-
-  --stm-accent: var(--ac-fill-light, #0d9488);
-  --stm-accent-text: var(--ac-text-light, #0f766e);
-  --stm-accent-fg: var(--ac-fg-light, #ffffff);
+  /* 旧令牌兼容别名在面板内重解析，避免继承到根上的深色文本色。 */
+  --stm-ink: var(--stm-fg);
+  --stm-ink-secondary: var(--stm-fg-2);
+  --stm-ink-bg: var(--stm-surface);
+  --stm-font-mono: var(--stm-mono);
+  --stm-accent-2: var(--stm-accent);
 }
 
-/* ---------- 旋钮 3：字体（衬线 = 宋体风） ---------- */
+/* 深色主题底色：surface 逐级提亮，文本从白到灰。 */
+#stm-panel[data-tone="dark"] {
+  color-scheme: dark;
+  --stm-surface: color-mix(in srgb, var(--stm-bg) 95%, #fff);
+  --stm-surface-2: color-mix(in srgb, var(--stm-bg) 91%, #fff);
+  --stm-surface-3: color-mix(in srgb, var(--stm-bg) 84%, #fff);
+  --stm-raised: color-mix(in srgb, var(--stm-bg) 92%, #000);
+  --stm-float-bg: color-mix(in srgb, var(--stm-bg) 91%, #fff);
+  --stm-border: color-mix(in srgb, var(--stm-bg) 86%, #fff);
+
+  --stm-fg: #fafafa;
+  --stm-fg-2: #a1a1aa;
+  --stm-fg-3: #71717a;
+
+  --stm-hover: rgb(255 255 255 / 6%);
+  --stm-pressed: rgb(255 255 255 / 10%);
+  --stm-input-bg: rgb(255 255 255 / 4%);
+  --stm-switch-track: color-mix(in srgb, var(--stm-bg) 74%, #fff);
+  --stm-code-bg: rgb(255 255 255 / 6%);
+  --stm-scrim: rgb(0 0 0 / 55%);
+  --stm-shadow-pop: 0 10px 30px rgb(0 0 0 / 55%);
+
+  --stm-success: #4ade80;
+  --stm-warning: #fbbf24;
+  --stm-danger: #f87171;
+}
+
+/* 浅色主题底色（瓷白/沙丘/自定义浅色）：surface 向白靠，层级用轻微加深表达。 */
+#stm-panel[data-tone="light"] {
+  color-scheme: light;
+  --stm-surface: color-mix(in srgb, var(--stm-bg) 35%, #fff);
+  --stm-surface-2: color-mix(in srgb, var(--stm-bg) 95%, #000);
+  --stm-surface-3: color-mix(in srgb, var(--stm-bg) 88%, #000);
+  --stm-raised: #fff;
+  --stm-float-bg: #fff;
+  --stm-border: color-mix(in srgb, var(--stm-bg) 86%, #000);
+
+  --stm-fg: #18181b;
+  --stm-fg-2: #3f3f46;
+  --stm-fg-3: #52525b;
+
+  --stm-hover: rgb(0 0 0 / 5%);
+  --stm-pressed: rgb(0 0 0 / 8%);
+  --stm-input-bg: rgb(0 0 0 / 3.5%);
+  --stm-switch-track: color-mix(in srgb, var(--stm-bg) 80%, #000);
+  --stm-code-bg: rgb(0 0 0 / 5%);
+  --stm-scrim: rgb(0 0 0 / 35%);
+  --stm-shadow-pop: 0 10px 30px rgb(0 0 0 / 18%);
+
+  --stm-success: #16a34a;
+  --stm-warning: #b45309;
+  --stm-danger: #dc2626;
+}
+
+/* ---------- 字体与字号档 ---------- */
 #stm-panel[data-font="serif"] {
   --stm-font: var(--stm-serif);
 }
 
-/* ---------- 旋钮 4：字号档（只缩文字，不缩控件） ---------- */
 #stm-panel[data-size="compact"] {
   --stm-font-scale: 0.94;
 }
@@ -157,74 +204,50 @@
   --stm-font-scale: 1.08;
 }
 
-/* ---------- 旋钮 2：强调色预置（每色四值 fill/text/fg × 深/浅，默认 teal） ---------- */
-#stm-panel[data-accent="blue"] {
-  --ac-fill-dark: var(--stm-palette-blue-dark);
-  --ac-text-dark: #6cb0ff;
-  --ac-fg-dark: #ffffff;
-  --ac-fill-light: var(--stm-palette-blue-light);
-  --ac-text-light: #1d4ed8;
-  --ac-fg-light: #ffffff;
+/* ---------- 样式 1：Liquid Glass（默认） ---------- */
+#stm-panel[data-style="glass"] {
+  --stm-bar-bg:
+    linear-gradient(125deg, rgb(255 255 255 / 12%), transparent 45%, rgb(255 255 255 / 4%)),
+    color-mix(in srgb, var(--stm-bg) 68%, transparent);
+  --stm-bar-border: color-mix(in srgb, var(--stm-fg) 16%, transparent);
+  --stm-bar-backdrop: blur(24px) saturate(180%);
+  --stm-bar-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 18%), inset 0 -1px 0 rgb(255 255 255 / 4%),
+    0 6px 24px rgb(0 0 0 / 12%);
 }
 
-#stm-panel[data-accent="indigo"] {
-  --ac-fill-dark: var(--stm-palette-indigo-dark);
-  --ac-text-dark: #a5b4fc;
-  --ac-fg-dark: #ffffff;
-  --ac-fill-light: var(--stm-palette-indigo-light);
-  --ac-text-light: #4338ca;
-  --ac-fg-light: #ffffff;
+#stm-panel[data-style="glass"][data-tone="light"] {
+  --stm-bar-bg:
+    linear-gradient(125deg, rgb(255 255 255 / 65%), transparent 50%, rgb(255 255 255 / 20%)),
+    color-mix(in srgb, var(--stm-bg) 62%, transparent);
+  --stm-bar-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%), inset 0 -1px 0 rgb(255 255 255 / 35%),
+    0 6px 24px rgb(0 0 0 / 6%);
 }
 
-#stm-panel[data-accent="teal"] {
-  --ac-fill-dark: var(--stm-palette-teal);
-  --ac-text-dark: #5eead4;
-  --ac-fg-dark: #ffffff;
-  --ac-fill-light: var(--stm-palette-teal);
-  --ac-text-light: #0f766e;
-  --ac-fg-light: #ffffff;
-}
-
-#stm-panel[data-accent="neutral"] {
-  --ac-fill-dark: #fafafa;
-  --ac-text-dark: #fafafa;
-  --ac-fg-dark: #09090b;
-  --ac-fill-light: #18181b;
-  --ac-text-light: #18181b;
-  --ac-fg-light: #ffffff;
-}
-
-/* 预置 → 面板语义令牌映射（深色取 *-dark；浅色主题块里取 *-light 覆盖） */
-#stm-panel {
-  color-scheme: dark;
-  --stm-sample-blue: var(--stm-palette-blue-dark);
-  --stm-sample-indigo: var(--stm-palette-indigo-dark);
-  --stm-sample-neutral: var(--stm-palette-dark-fg);
+/* ---------- 样式 2：Classic（原实色样式） ---------- */
+#stm-panel[data-style="classic"] {
   --stm-bar-bg: var(--stm-bg);
   --stm-bar-border: var(--stm-border);
-  --stm-fs-xs: calc(12px * var(--stm-font-scale));
-  --stm-fs-sm: calc(13px * var(--stm-font-scale));
-  --stm-fs-md: calc(15px * var(--stm-font-scale));
-  --stm-fs-lg: calc(17px * var(--stm-font-scale));
-  --stm-accent: var(--ac-fill-dark, #0d9488);
-  --stm-accent-text: var(--ac-text-dark, #5eead4);
-  --stm-accent-fg: var(--ac-fg-dark, #ffffff);
+  --stm-bar-backdrop: none;
+  --stm-bar-shadow: none;
+}
 
-  /* 派生令牌必须挂在 #stm-panel：写在 :root 会在根元素提前解析成深色值，
-     浅色主题或切换强调色时不会跟着变。 */
-  --stm-accent-tint: color-mix(in srgb, var(--stm-accent) 14%, transparent);
-  --stm-accent-soft: color-mix(in srgb, var(--stm-accent) 32%, transparent);
-  --stm-ring: color-mix(in srgb, var(--stm-accent) 30%, transparent);
-  --stm-success-dim: color-mix(in srgb, var(--stm-success) 14%, transparent);
-  --stm-warning-dim: color-mix(in srgb, var(--stm-warning) 14%, transparent);
-  --stm-danger-dim: color-mix(in srgb, var(--stm-danger) 14%, transparent);
+/* ---------- 样式 3：Material（MD3 填充色、层叠阴影、更圆润的容器） ---------- */
+#stm-panel[data-style="material"] {
+  --stm-bar-bg: var(--stm-surface);
+  --stm-bar-border: transparent;
+  --stm-bar-backdrop: none;
+  --stm-bar-shadow:
+    0 1px 2px rgb(0 0 0 / 18%), 0 2px 8px rgb(0 0 0 / 12%), 0 8px 24px rgb(0 0 0 / 10%);
+  --stm-radius: 18px;
+  --stm-press-scale: 1.02;
+  --stm-page-padding: 18px;
+}
 
-  /* 旧令牌兼容别名同样在面板内重解析，避免浅色模式继承到根上的深色文本色。 */
-  --stm-ink: var(--stm-fg);
-  --stm-ink-secondary: var(--stm-fg-2);
-  --stm-ink-bg: var(--stm-surface);
-  --stm-font-mono: var(--stm-mono);
-  --stm-accent-2: var(--stm-accent);
+#stm-panel[data-style="material"][data-tone="light"] {
+  --stm-bar-shadow:
+    0 1px 2px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 8%), 0 8px 24px rgb(0 0 0 / 6%);
 }
 
 /* 楼层跳转高亮（证据楼层 chip 的底层反馈）：ST 消息块 `.mes[mesid="N"]` 临时描边。
@@ -247,24 +270,4 @@
   .stm-floor-flash {
     animation: none;
   }
-}
-
-/* 玻璃材质与现有主题共用语义色，关闭后回到实色顶栏。 */
-#stm-panel[data-glass="true"] {
-  --stm-bar-bg:
-    linear-gradient(125deg, rgb(255 255 255 / 12%), transparent 45%, rgb(255 255 255 / 4%)),
-    color-mix(in srgb, var(--stm-bg) 68%, transparent);
-  --stm-bar-border: color-mix(in srgb, var(--stm-fg) 16%, transparent);
-  --stm-bar-backdrop: blur(24px) saturate(180%);
-  --stm-bar-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 18%), inset 0 -1px 0 rgb(255 255 255 / 4%),
-    0 6px 24px rgb(0 0 0 / 12%);
-}
-#stm-panel[data-glass="true"][data-theme="light"] {
-  --stm-bar-bg:
-    linear-gradient(125deg, rgb(255 255 255 / 65%), transparent 50%, rgb(255 255 255 / 20%)),
-    color-mix(in srgb, var(--stm-bg) 62%, transparent);
-  --stm-bar-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 90%), inset 0 -1px 0 rgb(255 255 255 / 35%),
-    0 6px 24px rgb(0 0 0 / 6%);
 }

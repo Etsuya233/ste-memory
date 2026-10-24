@@ -82,6 +82,7 @@
   padding: 0;
   bottom: auto;
   border: 0;
+  box-sizing: border-box;
   overflow: hidden;
   /* popover 默认 width: fit-content；恢复 auto，让左右安全区决定移动端宽度。 */
   width: auto;
@@ -264,19 +265,19 @@
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
 }
-.stm-panel[data-glass="true"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header,
-.stm-panel[data-glass="true"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
+.stm-panel[data-style="glass"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header,
+.stm-panel[data-style="glass"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
   position: absolute;
   left: 0;
   right: 0;
 }
-.stm-panel[data-glass="true"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header {
+.stm-panel[data-style="glass"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header {
   top: 0;
 }
-.stm-panel[data-glass="true"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
+.stm-panel[data-style="glass"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
   bottom: 0;
 }
-.stm-panel[data-glass="true"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-content {
+.stm-panel[data-style="glass"] .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-content {
   grid-row: 1 / -1;
   padding-top: calc(var(--stm-page-header-height) + var(--stm-page-padding-block));
   padding-bottom: calc(var(--stm-page-footer-height) + var(--stm-page-padding-block));
@@ -284,16 +285,16 @@
   scroll-padding-bottom: calc(var(--stm-page-footer-height) + var(--stm-space-2));
 }
 /* Root safe area belongs to the container; nested workspaces inherit its usable bounds. */
-.stm-panel[data-glass="true"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header,
-.stm-panel[data-glass="true"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
+.stm-panel[data-style="glass"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header,
+.stm-panel[data-style="glass"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
   left: env(safe-area-inset-left);
   right: env(safe-area-inset-right);
 }
-.stm-panel[data-glass="true"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header {
+.stm-panel[data-style="glass"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-header {
   top: env(safe-area-inset-top);
 }
 
-.stm-panel[data-glass="true"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
+.stm-panel[data-style="glass"] > .stm-page-layout[data-scroll-mode="scroll"] > .stm-page-footer {
   bottom: env(safe-area-inset-bottom);
 }
 .stm-page-layout[data-scroll-mode="contained"] > .stm-page-content {
@@ -344,10 +345,13 @@
   border-right: 1px solid var(--stm-border);
   box-shadow: var(--stm-shadow-pop);
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: none;
+  flex-direction: column;
+  min-height: 0;
 }
 .stm-navigation[data-open="true"] {
-  display: block;
+  display: flex;
 }
 
 .stm-setting-help > summary {
@@ -469,7 +473,8 @@
   height: 22px;
   cursor: nwse-resize;
   touch-action: none;
-  z-index: 5;
+  /* 页面底栏（z-index 4/6）会覆盖面板右下角；缩放手柄必须始终高于页脚。 */
+  z-index: 20;
 }
 
 .stm-panel-resize::before {
@@ -1005,6 +1010,48 @@
   }
 }
 
+/* 面板宽度足够（由 JS 实测）时，导航固定在左侧与内容并排；宽度不足时回到
+ * 覆盖内容的抽屉。判断不看视口，因此桌面窗口被缩到手机大小时也会自动切抽屉。 */
+.stm-panel[data-nav-docked="true"].stm-panel--open {
+  display: grid;
+  grid-template-columns: var(--stm-nav-width) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.stm-panel[data-nav-docked="true"] > .stm-navigation {
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  width: auto;
+  height: 100%;
+  padding: 16px 12px;
+  border-right: 1px solid var(--stm-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 常驻导航：收起操作只保留顶栏汉堡按钮，避免同一区域出现第二个关闭入口。 */
+.stm-panel[data-nav-docked="true"] .stm-navigation-heading .stm-header-nav {
+  display: none;
+}
+
+.stm-panel[data-nav-docked="true"] > .stm-page-layout {
+  min-width: 0;
+  min-height: 0;
+}
+
+.stm-panel[data-style="glass"][data-nav-docked="true"] > .stm-navigation {
+  background: color-mix(in srgb, var(--stm-bg) 82%, transparent);
+  border-right-color: color-mix(in srgb, var(--stm-fg) 12%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.stm-panel[data-style="material"][data-nav-docked="true"] > .stm-navigation {
+  background: var(--stm-surface-2);
+  border-right-color: transparent;
+}
+
 @media (max-width: 1000px) {
   /* 移动端触控目标 ≥44px（spec §11）；chip 行保持横向滑动 */
   .stm-record-chip,
@@ -1146,7 +1193,7 @@
 .stm-bar-action--primary {
   color: var(--stm-accent-text);
 }
-.stm-panel[data-glass="true"] .stm-panel-header {
+.stm-panel[data-style="glass"] .stm-panel-header {
   isolation: isolate;
   background: transparent;
   border-bottom-color: transparent;
@@ -1154,14 +1201,14 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.stm-panel[data-glass="true"] .stm-panel-header::after {
+.stm-panel[data-style="glass"] .stm-panel-header::after {
   content: "";
   position: absolute;
   inset: 0 0 calc(-1 * var(--stm-glass-fade));
   z-index: -1;
   pointer-events: none;
 }
-.stm-panel[data-glass="true"] .stm-panel-header::after {
+.stm-panel[data-style="glass"] .stm-panel-header::after {
   background: linear-gradient(
     to bottom,
     color-mix(in srgb, var(--stm-bg) 92%, transparent),
@@ -1169,7 +1216,7 @@
     transparent
   );
 }
-.stm-panel[data-glass="true"] .stm-bar-group {
+.stm-panel[data-style="glass"] .stm-bar-group {
   background: var(--stm-bar-bg);
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
@@ -1193,17 +1240,17 @@
 .stm-bottom-bar-main {
   justify-content: center;
 }
-.stm-panel[data-glass="true"] .stm-bottom-bar {
+.stm-panel[data-style="glass"] .stm-bottom-bar {
   background: transparent;
 }
-.stm-panel[data-glass="true"] .stm-bottom-bar::after {
+.stm-panel[data-style="glass"] .stm-bottom-bar::after {
   content: "";
   position: absolute;
   inset: calc(-1 * var(--stm-glass-fade)) 0 0;
   z-index: -1;
   pointer-events: none;
 }
-.stm-panel[data-glass="true"] .stm-bottom-bar::after {
+.stm-panel[data-style="glass"] .stm-bottom-bar::after {
   background: linear-gradient(
     to top,
     color-mix(in srgb, var(--stm-bg) 92%, transparent),
@@ -1371,4 +1418,82 @@
 .stm-tabs > button:focus-visible {
   outline: 2px solid var(--stm-accent);
   outline-offset: -2px;
+}
+
+/* 顶栏汉堡按钮：导航可见时保持与选中项一致的强调态。 */
+.stm-bar-action[data-active="true"] {
+  background: var(--stm-accent-tint);
+  color: var(--stm-accent-text);
+}
+
+/* ---------- Liquid Glass：Tab 与 PanelBarAction 同步材质与按压 ----------
+ * Chip 保持纯色背景（用户指定），不参与玻璃材质与 backdrop。 */
+.stm-panel[data-style="glass"] .stm-tabs {
+  border-color: var(--stm-bar-border);
+  background: var(--stm-bar-bg);
+  box-shadow: var(--stm-bar-shadow);
+  backdrop-filter: var(--stm-bar-backdrop);
+  -webkit-backdrop-filter: var(--stm-bar-backdrop);
+}
+
+.stm-panel[data-style="glass"] .stm-tabs > button {
+  transition:
+    transform var(--stm-press-duration) ease,
+    background-color var(--stm-press-duration) ease,
+    border-color var(--stm-press-duration) ease,
+    color var(--stm-press-duration) ease,
+    box-shadow var(--stm-press-duration) ease;
+}
+
+.stm-panel[data-style="glass"] .stm-tabs > button:not(:disabled):active {
+  transform: scale(var(--stm-press-scale));
+}
+
+/* ---------- Material（MD3）：填充色选中态、无玻璃、层叠阴影 ---------- */
+.stm-panel[data-style="material"] .stm-panel-header {
+  border-bottom-color: transparent;
+}
+
+.stm-panel[data-style="material"] .stm-bar-group {
+  background: var(--stm-surface-2);
+  box-shadow: none;
+}
+
+.stm-panel[data-style="material"] .stm-tabs {
+  border: 0;
+  background: var(--stm-surface-2);
+}
+
+.stm-panel[data-style="material"] .stm-tabs > button[aria-selected="true"] {
+  background: var(--stm-accent);
+  color: var(--stm-accent-fg);
+  font-weight: var(--stm-weight-medium);
+}
+
+.stm-panel[data-style="material"] .stm-navigation .stm-tab {
+  border-radius: 999px;
+}
+
+.stm-panel[data-style="material"] .stm-navigation .stm-tab[aria-selected="true"] {
+  background: var(--stm-accent-tint);
+  color: var(--stm-fg);
+}
+
+.stm-panel[data-style="material"] .stm-segmented > button[aria-pressed="true"] {
+  background: var(--stm-accent-tint);
+  color: var(--stm-accent-text);
+  box-shadow: none;
+}
+
+.stm-panel[data-style="material"] .stm-switch input:checked + .stm-switch-track {
+  background: var(--stm-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stm-panel[data-style="glass"] .stm-tabs > button {
+    transition: none;
+  }
+  .stm-panel[data-style="glass"] .stm-tabs > button:not(:disabled):active {
+    transform: none;
+  }
 }

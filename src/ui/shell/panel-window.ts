@@ -19,6 +19,17 @@ export const GEOMETRY_STORAGE_KEY = "steMemory.panelGeometry";
 export const PANEL_MIN_WIDTH = 360;
 export const PANEL_MIN_HEIGHT = 320;
 
+/**
+ * 导航停靠阈值：按「面板自身宽度」而不是视口宽度判断。
+ * 低于该宽度时导航退回覆盖内容的抽屉，避免小窗口里内容被侧栏挤没。
+ */
+export const PANEL_NAV_DOCK_MIN_WIDTH = 640;
+
+/** 当前面板宽度是否足够把导航固定在左侧（纯逻辑，组件与测试共用）。 */
+export function shouldDockNavigation(panelWidth: number): boolean {
+  return panelWidth > 0 && panelWidth >= PANEL_NAV_DOCK_MIN_WIDTH;
+}
+
 /** 面板与视口边缘的最小留白（位置钳制基准，px） */
 export const PANEL_VIEWPORT_MARGIN = 24;
 

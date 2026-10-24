@@ -566,7 +566,7 @@ export function SettingsTab(props: {
     {
       label: "界面",
       items: [
-        { key: "appearance", title: "外观", summary: "主题与阅读体验" },
+        { key: "appearance", title: "外观", summary: "样式、主题与阅读体验" },
         {
           key: "entry",
           title: "面板入口",
