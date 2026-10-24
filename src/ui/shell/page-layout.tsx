@@ -83,6 +83,8 @@ export function PageLayout(props: {
 
 /** 子页面将页面栏挂到所属容器，正文始终保留在同一个滚动区域中。 */
 export function PageChrome(props: {
+  /** A new screen must not reuse the previous screen's submit-button DOM. */
+  readonly pageKey?: string;
   readonly header?: ReactNode;
   readonly footer?: ReactNode;
   readonly headerTrailing?: ReactNode;
@@ -98,7 +100,9 @@ export function PageChrome(props: {
   }, [replaceHeader, replacesHeader]);
   return (
     <>
-      {slots.header && props.header ? createPortal(props.header, slots.header) : null}
+      {slots.header && props.header
+        ? createPortal(props.header, slots.header, props.pageKey)
+        : null}
       {slots.footer && props.footer ? createPortal(props.footer, slots.footer) : null}
       {slots.headerActions && props.headerTrailing
         ? createPortal(props.headerTrailing, slots.headerActions)

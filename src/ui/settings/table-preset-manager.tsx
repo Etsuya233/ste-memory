@@ -1,5 +1,13 @@
+import { FieldList, FieldListRow } from "../memory/field-list.tsx";
+import { FIELD_TYPE_LABELS } from "../memory/table-list-model.ts";
+import { presetFieldUsedForDisplay } from "./table-preset-editor-model.ts";
+import { SettingsActionMenu } from "./settings-action-menu.tsx";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
 import { TablePresetEditor } from "./table-preset-editor.tsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { MemorySpace } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { ApplyTablePresetOutcome } from "../../features/table-presets/table-preset-apply-service.ts";
@@ -26,9 +34,7 @@ import {
 } from "../../features/table-presets/preset-transfer.ts";
 import { createUiId, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
 import {
-  BUILTIN_PRESET_READONLY_HINT,
   SAVE_PRESET_HINT,
-  applyPresetActionLabel,
   applyPresetConfirmText,
   applyPresetConfirmTitle,
   applyPresetUnavailableReason,
@@ -51,6 +57,7 @@ import {
  * - 应用过程中固定目标空间与预设、禁止重复提交。
  */
 export function TablePresetManager(props: {
+  readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly presets: TablePresetSettings;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
@@ -75,10 +82,46 @@ export function TablePresetManager(props: {
   /** 重建成功后刷新面板数据 */
   readonly onDataChanged: () => void;
 }) {
-  const [editor, setEditor] = useState<{ initial: ResolvedTablePreset; isNew: boolean } | null>(
-    null,
+  const [editor, setEditor] = useState<{
+    initial: ResolvedTablePreset;
+    isNew: boolean;
+    initialTableKey?: string;
+    initialFieldKey?: string;
+  } | null>(null);
+  const [utilityPage, setUtilityPage] = useState<"default" | "apply" | "capture" | null>(null);
+  const captureFormId = useId();
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailFieldKey, setDetailFieldKey] = useState<string | null>(null);
+  const [detailTableKey, setDetailTableKey] = useState<string | null>(null);
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(
+    editor
+      ? `edit:preset:${editor.initial.id}`
+      : utilityPage
+        ? `edit:${utilityPage}`
+        : detailTableKey
+          ? `detail:${detailId}:${detailTableKey}:${detailFieldKey ?? "list"}`
+          : (detailId ?? "list"),
   );
-  const editing = editor !== null;
+  function openDetail(id: string | null) {
+    rememberScroll();
+    const preset = id ? resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, id) : null;
+    if (preset && !preset.builtIn) {
+      setDetailId(null);
+      setEditor({ initial: preset, isNew: false });
+    } else setDetailId(id);
+    setDetailTableKey(null);
+    setDetailFieldKey(null);
+  }
+  function openEditor(value: {
+    initial: ResolvedTablePreset;
+    isNew: boolean;
+    initialTableKey?: string;
+    initialFieldKey?: string;
+  }) {
+    rememberScroll();
+    setEditor(value);
+  }
+  const editing = editor !== null || detailId !== null || props.onBack !== undefined;
   useEffect(() => {
     props.onEditingChange?.(editing);
     return () => props.onEditingChange?.(false);
@@ -95,18 +138,13 @@ export function TablePresetManager(props: {
   const [applyTargetId, setApplyTargetId] = useState(
     sourcePresetId ?? props.presets.defaultPresetId,
   );
-  const [applyPreviewOpen, setApplyPreviewOpen] = useState(false);
   // 切换对话或空间来源变化（含应用预设后的来源更新）→ 目标草稿回到该空间的来源预设
   useEffect(() => {
     setApplyTargetId(sourcePresetId ?? props.presets.defaultPresetId);
-    setApplyPreviewOpen(false);
   }, [space?.id, sourcePresetId]);
   // ---- 预设管理草稿 ----
   const [newPresetName, setNewPresetName] = useState("");
   const [newPresetDescription, setNewPresetDescription] = useState("");
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState({ name: "", description: "" });
-  const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
   // ---- 应用确认流程状态（应用期间固定空间与预设，禁止重复提交） ----
   const [confirming, setConfirming] = useState<
     | {
@@ -133,6 +171,39 @@ export function TablePresetManager(props: {
   });
   const applyBusy = busy || confirming !== undefined;
 
+  const utilityDirty =
+    utilityPage === "default"
+      ? defaultDraft !== props.presets.defaultPresetId
+      : utilityPage === "capture" && (newPresetName !== "" || newPresetDescription !== "");
+  const utilityDirtyRef = useRef(utilityDirty);
+  utilityDirtyRef.current = utilityDirty;
+  useEffect(() => {
+    if (!utilityPage) return;
+    props.registerLeaveGuard?.(
+      () => !utilityDirtyRef.current || window.confirm("有未保存的设置，放弃修改并离开吗？"),
+    );
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (utilityDirtyRef.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      props.registerLeaveGuard?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [utilityPage, props.registerLeaveGuard]);
+  function openUtility(page: "default" | "apply" | "capture") {
+    rememberScroll();
+    setDefaultDraft(props.presets.defaultPresetId);
+    setNewPresetName("");
+    setNewPresetDescription("");
+    setUtilityPage(page);
+  }
+  function closeUtility() {
+    if (utilityDirty && !window.confirm("有未保存的设置，放弃修改并返回吗？")) return;
+    rememberScroll();
+    setUtilityPage(null);
+  }
+
   function changePresets(next: TablePresetSettings): void {
     props.onPresetsChange(next);
   }
@@ -146,7 +217,8 @@ export function TablePresetManager(props: {
         now: new Date().toISOString(),
       });
       changePresets(settings);
-      setPreviewPresetId(preset.id);
+      setDetailId(null);
+      openEditor({ initial: { ...preset, builtIn: false }, isNew: false });
       reportSuccess(`已导入「${preset.name}」，默认选择保持不变`);
     } catch (error) {
       reportError(error);
@@ -169,6 +241,7 @@ export function TablePresetManager(props: {
   function saveDefaultPreset(): void {
     try {
       changePresets(setDefaultTablePreset(props.presets, SYSTEM_TABLE_PRESET, defaultDraft));
+      setUtilityPage(null);
       reportSuccess("已保存新空间默认预设（仅影响之后创建的全新记忆空间）");
     } catch (error) {
       reportError(error);
@@ -190,28 +263,14 @@ export function TablePresetManager(props: {
       changePresets(settings);
       setNewPresetName("");
       setNewPresetDescription("");
+      setUtilityPage(null);
+      setDetailId(null);
+      openEditor({ initial: { ...preset, builtIn: false }, isNew: false });
       reportSuccess(`已另存为预设「${preset.name}」`);
     } catch (error) {
       reportError(error);
     } finally {
       setBusy(false);
-    }
-  }
-
-  function saveRename(): void {
-    if (renamingId === null) return;
-    try {
-      changePresets(
-        renameUserTablePreset(props.presets, renamingId, {
-          name: renameDraft.name,
-          description: renameDraft.description,
-          now: new Date().toISOString(),
-        }),
-      );
-      setRenamingId(null);
-      reportSuccess("预设已更新");
-    } catch (error) {
-      reportError(error);
     }
   }
 
@@ -233,7 +292,8 @@ export function TablePresetManager(props: {
     try {
       const next = deleteUserTablePreset(props.presets, presetId);
       changePresets(next);
-      if (previewPresetId === presetId) setPreviewPresetId(null);
+      setEditor(null);
+      openDetail(null);
       if (defaultDraft === presetId) {
         setDefaultDraft(next.defaultPresetId);
       }
@@ -255,6 +315,8 @@ export function TablePresetManager(props: {
           now: new Date().toISOString(),
         }),
       );
+      setEditor(null);
+      openDetail(null);
       reportSuccess(`已用当前表结构覆盖预设「${name}」`);
     } catch (error) {
       reportError(error);
@@ -316,408 +378,673 @@ export function TablePresetManager(props: {
 
   if (editor)
     return (
-      <TablePresetEditor
-        chrome={props.onEditingChange !== undefined}
-        initial={editor.initial}
-        isNew={editor.isNew}
-        registerLeaveGuard={props.registerLeaveGuard}
-        onClose={() => setEditor(null)}
-        onSave={(draft) => {
-          const now = new Date().toISOString();
-          const validated = validateTablePresetContent({
-            name: draft.name,
-            description: draft.description,
-            prompt: draft.prompt,
-            tables: draft.tables,
-          });
-          const next = editor.isNew
-            ? saveUserTablePreset(props.presets, {
-                id: draft.id,
-                name: validated.name,
-                description: validated.description,
-                structure: validated,
-                now,
-              }).settings
-            : overwriteUserTablePreset(
-                renameUserTablePreset(props.presets, draft.id, {
+      <div ref={screenRef}>
+        <TablePresetEditor
+          chrome={props.onEditingChange !== undefined}
+          initial={editor.initial}
+          isNew={editor.isNew}
+          initialTableKey={editor.initialTableKey}
+          initialFieldKey={editor.initialFieldKey}
+          presetActions={(draft) => [
+            {
+              label: "导出预设",
+              dataAction: "export-table-preset",
+              onSelect: () => exportPreset(draft),
+            },
+            { label: "复制为新预设", dataAction: "copy-preset", onSelect: () => copyPreset(draft) },
+            ...(!editor.isNew
+              ? [
+                  {
+                    label: "用当前结构覆盖",
+                    dataAction: "overwrite-preset",
+                    disabled: busy || !active,
+                    onSelect: () => void overwritePreset(draft.id, draft.name),
+                  },
+                  {
+                    label: "删除预设",
+                    dataAction: "delete-preset",
+                    danger: true,
+                    onSelect: () =>
+                      deletePreset(
+                        draft.id,
+                        draft.name,
+                        draft.id === props.presets.defaultPresetId,
+                      ),
+                  },
+                ]
+              : []),
+          ]}
+          registerLeaveGuard={props.registerLeaveGuard}
+          onClose={() => {
+            rememberScroll();
+            setEditor(null);
+          }}
+          onSave={(draft) => {
+            const now = new Date().toISOString();
+            const validated = validateTablePresetContent({
+              name: draft.name,
+              description: draft.description,
+              prompt: draft.prompt,
+              tables: draft.tables,
+            });
+            const next = editor.isNew
+              ? saveUserTablePreset(props.presets, {
+                  id: draft.id,
                   name: validated.name,
                   description: validated.description,
+                  structure: validated,
                   now,
-                }),
-                draft.id,
-                { structure: validated, now },
-              );
-          changePresets(next);
-          setEditor(null);
-          reportSuccess(`已保存预设「${draft.name.trim()}」`);
-        }}
-      />
+                }).settings
+              : overwriteUserTablePreset(
+                  renameUserTablePreset(props.presets, draft.id, {
+                    name: validated.name,
+                    description: validated.description,
+                    now,
+                  }),
+                  draft.id,
+                  { structure: validated, now },
+                );
+            changePresets(next);
+            rememberScroll();
+            setDetailId(null);
+            setDetailTableKey(null);
+            setDetailFieldKey(null);
+            setEditor(null);
+            reportSuccess(`已保存预设「${draft.name.trim()}」`);
+          }}
+        />
+      </div>
     );
 
+  const selected = detailId
+    ? resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, detailId)
+    : null;
+  const detailTable = selected?.tables.find((table) => table.key === detailTableKey);
+  const detailField = detailTable?.fields.find((field) => field.key === detailFieldKey);
+  function createPreset() {
+    openEditor({
+      isNew: true,
+      initial: {
+        id: createUiId(),
+        name: "",
+        description: "",
+        prompt: "",
+        tables: [],
+        builtIn: false,
+      },
+    });
+  }
   return (
-    <div className="stm-preset-manager" data-stm-section="table-presets">
-      {/* 新空间默认设置 */}
-      <div className="stm-setting-subgroup" data-stm-section="preset-default">
-        <div className="stm-setting-name">新空间默认预设</div>
-        <div className="stm-setting-hint">
-          仅影响之后创建的全新记忆空间；保存不会清空或改变当前空间。
-        </div>
-        <div className="stm-preset-row">
-          <select
-            className="stm-select"
-            data-stm-field="preset-default-select"
-            value={defaultDraft}
-            onChange={(event) => setDefaultDraft(event.target.value)}
-          >
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="save-default-preset"
-            disabled={busy || defaultDraft === props.presets.defaultPresetId}
-            onClick={saveDefaultPreset}
-          >
-            保存
-          </button>
-        </div>
-      </div>
-
-      <div className="stm-setting-divider" />
-
-      {/* 当前空间应用区 */}
-      <div className="stm-setting-subgroup" data-stm-section="preset-apply">
-        <div className="stm-setting-name">应用到当前空间</div>
-        <div className="stm-setting-rows">
-          <div className="stm-setting-row">
-            <div className="stm-setting-name">当前空间</div>
-            <div className="stm-setting-value" data-stm-field="preset-space-name">
-              {space ? space.name : "无活动记忆空间"}
-            </div>
-          </div>
-          <div className="stm-setting-row">
-            <div className="stm-setting-name">初始化来源</div>
-            <div className="stm-setting-value" data-stm-field="preset-source-label">
-              {initializationSourceLabel(space)}
-            </div>
-          </div>
-        </div>
-        <div className="stm-setting-hint">
-          来源信息只说明最近一次创建或应用时使用的预设，不代表当前结构与预设一致。
-        </div>
-        <div className="stm-preset-row">
-          <select
-            className="stm-select"
-            data-stm-field="preset-apply-target"
-            value={targetExists ? applyTargetId : ""}
-            disabled={applyUnavailable !== undefined}
-            onChange={(event) => {
-              setApplyTargetId(event.target.value);
-              setApplyPreviewOpen(false);
-            }}
-          >
-            <option value="" disabled>
-              请选择有效的表格预设
-            </option>
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="toggle-preset-apply-preview"
-            aria-pressed={applyPreviewOpen}
-            disabled={!applyTarget}
-            onClick={() => setApplyPreviewOpen(!applyPreviewOpen)}
-          >
-            {applyPreviewOpen ? "收起预览" : "结构预览"}
-          </button>
-          <button
-            type="button"
-            className="stm-button stm-button--danger"
-            data-action="apply-preset"
-            disabled={applyUnavailable !== undefined || applyBusy || !applyTarget}
-            title={applyUnavailable}
-            onClick={() => void beginApply()}
-          >
-            {applyPresetActionLabel(space, applyTargetId)}
-          </button>
-        </div>
-        {applyUnavailable && <div className="stm-setting-hint">{applyUnavailable}</div>}
-        {applyPreviewOpen && applyTarget && (
-          <div className="stm-preset-preview" data-stm-field="preset-apply-preview">
-            <PresetStructurePreview preset={applyTarget} />
-          </div>
-        )}
-      </div>
-
-      <div className="stm-setting-divider" />
-
-      {/* 预设管理区 */}
-      <div className="stm-setting-subgroup" data-stm-section="preset-library">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="new-table-preset"
-          disabled={busy}
-          onClick={() =>
-            setEditor({
-              isNew: true,
-              initial: {
-                id: createUiId(),
-                name: "",
-                description: "",
-                prompt: "",
-                tables: [],
-                builtIn: false,
-              },
-            })
-          }
-        >
-          新建空白预设
-        </button>
-        <div className="stm-setting-name">预设管理</div>
-        <div className="stm-setting-actions">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="import-table-preset"
-            disabled={busy}
-            onClick={() => importInput.current!.click()}
-          >
-            导入表格预设
-          </button>
-          <input
-            ref={importInput}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            data-stm-field="table-preset-import-file"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void importPresetFile(file);
-            }}
-          />
-        </div>
-        <div className="stm-setting-hint">
-          导入会新增用户预设，不更改默认选择或当前空间；同名自动编号。
-        </div>
-        <ul className="stm-preset-list">
-          {rows.map((row) => {
-            const preset = resolveTablePreset(props.presets, SYSTEM_TABLE_PRESET, row.id);
-            const previewOpen = previewPresetId === row.id;
-            const renaming = renamingId === row.id;
-            return (
-              <li key={row.id} className="stm-preset-card" data-preset-id={row.id}>
-                <div className="stm-preset-card-main">
-                  <div className="stm-preset-card-title">
-                    {row.name}
-                    {row.builtIn && <span className="stm-preset-badge">系统自带</span>}
-                    {row.isDefault && <span className="stm-preset-badge">新空间默认</span>}
-                  </div>
-                  <div className="stm-preset-card-meta">
-                    {`${row.tableCount} 张表 · ${row.fieldCount} 个字段`}
-                  </div>
-                  {row.description && (
-                    <div className="stm-setting-hint stm-preset-card-description">
-                      {row.description}
-                    </div>
-                  )}
-                </div>
-                <div className="stm-table-actions stm-preset-card-actions">
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="edit-table-preset"
-                    disabled={busy}
-                    onClick={() => setEditor({ initial: preset, isNew: false })}
-                  >
-                    {preset.builtIn ? "查看" : "编辑"}
-                  </button>
-                  {preset.builtIn && (
-                    <button
-                      type="button"
-                      className="stm-table-action"
+    <div ref={screenRef} className="stm-settings-detail-page" data-stm-section="table-presets">
+      {utilityPage ? (
+        <>
+          {props.onBack && (
+            <PageChrome
+              pageKey={utilityPage}
+              header={
+                <PanelBar
+                  title={
+                    utilityPage === "default"
+                      ? "新空间默认预设"
+                      : utilityPage === "apply"
+                        ? "应用到当前空间"
+                        : "保存当前表结构"
+                  }
+                  leading={
+                    <PanelBarAction
+                      icon="fa-arrow-left"
+                      label="返回预设列表"
+                      data-action="back-preset-utility"
                       disabled={busy}
-                      onClick={() =>
-                        setEditor({
-                          isNew: true,
-                          initial: {
-                            ...preset,
-                            id: createUiId(),
-                            name: `${preset.name} 副本`,
-                            builtIn: false,
-                          },
-                        })
-                      }
-                    >
-                      复制并编辑
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="export-table-preset"
-                    data-preset-id={row.id}
-                    disabled={busy}
-                    onClick={() => exportPreset(preset)}
-                  >
-                    导出
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="preview-preset"
-                    data-preset-id={row.id}
-                    aria-pressed={previewOpen}
-                    onClick={() => setPreviewPresetId(previewOpen ? null : row.id)}
-                  >
-                    {previewOpen ? "收起预览" : "结构预览"}
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="copy-preset"
-                    data-preset-id={row.id}
-                    disabled={busy}
-                    onClick={() => copyPreset(preset)}
-                  >
-                    复制为新预设
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="rename-preset"
-                    data-preset-id={row.id}
-                    disabled={row.builtIn}
-                    title={row.builtIn ? BUILTIN_PRESET_READONLY_HINT : undefined}
-                    onClick={() => {
-                      setRenamingId(renaming ? null : row.id);
-                      setRenameDraft({ name: row.name, description: row.description });
-                    }}
-                  >
-                    重命名
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action"
-                    data-action="overwrite-preset"
-                    data-preset-id={row.id}
-                    disabled={row.builtIn || busy || !active}
-                    title={row.builtIn ? BUILTIN_PRESET_READONLY_HINT : "用当前表结构覆盖该预设"}
-                    onClick={() => void overwritePreset(row.id, row.name)}
-                  >
-                    用当前结构覆盖
-                  </button>
-                  <button
-                    type="button"
-                    className="stm-table-action stm-table-action--danger"
-                    data-action="delete-preset"
-                    data-preset-id={row.id}
-                    disabled={row.builtIn || busy}
-                    title={row.builtIn ? BUILTIN_PRESET_READONLY_HINT : undefined}
-                    onClick={() => deletePreset(row.id, row.name, row.isDefault)}
-                  >
-                    删除
-                  </button>
+                      onClick={closeUtility}
+                    />
+                  }
+                  trailing={
+                    utilityPage === "default" ? (
+                      <PanelBarAction
+                        icon="fa-check"
+                        label="保存默认预设"
+                        data-action="save-default-preset"
+                        disabled={busy || defaultDraft === props.presets.defaultPresetId}
+                        onClick={saveDefaultPreset}
+                      />
+                    ) : utilityPage === "capture" ? (
+                      <PanelBarAction
+                        icon="fa-check"
+                        label="另存为预设"
+                        data-action="save-space-as-preset"
+                        form={captureFormId}
+                        type="submit"
+                        disabled={busy || !active}
+                      />
+                    ) : (
+                      <PanelBarAction
+                        icon="fa-arrow-rotate-right"
+                        label="应用预设"
+                        data-action="apply-preset"
+                        danger
+                        disabled={applyUnavailable !== undefined || applyBusy || !applyTarget}
+                        onClick={beginApply}
+                      />
+                    )
+                  }
+                />
+              }
+            />
+          )}
+          {utilityPage === "capture" ? (
+            <form
+              id={captureFormId}
+              className="stm-settings-form"
+              data-stm-section="preset-save"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!busy) void saveCurrentStructureAsPreset();
+              }}
+            >
+              <label className="stm-form-row">
+                <span className="stm-form-label">预设名称</span>
+                <input
+                  className="stm-input"
+                  data-stm-field="preset-save-name"
+                  value={newPresetName}
+                  onChange={(event) => setNewPresetName(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="stm-form-row">
+                <span className="stm-form-label">说明</span>
+                <input
+                  className="stm-input"
+                  data-stm-field="preset-save-description"
+                  value={newPresetDescription}
+                  onChange={(event) => setNewPresetDescription(event.target.value)}
+                />
+              </label>
+              <Disclosure icon="fa-circle-info" title="保存范围" open>
+                <div className="stm-setting-hint">
+                  {SAVE_PRESET_HINT} 自动配置保存为分组快照，不发送向量请求。
                 </div>
-                {renaming && (
-                  <div className="stm-preset-editor" data-stm-field="preset-rename-editor">
-                    <input
-                      className="stm-input"
-                      type="text"
-                      data-stm-field="preset-rename-name"
-                      value={renameDraft.name}
-                      onChange={(event) =>
-                        setRenameDraft({ ...renameDraft, name: event.target.value })
-                      }
-                    />
-                    <input
-                      className="stm-input"
-                      type="text"
-                      data-stm-field="preset-rename-description"
-                      placeholder="说明（可选）"
-                      value={renameDraft.description}
-                      onChange={(event) =>
-                        setRenameDraft({ ...renameDraft, description: event.target.value })
-                      }
-                    />
-                    <div className="stm-setting-actions">
-                      <button
-                        type="button"
-                        className="stm-button"
-                        data-action="save-preset-rename"
-                        onClick={saveRename}
-                      >
-                        保存
-                      </button>
-                      <button
-                        type="button"
-                        className="stm-button"
-                        data-action="cancel-preset-rename"
-                        onClick={() => setRenamingId(null)}
-                      >
-                        取消
-                      </button>
+              </Disclosure>
+            </form>
+          ) : (
+            <>
+              {utilityPage === "apply" ? (
+                <>
+                  <div className="stm-grouped-list stm-preset-space-summary">
+                    <div>
+                      <span>当前空间</span>
+                      <strong data-stm-field="preset-space-name">
+                        {space ? space.name : "无活动记忆空间"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>初始化来源</span>
+                      <strong data-stm-field="preset-source-label">
+                        {space?.initializationSource ? initializationSourceLabel(space) : "未记录"}
+                      </strong>
                     </div>
                   </div>
-                )}
-                {previewOpen && (
-                  <div className="stm-preset-preview" data-stm-field="preset-structure-preview">
-                    <PresetStructurePreview preset={preset} />
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* 另存为预设 */}
-        <div className="stm-setting-subgroup" data-stm-section="preset-save">
-          <div className="stm-setting-name">将当前表结构另存为预设</div>
-          <div className="stm-setting-hint">{SAVE_PRESET_HINT}</div>
-          <div className="stm-setting-hint">
-            自动配置将保存为当前分组快照；请先修正失效的来源字段。此操作本身不会发送向量请求。
-          </div>
-          <div className="stm-preset-editor">
-            <input
-              className="stm-input"
-              type="text"
-              data-stm-field="preset-save-name"
-              placeholder="预设名称"
-              value={newPresetName}
-              onChange={(event) => setNewPresetName(event.target.value)}
+                  <div className="stm-section-label">选择应用的预设</div>
+                </>
+              ) : (
+                <p className="stm-setting-hint">仅用于之后新建的记忆空间。</p>
+              )}
+              <ul
+                className="stm-grouped-list stm-settings-item-list"
+                data-stm-section={utilityPage === "default" ? "preset-default" : "preset-apply"}
+              >
+                {rows.map((row) => {
+                  const chosen =
+                    row.id === (utilityPage === "default" ? defaultDraft : applyTargetId);
+                  return (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        className="stm-settings-item-row"
+                        data-action={
+                          utilityPage === "default"
+                            ? "choose-default-preset"
+                            : "choose-apply-preset"
+                        }
+                        data-preset-id={row.id}
+                        aria-pressed={chosen}
+                        onClick={() =>
+                          utilityPage === "default"
+                            ? setDefaultDraft(row.id)
+                            : setApplyTargetId(row.id)
+                        }
+                      >
+                        <span className="stm-settings-item-main">
+                          <span className="stm-settings-item-title">{row.name}</span>
+                          <span className="stm-settings-item-summary">
+                            {row.tableCount} 张表 · {row.fieldCount} 个字段
+                            {row.builtIn ? " · 内置" : ""}
+                          </span>
+                        </span>
+                        <i
+                          className={`fa-solid ${chosen ? "fa-check" : "fa-circle"}`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {utilityPage === "apply" && (
+                <>
+                  <p className="stm-setting-hint">将清空当前空间记录，按所选预设重建表格。</p>
+                  {!targetExists && <p className="stm-form-error">来源预设已删除，请重新选择。</p>}
+                  {applyTarget && (
+                    <Disclosure icon="fa-eye" title="结构预览">
+                      <PresetStructurePreview preset={applyTarget} />
+                    </Disclosure>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </>
+      ) : selected ? (
+        <>
+          {props.onEditingChange && (
+            <PageChrome
+              pageKey={`preset:${detailId}:${detailTableKey}:${detailFieldKey}`}
+              header={
+                <PanelBar
+                  title={detailField?.name ?? detailTable?.name ?? selected.name}
+                  subtitle={
+                    detailField
+                      ? `${detailTable?.name} · 内置 · 只读`
+                      : detailTable
+                        ? `${detailTable.key} · 内置 · 只读`
+                        : selected.builtIn
+                          ? "内置预设"
+                          : "表格预设"
+                  }
+                  leading={
+                    <PanelBarAction
+                      icon="fa-arrow-left"
+                      label={
+                        detailField ? "返回表格字段" : detailTable ? "返回预设详情" : "返回预设列表"
+                      }
+                      data-action="back-preset-list"
+                      onClick={() => {
+                        if (detailField) {
+                          rememberScroll();
+                          setDetailFieldKey(null);
+                        } else if (detailTable) {
+                          rememberScroll();
+                          setDetailTableKey(null);
+                        } else openDetail(null);
+                      }}
+                    />
+                  }
+                  trailing={
+                    <>
+                      {" "}
+                      <SettingsActionMenu
+                        actions={[
+                          {
+                            label: "导出预设",
+                            dataAction: "export-table-preset",
+                            disabled: busy,
+                            onSelect: () => exportPreset(selected),
+                          },
+                          {
+                            label: "复制为新预设",
+                            dataAction: "copy-preset",
+                            disabled: busy,
+                            onSelect: () => copyPreset(selected),
+                          },
+                          ...(!selected.builtIn
+                            ? [
+                                {
+                                  label: "用当前结构覆盖",
+                                  dataAction: "overwrite-preset",
+                                  disabled: busy || !active,
+                                  onSelect: () => void overwritePreset(selected.id, selected.name),
+                                },
+                                {
+                                  label: "删除预设",
+                                  dataAction: "delete-preset",
+                                  disabled: busy,
+                                  danger: true,
+                                  onSelect: () =>
+                                    deletePreset(
+                                      selected.id,
+                                      selected.name,
+                                      selected.id === props.presets.defaultPresetId,
+                                    ),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </>
+                  }
+                />
+              }
             />
-            <input
-              className="stm-input"
-              type="text"
-              data-stm-field="preset-save-description"
-              placeholder="说明（可选）"
-              value={newPresetDescription}
-              onChange={(event) => setNewPresetDescription(event.target.value)}
-            />
+          )}
+          <div className="stm-setting-actions">
             <button
               type="button"
               className="stm-button"
-              data-action="save-space-as-preset"
-              disabled={busy || !active}
-              title={active ? undefined : "当前对话没有活动的记忆空间"}
-              onClick={() => void saveCurrentStructureAsPreset()}
+              data-action="edit-table-preset"
+              onClick={() =>
+                openEditor(
+                  selected.builtIn
+                    ? {
+                        isNew: true,
+                        initialTableKey: detailTableKey ?? undefined,
+                        initialFieldKey: detailFieldKey ?? undefined,
+                        initial: {
+                          ...selected,
+                          id: createUiId(),
+                          name: `${selected.name} 副本`,
+                          builtIn: false,
+                        },
+                      }
+                    : {
+                        isNew: false,
+                        initial: selected,
+                        initialTableKey: detailTableKey ?? undefined,
+                        initialFieldKey: detailFieldKey ?? undefined,
+                      },
+                )
+              }
             >
-              另存为预设
+              复制编辑
             </button>
           </div>
-        </div>
-      </div>
-
+          {detailTable ? (
+            detailField ? (
+              <div className="stm-preset-editor-fields" data-stm-field="preset-field-detail">
+                {(
+                  [
+                    ["Key", detailField.key],
+                    ["类型", FIELD_TYPE_LABELS[detailField.type]],
+                    ["必填", detailField.required ? "是" : "否"],
+                    ["状态", detailField.enabled ? "已启用" : "已停用"],
+                    [
+                      "显示策略依赖",
+                      presetFieldUsedForDisplay(detailTable, detailField.key) ? "是" : "否",
+                    ],
+                    ["填写规则", detailField.prompt],
+                    ["选项", detailField.options.join(" / ")],
+                    [
+                      "引用表格",
+                      selected.tables.find((table) => table.key === detailField.referenceTableKey)
+                        ?.name,
+                    ],
+                    ["最大字符数", detailField.maxChars],
+                    ["格式正则表达式", detailField.valuePattern],
+                    ["格式错误提示", detailField.valuePatternMessage],
+                  ] as const
+                ).map(
+                  ([label, value]) =>
+                    value !== null &&
+                    value !== undefined &&
+                    value !== "" && (
+                      <div className="stm-form-row" key={label}>
+                        <span className="stm-form-label">{label}</span>
+                        <span
+                          className={
+                            label === "Key" || label === "格式正则表达式" ? "stm-mono" : undefined
+                          }
+                        >
+                          {value}
+                        </span>
+                      </div>
+                    ),
+                )}
+              </div>
+            ) : (
+              <div className="stm-fields-panel">
+                <div className="stm-fields-toolbar">
+                  <div className="stm-fields-title">
+                    {detailTable.fields.length} 个字段 · 已启用{" "}
+                    {detailTable.fields.filter((field) => field.enabled).length}
+                  </div>
+                </div>
+                <FieldList>
+                  {detailTable.fields.map((field) => (
+                    <FieldListRow
+                      key={field.key}
+                      name={field.name}
+                      fieldKey={field.key}
+                      typeLabel={FIELD_TYPE_LABELS[field.type]}
+                      required={field.required}
+                      dependent={presetFieldUsedForDisplay(detailTable, field.key)}
+                      button={{
+                        "data-action": "view-preset-field",
+                        "aria-label": `查看字段 ${field.name}`,
+                        onClick: () => {
+                          rememberScroll();
+                          setDetailFieldKey(field.key);
+                        },
+                      }}
+                      actions={
+                        !field.enabled ? (
+                          <span className="stm-setting-hint">已停用</span>
+                        ) : undefined
+                      }
+                    />
+                  ))}
+                </FieldList>
+                <Disclosure
+                  icon="fa-sliders"
+                  title="表格配置"
+                  className="stm-table-settings"
+                  meta={detailTable.enabled ? undefined : "已停用"}
+                >
+                  <div className="stm-preset-editor-fields">
+                    {detailTable.description && (
+                      <div className="stm-form-row">
+                        <span className="stm-form-label">描述</span>
+                        <span>{detailTable.description}</span>
+                      </div>
+                    )}
+                    {detailTable.prompt && (
+                      <div className="stm-form-row">
+                        <span className="stm-form-label">表格填写规则</span>
+                        <span>{detailTable.prompt}</span>
+                      </div>
+                    )}
+                    <div className="stm-form-row">
+                      <span className="stm-form-label">显示策略</span>
+                      <span>
+                        {!detailTable.displayStrategy
+                          ? "默认"
+                          : detailTable.displayStrategy.type === "field"
+                            ? detailTable.displayStrategy.fieldKey
+                            : detailTable.displayStrategy.template}
+                      </span>
+                    </div>
+                    <div className="stm-form-row">
+                      <span className="stm-form-label">向量索引</span>
+                      <span>{detailTable.vectorIndex?.enabled ? "已启用" : "未启用"}</span>
+                    </div>
+                  </div>
+                </Disclosure>
+              </div>
+            )
+          ) : (
+            <>
+              <ul className="stm-grouped-list stm-settings-item-list">
+                {selected.tables.map((table) => (
+                  <li key={table.key}>
+                    <button
+                      type="button"
+                      className="stm-settings-item-row"
+                      data-action="view-preset-table"
+                      onClick={() => {
+                        rememberScroll();
+                        setDetailTableKey(table.key);
+                      }}
+                    >
+                      <span className="stm-settings-item-main">
+                        <span className="stm-settings-item-title">{table.name}</span>
+                        <span className="stm-settings-item-summary">
+                          {table.key} · {table.fields.length} 个字段
+                          {table.enabled ? "" : " · 已停用"}
+                        </span>
+                      </span>
+                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {selected.description && <p className="stm-setting-hint">{selected.description}</p>}
+              <Disclosure icon="fa-eye" title="完整结构预览">
+                <PresetStructurePreview preset={selected} />
+              </Disclosure>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          {props.onBack && (
+            <PageChrome
+              pageKey="preset-list"
+              header={
+                <PanelBar
+                  title="表格预设"
+                  leading={
+                    <PanelBarAction
+                      icon="fa-arrow-left"
+                      label="返回设置"
+                      data-action="settings-back"
+                      onClick={props.onBack}
+                    />
+                  }
+                  trailing={
+                    <>
+                      <PanelBarAction
+                        icon="fa-file-import"
+                        label="导入预设"
+                        data-action="import-table-preset"
+                        disabled={busy}
+                        onClick={() => importInput.current!.click()}
+                      />
+                      <PanelBarAction
+                        icon="fa-plus"
+                        label="新建预设"
+                        data-action="new-table-preset"
+                        disabled={busy}
+                        onClick={createPreset}
+                      />
+                    </>
+                  }
+                />
+              }
+            />
+          )}
+          {!props.onBack && (
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="new-table-preset"
+                disabled={busy}
+                onClick={createPreset}
+              >
+                新建预设
+              </button>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="import-table-preset"
+                disabled={busy}
+                onClick={() => importInput.current!.click()}
+              >
+                导入
+              </button>
+            </div>
+          )}
+          <ul className="stm-grouped-list stm-settings-item-list">
+            {rows.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className="stm-settings-item-row"
+                  data-action="open-table-preset"
+                  data-preset-id={row.id}
+                  onClick={() => openDetail(row.id)}
+                >
+                  <span className="stm-settings-item-main">
+                    <span className="stm-settings-item-title">{row.name}</span>
+                    <span className="stm-settings-item-summary">
+                      {row.tableCount} 张表 · {row.fieldCount} 个字段
+                      {row.builtIn ? " · 内置" : ""}
+                      {row.isDefault ? " · 新空间默认" : ""}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="stm-section-label">空间设置</div>
+          <div className="stm-grouped-list stm-settings-utility-list">
+            <button
+              type="button"
+              className="stm-settings-item-row"
+              data-action="open-default-preset"
+              onClick={() => openUtility("default")}
+            >
+              <span className="stm-settings-item-main">
+                <span className="stm-settings-item-title">新空间默认预设</span>
+                <span className="stm-settings-item-summary">
+                  {rows.find((row) => row.id === props.presets.defaultPresetId)!.name}
+                </span>
+              </span>
+              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="stm-settings-item-row"
+              data-action="open-preset-apply"
+              disabled={applyUnavailable !== undefined}
+              onClick={() => openUtility("apply")}
+            >
+              <span className="stm-settings-item-main">
+                <span className="stm-settings-item-title">应用到当前空间</span>
+                <span className="stm-settings-item-summary">{applyUnavailable ?? space!.name}</span>
+              </span>
+              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="stm-settings-item-row"
+              data-action="open-preset-capture"
+              disabled={!active || busy}
+              onClick={() => openUtility("capture")}
+            >
+              <span className="stm-settings-item-main">
+                <span className="stm-settings-item-title">保存当前表结构</span>
+                <span className="stm-settings-item-summary">
+                  {active ? "另存为新预设" : "当前对话没有活动的记忆空间"}
+                </span>
+              </span>
+              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+            </button>
+          </div>
+        </>
+      )}
+      <input
+        ref={importInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        data-stm-field="table-preset-import-file"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void importPresetFile(file);
+        }}
+      />
       {/* 应用确认（一次确认；备份未完成不清空；重建失败可重试） */}
       {confirming && (
         <div

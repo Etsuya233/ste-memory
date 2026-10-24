@@ -10,12 +10,15 @@
  *   多选，short_text 手输逗号分隔）+ 条数上限 + 显示字段多选；
  * - 表/字段数据异步读取（活动空间）；无活动空间时编辑禁用（视图按活动空间求值）。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MemoryField, MemoryTable } from "../../features/memory/index.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
 import { splitListText } from "../memory/record-form-model.ts";
 import { copyText, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
-import { PreviewModal } from "../memory/preview-modal.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 import {
   emptyMemoryViewDraft,
   isConditionField,
@@ -28,6 +31,11 @@ import {
 } from "./memory-views-manager-model.ts";
 
 export function MemoryViewsManager(props: {
+  readonly onCreateActionChange?: (
+    action: { label: string; dataAction: string; disabled: boolean; onClick: () => void } | null,
+  ) => void;
+  readonly onEditingChange?: (editing: boolean) => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   /** 全局前缀（裸标识符，如 ste；预览宏名用） */
   readonly prefix: string;
   /** 活动空间 id；undefined = 无活动空间（列表可看，编辑禁用） */
@@ -50,10 +58,28 @@ export function MemoryViewsManager(props: {
   >(null);
   const [draft, setDraft] = useState<MemoryViewDraft | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
-  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
-  const [preview, setPreview] = useState<{ readonly name: string; readonly text: string } | null>(
-    null,
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(
+    editing ? (editing.kind === "new" ? "new:macro" : `edit:macro:${editing.name}`) : "list",
   );
+  useEffect(() => {
+    props.onEditingChange?.(editing !== null);
+    return () => props.onEditingChange?.(false);
+  }, [editing, props.onEditingChange]);
+  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
+
+  useEffect(() => {
+    props.onCreateActionChange?.(
+      editing
+        ? null
+        : {
+            label: "新建全局宏",
+            dataAction: "add-memory-view",
+            disabled: !props.spaceId,
+            onClick: addView,
+          },
+    );
+    return () => props.onCreateActionChange?.(null);
+  }, [editing, props.spaceId, props.onCreateActionChange]);
 
   // 表列表：活动空间变化/视图变化（新表引用）后重取
   useEffect(() => {
@@ -114,18 +140,21 @@ export function MemoryViewsManager(props: {
   }, [props.spaceId, props.readTables, props.readFields, tables, neededTableKeys]);
 
   function addView(): void {
+    rememberScroll();
     setEditing({ kind: "new" });
     setDraft(emptyMemoryViewDraft());
     setError(undefined);
   }
 
   function beginEdit(view: MemoryView): void {
+    rememberScroll();
     setEditing({ kind: "edit", name: view.name });
     setDraft(memoryViewDraftFromView(view));
     setError(undefined);
   }
 
   function cancelEdit(): void {
+    rememberScroll();
     setEditing(null);
     setDraft(null);
     setError(undefined);
@@ -171,52 +200,13 @@ export function MemoryViewsManager(props: {
     draft && draft.tableKey !== "" ? (fieldsByTable.get(draft.tableKey) ?? []) : [];
 
   /** 打开视图预览：宏名 = {{前缀::视图名}}，文本点击时从快照读取一次 */
-  function openPreview(view: MemoryView): void {
-    const name = `{{${props.prefix}::${view.name}}}`;
-    setPreview({ name, text: props.readPreview(name) });
-  }
 
-  async function copyPreview(): Promise<void> {
-    if (!preview) return;
-    const ok = await copyText(preview.text);
-    if (ok) reportSuccess(`已复制「${preview.name}」展开文本`);
-    else reportWarning("复制失败：浏览器不支持剪贴板写入");
-  }
-
-  return (
-    <div className="stm-setting-subgroup" data-stm-section="memory-views">
-      <div className="stm-setting-hint">
-        <span className="stm-mono">{"{{宏名::视图名}}"}</span> 展开对应视图（无参 {"{{宏名}}"}{" "}
-        仍是全部启用表）；视图按活动空间求值， 表/字段缺失时展开为空串并在此显示配置错误
-      </div>
-      {!props.spaceId && (
-        <div className="stm-preset-warning" data-stm-field="memory-views-no-space">
-          当前没有活动记忆空间：打开/切换对话后可配置视图
-        </div>
-      )}
-      {props.views.map((view) => (
-        <MemoryViewRow
-          key={view.name}
-          view={view}
-          errors={rowConfigErrors(view)}
-          onBeginEdit={() => beginEdit(view)}
-          onPreview={() => openPreview(view)}
-          onDelete={() => deleteView(view)}
-        />
-      ))}
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="add-memory-view"
-          disabled={!props.spaceId}
-          onClick={addView}
-        >
-          + 新建视图
-        </button>
-      </div>
-      {editing && draft && (
+  if (editing && draft)
+    return (
+      <div ref={screenRef} className="stm-settings-editor-page">
         <MemoryViewEditor
+          chrome
+          title={editing.kind === "new" ? "新建全局宏" : "编辑全局宏"}
           draft={draft}
           tables={tables ?? []}
           fields={editingDraftFields}
@@ -224,16 +214,58 @@ export function MemoryViewsManager(props: {
           onDraftChange={setDraft}
           onSave={saveDraft}
           onCancel={cancelEdit}
+          registerLeaveGuard={props.registerLeaveGuard}
+          onDelete={
+            editing.kind === "edit"
+              ? () => deleteView(props.views.find((view) => view.name === editing.name)!)
+              : undefined
+          }
+          previewText={
+            editing.kind === "edit"
+              ? props.readPreview(`{{${props.prefix}::${editing.name}}}`)
+              : undefined
+          }
         />
+      </div>
+    );
+
+  return (
+    <div ref={screenRef} className="stm-setting-subgroup" data-stm-section="memory-views">
+      {!props.spaceId && (
+        <div className="stm-preset-warning" data-stm-field="memory-views-no-space">
+          当前没有活动记忆空间：打开/切换对话后可配置视图
+        </div>
       )}
-      {preview && (
-        <PreviewModal
-          title={preview.name}
-          text={preview.text}
-          onCopy={() => void copyPreview()}
-          onClose={() => setPreview(null)}
-        />
+      <div className="stm-grouped-list stm-macro-list">
+        {props.views.map((view) => (
+          <MemoryViewRow
+            key={view.name}
+            view={view}
+            errors={rowConfigErrors(view)}
+            onBeginEdit={() => beginEdit(view)}
+          />
+        ))}
+      </div>
+      {!props.onCreateActionChange && (
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="add-memory-view"
+            disabled={!props.spaceId}
+            onClick={addView}
+          >
+            + 新建视图
+          </button>
+        </div>
       )}
+
+      <Disclosure icon="fa-circle-info" title="全局宏用法" open>
+        <div className="stm-setting-hint">
+          <span className="stm-mono">{"{{宏名::视图名}}"}</span> 展开对应视图（无参 {"{{宏名}}"}{" "}
+          仍是全部启用表）；视图按活动空间求值， 表/字段缺失时展开为空串并在此显示配置错误
+        </div>
+      </Disclosure>
     </div>
   );
 }
@@ -243,44 +275,23 @@ function MemoryViewRow(props: {
   readonly view: MemoryView;
   readonly errors: readonly string[];
   readonly onBeginEdit: () => void;
-  readonly onPreview: () => void;
-  readonly onDelete: () => void;
 }) {
   return (
-    <div className="stm-preset-fragment" data-stm-field={`memory-view-${props.view.name}`}>
-      <div className="stm-preset-fragment-head">
-        <button
-          type="button"
-          className="stm-preset-fragment-title"
-          data-action="edit-memory-view"
-          onClick={props.onBeginEdit}
-          title="编辑视图"
-        >
-          <span className="stm-preset-fragment-preview">
-            {props.view.name}
-            <span className="stm-mono"> · {props.view.tableKey}</span> ·{" "}
-            {viewSummaryText(props.view)}
+    <div data-stm-field={`memory-view-${props.view.name}`}>
+      <button
+        type="button"
+        className="stm-settings-item-row"
+        data-action="edit-memory-view"
+        onClick={props.onBeginEdit}
+      >
+        <span className="stm-settings-item-main">
+          <span className="stm-settings-item-title">{props.view.name}</span>
+          <span className="stm-settings-item-summary">
+            {props.view.tableKey} · {viewSummaryText(props.view)}
           </span>
-        </button>
-        <button
-          type="button"
-          className="stm-button stm-preset-preview-btn"
-          data-action="preview-memory-view"
-          onClick={props.onPreview}
-          title={`预览「${props.view.name}」展开文本`}
-        >
-          预览
-        </button>
-        <button
-          type="button"
-          className="stm-preset-fragment-remove"
-          data-action="delete-memory-view"
-          onClick={props.onDelete}
-          title="删除视图"
-        >
-          ✕
-        </button>
-      </div>
+        </span>
+        <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+      </button>
       {props.errors.length > 0 && (
         <div className="stm-preset-warning" data-stm-field="memory-view-config-error">
           配置错误：{props.errors.join("；")}
@@ -292,6 +303,12 @@ function MemoryViewRow(props: {
 
 /** 视图编辑器（新建/编辑共用表单；保存校验由父组件执行） */
 export function MemoryViewEditor(props: {
+  readonly chrome?: boolean;
+  readonly title?: string;
+  readonly unavailable?: boolean;
+  readonly previewText?: string;
+  readonly onDelete?: () => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly draft: MemoryViewDraft;
   readonly tables: readonly MemoryTable[];
   /** 当前所选表的字段（编辑器选项 + 值输入形态判断的数据源） */
@@ -302,6 +319,27 @@ export function MemoryViewEditor(props: {
   readonly onCancel: () => void;
 }) {
   const { draft } = props;
+  const formId = useId();
+  const initial = useRef(JSON.stringify(draft));
+  const dirty = JSON.stringify(draft) !== initial.current;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    const guard = () => !dirtyRef.current || window.confirm("宏有未保存的修改，放弃修改并离开吗？");
+    props.registerLeaveGuard?.(guard);
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyRef.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      props.registerLeaveGuard?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [props.registerLeaveGuard]);
+  function cancel() {
+    if (!dirty || window.confirm("宏有未保存的修改，放弃修改并返回吗？")) props.onCancel();
+  }
+
   const conditionField =
     draft.conditionFieldKey !== ""
       ? props.fields.find((field) => field.key === draft.conditionFieldKey)
@@ -329,10 +367,58 @@ export function MemoryViewEditor(props: {
   }
 
   return (
-    <div className="stm-preset-editor" data-stm-section="memory-view-editor">
+    <form
+      id={formId}
+      className="stm-preset-editor stm-settings-form"
+      data-stm-section="memory-view-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!props.unavailable) props.onSave();
+      }}
+    >
+      {props.chrome && (
+        <PageChrome
+          pageKey={props.title}
+          header={
+            <PanelBar
+              title={props.title}
+              leading={
+                <PanelBarAction
+                  icon="fa-arrow-left"
+                  label="返回宏列表"
+                  data-action="cancel-memory-view"
+                  onClick={cancel}
+                />
+              }
+              trailing={
+                <>
+                  {props.onDelete && (
+                    <PanelBarAction
+                      icon="fa-trash"
+                      label="删除宏"
+                      data-action="delete-current-macro"
+                      danger
+                      disabled={props.unavailable}
+                      onClick={props.onDelete}
+                    />
+                  )}
+                  <PanelBarAction
+                    icon="fa-check"
+                    label="保存宏"
+                    disabled={props.unavailable}
+                    data-action="save-memory-view"
+                    type="submit"
+                    form={formId}
+                  />
+                </>
+              }
+            />
+          }
+        />
+      )}
       <div className="stm-setting-row">
         <div className="stm-setting-label">
-          <div className="stm-setting-name">视图名</div>
+          <div className="stm-setting-name">宏名称</div>
           <div className="stm-setting-hint">中文可用；不含空白 / :: / | / {"}}"}</div>
         </div>
         <input
@@ -370,132 +456,152 @@ export function MemoryViewEditor(props: {
           ))}
         </select>
       </div>
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">筛选字段</div>
-          <div className="stm-setting-hint">仅 single_select / short_text 字段</div>
-        </div>
-        <select
-          className="stm-input"
-          data-stm-field="memory-view-condition-field"
-          value={draft.conditionFieldKey}
-          onChange={(event) =>
-            props.onDraftChange({
-              ...draft,
-              conditionFieldKey: event.target.value,
-              conditionValues: [],
-            })
-          }
-        >
-          <option value="">无筛选</option>
-          {conditionFields.map((field) => (
-            <option key={field.key} value={field.key}>
-              {field.name}（{field.key}）
-            </option>
-          ))}
-        </select>
-      </div>
-      {draft.conditionFieldKey !== "" && (
-        <div className="stm-setting-row">
-          <div className="stm-setting-label">
-            <div className="stm-setting-name">筛选值</div>
-            <div className="stm-setting-hint">
-              {conditionField?.type === "single_select"
-                ? "多选（匹配任一值）"
-                : "多个值用逗号分隔（匹配任一值）"}
+      {draft.tableKey !== "" && (
+        <>
+          <div className="stm-setting-row">
+            <div className="stm-setting-label">
+              <div className="stm-setting-name">筛选字段</div>
             </div>
-          </div>
-          {conditionField?.type === "single_select" ? (
-            <div className="stm-checkbox-group" data-stm-field="memory-view-condition-values">
-              {(conditionField.options ?? []).map((option) => (
-                <label key={option} className="stm-checkbox-label">
-                  <input
-                    type="checkbox"
-                    data-action="toggle-condition-value"
-                    checked={draft.conditionValues.includes(option)}
-                    onChange={() => toggleConditionValue(option)}
-                  />
-                  <span>{option}</span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <input
-              type="text"
+            <select
               className="stm-input"
-              data-stm-field="memory-view-condition-values"
-              value={draft.conditionValues.join("、")}
-              placeholder="埋设中、已触发"
+              data-stm-field="memory-view-condition-field"
+              value={draft.conditionFieldKey}
               onChange={(event) =>
                 props.onDraftChange({
                   ...draft,
-                  conditionValues: splitListText(event.target.value),
+                  conditionFieldKey: event.target.value,
+                  conditionValues: [],
                 })
               }
-            />
+            >
+              <option value="">无筛选</option>
+              {conditionFields.map((field) => (
+                <option key={field.key} value={field.key}>
+                  {field.name}（{field.key}）
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {draft.conditionFieldKey !== "" && (
+            <div className="stm-setting-row">
+              <div className="stm-setting-label">
+                <div className="stm-setting-name">筛选值</div>
+                <div className="stm-setting-hint">
+                  {conditionField?.type === "single_select"
+                    ? "多选（匹配任一值）"
+                    : "多个值用逗号分隔（匹配任一值）"}
+                </div>
+              </div>
+              {conditionField?.type === "single_select" ? (
+                <div className="stm-checkbox-group" data-stm-field="memory-view-condition-values">
+                  {(conditionField.options ?? []).map((option) => (
+                    <label key={option} className="stm-checkbox-label">
+                      <input
+                        type="checkbox"
+                        data-action="toggle-condition-value"
+                        checked={draft.conditionValues.includes(option)}
+                        onChange={() => toggleConditionValue(option)}
+                      />
+                      <span>{option}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  className="stm-input"
+                  data-stm-field="memory-view-condition-values"
+                  value={draft.conditionValues.join("、")}
+                  placeholder="埋设中、已触发"
+                  onChange={(event) =>
+                    props.onDraftChange({
+                      ...draft,
+                      conditionValues: splitListText(event.target.value),
+                    })
+                  }
+                />
+              )}
+            </div>
           )}
-        </div>
+          <div className="stm-setting-row">
+            <div className="stm-setting-label">
+              <div className="stm-setting-name">条数上限</div>
+              <div className="stm-setting-hint">留空 = 最多 100 条（按更新时间倒序）</div>
+            </div>
+            <input
+              type="number"
+              className="stm-input"
+              min="1"
+              max="100"
+              data-stm-field="memory-view-limit"
+              value={draft.limitText}
+              placeholder="100"
+              onChange={(event) => props.onDraftChange({ ...draft, limitText: event.target.value })}
+            />
+          </div>
+          <div className="stm-setting-row">
+            <div className="stm-setting-label">
+              <div className="stm-setting-name">显示字段</div>
+              <div className="stm-setting-hint">不选 = 沿用显示文本；引用字段显示目标记录文本</div>
+            </div>
+            <div className="stm-checkbox-group" data-stm-field="memory-view-projection">
+              {props.fields.map((field) => (
+                <label key={field.key} className="stm-checkbox-label">
+                  <input
+                    type="checkbox"
+                    data-action="toggle-projection-field"
+                    checked={draft.projection.includes(field.key)}
+                    onChange={() => toggleProjection(field.key)}
+                  />
+                  <span>
+                    {field.name}（{field.key}）
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
       )}
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">条数上限</div>
-          <div className="stm-setting-hint">留空 = 最多 100 条（按更新时间倒序）</div>
-        </div>
-        <input
-          type="number"
-          className="stm-input"
-          min="1"
-          max="100"
-          data-stm-field="memory-view-limit"
-          value={draft.limitText}
-          placeholder="100"
-          onChange={(event) => props.onDraftChange({ ...draft, limitText: event.target.value })}
-        />
-      </div>
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">显示字段</div>
-          <div className="stm-setting-hint">不选 = 沿用显示文本；引用字段显示目标记录文本</div>
-        </div>
-        <div className="stm-checkbox-group" data-stm-field="memory-view-projection">
-          {props.fields.map((field) => (
-            <label key={field.key} className="stm-checkbox-label">
-              <input
-                type="checkbox"
-                data-action="toggle-projection-field"
-                checked={draft.projection.includes(field.key)}
-                onChange={() => toggleProjection(field.key)}
-              />
-              <span>
-                {field.name}（{field.key}）
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
       {props.error !== undefined && (
         <div className="stm-preset-warning" data-stm-field="memory-view-error">
           {props.error}
         </div>
       )}
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="save-memory-view"
-          onClick={props.onSave}
-        >
-          保存
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="cancel-memory-view"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-      </div>
-    </div>
+      {props.previewText !== undefined && (
+        <Disclosure icon="fa-eye" title="已保存的宏输出">
+          <pre className="stm-mono stm-modal-text">{props.previewText || "（空）"}</pre>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="copy-macro-preview"
+            onClick={() =>
+              void copyText(props.previewText!).then((copied) =>
+                copied
+                  ? reportSuccess("已复制宏输出")
+                  : reportWarning("复制失败：浏览器不支持剪贴板写入"),
+              )
+            }
+          >
+            复制输出
+          </button>
+        </Disclosure>
+      )}
+      {!props.chrome && (
+        <div className="stm-setting-actions">
+          <button type="submit" className="stm-button" data-action="save-memory-view">
+            保存
+          </button>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="cancel-memory-view"
+            onClick={cancel}
+          >
+            取消
+          </button>
+        </div>
+      )}
+    </form>
   );
 }

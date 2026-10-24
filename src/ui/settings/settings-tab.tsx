@@ -143,7 +143,7 @@ export function MacroSettingsFields(props: {
           onChange={(event) => props.onLimitChange(event.target.value)}
         />
       </label>
-      <Disclosure icon="fa-circle-info" title="宏语法与截断规则">
+      <Disclosure icon="fa-circle-info" title="宏语法与截断规则" open>
         <div className="stm-setting-hint">
           前缀放入提示词预设（角色卡/系统提示/作者注释）或世界书条目内容后，生成时展开 当前记忆：
           {"{{前缀}}"} = 全部启用表分组快照；{"{{前缀::名字}}"} = 内置宏 （full / 表
@@ -213,6 +213,15 @@ export function SettingsTab(props: {
   }, [props.status, props.cleaning]);
   // 「记忆宏」组内作用域分区（内置/全局/对话级）；默认全局（原有行为）
   const [macroScopeTab, setMacroScopeTab] = useState<MacroScopeTab>("global");
+  const [dataOperation, setDataOperation] = useState<string | null>(null);
+  async function runDataOperation(name: string, operation: () => Promise<void>) {
+    setDataOperation(name);
+    try {
+      await operation();
+    } finally {
+      setDataOperation(null);
+    }
+  }
   // 导入文件输入（按钮触发隐藏 input；重置 value 允许重复选择同一文件）
   const importInputRef = useRef<HTMLInputElement>(null);
   // 单空间导入文件输入
@@ -487,6 +496,12 @@ export function SettingsTab(props: {
   }, [activeGroup]);
   const presetLeaveGuard = useRef<(() => boolean) | null>(null);
   const [editorOwnsHeader, setEditorOwnsHeader] = useState(false);
+  const [macroCreateAction, setMacroCreateAction] = useState<{
+    label: string;
+    dataAction: string;
+    disabled: boolean;
+    onClick: () => void;
+  } | null>(null);
   const registerPresetLeaveGuard = useCallback(
     (guard: (() => boolean) | null) => {
       presetLeaveGuard.current = guard;
@@ -630,6 +645,17 @@ export function SettingsTab(props: {
           header={
             <PanelBar
               title={groupTitle}
+              trailing={
+                activeGroup === "macro" && macroCreateAction ? (
+                  <PanelBarAction
+                    icon="fa-plus"
+                    label={macroCreateAction.label}
+                    data-action={macroCreateAction.dataAction}
+                    disabled={macroCreateAction.disabled}
+                    onClick={macroCreateAction.onClick}
+                  />
+                ) : undefined
+              }
               leading={
                 <PanelBarAction
                   icon="fa-arrow-left"
@@ -712,11 +738,14 @@ export function SettingsTab(props: {
             <EmbeddingConnectionEditor
               onClose={() => toggleGroup(null)}
               registerLeaveGuard={registerPresetLeaveGuard}
-              key={JSON.stringify(props.settings.embeddingConnection)}
               connection={props.settings.embeddingConnection}
-              onSave={(connection) =>
-                changeSettings(() => props.settingsService.setEmbeddingConnection(connection))
-              }
+              onSave={async (connection) => {
+                try {
+                  await props.settingsService.setEmbeddingConnection(connection);
+                } finally {
+                  props.onSettingsChange(props.settingsService.read());
+                }
+              }}
             />
           </div>
         )}
@@ -729,20 +758,22 @@ export function SettingsTab(props: {
         hidden={activeGroup !== "macro"}
       >
         {activeGroup === "macro" && (
-          <div className="stm-setting-group-body">
+          <div className="stm-setting-group-body stm-macro-page">
             {/* 作用域分区：内置宏（只读）/ 全局宏 / 对话级宏 */}
-            <Tabs
-              label="记忆宏作用域"
-              value={macroScopeTab}
-              options={MACRO_SCOPE_TABS.map((tab) => ({
-                value: tab.key,
-                label: tab.label,
-                panelId: `stm-macro-${tab.key}`,
-                dataAction: "macro-scope",
-                dataAttributes: { "data-macro-scope": tab.key },
-              }))}
-              onChange={setMacroScopeTab}
-            />
+            {!editorOwnsHeader && (
+              <Tabs
+                label="记忆宏作用域"
+                value={macroScopeTab}
+                options={MACRO_SCOPE_TABS.map((tab) => ({
+                  value: tab.key,
+                  label: tab.label,
+                  panelId: `stm-macro-${tab.key}`,
+                  dataAction: "macro-scope",
+                  dataAttributes: { "data-macro-scope": tab.key },
+                }))}
+                onChange={setMacroScopeTab}
+              />
+            )}
             <div id={`stm-macro-${macroScopeTab}`} role="tabpanel">
               {/* 内置宏：系统宏只读列表（默认快照 + {{前缀::full}} + {{前缀::表Key}}；
                 Agent 预设宏 {{tablesDigest}}/{{systemDefaultPrompt}}，每行右侧预览按钮 */}
@@ -759,6 +790,9 @@ export function SettingsTab(props: {
               {macroScopeTab === "global" && (
                 <>
                   <MemoryViewsManager
+                    onCreateActionChange={setMacroCreateAction}
+                    onEditingChange={setEditorOwnsHeader}
+                    registerLeaveGuard={registerPresetLeaveGuard}
                     prefix={props.settings.macroName.replace(/[{}]/g, "")}
                     spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                     readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
@@ -777,6 +811,14 @@ export function SettingsTab(props: {
               {/* 对话级宏：聊天 Scope 宏 CRUD（随对话文件走） */}
               {macroScopeTab === "chat" && (
                 <ChatScopeMacrosManager
+                  chatIdentity={
+                    props.status?.kind === "active" && props.status.binding.version === 2
+                      ? props.status.binding.chatIdentity
+                      : undefined
+                  }
+                  onCreateActionChange={setMacroCreateAction}
+                  onEditingChange={setEditorOwnsHeader}
+                  registerLeaveGuard={registerPresetLeaveGuard}
                   prefix={props.settings.macroName.replace(/[{}]/g, "")}
                   spaceId={props.status?.kind === "active" ? props.status.space.id : undefined}
                   readTables={(spaceId) => props.tables.list(spaceId as MemorySpaceId)}
@@ -815,6 +857,7 @@ export function SettingsTab(props: {
         {activeGroup === "table-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
+              onBack={() => toggleGroup(null)}
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
               presets={props.settings.tablePresets}
@@ -845,6 +888,7 @@ export function SettingsTab(props: {
         {activeGroup === "agent-connections" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentConnectionManager
+              onBack={() => toggleGroup(null)}
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
               settings={props.settings}
@@ -853,43 +897,6 @@ export function SettingsTab(props: {
               }}
               onTestConnection={(connection) => testAgentConnection(connection)}
             />
-            {!editorOwnsHeader && (
-              <>
-                <label className="stm-form-row stm-settings-timeout">
-                  <span className="stm-form-label">每批填写时限（秒）</span>
-                  <select
-                    className="stm-select"
-                    value={props.settings.fillAgentTimeoutSeconds}
-                    onChange={(event) =>
-                      saveSettings({
-                        ...props.settings,
-                        fillAgentTimeoutSeconds: Number(event.target.value),
-                      })
-                    }
-                  >
-                    {[
-                      30,
-                      60,
-                      120,
-                      300,
-                      600,
-                      900,
-                      1800,
-                      ...([30, 60, 120, 300, 600, 900, 1800].includes(
-                        props.settings.fillAgentTimeoutSeconds,
-                      )
-                        ? []
-                        : [props.settings.fillAgentTimeoutSeconds]),
-                    ].map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {seconds}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="stm-setting-hint">超时后不提交当前批次</div>
-              </>
-            )}
           </div>
         )}
       </div>
@@ -903,6 +910,9 @@ export function SettingsTab(props: {
         {activeGroup === "agent-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <AgentPresetManager
+              registerLeaveGuard={registerPresetLeaveGuard}
+              onBack={() => toggleGroup(null)}
+              onEditingChange={setEditorOwnsHeader}
               settings={props.settings}
               presetPreview={props.presetPreview}
               onChange={(next) => {
@@ -922,6 +932,9 @@ export function SettingsTab(props: {
         {activeGroup === "cleaning" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <CleaningRulesManager
+              onBack={() => toggleGroup(null)}
+              onEditingChange={setEditorOwnsHeader}
+              registerLeaveGuard={registerPresetLeaveGuard}
               settings={props.settings}
               selectedListId={chatCleaningListId}
               onSelectList={(listId) => {
@@ -946,12 +959,19 @@ export function SettingsTab(props: {
       >
         {activeGroup === "backup" && (
           <div className="stm-setting-group-body">
+            {dataOperation && (
+              <div className="stm-setting-hint" role="status">
+                {dataOperation.startsWith("import") ? "正在导入…" : "正在导出…"}
+              </div>
+            )}
+            <div className="stm-section-label">全部记忆空间</div>
             <div className="stm-setting-actions">
               <button
                 type="button"
                 className="stm-button"
                 data-action="export-backup"
-                onClick={() => void exportBackup()}
+                disabled={dataOperation !== null}
+                onClick={() => void runDataOperation("export-backup", exportBackup)}
               >
                 导出备份
               </button>
@@ -959,6 +979,7 @@ export function SettingsTab(props: {
                 type="button"
                 className="stm-button"
                 data-action="import-backup"
+                disabled={dataOperation !== null}
                 onClick={() => importInputRef.current?.click()}
               >
                 导入备份
@@ -972,20 +993,21 @@ export function SettingsTab(props: {
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void importBackup(file);
+                if (file) void runDataOperation("import-backup", () => importBackup(file));
                 event.target.value = "";
               }}
             />
             <div className="stm-setting-hint">导入将整体替换当前数据</div>
             <div className="stm-setting-divider" />
+            <div className="stm-section-label">当前对话空间</div>
             <div className="stm-setting-actions">
               <button
                 type="button"
                 className="stm-button"
                 data-action="export-space-backup"
-                disabled={!canExportSpace}
+                disabled={!canExportSpace || dataOperation !== null}
                 title={canExportSpace ? undefined : "当前对话未绑定记忆空间"}
-                onClick={() => void exportSpaceBackup()}
+                onClick={() => void runDataOperation("export-space-backup", exportSpaceBackup)}
               >
                 导出当前空间
               </button>
@@ -993,6 +1015,7 @@ export function SettingsTab(props: {
                 type="button"
                 className="stm-button"
                 data-action="import-space-backup"
+                disabled={dataOperation !== null}
                 onClick={() => importSpaceInputRef.current?.click()}
               >
                 导入到当前空间
@@ -1006,7 +1029,8 @@ export function SettingsTab(props: {
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void importSpaceBackup(file);
+                if (file)
+                  void runDataOperation("import-space-backup", () => importSpaceBackup(file));
                 event.target.value = "";
               }}
             />
@@ -1123,9 +1147,15 @@ export function SettingsTab(props: {
         {activeGroup === "safe-area" && (
           <div className="stm-setting-group-body">
             <div className="stm-safe-area-grid">
+              <div className="stm-safe-area-preview" aria-hidden="true">
+                <i className="fa-solid fa-mobile-screen" />
+                <span>面板</span>
+              </div>
               {SAFE_AREA_EDGES.map((edge) => (
-                <label key={edge} className="stm-safe-area-cell">
-                  <span className="stm-setting-name">{SAFE_AREA_EDGE_LABELS[edge]}</span>
+                <label key={edge} className="stm-safe-area-cell" data-edge={edge}>
+                  <span className="stm-setting-name">
+                    {SAFE_AREA_EDGE_LABELS[edge]} <span className="stm-setting-unit">px</span>
+                  </span>
                   <input
                     className="stm-input"
                     type="number"
@@ -1147,6 +1177,9 @@ export function SettingsTab(props: {
                   className="stm-button"
                   data-action="apply-safe-area-preset"
                   data-preset={preset.id}
+                  aria-pressed={SAFE_AREA_EDGES.every(
+                    (edge) => safeArea[edge] === preset.values[edge],
+                  )}
                   onClick={() => setSafeArea({ ...preset.values })}
                 >
                   {preset.label}
@@ -1175,22 +1208,20 @@ export function SettingsTab(props: {
         {activeGroup === "danger" && (
           <div className="stm-setting-group-body">
             <div className="stm-setting-hint">
-              以下操作会清空当前对话记忆空间的内容，且对话文件镜像中的副本也会随之清空，操作不可恢复；按预设重建请使用上方「表格预设」分组。
+              将删除当前空间的全部记录、修订历史与证据，并同步清空对话文件镜像。操作不可恢复。
             </div>
             <div className="stm-setting-actions">
               <button
                 type="button"
                 className="stm-button stm-button--danger"
                 data-action="clear-space-records"
-                disabled={!canMaintainSpace}
-                onClick={() => void clearSpaceRecords()}
+                disabled={!canMaintainSpace || dataOperation !== null}
+                onClick={() => void runDataOperation("clear-space-records", clearSpaceRecords)}
               >
-                清除空间记录
+                {dataOperation === "clear-space-records" ? "正在清除…" : "清除空间记录"}
               </button>
             </div>
-            <div className="stm-setting-hint">
-              清除记录保留当前表结构与初始化来源，不套用预设；表格结构重建走「表格预设」的应用流程。
-            </div>
+            <div className="stm-setting-hint">保留表格结构与初始化来源。</div>
           </div>
         )}
       </div>

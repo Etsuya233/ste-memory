@@ -22,6 +22,7 @@ import {
 } from "../../features/agent-presets/agent-macro-service.ts";
 import { BUILTIN_FULL_ARG } from "../../features/macros/memory-macro-service.ts";
 import { copyText, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
 import { PreviewModal } from "../memory/preview-modal.tsx";
 
 export function BuiltinMacrosList(props: {
@@ -76,52 +77,51 @@ export function BuiltinMacrosList(props: {
 
   return (
     <div className="stm-setting-subgroup" data-stm-section="builtin-macros">
-      <div className="stm-setting-hint">
-        <span className="stm-mono">{"{{前缀}}"}</span> 展开全部启用表分组摘要；
-        <span className="stm-mono">{"{{前缀::full}}"}</span> 展开全部启用表完整数据；
-        <span className="stm-mono">{"{{前缀::表Key}}"}</span> 展开单表完整数据
-        （均受全局字符上限截断）；系统宏跟随当前空间、不可编辑；同名自定义宏优先；
-        <span className="stm-mono">{"{{tablesDigest}}"}</span> /
-        <span className="stm-mono">{"{{systemDefaultPrompt}}"}</span> 为 Agent 预设宏（表格摘要 /
-        系统默认预设提示词）
-      </div>
       {!props.spaceId && (
         <div className="stm-preset-warning" data-stm-field="builtin-macros-no-space">
           当前没有活动记忆空间：打开/切换对话后可查看内置宏
         </div>
       )}
-      {tables !== undefined && (
-        <>
-          <BuiltinMacroRow
-            name={`{{${props.prefix}}}`}
-            summary="默认快照 · 全部启用表分组摘要"
-            onPreview={() => openPreview(`{{${props.prefix}}}`)}
-          />
-          <BuiltinMacroRow
-            name={`{{${props.prefix}::${BUILTIN_FULL_ARG}}}`}
-            summary="全部启用表 · 完整数据 · 受全局字符上限截断"
-            onPreview={() => openPreview(`{{${props.prefix}::${BUILTIN_FULL_ARG}}}`)}
-          />
-          {enabledTables.map((table) => (
+      <div className="stm-grouped-list stm-macro-list">
+        {tables !== undefined && (
+          <>
             <BuiltinMacroRow
-              key={table.key}
-              name={`{{${props.prefix}::${table.key}}}`}
-              summary={`表「${table.name}」全部记录`}
-              onPreview={() => openPreview(`{{${props.prefix}::${table.key}}}`)}
+              name={`{{${props.prefix}}}`}
+              summary="默认快照 · 全部启用表分组摘要"
+              onPreview={() => openPreview(`{{${props.prefix}}}`)}
             />
-          ))}
-        </>
-      )}
-      <BuiltinMacroRow
-        name={`{{${AGENT_TABLES_DIGEST_MACRO}}}`}
-        summary="Agent 提示词 · 全部启用表分组摘要"
-        onPreview={() => openPreview(`{{${AGENT_TABLES_DIGEST_MACRO}}}`)}
-      />
-      <BuiltinMacroRow
-        name={`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`}
-        summary="Agent 提示词 · 系统默认预设完整提示词"
-        onPreview={() => openPreview(`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`)}
-      />
+            <BuiltinMacroRow
+              name={`{{${props.prefix}::${BUILTIN_FULL_ARG}}}`}
+              summary="全部启用表 · 完整数据 · 受全局字符上限截断"
+              onPreview={() => openPreview(`{{${props.prefix}::${BUILTIN_FULL_ARG}}}`)}
+            />
+            {enabledTables.map((table) => (
+              <BuiltinMacroRow
+                key={table.key}
+                name={`{{${props.prefix}::${table.key}}}`}
+                summary={`表「${table.name}」全部记录`}
+                onPreview={() => openPreview(`{{${props.prefix}::${table.key}}}`)}
+              />
+            ))}
+          </>
+        )}
+        <BuiltinMacroRow
+          name={`{{${AGENT_TABLES_DIGEST_MACRO}}}`}
+          summary="Agent 提示词 · 全部启用表分组摘要"
+          onPreview={() => openPreview(`{{${AGENT_TABLES_DIGEST_MACRO}}}`)}
+        />
+        <BuiltinMacroRow
+          name={`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`}
+          summary="Agent 提示词 · 系统默认预设完整提示词"
+          onPreview={() => openPreview(`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`)}
+        />
+      </div>
+      <Disclosure icon="fa-circle-info" title="使用与优先级" open>
+        <div className="stm-setting-hint">
+          系统宏跟随当前空间，只读。同名优先级：对话级 → 全局 →
+          内置。记忆输出受宏设置中的字符上限限制；Agent 宏用于提示词预设。
+        </div>
+      </Disclosure>
       {preview && (
         <PreviewModal
           title={preview.name}
@@ -134,7 +134,7 @@ export function BuiltinMacrosList(props: {
   );
 }
 
-/** 内置宏只读行：宏名（等宽）+ 摘要 + 「内置」徽标 + 右侧预览按钮 */
+/** 内置宏只读行：宏名（等宽）+ 摘要 + 右侧预览按钮 */
 function BuiltinMacroRow(props: {
   readonly name: string;
   readonly summary: string;
@@ -150,7 +150,6 @@ function BuiltinMacroRow(props: {
           <span className="stm-mono">{props.name}</span>
           <span className="stm-preset-fragment-preview">{props.summary}</span>
         </div>
-        <span className="stm-builtin-badge">内置</span>
         <button
           type="button"
           className="stm-button stm-preset-preview-btn"

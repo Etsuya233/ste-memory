@@ -11,6 +11,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
+import { reportError } from "../shell/ui-helpers.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import {
@@ -35,6 +37,7 @@ function createUiId(): string {
 export const FOLLOW_ST_CONNECTION_LABEL = "跟随 ST 当前连接";
 
 export function AgentConnectionManager(props: {
+  readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settings: PluginSettings;
@@ -48,15 +51,22 @@ export function AgentConnectionManager(props: {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const initialDraft = useRef<AgentConnection | null>(null);
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(
+    editing
+      ? settings.agentConnections.some((connection) => connection.id === editing.id)
+        ? `edit:connection:${editing.id}`
+        : "new:connection"
+      : "list",
+  );
+  const ownsHeader = props.onBack !== undefined || editing !== null;
   const dirty =
     editing !== null && JSON.stringify(editing) !== JSON.stringify(initialDraft.current);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
-  const isEditing = editing !== null;
   useEffect(() => {
-    props.onEditingChange?.(isEditing);
+    props.onEditingChange?.(ownsHeader);
     return () => props.onEditingChange?.(false);
-  }, [isEditing, props.onEditingChange]);
+  }, [ownsHeader, props.onEditingChange]);
   useEffect(() => {
     props.registerLeaveGuard?.(
       () => !dirtyRef.current || window.confirm("连接有未保存的修改，放弃修改并离开吗？"),
@@ -90,9 +100,14 @@ export function AgentConnectionManager(props: {
   }
 
   function save(draft: AgentConnection): void {
-    props.onChange(upsertAgentConnection(settings, draft));
-    setEditing(null);
-    setTestResult(null);
+    try {
+      props.onChange(upsertAgentConnection(settings, draft));
+      rememberScroll();
+      setEditing(null);
+      setTestResult(null);
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   function remove(connectionId: string): void {
@@ -106,86 +121,127 @@ export function AgentConnectionManager(props: {
       return;
     }
     props.onChange(removeAgentConnection(settings, connectionId));
+    rememberScroll();
+    setEditing(null);
   }
 
   function startCreate(): void {
+    rememberScroll();
+    setModels([]);
     initialDraft.current = { id: createUiId(), name: "", baseUrl: "", apiKey: "", model: "" };
     setEditing(initialDraft.current);
     setTestResult(null);
   }
 
   function startEdit(connection: AgentConnection): void {
+    rememberScroll();
+    setModels([]);
     initialDraft.current = connection;
     setEditing({ ...connection });
     setTestResult(null);
   }
 
   return (
-    <div className="stm-setting-group" data-stm-field="agent-connections">
+    <div ref={screenRef} className="stm-settings-detail-page" data-stm-field="agent-connections">
       {!editing && (
         <>
-          <div className="stm-connection-list stm-grouped-list" data-stm-field="connection-list">
-            {settings.agentConnections.length === 0 && (
-              <div className="stm-setting-hint">暂无独立连接</div>
-            )}
+          {props.onBack && (
+            <PageChrome
+              pageKey="connection-list"
+              header={
+                <PanelBar
+                  title="Agent 连接"
+                  leading={
+                    <PanelBarAction
+                      icon="fa-arrow-left"
+                      label="返回设置"
+                      data-action="settings-back"
+                      onClick={props.onBack}
+                    />
+                  }
+                  trailing={
+                    <PanelBarAction
+                      icon="fa-plus"
+                      label="新建连接"
+                      data-action="create-connection"
+                      onClick={startCreate}
+                    />
+                  }
+                />
+              }
+            />
+          )}
+          <ul className="stm-grouped-list stm-settings-item-list" data-stm-field="connection-list">
             {settings.agentConnections.map((connection) => (
-              <div
-                className="stm-connection-row"
-                data-stm-field="connection-row"
-                key={connection.id}
-              >
-                <div className="stm-connection-summary">
-                  <span className="stm-connection-name">{connection.name}</span>
-                  <span
-                    className="stm-connection-meta"
-                    title={`${connection.baseUrl} · ${connection.model}`}
-                  >
-                    {connection.baseUrl} · {connection.model}
-                  </span>
-                </div>
+              <li key={connection.id} data-stm-field="connection-row">
                 <button
-                  className="stm-button"
+                  type="button"
+                  className="stm-settings-item-row"
                   data-action="edit-connection"
                   onClick={() => startEdit(connection)}
                 >
-                  编辑
+                  <span className="stm-settings-item-main">
+                    <span className="stm-settings-item-title">{connection.name}</span>
+                    <span className="stm-settings-item-summary">
+                      {connection.baseUrl} · {connection.model}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
                 </button>
-                <button
-                  className="stm-button"
-                  data-action="delete-connection"
-                  onClick={() => remove(connection.id)}
-                >
-                  删除
-                </button>
-              </div>
+              </li>
             ))}
-          </div>
-          <div className="stm-setting-actions">
-            <button className="stm-button" data-action="create-connection" onClick={startCreate}>
+          </ul>
+          {settings.agentConnections.length === 0 && <div className="stm-empty">暂无独立连接</div>}
+          {!props.onBack && (
+            <button
+              type="button"
+              className="stm-button"
+              data-action="create-connection"
+              onClick={startCreate}
+            >
               新建连接
             </button>
-          </div>
+          )}
         </>
       )}
       {editing && (
         <AgentConnectionForm
           chrome={props.onEditingChange !== undefined}
+          title={
+            settings.agentConnections.some((connection) => connection.id === editing.id)
+              ? "编辑 Agent 连接"
+              : "新建 Agent 连接"
+          }
+          onDelete={
+            settings.agentConnections.some((connection) => connection.id === editing.id)
+              ? () => remove(editing.id)
+              : undefined
+          }
           draft={editing}
           models={models}
           testing={testing}
           testResult={testResult}
-          onDraftChange={setEditing}
+          onDraftChange={(next) => {
+            if (next.baseUrl !== editing.baseUrl || next.apiKey !== editing.apiKey) {
+              setModels([]);
+              setTestResult(null);
+            }
+            setEditing(next);
+          }}
           onTest={() => void runTest(editing)}
           onSave={() => save(editing)}
           onCancel={() => {
-            if (!dirty || window.confirm("连接有未保存的修改，放弃修改并返回吗？"))
+            if (!dirty || window.confirm("连接有未保存的修改，放弃修改并返回吗？")) {
+              rememberScroll();
               setEditing(null);
+            }
           }}
         />
       )}
       {/* 移动端优先：选择器纵向堆叠，每行一个（面板宽度有限，并排会挤压） */}
       {!editing && (
         <div className="stm-connection-selectors" data-stm-field="agent-selectors">
+          <div className="stm-section-label">Agent 使用的连接 · 即时保存</div>
           {AGENT_CONNECTION_TARGETS.map((target) => (
             <ConnectionSelector
               key={target}
@@ -194,6 +250,38 @@ export function AgentConnectionManager(props: {
               onChange={props.onChange}
             />
           ))}
+
+          <label className="stm-form-row stm-settings-timeout">
+            <span className="stm-form-label">每批填写时限（秒）</span>
+            <select
+              className="stm-select"
+              value={settings.fillAgentTimeoutSeconds}
+              onChange={(event) =>
+                props.onChange({
+                  ...settings,
+                  fillAgentTimeoutSeconds: Number(event.target.value),
+                })
+              }
+            >
+              {[
+                30,
+                60,
+                120,
+                300,
+                600,
+                900,
+                1800,
+                ...([30, 60, 120, 300, 600, 900, 1800].includes(settings.fillAgentTimeoutSeconds)
+                  ? []
+                  : [settings.fillAgentTimeoutSeconds]),
+              ].map((seconds) => (
+                <option key={seconds} value={seconds}>
+                  {seconds}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="stm-setting-hint">超时后不提交当前批次</div>
         </div>
       )}
     </div>
@@ -208,16 +296,18 @@ function ConnectionSelector(props: {
 }): React.JSX.Element {
   const { target, settings } = props;
   const selectedId = agentConnectionSelection(settings, target);
+  const selectorId = useId();
   return (
     <div
       className="stm-setting-row stm-connection-selector-row"
       data-stm-field="agent-connection-selector"
     >
-      <label className="stm-setting-label">
+      <label className="stm-setting-label" htmlFor={selectorId}>
         {target === "fillTask" ? "表格填写 Agent" : "查询 Agent"}
       </label>
       <select
         className="stm-input"
+        id={selectorId}
         data-action="select-agent-connection"
         data-stm-target={target}
         value={selectedId ?? ""}
@@ -245,6 +335,8 @@ function ConnectionSelector(props: {
 /** 连接编辑表单（新建/编辑共用）：手写模型 + 右侧 Select 下拉（字典序，测试成功后填充） */
 export function AgentConnectionForm(props: {
   readonly chrome?: boolean;
+  readonly title?: string;
+  readonly onDelete?: () => void;
   readonly draft: AgentConnection;
   readonly models: readonly string[];
   readonly testing: boolean;
@@ -262,6 +354,7 @@ export function AgentConnectionForm(props: {
   return (
     <form
       id={formId}
+      autoComplete="off"
       className="stm-connection-form"
       data-stm-field="connection-form"
       onSubmit={(event) => {
@@ -271,12 +364,13 @@ export function AgentConnectionForm(props: {
     >
       {props.chrome && (
         <PageChrome
+          pageKey={`connection:${draft.id}`}
           header={
             <PanelBar
-              title="编辑 Agent 连接"
+              title={props.title ?? "编辑 Agent 连接"}
               leading={
                 <PanelBarAction
-                  icon="fa-xmark"
+                  icon="fa-arrow-left"
                   label="取消编辑"
                   data-action="cancel-connection"
                   disabled={props.testing}
@@ -284,75 +378,99 @@ export function AgentConnectionForm(props: {
                 />
               }
               trailing={
-                <PanelBarAction
-                  icon="fa-check"
-                  label="保存连接"
-                  type="submit"
-                  form={formId}
-                  data-action="save-connection"
-                  disabled={!canSave || props.testing}
-                />
+                <>
+                  {props.onDelete && (
+                    <PanelBarAction
+                      icon="fa-trash"
+                      label="删除连接"
+                      data-action="delete-connection"
+                      danger
+                      disabled={props.testing}
+                      onClick={props.onDelete}
+                    />
+                  )}
+                  <PanelBarAction
+                    icon="fa-check"
+                    label="保存连接"
+                    type="submit"
+                    form={formId}
+                    data-action="save-connection"
+                    disabled={!canSave || props.testing}
+                  />
+                </>
               }
             />
           }
         />
       )}
-      <div className="stm-setting-row stm-connection-form-row">
-        <label className="stm-setting-label">名称</label>
-        <input
-          className="stm-input"
-          data-stm-field="connection-name"
-          value={draft.name}
-          placeholder="如：DeepSeek 主用"
-          onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
-        />
-      </div>
-      <div className="stm-setting-row stm-connection-form-row">
-        <label className="stm-setting-label">Base URL</label>
-        <input
-          className="stm-input"
-          data-stm-field="connection-base-url"
-          value={draft.baseUrl}
-          placeholder="如：https://api.deepseek.com/v1（无需带 /chat/completions）"
-          onChange={(event) => props.onDraftChange({ ...draft, baseUrl: event.target.value })}
-        />
-      </div>
-      <div className="stm-setting-row stm-connection-form-row">
-        <label className="stm-setting-label">API Key</label>
-        <input
-          className="stm-input"
-          type="password"
-          data-stm-field="connection-api-key"
-          value={draft.apiKey}
-          placeholder="无鉴权本地服务可留空"
-          onChange={(event) => props.onDraftChange({ ...draft, apiKey: event.target.value })}
-        />
-      </div>
-      <div className="stm-setting-row stm-connection-form-row">
-        <label className="stm-setting-label">模型</label>
-        <div className="stm-connection-model-row">
+      <fieldset className="stm-settings-fields" disabled={props.testing}>
+        <div className="stm-setting-row stm-connection-form-row">
+          <label className="stm-setting-label">名称</label>
           <input
             className="stm-input"
-            data-stm-field="connection-model"
-            value={draft.model}
-            placeholder="手写模型名"
-            onChange={(event) => props.onDraftChange({ ...draft, model: event.target.value })}
+            autoComplete="off"
+            data-stm-field="connection-name"
+            aria-label="名称"
+            value={draft.name}
+            placeholder="如：DeepSeek 主用"
+            onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
           />
-          <select
-            className="stm-input"
-            data-stm-field="connection-model-select"
-            value={draft.model}
-            onChange={(event) => props.onDraftChange({ ...draft, model: event.target.value })}
-          >
-            <option value="">选择已拉取模型…</option>
-            {models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
         </div>
-      </div>
+        <div className="stm-setting-row stm-connection-form-row">
+          <label className="stm-setting-label">Base URL</label>
+          <input
+            className="stm-input"
+            type="url"
+            autoComplete="off"
+            data-stm-field="connection-base-url"
+            aria-label="端点"
+            value={draft.baseUrl}
+            placeholder="https://api.example.com/v1"
+            onChange={(event) => props.onDraftChange({ ...draft, baseUrl: event.target.value })}
+          />
+        </div>
+        <div className="stm-setting-row stm-connection-form-row">
+          <label className="stm-setting-label">API Key</label>
+          <input
+            className="stm-input"
+            type="password"
+            autoComplete="new-password"
+            data-stm-field="connection-api-key"
+            aria-label="API Key"
+            value={draft.apiKey}
+            placeholder="无鉴权本地服务可留空"
+            onChange={(event) => props.onDraftChange({ ...draft, apiKey: event.target.value })}
+          />
+        </div>
+        <div className="stm-setting-row stm-connection-form-row">
+          <label className="stm-setting-label">模型</label>
+          <div className="stm-connection-model-row">
+            <input
+              className="stm-input"
+              autoComplete="off"
+              data-stm-field="connection-model"
+              aria-label="模型"
+              value={draft.model}
+              placeholder="手写模型名"
+              onChange={(event) => props.onDraftChange({ ...draft, model: event.target.value })}
+            />
+            <select
+              className="stm-input"
+              data-stm-field="connection-model-select"
+              aria-label="已拉取模型"
+              value={draft.model}
+              onChange={(event) => props.onDraftChange({ ...draft, model: event.target.value })}
+            >
+              <option value="">选择已拉取模型…</option>
+              {models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </fieldset>
       <div className="stm-setting-actions">
         <button
           type="button"

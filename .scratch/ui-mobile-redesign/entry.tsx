@@ -1,3 +1,4 @@
+import { STORY_MEMORY_PRESET } from "../../src/features/table-presets/story-memory-preset.ts";
 import { createRoot } from "react-dom/client";
 import { PanelShell, type PanelRuntime } from "../../src/ui/shell/panel-shell.tsx";
 import { PanelModel } from "../../src/ui/shell/panel-model.ts";
@@ -35,10 +36,31 @@ let records = tables.flatMap((table, ti) => Array.from({ length: ti ? 3 : 23 }, 
     [`${table.id}-date`]: "2026-10-12", [`${table.id}-trusted`]: index % 2 === 0,
   }, fieldEvidence: {}, source: index % 2 ? { type: "source", sourceTime: "雨夜", sourceLocation: "旧港" } : { type: "manual" }, revisionId: `revision-${index}`, revisionSource: index % 2 ? "agent" : "user",
 })));
+// Same real builtin structure for the table / preset field-list comparison.
+if (new URLSearchParams(location.search).get("fixture") === "preset-fields") {
+  tables = STORY_MEMORY_PRESET.tables.map((table, position) => ({
+    ...stamp, ...table, id: `compare-${table.key}`, position,
+    displayStrategy: table.displayStrategy?.type === "field"
+      ? {type: "field", fieldId: `compare-${table.key}-${table.displayStrategy.fieldKey}`}
+      : table.displayStrategy?.type === "template" ? {type: "template", template: table.displayStrategy.template.replace(/\{([^{}]+)\}/g, (_, key) => `{compare-${table.key}-${key}}`)} : null,
+  })) as typeof tables;
+  fields = STORY_MEMORY_PRESET.tables.flatMap(table => table.fields.map((field, position) => ({
+    ...stamp, ...field, id: `compare-${table.key}-${field.key}`, tableId: `compare-${table.key}`, position,
+    referenceTableId: field.referenceTableKey ? `compare-${field.referenceTableKey}` : null,
+  }))) as typeof fields;
+  records = [];
+}
 const history = new Map();
 const listeners = new Set<() => void>();
 let retrievalState: any = { epoch: 0, dataVersion: 0, status: "idle", result: null, error: null, indexUpdated: false, request: null, calls: 0, startedAt: null, elapsedMs: null };
 const runtime = fakeRuntime() as any;
+// Status changes exercise live binding loss without remounting the settings screen.
+let previewStatus = runtime.manager.getStatus();
+const statusListeners = new Set<() => void>();
+runtime.manager.getStatus = () => previewStatus;
+runtime.manager.onStatusChange = (listener: () => void) => { statusListeners.add(listener); return () => statusListeners.delete(listener); };
+const setSpaceStatus = (status: any) => { previewStatus = status; statusListeners.forEach(listener => listener()); };
+
 const unsupported = async () => { throw new Error("此预览未实现该能力"); };
 runtime.settings = { read: () => settings, write: (value) => { settings = value; } };
 runtime.settingsService = new SettingsService({ store: runtime.settings, syncToCurrentChat: async () => {}, refreshMemoryMacros: async () => {}, refreshAgentMacros: async () => {}, refreshMirror: async () => {}, refreshVectorIndex: async () => {}, writeChatScopeMacros: () => {} });
@@ -101,5 +123,5 @@ const model = new PanelModel();
 const initialTab = new URLSearchParams(location.search).get("tab");
 if (initialTab) model.setTab(initialTab as any);
 model.open();
-window.__UI_PREVIEW__ = { model, runtime, getData: () => ({ tables, fields, records, ...taskData() }) };
+window.__UI_PREVIEW__ = { model, runtime, setSpaceStatus, getData: () => ({ tables, fields, records, ...taskData() }) };
 createRoot(document.getElementById("app")!).render(<PanelShell model={model} runtime={runtime as PanelRuntime} />);

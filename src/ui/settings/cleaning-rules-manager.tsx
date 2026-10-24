@@ -10,7 +10,12 @@
  * - 导入：从 ST 正则条目（readStRegexEntries 端口：全局 + 当前角色卡 + 当前预设）
  *   或 ST 导出 JSON 文件，对话框内勾选条目 + 选目标列表（已有/新建）+ 导入报告。
  */
-import { useRef, useState } from "react";
+import { SettingsActionMenu } from "./settings-action-menu.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
+import { useEffect, useId, useRef, useState } from "react";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import {
@@ -56,6 +61,9 @@ const MODE_LABELS: Record<CleaningRule["mode"], string> = {
 };
 
 export function CleaningRulesManager(props: {
+  readonly onBack?: () => void;
+  readonly onEditingChange?: (editing: boolean) => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settings: PluginSettings;
   /** 当前对话所选列表 id（undefined = 未启用清洗） */
   readonly selectedListId: string | undefined;
@@ -102,6 +110,80 @@ export function CleaningRulesManager(props: {
     readonly rules: readonly CleaningRule[];
     readonly draftOverrides: ReadonlyMap<string, CleaningRuleDraft>;
   } | null>(null);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [listForm, setListForm] = useState<{
+    id?: string;
+    name: string;
+    initialName: string;
+  } | null>(null);
+  const listFormId = useId();
+  const page = listForm
+    ? listForm.id
+      ? `edit:list:${listForm.id}`
+      : "new:list"
+    : importOpen
+      ? "import"
+      : editingRuleId
+        ? pendingRuleId
+          ? "new:rule"
+          : `edit:rule:${editingRuleId}`
+        : detailOpen
+          ? `detail:${editListId}`
+          : "list";
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(page);
+  const formId = useId();
+  const chrome = props.onBack !== undefined;
+  const initialRuleDraft = useRef("");
+  const dirty =
+    (ruleDraft !== undefined && JSON.stringify(ruleDraft) !== initialRuleDraft.current) ||
+    (listForm !== null && listForm.name !== listForm.initialName);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    props.onEditingChange?.(chrome);
+    return () => props.onEditingChange?.(false);
+  }, [chrome, props.onEditingChange]);
+  useEffect(() => {
+    props.registerLeaveGuard?.(
+      () => !dirtyRef.current || window.confirm("规则有未保存的修改，放弃修改并离开吗？"),
+    );
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyRef.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      props.registerLeaveGuard?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [props.registerLeaveGuard]);
+  function startRuleDraft(value: CleaningRuleDraft) {
+    initialRuleDraft.current = JSON.stringify(value);
+    setRuleDraft(value);
+  }
+  function tryCancelEdit() {
+    if (!dirty || window.confirm("规则有未保存的修改，放弃修改并返回吗？")) cancelEdit();
+  }
+  function openList(id: string) {
+    rememberScroll();
+    selectEditList(id);
+    setDetailOpen(true);
+  }
+  function back() {
+    if (listForm) {
+      if (!dirty || window.confirm("列表名称尚未保存，放弃并返回吗？")) {
+        rememberScroll();
+        setListForm(null);
+      }
+    } else if (editingRuleId) tryCancelEdit();
+    else if (importOpen) {
+      rememberScroll();
+      setImportOpen(false);
+    } else if (detailOpen) {
+      rememberScroll();
+      setDetailOpen(false);
+    } else props.onBack?.();
+  }
 
   function apply(
     mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[],
@@ -168,25 +250,39 @@ export function CleaningRulesManager(props: {
   }
 
   function createList(): void {
-    const name = window.prompt("清洗规则列表名称", "我的清洗列表");
-    if (name === null) return;
-    const id = createUiId();
-    apply((current) => createCleaningRuleList(current, id, name.trim() || "未命名列表"));
-    setEditListId(id);
-    setImportTarget({ kind: "existing", listId: id });
+    rememberScroll();
+    setListForm({ name: "我的清洗列表", initialName: "我的清洗列表" });
   }
-
   function renameList(): void {
     if (!editList) return;
-    const name = window.prompt("重命名清洗规则列表", editList.name);
-    if (name === null) return;
-    apply((current) => renameCleaningRuleList(current, editList.id, name.trim() || editList.name));
+    rememberScroll();
+    setListForm({ id: editList.id, name: editList.name, initialName: editList.name });
+  }
+  function saveListForm() {
+    if (!listForm?.name.trim()) return;
+    const id = listForm.id ?? createUiId();
+    try {
+      apply((current) =>
+        listForm.id
+          ? renameCleaningRuleList(current, id, listForm.name.trim())
+          : createCleaningRuleList(current, id, listForm.name.trim()),
+      );
+      rememberScroll();
+      setEditListId(id);
+      setDetailOpen(true);
+      setImportTarget({ kind: "existing", listId: id });
+      setListForm(null);
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   function deleteList(): void {
     if (!editList) return;
     if (!window.confirm(`删除清洗列表「${editList.name}」？引用它的对话将不再清洗。`)) return;
     const deletedId = editList.id;
+    rememberScroll();
+    setDetailOpen(false);
     apply((current) => removeCleaningRuleList(current, deletedId));
     if (props.selectedListId === deletedId) props.onSelectList(undefined);
     const remaining = lists.filter((list) => list.id !== deletedId);
@@ -203,7 +299,8 @@ export function CleaningRulesManager(props: {
     const id = createUiId();
     setPendingRuleId(id);
     setEditingRuleId(id);
-    setRuleDraft({
+    rememberScroll();
+    startRuleDraft({
       name: "新规则",
       mode: "discard",
       // 新建默认标签类型（ADR 0014）：不懂正则的用户第一眼就是简单路径
@@ -220,11 +317,13 @@ export function CleaningRulesManager(props: {
 
   function beginEdit(rule: CleaningRule): void {
     setEditingRuleId(rule.id);
-    setRuleDraft(ruleDraftFromRule(rule));
+    rememberScroll();
+    startRuleDraft(ruleDraftFromRule(rule));
     setRuleError(undefined);
   }
 
   function cancelEdit(): void {
+    rememberScroll();
     setEditingRuleId(undefined);
     setPendingRuleId(undefined);
     setRuleDraft(undefined);
@@ -270,6 +369,7 @@ export function CleaningRulesManager(props: {
   // ---- 导入 ----
 
   function openImportFromSt(): void {
+    rememberScroll();
     try {
       const entries = props.readStRegexEntries();
       const candidates = convertStRegexScripts(
@@ -351,6 +451,8 @@ export function CleaningRulesManager(props: {
       setEditListId(target.listId);
     }
     setImportReport(report);
+    rememberScroll();
+    setDetailOpen(true);
     setImportOpen(false);
     reportSuccess(`已导入 ${report.created} 条规则`);
   }
@@ -359,174 +461,179 @@ export function CleaningRulesManager(props: {
   const selectedCount = importSelected.length;
 
   return (
-    <div className="stm-setting-group" data-stm-section="cleaning-rules">
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">当前对话使用的列表</div>
-        </div>
-        <select
-          className="stm-input"
-          data-stm-field="chat-cleaning-list"
-          value={props.selectedListId ?? ""}
-          onChange={(event) =>
-            props.onSelectList(event.target.value === "" ? undefined : event.target.value)
-          }
-        >
-          <option value="">未启用清洗</option>
-          {lists.map((list) => (
-            <option key={list.id} value={list.id}>
-              {list.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">编辑列表</div>
-        </div>
-        <select
-          className="stm-input"
-          data-stm-field="edit-cleaning-list"
-          value={editList?.id ?? ""}
-          onChange={(event) => selectEditList(event.target.value)}
-        >
-          {lists.length === 0 && <option value="">（暂无列表）</option>}
-          {lists.map((list) => (
-            <option key={list.id} value={list.id}>
-              {list.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="create-cleaning-list"
-          onClick={createList}
-        >
-          新建列表
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="rename-cleaning-list"
-          disabled={!editList}
-          onClick={renameList}
-        >
-          重命名
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="delete-cleaning-list"
-          disabled={!editList}
-          onClick={deleteList}
-        >
-          删除列表
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="test-cleaning-list"
-          disabled={!editList}
-          onClick={openTest}
-        >
-          测试
-        </button>
-      </div>
-      {importReport !== null && (
-        <div className="stm-preset-warning" data-stm-field="import-report">
-          导入完成：新建 {importReport.created} 条规则
-          {importReport.skipped.length > 0 &&
-            `，跳过 ${importReport.skipped.length} 条（${importReport.skipped
-              .map((item) => `${item.scriptName || "未知"}：${item.reason}`)
-              .join("；")}）`}
-        </div>
-      )}
-      {editList === undefined ? (
-        <div className="stm-preset-builtin" data-stm-section="cleaning-rules-empty">
-          <div className="stm-preset-builtin-text">
-            还没有清洗规则列表。点击「导入正则」从 ST 的正则条目（全局 / 当前角色卡 /
-            当前预设）导入，或先新建列表后手动添加规则。
-          </div>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="import-st-regex"
-            onClick={openImportFromSt}
-          >
-            导入正则
-          </button>
-        </div>
-      ) : (
-        <div data-stm-field="cleaning-rule-list">
-          {editList.rules.map((rule, index) => (
-            <CleaningRuleRow
-              key={rule.id}
-              rule={rule}
-              index={index}
-              total={editList.rules.length}
-              editing={editingRuleId === rule.id}
-              draft={ruleDraft}
-              error={ruleError}
-              onBeginEdit={() => beginEdit(rule)}
-              onCancelEdit={cancelEdit}
-              onSaveEdit={saveEdit}
-              onDraftChange={setRuleDraft}
-              onToggleEnabled={(enabled) => {
-                // 开关同时写入已保存规则与编辑草稿：编辑中点测试/保存时 enabled 不漂移
-                apply((current) => updateCleaningRule(current, editList.id, rule.id, { enabled }));
-                setRuleDraft((current) => (current ? { ...current, enabled } : current));
-              }}
-              onMove={(direction) => moveRule(rule.id, direction)}
-              onRemove={() => removeRule(rule.id)}
-            />
-          ))}
-          {/* 新建草稿行：未保存前不落库，编辑态即时可见（取消/切列表即丢弃） */}
-          {pendingRuleId !== undefined && ruleDraft !== undefined && (
-            <CleaningRuleRow
-              key={pendingRuleId}
-              rule={draftToRule(ruleDraft, pendingRuleId)}
-              index={editList.rules.length}
-              total={editList.rules.length + 1}
-              editing
-              movable={false}
-              draft={ruleDraft}
-              error={ruleError}
-              onBeginEdit={() => undefined}
-              onCancelEdit={cancelEdit}
-              onSaveEdit={saveEdit}
-              onDraftChange={setRuleDraft}
-              onToggleEnabled={(enabled) =>
-                setRuleDraft((current) => (current ? { ...current, enabled } : current))
+    <div
+      ref={screenRef}
+      className="stm-settings-detail-page"
+      data-stm-section="cleaning-rules"
+      data-cleaning-screen={
+        importOpen ? "import" : editingRuleId ? "rule" : detailOpen ? "detail" : "list"
+      }
+    >
+      {chrome && (
+        <PageChrome
+          pageKey={page}
+          header={
+            <PanelBar
+              title={
+                listForm
+                  ? listForm.id
+                    ? "重命名清洗列表"
+                    : "新建清洗列表"
+                  : importOpen
+                    ? "导入正则"
+                    : editingRuleId
+                      ? pendingRuleId
+                        ? "新建规则"
+                        : "编辑规则"
+                      : detailOpen
+                        ? editList?.name
+                        : "清洗规则"
               }
-              onMove={() => undefined}
-              onRemove={() => undefined}
+              subtitle={
+                detailOpen && !editingRuleId && !importOpen && !listForm
+                  ? `${editList?.rules.length ?? 0} 条规则`
+                  : undefined
+              }
+              leading={
+                <PanelBarAction
+                  icon="fa-arrow-left"
+                  label={editingRuleId ? "取消编辑" : "返回"}
+                  data-action={
+                    listForm
+                      ? "cancel-cleaning-list"
+                      : editingRuleId
+                        ? "cancel-cleaning-rule"
+                        : detailOpen || importOpen
+                          ? "back-cleaning-lists"
+                          : "settings-back"
+                  }
+                  onClick={back}
+                />
+              }
+              trailing={
+                listForm ? (
+                  <PanelBarAction
+                    icon="fa-check"
+                    label="保存列表名称"
+                    data-action="save-cleaning-list"
+                    type="submit"
+                    form={listFormId}
+                    disabled={!listForm.name.trim()}
+                  />
+                ) : importOpen ? (
+                  <PanelBarAction
+                    icon="fa-check"
+                    label="导入所选规则"
+                    data-action="confirm-regex-import"
+                    disabled={selectedCount === 0}
+                    onClick={confirmImport}
+                  />
+                ) : editingRuleId ? (
+                  <>
+                    {!pendingRuleId && (
+                      <PanelBarAction
+                        icon="fa-trash"
+                        label="删除规则"
+                        data-action="remove-cleaning-rule"
+                        danger
+                        onClick={() => {
+                          if (window.confirm("删除此清洗规则？")) removeRule(editingRuleId);
+                        }}
+                      />
+                    )}
+                    <PanelBarAction
+                      icon="fa-check"
+                      label="保存规则"
+                      data-action="save-cleaning-rule"
+                      type="submit"
+                      form={formId}
+                    />
+                  </>
+                ) : detailOpen ? (
+                  <>
+                    <PanelBarAction
+                      icon="fa-flask"
+                      label="测试规则列表"
+                      data-action="test-cleaning-list"
+                      onClick={openTest}
+                    />
+                    <SettingsActionMenu
+                      actions={[
+                        {
+                          label: "重命名",
+                          dataAction: "rename-cleaning-list",
+                          onSelect: renameList,
+                        },
+                        {
+                          label: "导入规则到此列表",
+                          dataAction: "import-st-regex",
+                          onSelect: openImportFromSt,
+                        },
+                        {
+                          label: "删除列表",
+                          dataAction: "delete-cleaning-list",
+                          danger: true,
+                          onSelect: deleteList,
+                        },
+                      ]}
+                    />
+                    <PanelBarAction
+                      icon="fa-plus"
+                      label="添加规则"
+                      data-action="add-cleaning-rule"
+                      onClick={addRule}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <PanelBarAction
+                      icon="fa-file-import"
+                      label="导入正则"
+                      data-action="import-st-regex"
+                      onClick={openImportFromSt}
+                    />
+                    <PanelBarAction
+                      icon="fa-plus"
+                      label="新建列表"
+                      data-action="create-cleaning-list"
+                      onClick={createList}
+                    />
+                  </>
+                )
+              }
             />
-          )}
-          <div className="stm-setting-actions">
-            <button
-              type="button"
-              className="stm-button stm-preset-add-fragment"
-              data-action="add-cleaning-rule"
-              onClick={addRule}
-            >
-              + 添加规则
-            </button>
-            <button
-              type="button"
-              className="stm-button"
-              data-action="import-st-regex"
-              onClick={openImportFromSt}
-            >
-              导入正则
-            </button>
-          </div>
-        </div>
+          }
+        />
       )}
-      {importOpen && (
+      {listForm ? (
+        <form
+          id={listFormId}
+          className="stm-settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveListForm();
+          }}
+        >
+          <label className="stm-form-row">
+            <span className="stm-form-label">列表名称</span>
+            <input
+              className="stm-input"
+              data-stm-field="cleaning-list-name"
+              value={listForm.name}
+              autoFocus
+              required
+              onChange={(event) => setListForm({ ...listForm, name: event.target.value })}
+            />
+          </label>
+          {!chrome && (
+            <button type="submit" className="stm-button" data-action="save-cleaning-list">
+              保存列表名称
+            </button>
+          )}
+        </form>
+      ) : importOpen ? (
         <ImportDialog
+          compact={chrome}
           candidates={importCandidates}
           sources={importSources}
           selected={importSelected}
@@ -540,7 +647,171 @@ export function CleaningRulesManager(props: {
           onConfirm={confirmImport}
           onCancel={() => setImportOpen(false)}
         />
+      ) : editingRuleId && ruleDraft ? (
+        <>
+          <CleaningRuleEditor
+            formId={chrome ? formId : undefined}
+            draft={ruleDraft}
+            error={ruleError}
+            onDraftChange={(next) => {
+              setRuleDraft(next);
+              setRuleError(undefined);
+            }}
+            onSave={saveEdit}
+            onCancel={tryCancelEdit}
+          />
+          <Disclosure icon="fa-flask" title="测试草稿">
+            <button
+              type="button"
+              className="stm-button"
+              data-action="test-cleaning-list"
+              onClick={openTest}
+            >
+              测试当前规则列表
+            </button>
+          </Disclosure>
+        </>
+      ) : detailOpen && editList ? (
+        <>
+          <ul
+            className="stm-grouped-list stm-settings-item-list"
+            data-stm-field="cleaning-rule-list"
+          >
+            {editList.rules.map((rule) => (
+              <li key={rule.id} className="stm-settings-item-with-toggle">
+                <button
+                  type="button"
+                  className="stm-settings-item-row"
+                  data-action="edit-cleaning-rule"
+                  onClick={() => beginEdit(rule)}
+                >
+                  <span className="stm-settings-item-main">
+                    <span className="stm-settings-item-title">{rule.name}</span>
+                    <span className="stm-settings-item-summary">
+                      {MODE_LABELS[rule.mode]} ·{" "}
+                      {rule.type === "tag" ? `${rule.pre} … ${rule.post}` : rule.pattern}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                </button>
+                <label className="stm-switch">
+                  <input
+                    type="checkbox"
+                    aria-label={`启用规则 ${rule.name}`}
+                    checked={rule.enabled}
+                    onChange={(event) =>
+                      apply((current) =>
+                        updateCleaningRule(current, editList.id, rule.id, {
+                          enabled: event.target.checked,
+                        }),
+                      )
+                    }
+                  />
+                  <span className="stm-switch-track" aria-hidden="true" />
+                </label>
+              </li>
+            ))}
+          </ul>
+          {editList.rules.length === 0 && <div className="stm-empty">还没有清洗规则</div>}
+          <Disclosure icon="fa-arrows-up-down" title="规则顺序">
+            <div className="stm-grouped-list">
+              {editList.rules.map((rule, index) => (
+                <div className="stm-settings-order-row" key={rule.id}>
+                  <span>{rule.name}</span>
+                  <PanelBarAction
+                    icon="fa-arrow-up"
+                    label={`上移规则 ${rule.name}`}
+                    data-action="move-cleaning-rule-up"
+                    disabled={index === 0}
+                    onClick={() => moveRule(rule.id, -1)}
+                  />
+                  <PanelBarAction
+                    icon="fa-arrow-down"
+                    label={`下移规则 ${rule.name}`}
+                    data-action="move-cleaning-rule-down"
+                    disabled={index === editList.rules.length - 1}
+                    onClick={() => moveRule(rule.id, 1)}
+                  />
+                </div>
+              ))}
+            </div>
+          </Disclosure>
+        </>
+      ) : (
+        <>
+          <label className="stm-form-row">
+            <span className="stm-form-label">当前对话</span>
+            <select
+              className="stm-input"
+              data-stm-field="chat-cleaning-list"
+              aria-label="当前对话使用的列表"
+              value={props.selectedListId ?? ""}
+              onChange={(event) => props.onSelectList(event.target.value || undefined)}
+            >
+              <option value="">未启用清洗</option>
+              {lists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {list.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ul className="stm-grouped-list stm-settings-item-list">
+            {lists.map((list) => (
+              <li key={list.id}>
+                <button
+                  type="button"
+                  className="stm-settings-item-row"
+                  data-action="open-cleaning-list"
+                  data-list-id={list.id}
+                  onClick={() => openList(list.id)}
+                >
+                  <span className="stm-settings-item-main">
+                    <span className="stm-settings-item-title">{list.name}</span>
+                    <span className="stm-settings-item-summary">
+                      {list.rules.length} 条规则
+                      {list.id === props.selectedListId ? " · 当前对话使用" : ""}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {lists.length === 0 && (
+            <div className="stm-empty" data-stm-section="cleaning-rules-empty">
+              新建清洗规则列表，或从 ST 导入正则。
+            </div>
+          )}
+          {!chrome && (
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="create-cleaning-list"
+                onClick={createList}
+              >
+                新建列表
+              </button>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="import-st-regex"
+                onClick={openImportFromSt}
+              >
+                导入正则
+              </button>
+            </div>
+          )}
+        </>
       )}
+      {importReport !== null && (
+        <div className="stm-setting-hint" data-stm-field="import-report">
+          已导入 {importReport.created} 条规则
+          {importReport.skipped.length ? ` · 跳过 ${importReport.skipped.length} 条` : ""}
+        </div>
+      )}
+
       {testOpen && testSnapshot !== null && (
         <CleaningTestDialog
           form={testForm}
@@ -565,106 +836,9 @@ export function CleaningRulesManager(props: {
   );
 }
 
-/** 规则行：折叠态 = 摘要（开关 + 名称 + 模式 + 正则/标签）；展开态 = 完整表单（保存校验）。 */
-export function CleaningRuleRow(props: {
-  readonly rule: CleaningRule;
-  readonly index: number;
-  readonly total: number;
-  readonly editing: boolean;
-  readonly draft: CleaningRuleDraft | undefined;
-  readonly error: string | undefined;
-  /** 是否可重排（新建草稿行未落库，隐藏上下移按钮） */
-  readonly movable?: boolean;
-  readonly onBeginEdit: () => void;
-  readonly onCancelEdit: () => void;
-  readonly onSaveEdit: () => void;
-  readonly onDraftChange: (draft: CleaningRuleDraft) => void;
-  readonly onToggleEnabled: (enabled: boolean) => void;
-  readonly onMove: (direction: -1 | 1) => void;
-  readonly onRemove: () => void;
-}) {
-  const { rule } = props;
-  const movable = props.movable ?? true;
-  return (
-    <div className="stm-preset-fragment" data-stm-field={`cleaning-rule-${rule.id}`}>
-      <div className="stm-preset-fragment-head">
-        <span className="stm-preset-fragment-index stm-mono">{props.index + 1}</span>
-        <label className="stm-switch">
-          <input
-            type="checkbox"
-            data-stm-field={`cleaning-rule-enabled-${rule.id}`}
-            checked={rule.enabled}
-            onChange={(event) => props.onToggleEnabled(event.target.checked)}
-          />
-          <span className="stm-switch-track" aria-hidden="true"></span>
-        </label>
-        <button
-          type="button"
-          className="stm-preset-fragment-title"
-          data-action="edit-cleaning-rule"
-          onClick={props.editing ? props.onCancelEdit : props.onBeginEdit}
-          title={props.editing ? "收起" : "编辑"}
-        >
-          <span className="stm-preset-fragment-preview">
-            {rule.name} · {MODE_LABELS[rule.mode]}
-            {rule.mode === "replace" ? `「${rule.replacement ?? ""}」` : ""}
-            <span className="stm-mono">
-              {" "}
-              {rule.type === "regex"
-                ? `/${rule.pattern}/${rule.flags}`
-                : `${rule.pre}…${rule.post}`}
-            </span>
-          </span>
-        </button>
-        {movable && (
-          <>
-            <button
-              type="button"
-              className="stm-preset-fragment-remove"
-              data-action="move-cleaning-rule-up"
-              disabled={props.index === 0}
-              onClick={() => props.onMove(-1)}
-              title="上移"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              className="stm-preset-fragment-remove"
-              data-action="move-cleaning-rule-down"
-              disabled={props.index >= props.total - 1}
-              onClick={() => props.onMove(1)}
-              title="下移"
-            >
-              ↓
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          className="stm-preset-fragment-remove"
-          data-action="remove-cleaning-rule"
-          onClick={props.onRemove}
-          title="删除规则"
-        >
-          ✕
-        </button>
-      </div>
-      {props.editing && props.draft !== undefined && (
-        <CleaningRuleEditor
-          draft={props.draft}
-          error={props.error}
-          onDraftChange={props.onDraftChange}
-          onSave={props.onSaveEdit}
-          onCancel={props.onCancelEdit}
-        />
-      )}
-    </div>
-  );
-}
-
 /** 规则编辑表单（草稿非空时渲染；保存校验由父组件执行）。 */
-function CleaningRuleEditor(props: {
+export function CleaningRuleEditor(props: {
+  readonly formId?: string;
   readonly draft: CleaningRuleDraft;
   readonly error: string | undefined;
   readonly onDraftChange: (draft: CleaningRuleDraft) => void;
@@ -673,116 +847,152 @@ function CleaningRuleEditor(props: {
 }) {
   const draft = props.draft;
   return (
-    <div className="stm-preset-fragment-body">
+    <form
+      id={props.formId}
+      className="stm-settings-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.onSave();
+      }}
+    >
       <div className="stm-setting-row">
-        <input
-          type="text"
-          className="stm-input"
-          data-stm-field="cleaning-rule-name"
-          value={draft.name}
-          placeholder="规则名称"
-          onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
-        />
-        <select
-          className="stm-input"
-          data-stm-field="cleaning-rule-mode"
-          value={draft.mode}
-          onChange={(event) =>
-            props.onDraftChange({ ...draft, mode: event.target.value as CleaningRule["mode"] })
-          }
-        >
-          {(Object.keys(MODE_LABELS) as CleaningRule["mode"][]).map((mode) => (
-            <option key={mode} value={mode}>
-              {MODE_LABELS[mode]}
-            </option>
-          ))}
-        </select>
-        <select
-          className="stm-input"
-          data-stm-field="cleaning-rule-type"
-          value={draft.type}
-          title="标签 = 填一对普通文本定界符；正则 = 填正则表达式"
-          onChange={(event) =>
-            props.onDraftChange({ ...draft, type: event.target.value as CleaningRule["type"] })
-          }
-        >
-          <option value="tag">标签</option>
-          <option value="regex">正则</option>
-        </select>
+        <label className="stm-settings-field">
+          <span className="stm-form-label">规则名称</span>
+          <input
+            type="text"
+            className="stm-input"
+            data-stm-field="cleaning-rule-name"
+            aria-label="规则名称"
+            value={draft.name}
+            placeholder="规则名称"
+            onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
+          />
+        </label>
+        <label className="stm-settings-field">
+          <span className="stm-form-label">处理方式</span>
+          <select
+            className="stm-input"
+            data-stm-field="cleaning-rule-mode"
+            aria-label="处理方式"
+            value={draft.mode}
+            onChange={(event) =>
+              props.onDraftChange({ ...draft, mode: event.target.value as CleaningRule["mode"] })
+            }
+          >
+            {(Object.keys(MODE_LABELS) as CleaningRule["mode"][]).map((mode) => (
+              <option key={mode} value={mode}>
+                {MODE_LABELS[mode]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="stm-settings-field">
+          <span className="stm-form-label">匹配方式</span>
+          <select
+            className="stm-input"
+            data-stm-field="cleaning-rule-type"
+            aria-label="匹配方式"
+            value={draft.type}
+            title="标签 = 填一对普通文本定界符；正则 = 填正则表达式"
+            onChange={(event) =>
+              props.onDraftChange({ ...draft, type: event.target.value as CleaningRule["type"] })
+            }
+          >
+            <option value="tag">标签</option>
+            <option value="regex">正则</option>
+          </select>
+        </label>
       </div>
       {draft.type === "tag" ? (
         <div className="stm-setting-row">
-          <input
-            type="text"
-            className="stm-input"
-            data-stm-field="cleaning-rule-pre"
-            value={draft.pre}
-            placeholder="开始标签，如 【内心】"
-            onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
-          />
-          <input
-            type="text"
-            className="stm-input"
-            data-stm-field="cleaning-rule-post"
-            value={draft.post}
-            placeholder="结束标签，如 【/内心】"
-            onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
-          />
+          <label className="stm-settings-field">
+            <span className="stm-form-label">开始标签</span>
+            <input
+              type="text"
+              className="stm-input"
+              data-stm-field="cleaning-rule-pre"
+              aria-label="开始标签"
+              value={draft.pre}
+              placeholder="开始标签，如 【内心】"
+              onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
+            />
+          </label>
+          <label className="stm-settings-field">
+            <span className="stm-form-label">结束标签</span>
+            <input
+              type="text"
+              className="stm-input"
+              data-stm-field="cleaning-rule-post"
+              aria-label="结束标签"
+              value={draft.post}
+              placeholder="结束标签，如 【/内心】"
+              onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
+            />
+          </label>
         </div>
       ) : (
         <div className="stm-setting-row">
-          <input
-            type="text"
-            className="stm-input stm-mono"
-            data-stm-field="cleaning-rule-pattern"
-            value={draft.pattern}
-            placeholder="正则表达式"
-            onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
-          />
-          <input
-            type="text"
-            className="stm-input stm-mono"
-            data-stm-field="cleaning-rule-flags"
-            value={draft.flags}
-            placeholder="flags（g/i/m/s/u/y）"
-            onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
-          />
+          <label className="stm-settings-field">
+            <span className="stm-form-label">正则表达式</span>
+            <input
+              type="text"
+              className="stm-input stm-mono"
+              data-stm-field="cleaning-rule-pattern"
+              aria-label="正则表达式"
+              value={draft.pattern}
+              placeholder="正则表达式"
+              onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
+            />
+          </label>
+          <label className="stm-settings-field">
+            <span className="stm-form-label">正则标志</span>
+            <input
+              type="text"
+              className="stm-input stm-mono"
+              data-stm-field="cleaning-rule-flags"
+              aria-label="正则标志"
+              value={draft.flags}
+              placeholder="flags（g/i/m/s/u/y）"
+              onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
+            />
+          </label>
         </div>
       )}
       {draft.mode === "replace" && (
-        <input
-          type="text"
-          className="stm-input stm-mono"
-          data-stm-field="cleaning-rule-replacement"
-          value={draft.replacement}
-          placeholder="替换串（支持 $1 / $<name>）"
-          onChange={(event) => props.onDraftChange({ ...draft, replacement: event.target.value })}
-        />
+        <label className="stm-settings-field">
+          <span className="stm-form-label">替换内容</span>
+          <input
+            type="text"
+            className="stm-input stm-mono"
+            data-stm-field="cleaning-rule-replacement"
+            aria-label="替换内容"
+            value={draft.replacement}
+            placeholder="替换串（支持 $1 / $<name>）"
+            onChange={(event) => props.onDraftChange({ ...draft, replacement: event.target.value })}
+          />
+        </label>
       )}
       {props.error !== undefined && (
         <div className="stm-preset-warning" data-stm-field="cleaning-rule-error">
           {props.error}
         </div>
       )}
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="save-cleaning-rule"
-          onClick={props.onSave}
-        >
-          保存
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="cancel-cleaning-rule"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-      </div>
-    </div>
+      {!props.formId && (
+        <div className="stm-setting-actions">
+          <button type="submit" className="stm-button" data-action="save-cleaning-rule">
+            保存
+          </button>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="cancel-cleaning-rule"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
 
@@ -853,6 +1063,7 @@ export function CleaningTestDialog(props: {
             <textarea
               className="stm-input stm-mono stm-modal-textarea"
               data-stm-field="cleaning-test-input"
+              aria-label="测试消息内容"
               value={props.text}
               placeholder="粘贴要测试的消息内容…"
               onChange={(event) => props.onTextChange(event.target.value)}
@@ -994,6 +1205,7 @@ function renderCleaningText(content: string): string {
 /** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选（默认不选）+ 导入确认。
  * 目标列表 = 当前编辑列表（无列表时新建并填名），无需选择。 */
 export function ImportDialog(props: {
+  readonly compact?: boolean;
   readonly candidates: readonly StRegexImportItem[];
   /** 候选来源（与 candidates 下标一一对应） */
   readonly sources: readonly StRegexEntrySource[];
@@ -1099,30 +1311,33 @@ export function ImportDialog(props: {
             type="text"
             className="stm-input"
             data-stm-field="import-target-name"
+            aria-label="新建列表名称"
             value={props.target.name}
             onChange={(event) => props.onTargetChange({ kind: "new", name: event.target.value })}
           />
         </div>
       )}
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="confirm-regex-import"
-          disabled={props.selectedCount === 0}
-          onClick={props.onConfirm}
-        >
-          导入{props.selectedCount > 0 ? `（${props.selectedCount} 条）` : ""}
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="cancel-regex-import"
-          onClick={props.onCancel}
-        >
-          取消
-        </button>
-      </div>
+      {!props.compact && (
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="confirm-regex-import"
+            disabled={props.selectedCount === 0}
+            onClick={props.onConfirm}
+          >
+            导入{props.selectedCount > 0 ? `（${props.selectedCount} 条）` : ""}
+          </button>
+          <button
+            type="button"
+            className="stm-button"
+            data-action="cancel-regex-import"
+            onClick={props.onCancel}
+          >
+            取消
+          </button>
+        </div>
+      )}
     </div>
   );
 }

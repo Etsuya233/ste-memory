@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { reportSuccess } from "../shell/ui-helpers.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 
@@ -64,22 +65,44 @@ export function EmbeddingConnectionEditor(props: {
       setError("向量维度需为正整数");
       return;
     }
+    void persist({
+      ...draft,
+      baseUrl: draft.baseUrl.trim(),
+      model: draft.model.trim(),
+      dimensions,
+    });
+  }
+  async function persist(connection: Connection | undefined) {
     setSaving(true);
-    void props
-      .onSave({
-        ...draft,
-        baseUrl: draft.baseUrl.trim(),
-        model: draft.model.trim(),
-        dimensions,
-      })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => setSaving(false));
     setError("");
+    try {
+      await props.onSave(connection);
+      const next = connection ?? {
+        baseUrl: "",
+        apiKey: "",
+        model: "",
+        maxInputChars: 8000,
+        timeoutSeconds: 120,
+      };
+      const nextDimensions = connection?.dimensions?.toString() ?? "";
+      setDraft(next);
+      setDimensionsText(nextDimensions);
+      initialDraft.current = { draft: next, dimensionsText: nextDimensions };
+      reportSuccess(connection ? "向量连接已保存" : "向量连接已移除");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+  function remove() {
+    if (window.confirm("移除向量连接？索引与检索将暂停，已有向量保留。")) void persist(undefined);
   }
 
   return (
     <form
       id={formId}
+      autoComplete="off"
       onSubmit={(event) => {
         event.preventDefault();
         if (!saving) save();
@@ -118,10 +141,7 @@ export function EmbeddingConnectionEditor(props: {
                       data-action="delete-embedding-connection"
                       danger
                       disabled={saving}
-                      onClick={() => {
-                        if (window.confirm("移除向量连接？索引与检索将暂停，已有向量保留。"))
-                          void props.onSave(undefined);
-                      }}
+                      onClick={remove}
                     />
                   )}
                 </>
@@ -131,68 +151,76 @@ export function EmbeddingConnectionEditor(props: {
         />
       )}
       <p className="stm-setting-hint">选中字段会发送到此服务</p>
-      <label className="stm-form-row">
-        <span className="stm-form-label">端点</span>
-        <input
-          className="stm-input"
-          type="url"
-          value={draft.baseUrl}
-          placeholder="https://example.com/v1"
-          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">API Key</span>
-        <input
-          className="stm-input"
-          type="password"
-          autoComplete="off"
-          value={draft.apiKey}
-          onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">Embedding 模型</span>
-        <input
-          className="stm-input"
-          value={draft.model}
-          placeholder="模型标识"
-          onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">输入字符上限</span>
-        <input
-          className="stm-input"
-          type="number"
-          min="1"
-          step="1"
-          value={draft.maxInputChars}
-          onChange={(event) => setDraft({ ...draft, maxInputChars: Number(event.target.value) })}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">向量维度（可选）</span>
-        <input
-          className="stm-input"
-          type="number"
-          min="1"
-          step="1"
-          value={dimensionsText}
-          onChange={(event) => setDimensionsText(event.target.value)}
-        />
-      </label>
-      <label className="stm-form-row">
-        <span className="stm-form-label">请求超时（秒）</span>
-        <input
-          className="stm-input"
-          type="number"
-          min="1"
-          step="1"
-          value={draft.timeoutSeconds}
-          onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) })}
-        />
-      </label>
+      <fieldset className="stm-settings-fields" disabled={saving}>
+        <legend>服务</legend>
+        <label className="stm-form-row">
+          <span className="stm-form-label">端点</span>
+          <input
+            className="stm-input"
+            type="url"
+            autoComplete="off"
+            value={draft.baseUrl}
+            placeholder="https://example.com/v1"
+            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+          />
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">API Key</span>
+          <input
+            className="stm-input"
+            type="password"
+            autoComplete="new-password"
+            value={draft.apiKey}
+            onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
+          />
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">Embedding 模型</span>
+          <input
+            className="stm-input"
+            autoComplete="off"
+            value={draft.model}
+            placeholder="模型标识"
+            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+          />
+        </label>
+      </fieldset>
+      <fieldset className="stm-settings-fields" disabled={saving}>
+        <legend>请求限制</legend>
+        <label className="stm-form-row">
+          <span className="stm-form-label">输入字符上限</span>
+          <input
+            className="stm-input"
+            type="number"
+            min="1"
+            step="1"
+            value={draft.maxInputChars}
+            onChange={(event) => setDraft({ ...draft, maxInputChars: Number(event.target.value) })}
+          />
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">向量维度（可选）</span>
+          <input
+            className="stm-input"
+            type="number"
+            min="1"
+            step="1"
+            value={dimensionsText}
+            onChange={(event) => setDimensionsText(event.target.value)}
+          />
+        </label>
+        <label className="stm-form-row">
+          <span className="stm-form-label">请求超时（秒）</span>
+          <input
+            className="stm-input"
+            type="number"
+            min="1"
+            step="1"
+            value={draft.timeoutSeconds}
+            onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) })}
+          />
+        </label>
+      </fieldset>
       {error && (
         <div className="stm-form-error" role="alert">
           {error}
@@ -207,7 +235,8 @@ export function EmbeddingConnectionEditor(props: {
             <button
               type="button"
               className="stm-button stm-button--danger"
-              onClick={() => void props.onSave(undefined)}
+              disabled={saving}
+              onClick={remove}
             >
               移除连接
             </button>

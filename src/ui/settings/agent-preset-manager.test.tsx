@@ -90,81 +90,50 @@ function render(settingsValue: PluginSettings): string {
   );
 }
 
-describe("AgentPresetManager（预设管理区块冒烟）", () => {
-  it("标题 + 预设列表（系统默认 + 用户预设）就位，活动行标记 + 拖拽手柄", () => {
+describe("AgentPresetManager（列表导航首屏）", () => {
+  it("列出内置与用户预设，当前使用状态独立于详情浏览", () => {
     const html = render(settings());
     expect(html).toContain('data-stm-section="agent-presets"');
-    expect(html).toContain('data-stm-field="preset-list"');
-    expect(html).toContain('data-action="select-agent-preset"');
-    expect(html).toContain("系统默认");
-    expect(html).toContain("内置");
+    expect(html).toContain('data-preset-id="systemDefault"');
+    expect(html).toContain('data-preset-id="p1"');
     expect(html).toContain("破限");
     expect(html).toContain("无摘要");
+    expect(html).toContain("当前使用");
     expect(html).toContain('data-action="drag-preset"');
-    // 活动预设行（p1）带 active 类
-    expect(html).toContain('class="stm-preset-row stm-preset-row--active"');
   });
-
-  it("操作按钮契约：新建/复制/删除/导出/导入", () => {
+  it("首屏只提供创建导入，编辑导出删除与消息操作属于详情", () => {
     const html = render(settings());
+    expect(html).toContain('data-action="create-preset"');
+    expect(html).toContain('data-action="import-preset"');
     for (const action of [
-      "create-preset",
       "duplicate-preset",
       "delete-preset",
       "export-preset",
-      "import-preset",
-    ]) {
-      expect(html).toContain(`data-action="${action}"`);
-    }
+      "toggle-message",
+      "remove-message",
+    ])
+      expect(html).not.toContain(`data-action="${action}"`);
   });
-
-  it("系统默认（活动 = systemDefault）：只读说明 + 复制为自定义；编辑按钮禁用", () => {
+  it("当前使用内置预设时仍先展示列表，不自动进入只读详情", () => {
     const html = render(
       settings({ agentPresets: presetSettings({ activePresetId: BUILTIN_AGENT_PRESET_ID }) }),
     );
-    expect(html).toContain('data-stm-section="builtin-preset"');
-    expect(html).toContain("系统默认预设");
-    expect(html).toContain('data-action="copy-builtin-preset"');
-    expect(html).not.toContain('data-stm-section="preset-editor"');
-    expect(html).toContain('data-action="duplicate-preset" disabled');
+    expect(html).toContain("系统默认");
+    expect(html).not.toContain('data-stm-section="builtin-preset"');
+    expect(html).not.toContain('data-action="copy-builtin-preset"');
   });
-
-  it("自定义预设：消息卡片（拖拽手柄/开关/标题/角色标签/删除）就位，卡片编号显示", () => {
-    const html = render(settings());
-    expect(html).toContain('data-stm-section="preset-editor"');
-    expect(html).toContain('data-stm-field="preset-name"');
-    expect(html).toContain('data-action="drag-message"');
-    expect(html).toContain('data-stm-field="message-enabled-f1"');
-    expect(html).toContain('data-action="toggle-message"');
-    expect(html).toContain('data-action="remove-message"');
-    expect(html).toContain('data-action="add-message"');
-    // 角色标签就位：f1 = System，f2 = User
-    expect(html).toContain('data-stm-field="message-role-f1"');
-    expect(html).toContain(">System</span>");
-    expect(html).toContain('data-stm-field="message-role-f2"');
-    expect(html).toContain(">User</span>");
-    // 名称回退首行：f2 无名 → 预览 = 内容首行
-    expect(html).toContain("{{tablesDigest}}");
-  });
-
-  it("活动预设未引用 digest：常驻警告就位", () => {
+  it("列表不提前展开消息正文与详情警告", () => {
     const html = render(settings({ agentPresets: presetSettings({ activePresetId: "p2" }) }));
-    expect(html).toContain('data-stm-field="digest-warning"');
-    expect(html).toContain("工具可用性下降");
-  });
-
-  it("活动预设引用 digest：无警告", () => {
-    const html = render(settings());
     expect(html).not.toContain('data-stm-field="digest-warning"');
+    expect(html).not.toContain("你是{{char}}的破限填写员");
+    expect(html).toContain('data-action="select-agent-preset"');
   });
 });
 
 describe("AgentPresetManager（预设预览 · issue 01）", () => {
-  it("自定义预设编辑区有「预览」按钮（收起后改文案），预览面板默认关闭", () => {
+  it("列表首屏不展开预览，预览在对象详情中触发", () => {
     const html = render(settings());
-    expect(html).toContain('data-action="preview-preset"');
-    expect(html).toContain(">预览</button>");
-    // 面板默认不渲染
+    expect(html).not.toContain('data-action="preview-preset"');
     expect(html).not.toContain('data-stm-section="preset-preview"');
   });
 

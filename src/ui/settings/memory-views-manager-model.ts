@@ -137,7 +137,15 @@ export function viewSummaryText(view: MemoryView): string {
       ? `筛选 ${view.condition.fieldKey} ∈ ${view.condition.values.join("、")}`
       : "无筛选",
   );
-  parts.push(view.limit === null ? "无条数上限" : `最多 ${view.limit} 条`);
+  parts.push(`最多 ${view.limit ?? MEMORY_VIEW_LIMIT_MAX} 条`);
   parts.push(view.projection.length > 0 ? `显示 ${view.projection.join("、")}` : "显示文本");
   return parts.join(" · ");
+}
+
+/** Chat macros belong to the conversation, even when two chats share one space. */
+export function macroEditingContextChanged(
+  original: { readonly spaceId: string | undefined; readonly chatIdentity: string | undefined },
+  current: { readonly spaceId: string | undefined; readonly chatIdentity: string | undefined },
+): boolean {
+  return original.spaceId !== current.spaceId || original.chatIdentity !== current.chatIdentity;
 }

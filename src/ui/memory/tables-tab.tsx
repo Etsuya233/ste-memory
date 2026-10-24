@@ -1,3 +1,4 @@
+import { FieldList, FieldListRow } from "./field-list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -610,6 +611,13 @@ export function TablesTab(props: {
     <div className="stm-tables-workbench" ref={screenRef}>
       {detailOpen || creatingTable ? (
         <PageChrome
+          pageKey={
+            creatingTable
+              ? "table:new"
+              : fieldEditor
+                ? `field:${fieldEditor.mode}:${fieldEditor.mode === "edit" ? fieldEditor.fieldId : fieldEditor.tableId}`
+                : `table:${selectedTableId}:${detailTab}`
+          }
           header={
             <PanelBar
               variant="detail"
@@ -691,6 +699,7 @@ export function TablesTab(props: {
         />
       ) : (
         <PageChrome
+          pageKey="table-list"
           headerTrailing={
             <PanelBarAction
               icon="fa-plus"
@@ -812,90 +821,66 @@ export function TablesTab(props: {
                 </div>
 
                 {selectedTable.fields.length > 0 ? (
-                  <ul className="stm-field-list stm-grouped-list">
+                  <FieldList>
                     {selectedTable.fields.map((field) => {
                       const isDependent = selectedDependentFieldIds.has(field.id);
                       return (
-                        <li key={field.id} className="stm-field-row">
-                          <button
-                            type="button"
-                            className="stm-field-main"
-                            disabled={busy}
-                            data-action="edit-field"
-                            data-table-id={selectedTable.id}
-                            data-field-id={field.id}
-                            aria-label={`编辑字段 ${field.name}`}
-                            onClick={() =>
+                        <FieldListRow
+                          key={field.id}
+                          name={field.name}
+                          fieldKey={field.key}
+                          typeLabel={field.typeLabel}
+                          required={field.required}
+                          dependent={isDependent}
+                          button={{
+                            disabled: busy,
+                            "data-action": "edit-field",
+                            "data-table-id": selectedTable.id,
+                            "data-field-id": field.id,
+                            "aria-label": `编辑字段 ${field.name}`,
+                            onClick: () =>
                               openFieldEditor({
                                 mode: "edit",
                                 tableId: selectedTable.id,
                                 fieldId: field.id,
-                              })
-                            }
-                          >
-                            <span className="stm-field-name">
-                              {field.name}
-                              {field.required ? (
-                                <span className="stm-field-required" title="必填">
-                                  *
-                                </span>
-                              ) : null}
-                              {isDependent ? (
-                                <span
-                                  className="stm-field-dep"
-                                  title="该字段被显示策略依赖，请先修改显示策略"
-                                >
-                                  显示策略依赖
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="stm-field-tag">
-                              {field.key} · {field.typeLabel}
-                            </span>
-                          </button>
-                          <label
-                            className={`stm-switch${isDependent ? " is-disabled" : ""}`}
-                            title={isDependent ? "该字段被显示策略依赖，不能停用" : undefined}
-                          >
-                            <input
-                              type="checkbox"
-                              data-action="toggle-field"
-                              data-table-id={selectedTable.id}
-                              data-field-id={field.id}
-                              aria-label={`启用字段 ${field.name}`}
-                              checked={field.enabled}
-                              disabled={busy || isDependent}
-                              onChange={(event) =>
-                                void toggleField(selectedTable.id, field.id, event.target.checked)
-                              }
-                            />
-                            <span className="stm-switch-track" aria-hidden="true"></span>
-                          </label>
-                          {managingFields ? (
-                            <div className="stm-bar-group stm-field-management-actions">
-                              <PanelBarAction
-                                icon="fa-trash-can"
-                                label={`删除字段 ${field.name}`}
-                                danger
-                                data-action="delete-field"
-                                data-table-id={selectedTable.id}
-                                data-field-id={field.id}
-                                disabled={busy || isDependent}
-                                title={
-                                  isDependent
-                                    ? "该字段被显示策略依赖，请先修改显示策略"
-                                    : `删除字段 ${field.name}`
-                                }
-                                onClick={() =>
-                                  void deleteField(selectedTable.id, field.id, field.name)
-                                }
-                              />
-                            </div>
-                          ) : null}
-                        </li>
+                              }),
+                          }}
+                          toggle={{
+                            checked: field.enabled,
+                            disabled: busy || isDependent,
+                            "data-action": "toggle-field",
+                            "data-table-id": selectedTable.id,
+                            "data-field-id": field.id,
+                            onChange: (event) =>
+                              void toggleField(selectedTable.id, field.id, event.target.checked),
+                          }}
+                          actions={
+                            managingFields ? (
+                              <div className="stm-bar-group stm-field-management-actions">
+                                <PanelBarAction
+                                  icon="fa-trash-can"
+                                  label={`删除字段 ${field.name}`}
+                                  danger
+                                  data-action="delete-field"
+                                  data-table-id={selectedTable.id}
+                                  data-field-id={field.id}
+                                  disabled={busy || isDependent}
+                                  title={
+                                    isDependent
+                                      ? "该字段被显示策略依赖，请先修改显示策略"
+                                      : `删除字段 ${field.name}`
+                                  }
+                                  onClick={() =>
+                                    void deleteField(selectedTable.id, field.id, field.name)
+                                  }
+                                />
+                              </div>
+                            ) : null
+                          }
+                        />
                       );
                     })}
-                  </ul>
+                  </FieldList>
                 ) : (
                   <div className="stm-fields-empty">
                     <div className="stm-fields-empty-title">还没有字段</div>

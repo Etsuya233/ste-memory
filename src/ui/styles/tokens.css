@@ -13,7 +13,21 @@
  */
 
 :root {
-  --stm-bg: #09090b;
+  /* Appearance samples share the actual palette and font stacks. */
+  --stm-palette-teal: #0d9488;
+  --stm-palette-blue-dark: #0a84ff;
+  --stm-palette-blue-light: #2563eb;
+  --stm-palette-indigo-dark: #6366f1;
+  --stm-palette-indigo-light: #4f46e5;
+  --stm-palette-dark-bg: #09090b;
+  --stm-palette-dark-fg: #fafafa;
+  --stm-palette-light-bg: #fafafa;
+  --stm-palette-light-fg: #18181b;
+  --stm-serif:
+    "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman",
+    serif;
+
+  --stm-bg: var(--stm-palette-dark-bg);
   --stm-surface: #121215;
   --stm-surface-2: #1a1a1f;
   --stm-surface-3: #27272a;
@@ -21,7 +35,7 @@
   --stm-float-bg: #1a1a1f;
   --stm-border: #24242a;
 
-  --stm-fg: #fafafa;
+  --stm-fg: var(--stm-palette-dark-fg);
   --stm-fg-2: #a1a1aa;
   --stm-fg-3: #6f6f78;
 
@@ -96,8 +110,11 @@
 /* ---------- 旋钮 1：主题（深 / 浅） ---------- */
 #stm-panel[data-theme="light"] {
   color-scheme: light;
+  --stm-sample-blue: var(--stm-palette-blue-light);
+  --stm-sample-indigo: var(--stm-palette-indigo-light);
+  --stm-sample-neutral: var(--stm-palette-light-fg);
 
-  --stm-bg: #fafafa;
+  --stm-bg: var(--stm-palette-light-bg);
   --stm-surface: #ffffff;
   --stm-surface-2: #f4f4f5;
   --stm-surface-3: #e4e4e7;
@@ -105,7 +122,7 @@
   --stm-float-bg: #ffffff;
   --stm-border: #e4e4e7;
 
-  --stm-fg: #18181b;
+  --stm-fg: var(--stm-palette-light-fg);
   --stm-fg-2: #71717a;
   --stm-fg-3: #a1a1aa;
 
@@ -128,9 +145,7 @@
 
 /* ---------- 旋钮 3：字体（衬线 = 宋体风） ---------- */
 #stm-panel[data-font="serif"] {
-  --stm-font:
-    "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman",
-    serif;
+  --stm-font: var(--stm-serif);
 }
 
 /* ---------- 旋钮 4：字号档（只缩文字，不缩控件） ---------- */
@@ -144,28 +159,28 @@
 
 /* ---------- 旋钮 2：强调色预置（每色四值 fill/text/fg × 深/浅，默认 teal） ---------- */
 #stm-panel[data-accent="blue"] {
-  --ac-fill-dark: #0a84ff;
+  --ac-fill-dark: var(--stm-palette-blue-dark);
   --ac-text-dark: #6cb0ff;
   --ac-fg-dark: #ffffff;
-  --ac-fill-light: #2563eb;
+  --ac-fill-light: var(--stm-palette-blue-light);
   --ac-text-light: #1d4ed8;
   --ac-fg-light: #ffffff;
 }
 
 #stm-panel[data-accent="indigo"] {
-  --ac-fill-dark: #6366f1;
+  --ac-fill-dark: var(--stm-palette-indigo-dark);
   --ac-text-dark: #a5b4fc;
   --ac-fg-dark: #ffffff;
-  --ac-fill-light: #4f46e5;
+  --ac-fill-light: var(--stm-palette-indigo-light);
   --ac-text-light: #4338ca;
   --ac-fg-light: #ffffff;
 }
 
 #stm-panel[data-accent="teal"] {
-  --ac-fill-dark: #0d9488;
+  --ac-fill-dark: var(--stm-palette-teal);
   --ac-text-dark: #5eead4;
   --ac-fg-dark: #ffffff;
-  --ac-fill-light: #0d9488;
+  --ac-fill-light: var(--stm-palette-teal);
   --ac-text-light: #0f766e;
   --ac-fg-light: #ffffff;
 }
@@ -182,6 +197,9 @@
 /* 预置 → 面板语义令牌映射（深色取 *-dark；浅色主题块里取 *-light 覆盖） */
 #stm-panel {
   color-scheme: dark;
+  --stm-sample-blue: var(--stm-palette-blue-dark);
+  --stm-sample-indigo: var(--stm-palette-indigo-dark);
+  --stm-sample-neutral: var(--stm-palette-dark-fg);
   --stm-bar-bg: var(--stm-bg);
   --stm-bar-border: var(--stm-border);
   --stm-fs-xs: calc(12px * var(--stm-font-scale));

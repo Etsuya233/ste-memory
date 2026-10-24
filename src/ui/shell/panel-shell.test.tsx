@@ -371,8 +371,8 @@ describe("PanelShell（面板骨架投影）", () => {
     const expanded = renderWithExpanded(model, ["agent-presets"]);
     expect(expanded).toContain('data-stm-section="agent-presets"');
     expect(expanded).toContain('data-action="select-agent-preset"');
-    expect(expanded).toContain('data-action="create-preset"');
-    expect(expanded).toContain('data-action="copy-builtin-preset"');
+    // Creation is mounted into PageChrome in the browser; SSR keeps the navigation content.
+    expect(expanded).not.toContain('data-action="copy-builtin-preset"');
   });
 
   it("任务 Tab：Agent 预设快捷切换下拉就位（ticket 17）", () => {
@@ -660,7 +660,9 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(expanded.match(/value="0"/g)?.length).toBeGreaterThanOrEqual(4);
     // 无障碍：每个输入被中文边名 label 包裹
     for (const label of ["上", "下", "左", "右"]) {
-      expect(expanded).toContain(`<span class="stm-setting-name">${label}</span>`);
+      expect(expanded.replaceAll("<!-- -->", "")).toContain(
+        `<span class="stm-setting-name">${label} <span class="stm-setting-unit">px</span></span>`,
+      );
     }
     expect(expanded).toContain('data-action="apply-safe-area-preset"');
     expect(expanded).toContain('data-preset="iphone-dynamic-island"');

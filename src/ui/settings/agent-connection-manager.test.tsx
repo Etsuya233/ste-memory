@@ -70,7 +70,7 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
     expect(html).not.toContain("sk-1");
   });
 
-  it("连接行操作按钮 + 新建按钮就位（edit/delete/create action）", () => {
+  it("连接整行进入编辑，新建可达；删除归编辑页", () => {
     const html = renderToString(
       <AgentConnectionManager
         settings={settings()}
@@ -79,7 +79,7 @@ describe("AgentConnectionManager（连接管理区块冒烟）", () => {
       />,
     );
     expect(html).toContain('data-action="edit-connection"');
-    expect(html).toContain('data-action="delete-connection"');
+    expect(html).not.toContain('data-action="delete-connection"');
     expect(html).toContain('data-action="create-connection"');
   });
 
@@ -169,6 +169,13 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
     const full = renderForm(connection());
     expect(full).not.toContain('data-action="save-connection" disabled=""');
     expect(full).not.toContain('data-action="test-connection" disabled=""');
+  });
+
+  it("连接表单不被浏览器当登录表单自动填充", () => {
+    const html = renderForm(connection());
+    expect(html).toMatch(/autocomplete="new-password"/i);
+    expect(html.match(/autocomplete="off"/gi)?.length).toBeGreaterThanOrEqual(4);
+    expect(html).toContain('type="url"');
   });
 
   it("测试结果展示区就位（成功/失败文案）", () => {

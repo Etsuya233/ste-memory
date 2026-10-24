@@ -1,3 +1,4 @@
+import { Disclosure } from "../shell/disclosure.tsx";
 import type {
   TablePresetTable,
   TablePresetVectorIndex,
@@ -17,9 +18,7 @@ export function PresetVectorIndexEditor(props: {
   return (
     <div className="stm-editor stm-vector-editor" data-stm-section="preset-vector-index">
       <div className="stm-editor-title">向量索引预设</div>
-      <p className="stm-setting-hint">
-        此处保存固定分组。创建或应用预设后，空间持有独立配置；编辑预设不会改变已有空间。预设编辑和保存不会发送向量请求。
-      </p>
+
       <fieldset disabled={props.readonly}>
         <label className="stm-form-row">
           <span className="stm-form-label">启用索引</span>
@@ -201,6 +200,11 @@ export function PresetVectorIndexEditor(props: {
           新增分组
         </button>
       </fieldset>
+      <Disclosure icon="fa-circle-info" title="应用范围">
+        <p className="stm-setting-hint">
+          分组在创建或应用预设时复制到空间。已有空间独立保存；编辑预设不会发送向量请求。
+        </p>
+      </Disclosure>
     </div>
   );
 }

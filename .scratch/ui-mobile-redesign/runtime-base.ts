@@ -6,7 +6,7 @@ import type { PanelRuntime } from "../../src/ui/shell/panel-shell.tsx";
 function activeStatus(): SpaceContextStatus {
   return {
     kind: "active",
-    binding: { version: 1, spaceId: "space-1" as MemorySpaceId },
+    binding: { version: 2, spaceId: "space-1" as MemorySpaceId, chatIdentity: "preview:story" },
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",

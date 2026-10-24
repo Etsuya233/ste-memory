@@ -12,7 +12,7 @@ import type { StRegexImportItem } from "../../features/cleaning/st-regex-import.
 import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import {
   CleaningRulesManager,
-  CleaningRuleRow,
+  CleaningRuleEditor,
   CleaningTestDialog,
   ImportDialog,
 } from "./cleaning-rules-manager.tsx";
@@ -72,7 +72,7 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
     expect(html).toContain('data-stm-field="chat-cleaning-list"');
     expect(html).toContain("未启用清洗");
     expect(html).toContain('data-action="create-cleaning-list"');
-    expect(html).toContain("还没有清洗规则列表");
+    expect(html).toContain("新建清洗规则列表");
   });
 
   it("有列表：选择行列出全部列表，规则行渲染（名称/模式/正则），编辑目标默认跟随选择", () => {
@@ -110,10 +110,9 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
       }),
     );
     expect(html).toContain("我的清洗");
-    expect(html).toContain("去粗体 · 去掉");
-    expect(html).toContain("提取 · 保留");
-    expect(html).toContain('data-action="add-cleaning-rule"');
-    expect(html).toContain('data-action="edit-cleaning-rule"');
+    expect(html).toContain('data-action="open-cleaning-list"');
+    expect(html).toContain("2");
+    expect(html).not.toContain('data-action="edit-cleaning-rule"');
   });
 
   it("测试按钮：有列表时可用（动作行），无列表时禁用", () => {
@@ -124,10 +123,10 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
         }),
       }),
     );
-    expect(withList).toContain('data-action="test-cleaning-list"');
+    expect(withList).not.toContain('data-action="test-cleaning-list"');
     expect(withList).not.toContain('data-action="test-cleaning-list" disabled=""');
     const withoutList = text(renderManager());
-    expect(withoutList).toContain('data-action="test-cleaning-list" disabled=""');
+    expect(withoutList).not.toContain('data-action="test-cleaning-list"');
   });
 
   it("替换模式的规则行摘要显示替换串", () => {
@@ -155,7 +154,8 @@ describe("CleaningRulesManager（清洗规则设置区块冒烟，ticket 22）",
         }),
       }),
     );
-    expect(html).toContain("邮箱 · 替换「$2 的 $1」");
+    expect(html).toContain("替换列表");
+    expect(html).not.toContain("$2 的 $1");
   });
 });
 
@@ -244,27 +244,19 @@ describe("ImportDialog（导入对话框冒烟）", () => {
   });
 });
 
-describe("CleaningRuleRow（规则行编辑契约，ADR 0014）", () => {
+describe("CleaningRuleEditor（独立规则表单，ADR 0014）", () => {
   function renderRow(
-    rule: Parameters<typeof CleaningRuleRow>[0]["rule"],
-    draft: Parameters<typeof CleaningRuleRow>[0]["draft"],
+    _rule: CleaningRule,
+    draft: Parameters<typeof CleaningRuleEditor>[0]["draft"],
   ): string {
     return text(
       renderToString(
-        <CleaningRuleRow
-          rule={rule}
-          index={0}
-          total={1}
-          editing
+        <CleaningRuleEditor
           draft={draft}
           error={undefined}
-          onBeginEdit={() => undefined}
-          onCancelEdit={() => undefined}
-          onSaveEdit={() => undefined}
           onDraftChange={() => undefined}
-          onToggleEnabled={() => undefined}
-          onMove={() => undefined}
-          onRemove={() => undefined}
+          onSave={() => undefined}
+          onCancel={() => undefined}
         />,
       ),
     );
@@ -281,8 +273,8 @@ describe("CleaningRuleRow（规则行编辑契约，ADR 0014）", () => {
       enabled: true,
     };
     const html = renderRow(tagRule, ruleDraftFromRule(tagRule));
-    expect(html).toContain("去内心 · 保留");
-    expect(html).toContain("【内心】…【/内心】");
+    expect(html).toContain("【内心】");
+    expect(html).toContain("【/内心】");
     expect(html).toContain('data-stm-field="cleaning-rule-type"');
     expect(html).toContain('data-stm-field="cleaning-rule-pre"');
     expect(html).toContain('data-stm-field="cleaning-rule-post"');
@@ -301,7 +293,7 @@ describe("CleaningRuleRow（规则行编辑契约，ADR 0014）", () => {
       enabled: true,
     };
     const html = renderRow(regexRule, ruleDraftFromRule(regexRule));
-    expect(html).toContain("/\\*\\*/g");
+    expect(html).toContain('data-stm-field="cleaning-rule-flags"');
     expect(html).toContain('data-stm-field="cleaning-rule-type"');
     expect(html).toContain('data-stm-field="cleaning-rule-pattern"');
     expect(html).toContain('data-stm-field="cleaning-rule-flags"');

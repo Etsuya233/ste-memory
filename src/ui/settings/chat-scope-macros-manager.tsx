@@ -1,3 +1,4 @@
+import { macroEditingContextChanged } from "./memory-views-manager-model.ts";
 /**
  * 聊天 Scope 宏管理器（双 Scope 宏系统）：设置 Tab「记忆宏」组「对话级宏」分区的列表 CRUD。
  *
@@ -10,8 +11,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import type { MemoryField, MemoryTable } from "../../features/memory/index.ts";
-import { copyText, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
-import { PreviewModal } from "../memory/preview-modal.tsx";
+import { reportError, reportSuccess } from "../shell/ui-helpers.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
+import { Disclosure } from "../shell/disclosure.tsx";
 import {
   emptyMemoryViewDraft,
   memoryViewDraftFromView,
@@ -25,10 +27,16 @@ import { MemoryViewEditor } from "./memory-views-manager.tsx";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
 
 export function ChatScopeMacrosManager(props: {
+  readonly onCreateActionChange?: (
+    action: { label: string; dataAction: string; disabled: boolean; onClick: () => void } | null,
+  ) => void;
+  readonly onEditingChange?: (editing: boolean) => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   /** 全局前缀（裸标识符，如 ste；提示文案用） */
   readonly prefix: string;
   /** 活动空间 id；undefined = 无活动空间（列表可看，编辑禁用） */
   readonly spaceId: string | undefined;
+  readonly chatIdentity?: string;
   readonly readTables: (spaceId: string) => Promise<readonly MemoryTable[]>;
   readonly readFields: (spaceId: string, tableId: string) => Promise<readonly MemoryField[]>;
   /** 宏展开文本读取口：完整宏名（{{...}} 形态）→ 预计算快照文本（未知 = 空串） */
@@ -46,12 +54,40 @@ export function ChatScopeMacrosManager(props: {
   const [editing, setEditing] = useState<
     { readonly kind: "new" } | { readonly kind: "edit"; readonly name: string } | null
   >(null);
+  const [editingContext, setEditingContext] = useState<{
+    spaceId: string | undefined;
+    chatIdentity: string | undefined;
+  } | null>(null);
+  const contextChanged =
+    editingContext !== null &&
+    macroEditingContextChanged(editingContext, {
+      spaceId: props.spaceId,
+      chatIdentity: props.chatIdentity,
+    });
   const [draft, setDraft] = useState<MemoryViewDraft | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
-  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
-  const [preview, setPreview] = useState<{ readonly name: string; readonly text: string } | null>(
-    null,
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(
+    editing ? (editing.kind === "new" ? "new:macro" : `edit:macro:${editing.name}`) : "list",
   );
+  useEffect(() => {
+    props.onEditingChange?.(editing !== null);
+    return () => props.onEditingChange?.(false);
+  }, [editing, props.onEditingChange]);
+  /** 打开的预览：弹窗持有点击时捕获的展开文本（「展开时读一次」） */
+
+  useEffect(() => {
+    props.onCreateActionChange?.(
+      editing
+        ? null
+        : {
+            label: "新建对话宏",
+            dataAction: "add-chat-scope-macro",
+            disabled: !props.spaceId,
+            onClick: beginCreate,
+          },
+    );
+    return () => props.onCreateActionChange?.(null);
+  }, [editing, props.spaceId, props.chatIdentity, props.onCreateActionChange]);
 
   // 表列表：活动空间变化/宏变化（新表引用）后重取
   useEffect(() => {
@@ -112,19 +148,25 @@ export function ChatScopeMacrosManager(props: {
   }, [props.spaceId, props.readTables, props.readFields, tables, neededTableKeys]);
 
   function beginEdit(macro: MemoryView): void {
+    setEditingContext({ spaceId: props.spaceId, chatIdentity: props.chatIdentity });
+    rememberScroll();
     setEditing({ kind: "edit", name: macro.name });
     setDraft(memoryViewDraftFromView(macro));
     setError(undefined);
   }
 
   function beginCreate(): void {
+    setEditingContext({ spaceId: props.spaceId, chatIdentity: props.chatIdentity });
+    rememberScroll();
     setEditing({ kind: "new" });
     setDraft(emptyMemoryViewDraft());
     setError(undefined);
   }
 
   function cancelEdit(): void {
+    rememberScroll();
     setEditing(null);
+    setEditingContext(null);
     setDraft(null);
     setError(undefined);
   }
@@ -139,7 +181,7 @@ export function ChatScopeMacrosManager(props: {
 
   /** 保存草稿（新建/编辑） */
   function saveDraft(): void {
-    if (!draft) return;
+    if (!draft || contextChanged) return;
     const validationError = validateDraft(draft);
     if (validationError !== undefined) {
       setError(validationError);
@@ -157,6 +199,7 @@ export function ChatScopeMacrosManager(props: {
 
   /** 删除宏 */
   function deleteMacro(name: string): void {
+    if (contextChanged) return;
     if (!window.confirm(`删除宏「${name}」？`)) return;
     props.onChange(props.macros.filter((candidate) => candidate.name !== name));
     if (editing?.kind === "edit" && editing.name === name) cancelEdit();
@@ -172,115 +215,90 @@ export function ChatScopeMacrosManager(props: {
   }
 
   /** 打开宏预览：宏名 = {{前缀::宏名}}，文本点击时从快照读取一次 */
-  function openPreview(macro: MemoryView): void {
-    const name = `{{${props.prefix}::${macro.name}}}`;
-    setPreview({ name, text: props.readPreview(name) });
-  }
-
-  async function copyPreview(): Promise<void> {
-    if (!preview) return;
-    const ok = await copyText(preview.text);
-    if (ok) reportSuccess(`已复制「${preview.name}」展开文本`);
-    else reportWarning("复制失败：浏览器不支持剪贴板写入");
-  }
 
   const editingDraftFields =
     draft && draft.tableKey !== "" ? (fieldsByTable.get(draft.tableKey) ?? []) : [];
 
-  const isEmpty = props.macros.length === 0 && !editing;
+  if (editing && draft)
+    return (
+      <div ref={screenRef} className="stm-settings-editor-page">
+        <MemoryViewEditor
+          chrome
+          title={editing.kind === "new" ? "新建对话宏" : "编辑对话宏"}
+          draft={draft}
+          tables={tables ?? []}
+          fields={editingDraftFields}
+          error={
+            contextChanged ? "对话已切换，当前草稿未写入新对话；返回列表后可重新编辑。" : error
+          }
+          unavailable={contextChanged}
+          onDraftChange={setDraft}
+          onSave={saveDraft}
+          onCancel={cancelEdit}
+          registerLeaveGuard={props.registerLeaveGuard}
+          onDelete={editing.kind === "edit" ? () => deleteMacro(editing.name) : undefined}
+          previewText={
+            editing.kind === "edit"
+              ? props.readPreview(`{{${props.prefix}::${editing.name}}}`)
+              : undefined
+          }
+        />
+      </div>
+    );
 
   return (
-    <div className="stm-setting-subgroup" data-stm-section="chat-scope-macros">
-      <div className="stm-setting-hint">
-        <span className="stm-mono">{"{{前缀::宏名}}"}</span> 直接展开对应表/筛选/投影；
-        仅当前对话可用，随对话文件导入导出；同名宏优先于全局视图与内置宏 （对话级 &gt; 全局 &gt;
-        内置）
-      </div>
+    <div ref={screenRef} className="stm-setting-subgroup" data-stm-section="chat-scope-macros">
       {!props.spaceId && (
         <div className="stm-preset-warning" data-stm-field="chat-scope-macros-no-space">
           当前没有活动记忆空间：打开/切换对话后可配置聊天 Scope 宏
         </div>
       )}
-      {props.macros.map((macro) => (
-        <div
-          key={macro.name}
-          className="stm-preset-fragment"
-          data-stm-field={`chat-macro-${macro.name}`}
-        >
-          <div className="stm-preset-fragment-head">
+      <div className="stm-grouped-list stm-macro-list">
+        {props.macros.map((macro) => (
+          <div key={macro.name} data-stm-field={`chat-macro-${macro.name}`}>
             <button
               type="button"
-              className="stm-preset-fragment-title"
+              className="stm-settings-item-row"
               data-action="edit-chat-scope-macro"
               onClick={() => beginEdit(macro)}
-              title="编辑宏"
             >
-              <span className="stm-preset-fragment-preview">
-                {macro.name}
-                <span className="stm-mono"> · {macro.tableKey}</span> · {viewSummaryText(macro)}
+              <span className="stm-settings-item-main">
+                <span className="stm-settings-item-title">{macro.name}</span>
+                <span className="stm-settings-item-summary">
+                  {macro.tableKey} · {viewSummaryText(macro)}
+                </span>
               </span>
+              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              className="stm-button stm-preset-preview-btn"
-              data-action="preview-chat-scope-macro"
-              onClick={() => openPreview(macro)}
-              title={`预览「${macro.name}」展开文本`}
-            >
-              预览
-            </button>
-            <button
-              type="button"
-              className="stm-preset-fragment-remove"
-              data-action="delete-chat-scope-macro"
-              onClick={() => deleteMacro(macro.name)}
-              title="删除宏"
-            >
-              ✕
-            </button>
+            {rowConfigErrors(macro).length > 0 && (
+              <div className="stm-preset-warning" data-stm-field="chat-macro-config-error">
+                配置错误：{rowConfigErrors(macro).join("；")}
+              </div>
+            )}
           </div>
-          {rowConfigErrors(macro).length > 0 && (
-            <div className="stm-preset-warning" data-stm-field="chat-macro-config-error">
-              配置错误：{rowConfigErrors(macro).join("；")}
-            </div>
-          )}
-        </div>
-      ))}
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="add-chat-scope-macro"
-          disabled={!props.spaceId}
-          onClick={beginCreate}
-        >
-          + 新建宏
-        </button>
+        ))}
       </div>
-      {isEmpty && (
-        <div className="stm-preset-warning" data-stm-field="chat-scope-macros-empty">
-          当前对话未配置聊天 Scope 宏；创建宏可在该对话中使用不同的记忆注入策略
+      {!props.onCreateActionChange && (
+        <div className="stm-setting-actions">
+          <button
+            type="button"
+            className="stm-button"
+            data-action="add-chat-scope-macro"
+            disabled={!props.spaceId}
+            onClick={beginCreate}
+          >
+            + 新建宏
+          </button>
         </div>
       )}
-      {editing && draft && (
-        <MemoryViewEditor
-          draft={draft}
-          tables={tables ?? []}
-          fields={editingDraftFields}
-          error={error}
-          onDraftChange={setDraft}
-          onSave={saveDraft}
-          onCancel={cancelEdit}
-        />
-      )}
-      {preview && (
-        <PreviewModal
-          title={preview.name}
-          text={preview.text}
-          onCopy={() => void copyPreview()}
-          onClose={() => setPreview(null)}
-        />
-      )}
+
+      <Disclosure icon="fa-circle-info" title="对话级宏用法" open>
+        <div className="stm-setting-hint">
+          <span className="stm-mono">{"{{前缀::宏名}}"}</span> 直接展开对应表/筛选/投影；
+          仅当前对话可用，随对话文件导入导出；同名宏优先于全局视图与内置宏 （对话级 &gt; 全局 &gt;
+          内置）
+        </div>
+      </Disclosure>
     </div>
   );
 }

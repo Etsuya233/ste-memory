@@ -10,6 +10,11 @@
  *   + 占位符插入 chips + 删除）；
  * - 当前预设未引用 {{tablesDigest}}/{{systemDefaultPrompt}} 时编辑区常驻提示。
  */
+import { SettingsActionMenu } from "./settings-action-menu.tsx";
+import { Disclosure } from "../shell/disclosure.tsx";
+import { PageChrome } from "../shell/page-layout.tsx";
+import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
+import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
 import {
   DndContext,
   PointerSensor,
@@ -20,7 +25,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { PROPOSAL_AGENT_BASE_INSTRUCTIONS } from "../../features/agent/index.ts";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import {
@@ -91,6 +96,9 @@ function sanitizeFilename(name: string): string {
 }
 
 export function AgentPresetManager(props: {
+  readonly onBack?: () => void;
+  readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
+  readonly onEditingChange?: (editing: boolean) => void;
   readonly settings: PluginSettings;
   /** 宿主写 settings 并更新面板状态（SettingsTab 包一层 runtime.settings.write） */
   readonly onChange: (settings: PluginSettings) => void;
@@ -99,8 +107,67 @@ export function AgentPresetManager(props: {
 }) {
   const agentPresets = props.settings.agentPresets;
   const activeId = agentPresets.activePresetId;
-  const activePreset = agentPresets.presets.find((p) => p.id === activeId);
+  const [detailPresetId, setDetailPresetId] = useState(BUILTIN_AGENT_PRESET_ID);
+  const detailPreset = agentPresets.presets.find((p) => p.id === detailPresetId);
   const [expandedMessageId, setExpandedMessageId] = useState<string | undefined>(undefined);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [messageDraft, setMessageDraft] = useState<AgentPresetMessage | null>(null);
+  const [pendingMessage, setPendingMessage] = useState(false);
+  const initialMessageDraft = useRef("");
+  const [renaming, setRenaming] = useState(false);
+  const initialPresetName = useRef("我的预设");
+  const [creatingName, setCreatingName] = useState<string | null>(null);
+  const createFormId = useId();
+  const creationDirty = useRef(false);
+  creationDirty.current =
+    (creatingName !== null && creatingName !== initialPresetName.current) ||
+    (messageDraft !== null && JSON.stringify(messageDraft) !== initialMessageDraft.current);
+  useEffect(() => {
+    props.registerLeaveGuard?.(
+      () => !creationDirty.current || window.confirm("有未保存的修改，放弃并离开吗？"),
+    );
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (creationDirty.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      props.registerLeaveGuard?.(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [props.registerLeaveGuard]);
+  const { screenRef, rememberScroll } = useSettingsPageNavigation(
+    creatingName !== null
+      ? "new:preset"
+      : expandedMessageId
+        ? `edit:message:${expandedMessageId}`
+        : detailOpen
+          ? `detail:${detailPresetId}`
+          : "list",
+  );
+  const chrome = props.onBack !== undefined;
+  useEffect(() => {
+    props.onEditingChange?.(chrome);
+    return () => props.onEditingChange?.(false);
+  }, [chrome, props.onEditingChange]);
+  function back() {
+    rememberScroll();
+    if (creatingName !== null) {
+      if (!creationDirty.current || window.confirm("预设名称尚未保存，放弃并返回吗？"))
+        setCreatingName(null);
+    } else if (messageDraft) {
+      if (!creationDirty.current || window.confirm("消息有未保存的修改，放弃并返回吗？")) {
+        setMessageDraft(null);
+        setExpandedMessageId(undefined);
+      }
+    } else if (detailOpen) setDetailOpen(false);
+    else props.onBack?.();
+  }
+  function openPreset(id: string) {
+    rememberScroll();
+    setDetailPresetId(id);
+    setDetailOpen(true);
+  }
+
   // ---- 预设预览（issue 01）：预览展开数据在点击时即时构建，纯逻辑在 preset-preview-model ----
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewText, setPreviewText] = useState("");
@@ -111,7 +178,9 @@ export function AgentPresetManager(props: {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   /** 变更入口：mutate 预设设置 → 宿主写 settings */
   function apply(mutate: (presets: AgentPresetSettings) => AgentPresetSettings): void {
-    props.onChange({ ...props.settings, agentPresets: mutate(agentPresets) });
+    const next = mutate(agentPresets);
+    if (next.activePresetId !== agentPresets.activePresetId) setDetailPresetId(next.activePresetId);
+    props.onChange({ ...props.settings, agentPresets: next });
   }
 
   function selectPreset(presetId: string): void {
@@ -119,18 +188,37 @@ export function AgentPresetManager(props: {
   }
 
   function createNew(): void {
-    const name = window.prompt("预设名称", "我的预设");
-    if (name === null) return;
-    apply((presets) => createAgentPreset(presets, name.trim() || "未命名预设", createUiId));
+    rememberScroll();
+    initialPresetName.current = "我的预设";
+    setRenaming(false);
+    setCreatingName("我的预设");
+  }
+  function saveNewPreset() {
+    if (!creatingName?.trim()) return;
+    try {
+      apply((presets) =>
+        renaming
+          ? renameAgentPreset(presets, detailPreset!.id, creatingName.trim())
+          : createAgentPreset(presets, creatingName.trim(), createUiId),
+      );
+      rememberScroll();
+      setCreatingName(null);
+      setDetailOpen(true);
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   function duplicateCurrent(): void {
-    if (!activePreset) return;
-    apply((presets) => duplicateAgentPreset(presets, activePreset.id, createUiId));
+    if (!detailPreset) return;
+    apply((presets) => duplicateAgentPreset(presets, detailPreset.id, createUiId));
+    setDetailOpen(true);
   }
 
   /** 复制系统默认（虚拟预设）为自定义：基础指令消息 + {{tablesDigest}} 摘要消息 */
   function copyBuiltinAsCustom(): void {
+    rememberScroll();
+    setDetailOpen(true);
     apply((presets) => {
       let next = createAgentPreset(presets, "系统默认 (副本)", createUiId);
       const created = next.presets[next.presets.length - 1]!;
@@ -149,16 +237,18 @@ export function AgentPresetManager(props: {
   }
 
   function removeCurrent(): void {
-    if (!activePreset) return;
-    if (!window.confirm(`删除预设「${activePreset.name}」？删除后不可恢复。`)) return;
-    apply((presets) => deleteAgentPreset(presets, activePreset.id));
+    if (!detailPreset) return;
+    if (!window.confirm(`删除预设「${detailPreset.name}」？删除后不可恢复。`)) return;
+    apply((presets) => deleteAgentPreset(presets, detailPreset.id));
+    setDetailOpen(false);
+    setExpandedMessageId(undefined);
   }
 
   async function exportCurrent(): Promise<void> {
-    if (!activePreset) return;
-    const text = serializeAgentPresetExport(activePreset, new Date().toISOString());
-    downloadTextFile(text, `agent-preset-${sanitizeFilename(activePreset.name)}.json`);
-    reportSuccess(`已导出预设「${activePreset.name}」`);
+    if (!detailPreset) return;
+    const text = serializeAgentPresetExport(detailPreset, new Date().toISOString());
+    downloadTextFile(text, `agent-preset-${sanitizeFilename(detailPreset.name)}.json`);
+    reportSuccess(`已导出预设「${detailPreset.name}」`);
   }
 
   async function importFile(file: File): Promise<void> {
@@ -177,12 +267,14 @@ export function AgentPresetManager(props: {
       return;
     }
     apply((presets) => importAgentPreset(presets, imported));
+    rememberScroll();
+    setDetailOpen(true);
     reportSuccess(`已导入预设「${imported.name}」并设为当前`);
   }
 
   async function copyCurrentText(): Promise<void> {
-    if (!activePreset) return;
-    const text = presetPromptText(activePreset);
+    if (!detailPreset) return;
+    const text = presetPromptText(detailPreset);
     const ok = await copyText(text);
     if (ok) reportSuccess("已复制预设全文到剪贴板");
     else reportWarning("复制失败：浏览器不支持剪贴板写入");
@@ -204,7 +296,7 @@ export function AgentPresetManager(props: {
    * （digest）+ 世界书扫描（预览输入文本；输入为空 → 不扫描，标注）。
    */
   async function loadPreview(): Promise<void> {
-    if (!activePreset) return;
+    if (!detailPreset) return;
     setPreviewLoading(true);
     setPreviewError(undefined);
     try {
@@ -232,9 +324,9 @@ export function AgentPresetManager(props: {
   }
 
   /** 预览条目：编辑预设消息/切换预设后随渲染即时重算（展开数据为最近一次构建） */
-  const previewItems = activePreset
+  const previewItems = detailPreset
     ? buildAgentPresetPreviewItems({
-        preset: activePreset,
+        preset: detailPreset,
         snapshot: previewData?.snapshot ?? EMPTY_PREVIEW_SNAPSHOT,
         digest: previewData?.digest,
         worldbookState: previewData?.worldbookState ?? "skipped",
@@ -251,220 +343,529 @@ export function AgentPresetManager(props: {
   }
 
   function onDragEnd(event: DragEndEvent): void {
-    if (!activePreset) return;
+    if (!detailPreset) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const fromIndex = activePreset.messages.findIndex((m) => m.id === active.id);
-    const toIndex = activePreset.messages.findIndex((m) => m.id === over.id);
+    const fromIndex = detailPreset.messages.findIndex((m) => m.id === active.id);
+    const toIndex = detailPreset.messages.findIndex((m) => m.id === over.id);
     if (fromIndex < 0 || toIndex < 0) return;
     apply((presets) =>
-      moveAgentPresetMessage(presets, activePreset.id, String(active.id), toIndex),
+      moveAgentPresetMessage(presets, detailPreset.id, String(active.id), toIndex),
     );
   }
 
-  const digestMissing = activePreset !== undefined && !containsDigestReference(activePreset);
+  const digestMissing = detailPreset !== undefined && !containsDigestReference(detailPreset);
 
+  const message = messageDraft;
+  function updateMessage(
+    patch: Partial<Pick<AgentPresetMessage, "name" | "role" | "content" | "enabled">>,
+  ) {
+    setMessageDraft({ ...message!, ...patch });
+  }
+  function beginMessage(value: AgentPresetMessage, pending = false) {
+    rememberScroll();
+    setPendingMessage(pending);
+    setExpandedMessageId(value.id);
+    setMessageDraft({ ...value });
+    initialMessageDraft.current = JSON.stringify(value);
+  }
+  function addMessage() {
+    beginMessage(
+      { id: createUiId(), name: "新消息", role: "system", content: "", enabled: true },
+      true,
+    );
+  }
+  function saveMessage() {
+    try {
+      apply((presets) => {
+        const next = pendingMessage
+          ? addAgentPresetMessage(presets, detailPreset!.id, () => message!.id)
+          : presets;
+        return updateAgentPresetMessage(next, detailPreset!.id, message!.id, message!);
+      });
+      rememberScroll();
+      setMessageDraft(null);
+      setExpandedMessageId(undefined);
+    } catch (error) {
+      reportError(error);
+    }
+  }
   return (
-    <div className="stm-setting-group" data-stm-section="agent-presets">
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">当前预设</div>
-          <div className="stm-setting-hint">
-            填表任务触发时使用；占位符展开当前对话与记忆空间信息
-          </div>
-        </div>
-        <div className="stm-preset-list" data-stm-field="preset-list">
-          <PresetRow
-            name="系统默认"
-            active={activeId === BUILTIN_AGENT_PRESET_ID}
-            builtin
-            onSelect={() => selectPreset(BUILTIN_AGENT_PRESET_ID)}
-          />
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={onPresetDragEnd}
-          >
-            <SortableContext
-              items={agentPresets.presets.map((p) => p.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {agentPresets.presets.map((preset) => (
-                <SortablePresetRow
-                  key={preset.id}
-                  preset={preset}
-                  active={activeId === preset.id}
-                  onSelect={() => selectPreset(preset.id)}
+    <div ref={screenRef} className="stm-settings-detail-page" data-stm-section="agent-presets">
+      {props.onBack && (
+        <PageChrome
+          pageKey={
+            creatingName !== null
+              ? "preset-name"
+              : message
+                ? message.id
+                : detailOpen
+                  ? "detail"
+                  : "list"
+          }
+          header={
+            <PanelBar
+              title={
+                creatingName !== null
+                  ? renaming
+                    ? "预设名称"
+                    : "新建 Agent 预设"
+                  : message
+                    ? message.name || "编辑消息"
+                    : detailOpen
+                      ? (detailPreset?.name ?? "系统默认")
+                      : "Agent 提示词预设"
+              }
+              subtitle={
+                creatingName !== null
+                  ? undefined
+                  : message
+                    ? "保存后生效"
+                    : detailOpen
+                      ? detailPresetId === activeId
+                        ? "当前使用"
+                        : "未启用"
+                      : undefined
+              }
+              leading={
+                <PanelBarAction
+                  icon="fa-arrow-left"
+                  label={
+                    creatingName !== null
+                      ? renaming
+                        ? "取消修改"
+                        : "取消新建"
+                      : message
+                        ? "返回预设消息"
+                        : detailOpen
+                          ? "返回预设列表"
+                          : "返回设置"
+                  }
+                  data-action={
+                    creatingName !== null
+                      ? "cancel-agent-preset"
+                      : message
+                        ? "back-agent-message"
+                        : detailOpen
+                          ? "back-agent-presets"
+                          : "settings-back"
+                  }
+                  onClick={back}
                 />
-              ))}
-            </SortableContext>
-          </DndContext>
-        </div>
-      </div>
-      <div className="stm-setting-actions">
-        <button
-          type="button"
-          className="stm-button"
-          data-action="create-preset"
-          onClick={createNew}
-        >
-          新建
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="duplicate-preset"
-          disabled={!activePreset}
-          onClick={duplicateCurrent}
-        >
-          复制
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="delete-preset"
-          disabled={!activePreset}
-          onClick={removeCurrent}
-        >
-          删除
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="export-preset"
-          disabled={!activePreset}
-          onClick={() => void exportCurrent()}
-        >
-          导出
-        </button>
-        <button
-          type="button"
-          className="stm-button"
-          data-action="import-preset"
-          onClick={() => importInputRef.current?.click()}
-        >
-          导入
-        </button>
-      </div>
+              }
+              trailing={
+                creatingName !== null ? (
+                  <PanelBarAction
+                    icon="fa-check"
+                    label={renaming ? "保存名称" : "创建预设"}
+                    data-action="save-agent-preset"
+                    type="submit"
+                    form={createFormId}
+                    disabled={!creatingName.trim()}
+                  />
+                ) : message ? (
+                  <>
+                    {!pendingMessage && (
+                      <PanelBarAction
+                        icon="fa-trash"
+                        label="删除消息"
+                        data-action="remove-message"
+                        danger
+                        onClick={() => {
+                          if (window.confirm(`删除消息「${message.name || "未命名消息"}」？`)) {
+                            apply((presets) =>
+                              removeAgentPresetMessage(presets, detailPreset!.id, message.id),
+                            );
+                            setMessageDraft(null);
+                            setExpandedMessageId(undefined);
+                          }
+                        }}
+                      />
+                    )}
+                    <PanelBarAction
+                      icon="fa-check"
+                      label="保存消息"
+                      data-action="save-agent-message"
+                      onClick={saveMessage}
+                    />
+                  </>
+                ) : detailOpen ? (
+                  detailPreset ? (
+                    <>
+                      <PanelBarAction
+                        icon="fa-eye"
+                        label="预览预设"
+                        data-action="preview-preset"
+                        onClick={togglePreview}
+                      />
+                      <SettingsActionMenu
+                        actions={[
+                          {
+                            label: "预设名称",
+                            dataAction: "rename-agent-preset",
+                            onSelect: () => {
+                              rememberScroll();
+                              initialPresetName.current = detailPreset.name;
+                              setRenaming(true);
+                              setCreatingName(detailPreset.name);
+                            },
+                          },
+                          {
+                            label: "复制全文",
+                            dataAction: "copy-preset-text",
+                            onSelect: () => void copyCurrentText(),
+                          },
+                          {
+                            label: "导出",
+                            dataAction: "export-preset",
+                            onSelect: () => void exportCurrent(),
+                          },
+                          {
+                            label: "复制为新预设",
+                            dataAction: "duplicate-preset",
+                            onSelect: duplicateCurrent,
+                          },
+                          {
+                            label: "删除预设",
+                            dataAction: "delete-preset",
+                            danger: true,
+                            onSelect: removeCurrent,
+                          },
+                        ]}
+                      />
+                      <PanelBarAction
+                        icon="fa-plus"
+                        label="添加消息"
+                        data-action="add-message"
+                        onClick={addMessage}
+                      />
+                    </>
+                  ) : (
+                    <PanelBarAction
+                      icon="fa-copy"
+                      label="复制为自定义"
+                      data-action="copy-builtin-preset"
+                      onClick={copyBuiltinAsCustom}
+                    />
+                  )
+                ) : (
+                  <>
+                    <PanelBarAction
+                      icon="fa-file-import"
+                      label="导入预设"
+                      data-action="import-preset"
+                      onClick={() => importInputRef.current!.click()}
+                    />
+                    <PanelBarAction
+                      icon="fa-plus"
+                      label="新建预设"
+                      data-action="create-preset"
+                      onClick={createNew}
+                    />
+                  </>
+                )
+              }
+            />
+          }
+        />
+      )}
       <input
         ref={importInputRef}
         type="file"
         accept="application/json,.json"
-        style={{ display: "none" }}
+        hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void importFile(file);
           event.target.value = "";
         }}
       />
-      {activePreset === undefined ? (
-        <div className="stm-preset-builtin" data-stm-section="builtin-preset">
-          <div className="stm-preset-builtin-text">
-            系统默认预设 = 未配置时的系统提示词：工作流指令 + 表/字段摘要（{"{{tablesDigest}}"}）。
-            只读锚点，不可修改；需要调整时先复制为自定义。
-          </div>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="copy-builtin-preset"
-            onClick={copyBuiltinAsCustom}
-          >
-            复制为自定义
-          </button>
-        </div>
-      ) : (
-        <div className="stm-preset-editor" data-stm-section="preset-editor">
-          <div className="stm-setting-row">
-            <label className="stm-setting-name">
-              <input
-                type="text"
-                className="stm-input"
-                data-stm-field="preset-name"
-                value={activePreset.name}
-                placeholder="预设名称"
-                onChange={(event) => {
-                  const name = event.target.value;
-                  apply((presets) => renameAgentPreset(presets, activePreset.id, name));
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className="stm-button"
-              data-action="copy-preset-text"
-              onClick={() => void copyCurrentText()}
-            >
-              复制全文
-            </button>
-            <button
-              type="button"
-              className="stm-button"
-              data-action="preview-preset"
-              onClick={togglePreview}
-              title="预览活动预设按编排形态展开后的最终消息（点击时读取当前时刻上下文）"
-            >
-              {previewOpen ? "收起预览" : "预览"}
-            </button>
-          </div>
-          {previewOpen && (
-            <AgentPresetPreviewDialog
-              presetName={activePreset.name}
-              items={previewItems}
-              loading={previewLoading}
-              error={previewError}
-              previewText={previewText}
-              onPreviewTextChange={setPreviewText}
-              onRefresh={() => void loadPreview()}
-              onClose={() => setPreviewOpen(false)}
+      {creatingName !== null ? (
+        <form
+          id={createFormId}
+          className="stm-settings-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveNewPreset();
+          }}
+        >
+          <label className="stm-form-row">
+            <span className="stm-form-label">预设名称</span>
+            <input
+              className="stm-input"
+              data-stm-field="new-agent-preset-name"
+              value={creatingName}
+              required
+              autoFocus
+              onChange={(event) => setCreatingName(event.target.value)}
             />
+          </label>
+          {!props.onBack && (
+            <button type="submit" className="stm-button" data-action="save-agent-preset">
+              创建预设
+            </button>
           )}
-          {digestMissing && (
-            <div className="stm-preset-warning" data-stm-field="digest-warning">
-              当前预设未引用 {"{{tablesDigest}}"} 或 {"{{systemDefaultPrompt}}"}：Agent
-              将失去表/字段摘要， 工具可用性下降。可点击下方占位符插入。
+        </form>
+      ) : message ? (
+        <div data-stm-section="agent-message-editor">
+          <label className="stm-form-row">
+            <span className="stm-form-label">消息名称</span>
+            <input
+              className="stm-input"
+              aria-label="消息名称"
+              data-stm-field={`message-name-${message.id}`}
+              value={message.name}
+              onChange={(event) => updateMessage({ name: event.target.value })}
+            />
+          </label>
+          <label className="stm-form-row">
+            <span className="stm-form-label">消息角色</span>
+            <select
+              className="stm-input"
+              aria-label="消息角色"
+              data-stm-field={`message-role-select-${message.id}`}
+              value={message.role}
+              onChange={(event) => updateMessage({ role: event.target.value as AgentPresetRole })}
+            >
+              {AGENT_PRESET_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {AGENT_PRESET_ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="stm-form-row">
+            <span className="stm-form-label">消息内容</span>
+            <textarea
+              className="stm-textarea"
+              rows={10}
+              aria-label="消息内容"
+              data-stm-field={`message-content-${message.id}`}
+              value={message.content}
+              onChange={(event) => updateMessage({ content: event.target.value })}
+            />
+          </label>
+          <Disclosure icon="fa-code" title="插入占位符">
+            <div className="stm-preset-placeholders">
+              {(
+                Object.entries(AGENT_PRESET_PLACEHOLDERS) as Array<
+                  [AgentPresetPlaceholderName, string]
+                >
+              ).map(([name, placeholder]) => (
+                <button
+                  key={placeholder}
+                  type="button"
+                  className="stm-chip"
+                  title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
+                  data-action="insert-placeholder"
+                  data-placeholder={placeholder}
+                  onClick={() => updateMessage({ content: message.content + placeholder })}
+                >
+                  {placeholder}
+                </button>
+              ))}
+            </div>
+          </Disclosure>
+        </div>
+      ) : detailOpen ? (
+        detailPreset ? (
+          <>
+            {detailPresetId !== activeId && (
+              <button
+                type="button"
+                className="stm-button"
+                data-action="activate-agent-preset"
+                disabled={detailPresetId === activeId}
+                onClick={() => selectPreset(detailPresetId)}
+              >
+                {detailPresetId === activeId ? "当前使用" : "设为当前预设"}
+              </button>
+            )}
+            {digestMissing && (
+              <div className="stm-preset-warning" data-stm-field="digest-warning">
+                缺少表格摘要占位符，Agent 无法读取表与字段说明。
+              </div>
+            )}
+            <ul className="stm-grouped-list stm-settings-item-list">
+              {detailPreset.messages.map((item, index) => (
+                <li key={item.id} className="stm-settings-item-with-toggle">
+                  <button
+                    type="button"
+                    className="stm-settings-item-row"
+                    data-action="toggle-message"
+                    onClick={() => beginMessage(item)}
+                  >
+                    <span className="stm-settings-item-main">
+                      <span className="stm-settings-item-title">
+                        {item.name || `消息 ${index + 1}`}
+                      </span>
+                      <span className="stm-settings-item-summary">
+                        {AGENT_PRESET_ROLE_LABELS[item.role]} ·{" "}
+                        {item.content.split("\n")[0] || "空内容"}
+                      </span>
+                    </span>
+                    <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                  </button>
+                  <label className="stm-switch">
+                    <input
+                      type="checkbox"
+                      aria-label={`启用消息 ${index + 1}`}
+                      checked={item.enabled}
+                      onChange={(event) =>
+                        apply((presets) =>
+                          updateAgentPresetMessage(presets, detailPreset.id, item.id, {
+                            enabled: event.target.checked,
+                          }),
+                        )
+                      }
+                    />
+                    <span className="stm-switch-track" aria-hidden="true" />
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <Disclosure icon="fa-arrows-up-down" title="消息顺序">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDragEnd}
+              >
+                <SortableContext
+                  items={detailPreset.messages.map((item) => item.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {detailPreset.messages.map((item) => (
+                    <SortableMessageRow key={item.id} message={item} />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            </Disclosure>
+          </>
+        ) : (
+          <div data-stm-section="builtin-preset">
+            {activeId !== BUILTIN_AGENT_PRESET_ID && (
+              <button
+                type="button"
+                className="stm-button"
+                data-action="activate-agent-preset"
+                disabled={activeId === BUILTIN_AGENT_PRESET_ID}
+                onClick={() => selectPreset(BUILTIN_AGENT_PRESET_ID)}
+              >
+                {activeId === BUILTIN_AGENT_PRESET_ID ? "当前使用" : "设为当前预设"}
+              </button>
+            )}
+            <p className="stm-setting-hint">系统默认预设 · 工作流指令与表格摘要 · 只读</p>
+            {!props.onBack && (
+              <button
+                type="button"
+                className="stm-button"
+                data-action="copy-builtin-preset"
+                onClick={copyBuiltinAsCustom}
+              >
+                复制为自定义
+              </button>
+            )}
+            <Disclosure icon="fa-eye" title="系统指令">
+              <pre className="stm-modal-text">{PROPOSAL_AGENT_BASE_INSTRUCTIONS}</pre>
+            </Disclosure>
+          </div>
+        )
+      ) : (
+        <>
+          <ul className="stm-grouped-list stm-settings-item-list">
+            <li>
+              <button
+                type="button"
+                className="stm-settings-item-row"
+                data-action="select-agent-preset"
+                data-preset-id={BUILTIN_AGENT_PRESET_ID}
+                onClick={() => openPreset(BUILTIN_AGENT_PRESET_ID)}
+              >
+                <span className="stm-settings-item-main">
+                  <span className="stm-settings-item-title">系统默认</span>
+                  <span className="stm-settings-item-summary">
+                    内置{activeId === BUILTIN_AGENT_PRESET_ID ? " · 当前使用" : ""}
+                  </span>
+                </span>
+                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+              </button>
+            </li>
+            {agentPresets.presets.map((preset) => (
+              <li key={preset.id}>
+                <button
+                  type="button"
+                  className="stm-settings-item-row"
+                  data-action="select-agent-preset"
+                  data-preset-id={preset.id}
+                  onClick={() => openPreset(preset.id)}
+                >
+                  <span className="stm-settings-item-main">
+                    <span className="stm-settings-item-title">{preset.name}</span>
+                    <span className="stm-settings-item-summary">
+                      {preset.messages.length} 条消息{preset.id === activeId ? " · 当前使用" : ""}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {!props.onBack && (
+            <div className="stm-setting-actions">
+              <button
+                type="button"
+                className="stm-button"
+                data-action="create-preset"
+                onClick={createNew}
+              >
+                新建预设
+              </button>
+              <button
+                type="button"
+                className="stm-button"
+                data-action="import-preset"
+                onClick={() => importInputRef.current!.click()}
+              >
+                导入
+              </button>
             </div>
           )}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext
-              items={activePreset.messages.map((m) => m.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {activePreset.messages.map((message, index) => (
-                <MessageCard
-                  key={message.id}
-                  message={message}
-                  index={index}
-                  expanded={expandedMessageId === message.id}
-                  onToggleExpand={() =>
-                    setExpandedMessageId((current) =>
-                      current === message.id ? undefined : message.id,
-                    )
-                  }
-                  onUpdate={(patch) =>
-                    apply((presets) =>
-                      updateAgentPresetMessage(presets, activePreset.id, message.id, patch),
-                    )
-                  }
-                  onRemove={() =>
-                    apply((presets) =>
-                      removeAgentPresetMessage(presets, activePreset.id, message.id),
-                    )
-                  }
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-          <button
-            type="button"
-            className="stm-button stm-preset-add-fragment"
-            data-action="add-message"
-            onClick={() =>
-              apply((presets) => addAgentPresetMessage(presets, activePreset.id, createUiId))
-            }
-          >
-            + 添加消息
-          </button>
-        </div>
+          {agentPresets.presets.length > 1 && (
+            <Disclosure icon="fa-arrows-up-down" title="预设顺序">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onPresetDragEnd}
+              >
+                <SortableContext
+                  items={agentPresets.presets.map((item) => item.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {agentPresets.presets.map((preset) => (
+                    <SortablePresetRow
+                      key={preset.id}
+                      preset={preset}
+                      active={activeId === preset.id}
+                      onSelect={() => openPreset(preset.id)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            </Disclosure>
+          )}
+        </>
+      )}
+      {previewOpen && detailPreset && (
+        <AgentPresetPreviewDialog
+          presetName={detailPreset.name}
+          items={previewItems}
+          loading={previewLoading}
+          error={previewError}
+          previewText={previewText}
+          onPreviewTextChange={setPreviewText}
+          onRefresh={() => void loadPreview()}
+          onClose={() => setPreviewOpen(false)}
+        />
       )}
     </div>
   );
@@ -484,6 +885,7 @@ function PresetRow(props: {
       data-action="select-agent-preset"
       data-preset-id={props.builtin ? BUILTIN_AGENT_PRESET_ID : undefined}
       onClick={props.onSelect}
+      aria-pressed={props.active}
     >
       <span className="stm-preset-row-dot" aria-hidden="true"></span>
       <span className="stm-preset-row-name">{props.name}</span>
@@ -525,133 +927,27 @@ function SortablePresetRow(props: {
   );
 }
 
-/** 消息卡片：拖拽手柄 + 开关 + 角色标签 + 名称 + 内容预览（点击展开编辑 + 占位符插入） */
-function MessageCard(props: {
-  readonly message: AgentPresetMessage;
-  readonly index: number;
-  readonly expanded: boolean;
-  readonly onToggleExpand: () => void;
-  readonly onUpdate: (
-    patch: Partial<Pick<AgentPresetMessage, "name" | "role" | "content" | "enabled">>,
-  ) => void;
-  readonly onRemove: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+function SortableMessageRow(props: { readonly message: AgentPresetMessage }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: props.message.id,
   });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-  const preview = props.message.name || props.message.content.split("\n")[0] || "未命名消息";
-
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`stm-preset-fragment${isDragging ? " stm-preset-fragment--dragging" : ""}`}
-      data-stm-field={`message-${props.message.id}`}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className="stm-settings-order-row"
     >
-      <div className="stm-preset-fragment-head">
-        <span
-          className="stm-preset-fragment-drag"
-          aria-label="拖动排序"
-          data-action="drag-message"
-          {...attributes}
-          {...listeners}
-        >
-          ⠿
-        </span>
-        <label className="stm-switch">
-          <input
-            type="checkbox"
-            data-stm-field={`message-enabled-${props.message.id}`}
-            checked={props.message.enabled}
-            onChange={(event) => props.onUpdate({ enabled: event.target.checked })}
-          />
-          <span className="stm-switch-track" aria-hidden="true"></span>
-        </label>
-        <button
-          type="button"
-          className="stm-preset-fragment-title"
-          data-action="toggle-message"
-          onClick={props.onToggleExpand}
-          title={props.expanded ? "收起" : "展开编辑"}
-        >
-          <span className={`stm-preset-fragment-index stm-mono`}>{props.index + 1}</span>
-          <span
-            className={`stm-preset-role-tag stm-preset-role-tag--${props.message.role}`}
-            data-stm-field={`message-role-${props.message.id}`}
-          >
-            {AGENT_PRESET_ROLE_LABELS[props.message.role]}
-          </span>
-          <span className="stm-preset-fragment-preview">{preview}</span>
-        </button>
-        <button
-          type="button"
-          className="stm-preset-fragment-remove"
-          data-action="remove-message"
-          onClick={props.onRemove}
-          title="删除消息"
-        >
-          ✕
-        </button>
-      </div>
-      {props.expanded && (
-        <div className="stm-preset-fragment-body">
-          <div className="stm-preset-fragment-fields">
-            <input
-              type="text"
-              className="stm-input"
-              data-stm-field={`message-name-${props.message.id}`}
-              value={props.message.name}
-              placeholder="消息名（可选，空则显示内容首行）"
-              onChange={(event) => props.onUpdate({ name: event.target.value })}
-            />
-            <select
-              className="stm-input stm-preset-role-select"
-              data-stm-field={`message-role-select-${props.message.id}`}
-              value={props.message.role}
-              title="消息角色：System 合并进系统提示词；User/Assistant 作为对话消息"
-              onChange={(event) => props.onUpdate({ role: event.target.value as AgentPresetRole })}
-            >
-              {AGENT_PRESET_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {AGENT_PRESET_ROLE_LABELS[role]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <textarea
-            className="stm-textarea"
-            data-stm-field={`message-content-${props.message.id}`}
-            value={props.message.content}
-            placeholder="消息内容：提示词文本，可插入占位符"
-            rows={6}
-            onChange={(event) => props.onUpdate({ content: event.target.value })}
-          />
-          <div className="stm-preset-placeholders">
-            <span className="stm-preset-placeholders-label">占位符：</span>
-            {(
-              Object.entries(AGENT_PRESET_PLACEHOLDERS) as Array<
-                [AgentPresetPlaceholderName, string]
-              >
-            ).map(([name, placeholder]) => (
-              <button
-                key={placeholder}
-                type="button"
-                className="stm-chip"
-                title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
-                data-action="insert-placeholder"
-                data-placeholder={placeholder}
-                onClick={() => props.onUpdate({ content: props.message.content + placeholder })}
-              >
-                {placeholder}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <span>{props.message.name || "未命名消息"}</span>
+      <button
+        type="button"
+        className="stm-table-action"
+        aria-label={`拖动排序 ${props.message.name}`}
+        data-action="drag-message"
+        {...attributes}
+        {...listeners}
+      >
+        ⠿
+      </button>
     </div>
   );
 }

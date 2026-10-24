@@ -1,3 +1,4 @@
+import { macroEditingContextChanged } from "./memory-views-manager-model.ts";
 import type {
   MemoryField,
   MemoryFieldId,
@@ -196,7 +197,24 @@ describe("viewSummaryText（折叠行摘要）", () => {
       "筛选 status ∈ 埋设中、已触发 · 最多 50 条 · 显示 name、status",
     );
     expect(viewSummaryText(view({ condition: null, limit: null, projection: [] }))).toBe(
-      "无筛选 · 无条数上限 · 显示文本",
+      "无筛选 · 最多 100 条 · 显示文本",
     );
+  });
+});
+
+describe("对话宏编辑上下文", () => {
+  it("同一空间切换对话也须阻止旧草稿写入", () => {
+    expect(
+      macroEditingContextChanged(
+        { spaceId: "space-1", chatIdentity: "chat-a" },
+        { spaceId: "space-1", chatIdentity: "chat-b" },
+      ),
+    ).toBe(true);
+    expect(
+      macroEditingContextChanged(
+        { spaceId: "space-1", chatIdentity: "chat-a" },
+        { spaceId: "space-1", chatIdentity: "chat-a" },
+      ),
+    ).toBe(false);
   });
 });

@@ -88,9 +88,9 @@ describe("MemoryViewsManager（记忆视图列表冒烟）", () => {
     expect(html).toContain("未完成伏笔");
     expect(html).toContain("筛选 status ∈ 埋设中、已触发 · 最多 50 条 · 显示 name、status");
     expect(html).toContain('data-action="add-memory-view"');
-    expect(html).toContain('data-action="delete-memory-view"');
+    expect(html).not.toContain('data-action="delete-memory-view"');
     expect(html).toContain('data-action="edit-memory-view"');
-    expect(html).toContain('data-action="preview-memory-view"');
+    expect(html).not.toContain('data-action="preview-memory-view"');
     expect(html).toContain("{{宏名::视图名}}");
   });
 

@@ -76,6 +76,8 @@ export function AppearanceSettings() {
               <button
                 type="button"
                 key={value}
+                data-appearance-option={key}
+                data-value={value}
                 aria-pressed={appearance[key] === value}
                 onClick={() => {
                   window.localStorage.setItem(
@@ -85,7 +87,15 @@ export function AppearanceSettings() {
                   window.dispatchEvent(new Event(CHANGE_EVENT));
                 }}
               >
-                {label}
+                {key === "accent" && <span className="stm-appearance-swatch" aria-hidden="true" />}
+                {key === "theme" && (
+                  <span className="stm-appearance-theme" aria-hidden="true">
+                    <span />
+                    <span />
+                  </span>
+                )}
+                <span>{label}</span>
+                <i className="fa-solid fa-check stm-appearance-check" aria-hidden="true" />
               </button>
             ))}
           </div>
