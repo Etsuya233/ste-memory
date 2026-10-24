@@ -33,6 +33,7 @@ function activeStatus(): SpaceContextStatus {
 
 function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
   return {
+    sqlConsole: { execute: vi.fn(), schema: vi.fn(async () => []) },
     vector: {} as PanelRuntime["vector"],
     retrieval: {
       getState: () => ({

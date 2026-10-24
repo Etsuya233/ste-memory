@@ -14,6 +14,66 @@
   line-height: var(--stm-leading-normal);
 }
 
+.stm-sql {
+  margin-top: var(--stm-space-3);
+}
+
+.stm-sql textarea,
+.stm-sql pre {
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.stm-sql-schema details,
+.stm-sql-schema > button {
+  margin-top: var(--stm-space-2);
+}
+
+.stm-sql-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stm-space-2);
+  margin-block: var(--stm-space-2);
+}
+
+.stm-sql [data-sql-results] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stm-space-3);
+}
+
+.stm-sql-result-scroll {
+  overflow: auto;
+  max-height: 480px;
+  border: 1px solid var(--stm-border);
+  border-radius: var(--stm-radius);
+}
+
+.stm-sql table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stm-sql :is(th, td) {
+  padding: var(--stm-space-2) var(--stm-space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--stm-border);
+}
+
+.stm-sql th {
+  position: sticky;
+  top: 0;
+  background: var(--stm-bg);
+}
+
+.stm-sql td pre {
+  min-width: 3ch;
+  max-width: 48ch;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .stm-retrieval :is(h4, h5, p, pre) {
   margin: 0;
   overflow-wrap: anywhere;

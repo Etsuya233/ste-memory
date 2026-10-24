@@ -36,6 +36,7 @@ import {
   type SqliteMemoryClient,
 } from "./infrastructure/sqlite/client.ts";
 import { querySqliteRecords } from "./infrastructure/sqlite/query-executor.ts";
+import type { SqlConsole } from "./features/sql-console/sql-console.ts";
 import { SqliteMemoryStore } from "./infrastructure/memory-runtime/sqlite-memory-store.ts";
 import { SqliteMemoryBackupRepository } from "./infrastructure/memory-runtime/sqlite-backup-repository.ts";
 import type { SqliteRepositories } from "./infrastructure/memory-runtime/sqlite-memory-store.ts";
@@ -121,6 +122,7 @@ export interface SteMemoryRuntime {
   readonly tasks: FillTaskService;
   readonly vector: VectorIndexService;
   readonly retrieval: VectorRetrievalService;
+  readonly sqlConsole: SqlConsole;
   readonly memoryRecall: MemoryRecallService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
@@ -849,6 +851,23 @@ export async function startSteMemory(
     tasks,
     vector,
     retrieval,
+    sqlConsole: {
+      async execute(spaceId, sql) {
+        if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        try {
+          return await sqlite.executeConsole(spaceId, sql);
+        } finally {
+          retrieval.invalidate(spaceId, "SQL 已执行，请重新搜索");
+          recallRetrieval.invalidate(spaceId, "SQL 已执行");
+          memoryRecall.invalidate("SQL 已执行");
+          macro.kick();
+        }
+      },
+      async schema(spaceId) {
+        if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        return sqlite.consoleSchema(spaceId);
+      },
+    },
     memoryRecall,
     spaceMaintenance,
     presetApply,

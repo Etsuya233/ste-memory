@@ -1,4 +1,5 @@
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import type { SqlExecutionResult, SqlSchemaEntry } from "../../features/sql-console/sql-console.ts";
 import type {
   MemoryEvidence,
   MemoryField,
@@ -32,6 +33,8 @@ export interface SqliteExecution {
   allowedTables?: Readonly<Record<string, readonly string[]>>;
 }
 export interface SqliteMemoryClient {
+  executeConsole(spaceId: string, sql: string): Promise<SqlExecutionResult>;
+  consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;
   exportSpace(spaceId: string, view?: SqliteView): Promise<MemorySpaceBackup>;
   getEntity<K extends SqliteEntityKind>(

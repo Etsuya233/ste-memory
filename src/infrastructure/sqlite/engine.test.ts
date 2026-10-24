@@ -81,6 +81,104 @@ describe("real SQLite WASM memory engine", () => {
   afterEach(async () => {
     await client.close();
   });
+  it("executes unrestricted console DDL, DML, PRAGMA and multiple result sets in order", async () => {
+    const result = await client.executeConsole(
+      "s",
+      `
+      CREATE TABLE console_sample(value TEXT);
+      INSERT INTO console_sample VALUES('hello;世界');
+      ALTER TABLE console_sample ADD COLUMN n INTEGER DEFAULT 3;
+      UPDATE console_sample SET n=7;
+      SELECT value,n FROM console_sample;
+      PRAGMA table_info(console_sample);
+      SELECT 1 AS same,2 AS same;
+    `,
+    );
+    expect(result.results[0]).toEqual({ columns: ["value", "n"], rows: [["hello;世界", 7]] });
+    expect(result.results[1]!.rows).toHaveLength(2);
+    expect(result.results[2]).toEqual({ columns: ["same", "same"], rows: [[1, 2]] });
+    expect(result.changes).toBe(2);
+    expect(result.transactionOpen).toBe(false);
+    expect(
+      (await client.consoleSchema("s")).find((entry) => entry.name === "console_sample")?.columns,
+    ).toEqual([
+      { name: "value", type: "TEXT" },
+      { name: "n", type: "INTEGER" },
+    ]);
+    await client.executeConsole("s", "DROP TABLE console_sample");
+    expect((await client.consoleSchema("s")).some((entry) => entry.name === "console_sample")).toBe(
+      false,
+    );
+  });
+  it("returns all console rows, empty-result columns, NULL, empty strings and blobs", async () => {
+    const result = await client.executeConsole(
+      "s",
+      `
+      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<250) SELECT x FROM n;
+      SELECT 1 AS empty WHERE 0;
+      SELECT NULL AS nil,'' AS blank,x'00ff' AS binary;
+    `,
+    );
+    expect(result.results[0]!.rows).toHaveLength(250);
+    expect(result.results[1]).toEqual({ columns: ["empty"], rows: [] });
+    expect(result.results[2]!.rows[0]).toEqual([null, "", new Uint8Array([0, 255])]);
+  });
+  it("allows explicit console transactions across calls and leaves earlier statements on errors", async () => {
+    await client.executeConsole("s", "CREATE TABLE console_sample(n)");
+    expect(
+      (await client.executeConsole("s", "BEGIN; INSERT INTO console_sample VALUES(1)"))
+        .transactionOpen,
+    ).toBe(true);
+    expect(
+      (await client.executeConsole("s", "ROLLBACK; SELECT * FROM console_sample")).results[0]!.rows,
+    ).toEqual([]);
+    await expect(
+      client.executeConsole(
+        "s",
+        "INSERT INTO console_sample VALUES(2); SELECT * FROM missing_table",
+      ),
+    ).rejects.toThrow();
+    expect(
+      (await client.executeConsole("s", "SELECT * FROM console_sample")).results[0]!.rows,
+    ).toEqual([[2]]);
+    await client.executeConsole("s", "BEGIN; INSERT INTO console_sample VALUES(3); COMMIT");
+    expect(
+      (await client.executeConsole("s", "SELECT * FROM console_sample")).results[0]!.rows,
+    ).toEqual([[2], [3]]);
+  });
+  it("uses SQLite statement boundaries for triggers and grants access to internal tables", async () => {
+    const result = await client.executeConsole(
+      "s",
+      `
+      CREATE TABLE console_sample(n);
+      CREATE TRIGGER console_trigger AFTER INSERT ON console_sample WHEN NEW.n=1 BEGIN
+        INSERT INTO console_sample VALUES(2); INSERT INTO console_sample VALUES(3);
+      END;
+      INSERT INTO console_sample VALUES(1);
+      SELECT * FROM console_sample ORDER BY n;
+      SELECT count(*) FROM __entities;
+    `,
+    );
+    expect(result.results[0]!.rows).toEqual([[1], [2], [3]]);
+    expect(result.results[1]!.rows[0]![0]).toBeGreaterThan(0);
+    // The existing Agent endpoint remains read-only even after console execution.
+    await expect(client.exec({ spaceId: "s", sql: "DROP TABLE console_sample" })).rejects.toThrow();
+  });
+  it("executes against the current database without publishing or saving console mutations", async () => {
+    await client.putEntity("s", "record", record("r", "林"));
+    await client.executeConsole("s", 'UPDATE "角色" SET "姓名"=\'SQL\'; CREATE TABLE transient(n)');
+    expect(await client.exec({ spaceId: "s", sql: 'SELECT "姓名" FROM "角色"' })).toEqual([
+      { 姓名: "SQL" },
+    ]);
+    expect((await client.exportSpace("s")).records[0]!.payload.f).toBe("林");
+    await client.importSpace(await client.exportSpace("s"));
+    expect((await client.consoleSchema("s")).some((entry) => entry.name === "transient")).toBe(
+      false,
+    );
+    expect(await client.exec({ spaceId: "s", sql: 'SELECT "姓名" FROM "角色"' })).toEqual([
+      { 姓名: "林" },
+    ]);
+  });
   it("isolates committed reads, supports parameter SQL, commits and round-trips full records", async () => {
     await client.begin("s");
     await client.putEntity("s", "record", record("r", "林"));

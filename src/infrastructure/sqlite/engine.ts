@@ -2,6 +2,12 @@ import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type { MemoryField, MemoryRecord, MemoryTable } from "../../features/memory/index.ts";
 import type {
+  SqlExecutionResult,
+  SqlResultSet,
+  SqlSchemaEntry,
+  SqlValue,
+} from "../../features/sql-console/sql-console.ts";
+import type {
   SqliteEntities,
   SqliteEntityKind,
   SqliteExecution,
@@ -33,6 +39,79 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   private readonly sqlite: Sqlite3Static;
   constructor(sqlite: Sqlite3Static) {
     this.sqlite = sqlite;
+  }
+
+  /** Execute verbatim against the current browsing connection; no publication or snapshot saving. */
+  async executeConsole(spaceId: string, sql: string): Promise<SqlExecutionResult> {
+    const db = this.database(spaceId);
+    const { capi, wasm } = this.sqlite;
+    const started = performance.now();
+    const changesBefore = db.changes(true);
+    const results: SqlResultSet[] = [];
+    const source = wasm.allocCString(sql, false);
+    const statementPointer = wasm.allocPtr(1);
+    const tailPointer = wasm.allocPtr(1);
+    let cursor = source;
+    try {
+      // SQLite locates statement boundaries, including semicolons inside strings and trigger bodies.
+      while (wasm.heap8u()[cursor] !== 0) {
+        const code = capi.sqlite3_prepare_v3(
+          db.pointer!,
+          cursor,
+          -1,
+          0,
+          statementPointer,
+          tailPointer,
+        );
+        const statement = wasm.peekPtr(statementPointer);
+        try {
+          db.checkRc(code);
+          cursor = wasm.peekPtr(tailPointer);
+          if (!statement) continue;
+          const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, index) =>
+            capi.sqlite3_column_name(statement, index),
+          );
+          const rows: SqlValue[][] = [];
+          let step: number;
+          while ((step = capi.sqlite3_step(statement)) === capi.SQLITE_ROW) {
+            rows.push(
+              columns.map((_, index) => capi.sqlite3_column_js(statement, index) as SqlValue),
+            );
+          }
+          if (step !== capi.SQLITE_DONE) db.checkRc(step);
+          if (columns.length > 0) results.push({ columns, rows });
+        } finally {
+          if (statement) capi.sqlite3_finalize(statement);
+        }
+      }
+      return {
+        results,
+        changes: Number(db.changes(true)) - Number(changesBefore),
+        transactionOpen: capi.sqlite3_get_autocommit(db.pointer!) === 0,
+        elapsedMs: performance.now() - started,
+      };
+    } finally {
+      wasm.dealloc(source);
+      wasm.dealloc(statementPointer);
+      wasm.dealloc(tailPointer);
+    }
+  }
+
+  async consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]> {
+    const db = this.database(spaceId);
+    return this.rows(
+      db,
+      "SELECT name,type,sql FROM sqlite_schema UNION ALL SELECT name,type,sql FROM sqlite_temp_schema ORDER BY name",
+    ).map((entry) => ({
+      name: entry.name as string,
+      type: entry.type as string,
+      sql: entry.sql as string | null,
+      columns: ["table", "view"].includes(entry.type as string)
+        ? this.rows(db, "SELECT name,type FROM pragma_table_xinfo(?)", [entry.name as string]).map(
+            (column) => ({ name: column.name as string, type: column.type as string }),
+          )
+        : [],
+    }));
   }
 
   private database(spaceId: string, view: SqliteView = "committed"): Database {

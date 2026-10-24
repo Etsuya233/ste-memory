@@ -4,6 +4,7 @@ import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
 import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
+import { SqlPanel } from "../retrieval/sql-panel.tsx";
 import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
 import type { VectorRetrievalService } from "../../features/vector-retrieval/vector-retrieval-service.ts";
 /**
@@ -58,6 +59,7 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  * 结构满足该端口，组合根直接传入。
  */
 export interface PanelRuntime {
+  readonly sqlConsole: SteMemoryRuntime["sqlConsole"];
   readonly memoryRecall?: SteMemoryRuntime["memoryRecall"];
   readonly vector: VectorIndexService;
   readonly retrieval: Pick<
@@ -290,6 +292,7 @@ export function PanelShell(props: {
   const appearance = useAppearance();
   const [navOpen, setNavOpen] = useState(false);
   const [taskKind, setTaskKind] = useState<"fill" | "vector">("fill");
+  const [retrievalMode, setRetrievalMode] = useState<"vector" | "sql">("vector");
   const navRef = useRef<HTMLElement | null>(null);
   const navTriggerRef = useRef<HTMLButtonElement | null>(null);
   const navWasOpen = useRef(false);
@@ -769,29 +772,60 @@ export function PanelShell(props: {
           data-stm-section="retrieval"
           role="tabpanel"
         >
-          <RetrievalTab
-            active={state.tab === "retrieval"}
-            key={props.runtime.retrieval.getState().epoch}
-            service={props.runtime.retrieval}
-            connection={settings.embeddingConnection}
-            spaceId={status?.kind === "active" ? status.space.id : null}
-            onRecord={(tableId, recordId) => {
-              setRecordFocus({ tableId, recordId });
-              props.model.setTab("records");
-            }}
-            onIndex={() => props.model.setTab("tables")}
-            onSettings={() => props.model.setTab("settings")}
+          <Tabs
+            label="检索方式"
+            value={retrievalMode}
+            onChange={setRetrievalMode}
+            options={[
+              { value: "vector", label: "向量", panelId: "stm-retrieval-vector" },
+              { value: "sql", label: "SQL", panelId: "stm-retrieval-sql" },
+            ]}
           />
-
-          {props.runtime.memoryRecall && (
-            <MemoryRecallPanel
-              service={props.runtime.memoryRecall}
+          <div
+            id="stm-retrieval-vector"
+            role="tabpanel"
+            aria-label="向量"
+            hidden={retrievalMode !== "vector"}
+          >
+            <RetrievalTab
+              active={state.tab === "retrieval" && retrievalMode === "vector"}
+              key={props.runtime.retrieval.getState().epoch}
+              service={props.runtime.retrieval}
+              connection={settings.embeddingConnection}
+              spaceId={status?.kind === "active" ? status.space.id : null}
               onRecord={(tableId, recordId) => {
                 setRecordFocus({ tableId, recordId });
                 props.model.setTab("records");
               }}
+              onIndex={() => props.model.setTab("tables")}
+              onSettings={() => props.model.setTab("settings")}
             />
-          )}
+
+            {props.runtime.memoryRecall && (
+              <MemoryRecallPanel
+                service={props.runtime.memoryRecall}
+                onRecord={(tableId, recordId) => {
+                  setRecordFocus({ tableId, recordId });
+                  props.model.setTab("records");
+                }}
+              />
+            )}
+          </div>
+          <div
+            id="stm-retrieval-sql"
+            role="tabpanel"
+            aria-label="SQL"
+            hidden={retrievalMode !== "sql"}
+          >
+            <SqlPanel
+              key={props.runtime.retrieval.getState().epoch}
+              console={props.runtime.sqlConsole}
+              active={state.tab === "retrieval" && retrievalMode === "sql"}
+              spaceId={status?.kind === "active" ? status.space.id : null}
+              dataVersion={dataVersion}
+              onExecuted={() => setDataVersion((version) => version + 1)}
+            />
+          </div>
         </section>
         {state.tab === "query" && (
           <section className="stm-tab-section" data-stm-section="query" role="tabpanel">
