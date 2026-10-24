@@ -1,8 +1,11 @@
 # 存储分层：Dexie 本地事实源 + chatMetadata 指针 + R2 云同步
 
+> 2026-10-24 存储职责由 [ADR 0019](./0019-sqlite-runtime.md) 修订：SQLite 承担在线记忆读写；
+> IndexedDB 保留本地快照缓存、任务和向量；同步开启时聊天文件快照优先。下文为历史决策。
+
 > **已部分废弃（被取代）**：R2 云同步层已移除（见 `docs/refactor-plan.md` 阶段 B）；
 > 现存的远端通道只有对话文件镜像（ADR 0023）。Dexie 本地事实源与 chatMetadata
-> 小指针的分层仍然成立。
+> 小指针之外的存储分层已由 ADR 0019 修订。
 
 记忆数据分三层存放：**Dexie（IndexedDB）**是本地事实源（表格定义、记录、修订历史、任务状态，各 core 端口 repository 的浏览器实现）；**chatMetadata** 只存小指针（记忆空间绑定 + 同步游标，随聊天 jsonl 走，对话重命名自动跟随）；**云同步适配器**（`CloudSyncAdapter` 接口）把数据序列化为每空间一个 JSON 文件 + 索引文件，周期推送到 Cloudflare R2（S3 兼容，access key + secret + 原生 CORS），启动时本地库为空（新设备 / iOS 存储被清）则从云端拉全量；冲突 last-write-wins（版本号 + 更新时间）。
 

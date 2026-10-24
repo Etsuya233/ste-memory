@@ -30,6 +30,7 @@ import {
   type MemoryProposalSubmission,
   type MemorySpaceId,
   type MemorySpaceReader,
+  type MemoryRecordService,
 } from "../memory/index.ts";
 import {
   abortedAgentRunSummary,
@@ -45,8 +46,12 @@ import {
   type LlmPort,
   type MemorySpaceTableDigest,
 } from "./index.ts";
+import { createTaskMutationTools } from "./task-mutation-tools.ts";
+import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
 
 export interface FillAgentRunInput {
+  /** 填表任务即时写入；交互问答省略此端口，保持确认后提交。 */
+  readonly taskWriter?: Pick<MemoryRecordService, "commitProposal">;
   readonly llm: LlmPort;
   /** 记忆空间只读端口（query_records 工具用），由宿主装配。 */
   readonly reader: MemorySpaceReader;
@@ -167,26 +172,50 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
   const preview = (operations: Parameters<typeof previewProposal>[2]) =>
     previewProposal(ports, memorySpaceId, operations);
 
+  const taskTools =
+    input.taskWriter === undefined
+      ? undefined
+      : createTaskMutationTools({
+          digest,
+          ports,
+          memorySpaceId,
+          messageRange,
+          evidence,
+          writer: input.taskWriter,
+          signal: input.signal,
+        });
   const agent = new Agent({
     initialState: {
-      systemPrompt: systemTextOf(composedMessages),
+      systemPrompt:
+        systemTextOf(composedMessages) +
+        (input.taskWriter === undefined
+          ? ""
+          : "\n\n当前为事务填表模式：mutate 成功后已写入本任务事务，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请再次 mutate。全部操作完成后调用 submit_proposal 并结束。正式提交由宿主在整个任务结束后完成。"),
       // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
       messages: toAgentPrefixMessages(prefix, llm.model.id),
       model: llm.model,
-      tools: [
-        createQueryRecordsTool({ reader, digest }),
-        createMutateTool({ digest, state, validateOperation }),
-        createProposalPreviewTool({ digest, state, validateOperations, preview }),
-        createDropMutateTool({ state }),
-        createSubmitProposalTool({
-          digest,
-          state,
-          validateOperations,
-          preview,
-          messageRange,
-          evidence,
-        }),
-      ],
+      tools:
+        input.taskWriter === undefined
+          ? [
+              createQueryRecordsTool({ reader, digest }),
+              ...optionalQuerySqlTools(reader, digest),
+              createMutateTool({ digest, state, validateOperation }),
+              createProposalPreviewTool({ digest, state, validateOperations, preview }),
+              createDropMutateTool({ state }),
+              createSubmitProposalTool({
+                digest,
+                state,
+                validateOperations,
+                preview,
+                messageRange,
+                evidence,
+              }),
+            ]
+          : [
+              createQueryRecordsTool({ reader, digest }),
+              ...optionalQuerySqlTools(reader, digest),
+              ...taskTools!.tools,
+            ],
     },
     streamFn: llm.streamFn,
     getApiKey: llm.getApiKey,
@@ -199,5 +228,7 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
     { signal: input.signal, onEvent: input.onEvent },
     input.timeoutMs,
   );
+  if (summary.errorMessage === undefined && summary.stopReason !== "aborted")
+    taskTools?.assertCompleted();
   return { ...summary, proposal: state.frozenProposal };
 }

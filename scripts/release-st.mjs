@@ -31,7 +31,7 @@ const RELEASE_BRANCH = "release/sillytavern-plugin";
 const WORKTREE_DIR = path.join(REPO_ROOT, ".worktrees", "release", "sillytavern-plugin");
 const ST_PKG = path.join(REPO_ROOT, "package.json");
 const ST_DIST = path.join(REPO_ROOT, "dist");
-const DIST_FILES = ["index.js", "manifest.json", "style.css"];
+const DIST_FILES = ["index.js", "sqlite-worker.js", "sqlite3.wasm", "manifest.json", "style.css"];
 const REMOTE = "origin";
 
 const dryRun = process.argv.includes("--dry-run") || process.argv.includes("-n");

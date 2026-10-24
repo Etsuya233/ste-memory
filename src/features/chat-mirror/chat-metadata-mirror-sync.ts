@@ -1,5 +1,6 @@
 import type { ChatMirrorFile } from "./index.ts";
 import { createChatMirrorFile, decodeChatMirrorFile } from "./index.ts";
+import type { ChatSnapshotSaveStatus } from "./chat-snapshot-persistence.ts";
 import type { MemoryBackupRepository } from "../backup/index.ts";
 import {
   memoryChangesEqual,
@@ -48,6 +49,8 @@ export interface ChatMirrorStore {
 /** 镜像同步状态（设置面板展示：体积 + 上次写回时间；无错误态——写回无失败信号） */
 export type ChatMirrorStatus =
   | { readonly kind: "disabled" }
+  | { readonly kind: "saving" }
+  | { readonly kind: "failed"; readonly error: string }
   | {
       readonly kind: "idle";
       readonly lastWrittenAt: string | undefined;
@@ -55,6 +58,8 @@ export type ChatMirrorStatus =
     };
 
 export interface ChatMetadataMirrorSyncPorts {
+  /** SQLite 模式由显式保存协调器承接；禁用旧轮询和防抖。 */
+  readonly directSave?: (spaceId: MemorySpaceId, expectedIdentity: string) => Promise<void>;
   readonly getChat: () => ChatSnapshot;
   readonly bindingStore: ChatBindingStore;
   readonly mirrorStore: ChatMirrorStore;
@@ -161,6 +166,11 @@ export class ChatMetadataMirrorSync {
   /** 启动（runtime 组合根调用）：立即评估一轮，并在启用期间保持轮询。 */
   async start(): Promise<void> {
     if (this.#stopped) return;
+    if (this.#ports.directSave) {
+      if (this.#ports.isEnabled()) this.#setIdle();
+      else this.#setStatus({ kind: "disabled" });
+      return;
+    }
     await this.#queueEvaluate();
   }
 
@@ -172,11 +182,49 @@ export class ChatMetadataMirrorSync {
 
   /** 设置变化后立即评估（幂等）：开关改动时宿主调用；写仍走防抖窗口。 */
   kick(): Promise<void> {
+    if (this.#ports.directSave) {
+      if (!this.#ports.isEnabled()) {
+        this.#setStatus({ kind: "disabled" });
+        return Promise.resolve();
+      }
+      const identity = chatIdentityKey(this.#ports.getChat());
+      const read = this.#ports.bindingStore.read();
+      if (identity === undefined || read.kind !== "bound") return Promise.resolve();
+      return this.#ports.directSave(read.binding.spaceId, identity);
+    }
     return this.#queueEvaluate();
+  }
+
+  /** 将新保存协调器状态转发到既有设置面板订阅。 */
+  reportSaveStatus(status: ChatSnapshotSaveStatus): void {
+    if (!this.#ports.isEnabled()) {
+      this.#setStatus({ kind: "disabled" });
+      return;
+    }
+    switch (status.kind) {
+      case "saving":
+        this.#setStatus({ kind: "saving" });
+        break;
+      case "failed":
+        this.#setStatus({ kind: "failed", error: status.error });
+        break;
+      case "saved":
+        this.#lastWrittenAt = this.#nowIso();
+        this.#setIdle();
+        break;
+      case "idle":
+        this.#setIdle();
+        break;
+    }
   }
 
   /** 预设重建已提交后，立即把指定空间写入所属对话的镜像。 */
   flushRebuiltSpace(spaceId: MemorySpaceId, expectedIdentity: string): Promise<void> {
+    if (this.#ports.directSave) {
+      if (!this.#ports.isEnabled()) return Promise.resolve();
+      this.#assertTarget(spaceId, expectedIdentity);
+      return this.#ports.directSave(spaceId, expectedIdentity);
+    }
     const run = this.#evaluating.then(async () => {
       if (!this.#ports.isEnabled()) return;
       this.#assertTarget(spaceId, expectedIdentity);
@@ -386,6 +434,9 @@ export class ChatMetadataMirrorSync {
 function sameStatus(left: ChatMirrorStatus, right: ChatMirrorStatus): boolean {
   if (left.kind !== right.kind) return false;
   if (left.kind === "disabled") return true;
+  if (left.kind === "saving") return true;
+  if (left.kind === "failed")
+    return left.error === (right as Extract<ChatMirrorStatus, { kind: "failed" }>).error;
   return (
     left.lastWrittenAt === (right as Extract<ChatMirrorStatus, { kind: "idle" }>).lastWrittenAt &&
     left.sizeBytes === (right as Extract<ChatMirrorStatus, { kind: "idle" }>).sizeBytes

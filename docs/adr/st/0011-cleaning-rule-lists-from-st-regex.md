@@ -1,5 +1,8 @@
 # 填表任务内容清洗：导入 ST 正则条目为插件级清洗规则列表
 
+> 2026-10-24 按块实时读取规则的条款由 [ADR 0019](./0019-sqlite-runtime.md) 取代：
+> 同次填表任务在启动时冻结输入与清洗配置。规则的存储、导入和原文保留语义继续适用。
+
 spec 决策 #9「清洗规则不移植，ST Regex 由用户自行负责」被反转：ST 的 Regex 扩展只作用于生成时提示词构建（getRegexedString），从不改写 chat 数组——用户配的 ST 正则对插件填表任务的输入**根本不会生效**。决定：插件引入**插件级命名的清洗规则列表**（存 `extension_settings.steMemory.cleaningRuleLists`，纯模型 + 设置存储端口，同 Agent 预设/连接先例），每个对话经 chatMetadata **独立新键**（`steMemoryCleaningList`，镜像键先例：旧版本忽略新键、绑定读取路径零改动）选择一份列表；填表任务处理块时实时读取所选列表的规则，只清洗喂给 Agent 的消息内容（运行记录 Prompt 快照自动跟随），证据与展示层保持原文。清洗规则以「保留/去掉/替换」三种模式执行（读取时应用，原文永不改写，同 apps ADR 0001 精神）。
 
 **导入语义**：来源 = ST 全局正则条目（`extension_settings.regex`）+ **当前角色卡 scoped 条目**（`characters[chid].data.extensions.regex_scripts`）+ **当前预设条目**（`getPresetManager().readPresetExtensionField({path:'regex_scripts'})`）——三者均经 `getContext()` 官方 API 可达（st-context.js 已核实，按脚本 id 去重，预设应用后条目可能同时存在于全局），另支持 ST 正则扩展导出的 JSON 文件（覆盖非当前角色卡等其余条目，格式与 ST 自身导入一致）。每条按替换串语义映射——`replaceString` 去空白后为空 → 去掉；**其余一律 → 替换模式**（`{{match}}` 展开为 `$0`，`$1`/`$<name>` 走 JS 原生替换语义）；`/pattern/flags` 包裹解析为 pattern + flags（ST 允许但 JS 非法的 flags x/X/A/J/U 丢弃），未包裹默认 `g`；placement 与「用户输入/AI 输出」无交集的条目跳过（只作用于 MD 显示/斜杠命令/世界书/推理的条目对消息清洗无意义）；trimStrings、宏替换（substituteRegex）、markdownOnly/promptOnly、runOnEdit、min/maxDepth 等 ST 专属字段不迁移，差异在导入报告中逐条说明。**导入永远追加**，不记录来源 id、不去重——重复导入产生重复规则，由用户自行清理。

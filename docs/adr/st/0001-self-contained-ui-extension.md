@@ -1,5 +1,8 @@
 # 自包含 UI Extension 架构（打包 core，不依赖 api/web）
 
+> 2026-10-24 部分条款由 [ADR 0019](./0019-sqlite-runtime.md) 取代：纯前端边界保留，
+> 产物增加独立 SQLite Worker 与 WASM，不再只有单文件 bundle。以下保留历史背景。
+
 ST 记忆表格插件是纯前端 UI Extension（manifest + 单文件 bundle），与 apps（api/web）互不依赖：不调用其 HTTP 服务、不复用其代码。插件与 api/web 各自从 core 取领域与应用层能力；浏览器端实现全部宿主适配器（持久化、同步、Agent 运行）。api/web 保持为实验工作台，两者并行演进。
 
 选择自包含的原因：UI Extension 没有服务器，唯一可共享的资产是 core（pi-agent-core 主入口已实测无 Node 内置依赖，可 tree-shaking 进浏览器，见 ADR 0018）；「ST 与 api/web 无关」使实验台的改动不会波及插件。LLM 调用经自定义 `streamFn` 走 ST 自带的同源代理 `/api/backends/chat-completions/generate`（`getRequestHeaders()` 的 CSRF 头，无 CORS，复用用户已配置的模型与密钥，支持 tools 透传）——该端点未文档化，是内部 API，故在适配器内隔离，版本升级漂移风险由适配器层承担。

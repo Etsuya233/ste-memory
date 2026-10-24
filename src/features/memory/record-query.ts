@@ -35,19 +35,29 @@ export type {
   QueryRecordsPage,
 } from "./record-query-contract.ts";
 
+/** Host query execution follows the same validation and display-text rules as memory queries. */
+export type MemoryRecordQueryExecutor = (
+  memorySpaceId: MemorySpaceId,
+  input: QueryRecordsInput,
+  displayValues?: readonly { readonly id: string; readonly displayText: string }[],
+) => Promise<QueryRecordsPage>;
+
 export class MemoryRecordQueryService {
   readonly #tables: MemoryTableRepository;
   readonly #fields: MemoryFieldRepository;
   readonly #records: MemoryRecordRepository;
+  readonly #execute?: MemoryRecordQueryExecutor;
 
   constructor(
     tables: MemoryTableRepository,
     fields: MemoryFieldRepository,
     records: MemoryRecordRepository,
+    execute?: MemoryRecordQueryExecutor,
   ) {
     this.#tables = tables;
     this.#fields = fields;
     this.#records = records;
+    this.#execute = execute;
   }
 
   async query(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage> {
@@ -84,6 +94,24 @@ export class MemoryRecordQueryService {
           )
         : [...rows];
 
+    if (this.#execute) {
+      const needsDisplay =
+        resolveDisplay &&
+        ((input.conditions ?? []).some((condition) => condition.fieldId === "$display_text") ||
+          input.order?.fieldId === "$display_text");
+      const displayValues = needsDisplay
+        ? (await freshen(await this.#records.list(memorySpaceId, input.tableId))).map(
+            ({ id, displayText }) => ({ id, displayText }),
+          )
+        : undefined;
+      const page = await this.#execute(memorySpaceId, input, displayValues);
+      return {
+        ...page,
+        records: (await freshen(page.records)).map((record) =>
+          this.#project(record, input.fieldIds),
+        ),
+      };
+    }
     let rows = await this.#records.list(memorySpaceId, input.tableId);
     if (
       resolveDisplay &&

@@ -86,6 +86,12 @@ export interface ChatSpaceManagerPorts {
   readonly installer: SpaceStructureInstallerPort;
   /** 镜像恢复端口（可选；宿主 = ChatMetadataMirrorSync.restoreFromMirror，ticket 16） */
   readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
+  /** Load the selected source before resolving the bound space, including existing local spaces. */
+  readonly prepareSpace?: (
+    binding: ChatSpaceBinding,
+  ) => Promise<boolean | { readonly restored: boolean; readonly space: MemorySpace }>;
+  readonly branchSource?: (spaceId: MemorySpaceId) => MemorySpaceBackup | undefined;
+  readonly onReady?: (binding: ChatSpaceBinding) => Promise<void>;
   /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
   readonly log?: { info(message: string): void };
   /** Dexie 备份仓库（分支对话分离：cloneSpace / cloneSpaceFromUnit 克隆空间） */
@@ -122,7 +128,8 @@ export type SpaceContextStatus =
       readonly binding: ChatSpaceBinding;
       readonly humanMsg: string;
     }
-  | { readonly kind: "binding-unrecognized"; readonly humanMsg: string };
+  | { readonly kind: "binding-unrecognized"; readonly humanMsg: string }
+  | { readonly kind: "load-error"; readonly humanMsg: string };
 
 export const UNSAVED_CHAT_MESSAGE = "当前对话未保存，暂不支持记忆";
 export const SPACE_MISSING_MESSAGE =
@@ -164,6 +171,19 @@ export class ChatSpaceManager {
   /** 当前空间上下文；首次同步前为 undefined */
   getStatus(): SpaceContextStatus | undefined {
     return this.#status;
+  }
+
+  /** Detach the old space synchronously before asynchronous teardown/loading begins. */
+  clearCurrent(): void {
+    this.#status = undefined;
+    for (const listener of this.#listeners) listener();
+  }
+
+  reportLoadError(error: unknown): void {
+    this.#publish({
+      kind: "load-error",
+      humanMsg: error instanceof Error ? error.message : String(error),
+    });
   }
 
   /** 订阅空间上下文变化（面板用）；返回退订函数 */
@@ -220,8 +240,14 @@ export class ChatSpaceManager {
         }
       }
 
-      let space = await this.#ports.spaces.find(binding.spaceId);
       let restored = false;
+      const prepared = await this.#ports.prepareSpace?.(binding);
+      if (prepared !== undefined)
+        restored = typeof prepared === "boolean" ? prepared : prepared.restored;
+      let space =
+        typeof prepared === "object"
+          ? prepared.space
+          : await this.#ports.spaces.find(binding.spaceId);
       if (!space && this.#ports.mirrorRestore) {
         // 身份不同也先恢复，复制/分支对话同样需要镜像提供可克隆的源空间。
         restored = await this.#ports.mirrorRestore.restore(binding);
@@ -258,6 +284,8 @@ export class ChatSpaceManager {
       const status: SpaceContextStatus = space
         ? { kind: "active", binding, space, created: false, restored }
         : deriveSpaceStatus(binding, space);
+      if (space) await this.#ports.onReady?.(binding);
+      if (!this.#isCurrentChat(chat)) return status;
       return this.#publish(status);
     }
 
@@ -282,6 +310,8 @@ export class ChatSpaceManager {
       return { kind: "active", binding: createdBinding, space, created: true, restored: false };
     }
     this.#ports.bindingStore.write(createdBinding);
+    await this.#ports.onReady?.(createdBinding);
+    if (!this.#isCurrentChat(chat)) return deriveSpaceStatus(createdBinding, space);
     this.#ports.log?.info(`已为对话「${chat.chatId}」创建记忆空间「${space.name}」（${space.id}）`);
     return this.#publish({
       kind: "active",
@@ -316,7 +346,7 @@ export class ChatSpaceManager {
       }
       // cloneSpace 内部创建空间行 + 克隆六张表数据，返回新空间 ID
       const id = this.#ports.createId!;
-      newSpaceId = await this.#ports.backup.cloneSpace(option.sourceSpaceId, {
+      const ids: BackupIdFactory = {
         space: () => id("space") as MemorySpaceId,
         table: () => id("table") as MemoryTableId,
         field: () => id("field") as MemoryFieldId,
@@ -325,7 +355,11 @@ export class ChatSpaceManager {
         task: () => id("task"),
         group: () => id("vector-group"),
         evidence: () => id("evidence") as MemoryEvidenceId,
-      });
+      };
+      const source = this.#ports.branchSource?.(option.sourceSpaceId);
+      newSpaceId = source
+        ? await this.#ports.backup.cloneSpaceFromUnit(source, ids)
+        : await this.#ports.backup.cloneSpace(option.sourceSpaceId, ids);
       // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
       await this.#ports.spaces.rename(newSpaceId, newSpaceName);
     } else {

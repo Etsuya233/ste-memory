@@ -14,7 +14,7 @@ describe("esbuild 构建链", () => {
   const BUILD_TIMEOUT_MS = 30_000;
 
   it(
-    "产物 = 单文件 js + manifest + css",
+    "产物包含插件、SQLite Worker/WASM、manifest 与样式",
     async () => {
       const outdir = tempOutdir();
       try {
@@ -23,6 +23,8 @@ describe("esbuild 构建链", () => {
         expect(files.map((f) => path.basename(f)).sort()).toEqual([
           "index.js",
           "manifest.json",
+          "sqlite-worker.js",
+          "sqlite3.wasm",
           "style.css",
         ]);
 

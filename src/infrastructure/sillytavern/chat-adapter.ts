@@ -15,6 +15,9 @@ import type {
   AgentPromptSnapshot,
 } from "../../features/agent-presets/preset-composer.ts";
 import type { ChatMirrorFile } from "../../features/chat-mirror/index.ts";
+import type { ChatFileTarget, ChatSnapshotFileStore } from "../../features/chat-mirror/index.ts";
+import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
+import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
 import {
   formatCleaningListSelection,
   parseCleaningListSelection,
@@ -254,6 +257,31 @@ export class StChatAdapter {
       groupId: context.groupId ?? null,
       characterName: context.name2,
     };
+  }
+
+  /** 捕获文件身份，后续保存即使切换对话也使用这个目标。 */
+  captureFileTarget(): ChatFileTarget | undefined {
+    const snapshot = this.getChatSnapshot();
+    const identity = chatIdentityKey(snapshot);
+    if (!identity || !snapshot.chatId) return undefined;
+    if (snapshot.groupId != null && snapshot.groupId !== "") {
+      return { kind: "group", identity, chatId: snapshot.chatId };
+    }
+    const context = this.#getContext();
+    const avatarUrl = context.characters?.[Number(snapshot.characterId)]?.avatar;
+    if (!avatarUrl) throw new Error("无法确定当前对话的角色文件身份");
+    return { kind: "character", identity, chatId: snapshot.chatId, avatarUrl };
+  }
+
+  get snapshotFileStore(): ChatSnapshotFileStore {
+    return new StChatSnapshotFileStore((target, file, binding) => {
+      if (chatIdentityKey(this.getChatSnapshot()) !== target.identity) return;
+      const metadata = this.#getContext().chatMetadata;
+      if (!metadata) return;
+      // 保持活动页内存与已保存插件键一致，避免宿主下次保存把旧镜像写回来。
+      metadata[CHAT_METADATA_MIRROR_KEY] = file;
+      if (binding) metadata[CHAT_METADATA_BINDING_KEY] = binding;
+    });
   }
 
   /**

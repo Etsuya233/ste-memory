@@ -37,14 +37,21 @@ export function composeProposalAgentMessages(
  * 摘要与 query_records 工具校验共用同一份 digest，模型可见范围 = 工具可用范围。
  * 不含来源消息（来源消息与提案提示词归 12）。
  */
-export function composeQueryAgentSystemPrompt(digest: MemorySpaceTableDigest): string {
+export function composeQueryAgentSystemPrompt(
+  digest: MemorySpaceTableDigest,
+  sqlAvailable = false,
+): string {
   return [
     "你是一个问答助手，回答用户关于记忆空间记录的问题。",
     "",
     "工作方式：",
-    "1. 只使用工具 query_records（只读）查询记录，不要编造数据。",
+    sqlAvailable
+      ? "1. 使用只读工具 query_records 或 query_sql 查询记录，不要编造数据。"
+      : "1. 只使用工具 query_records（只读）查询记录，不要编造数据。",
     "2. 基于查询返回的真实记录回答；查不到时如实说明，并给出可进一步查询的建议。",
-    "3. 一次查询内多个条件是 AND 语义；需要 OR 或更复杂的检索时，分多次查询后自行归纳。",
+    sqlAvailable
+      ? "3. query_records 的多个条件为 AND；OR、括号分组、JOIN 和聚合可使用 query_sql。SQL 表名和列名使用摘要中的 Key。"
+      : "3. 一次查询内多个条件是 AND 语义；需要 OR 或更复杂的检索时，分多次查询后自行归纳。",
     "4. 用户问题不明确时，先用查询确认范围，再回答。",
     "5. 查询先窄后宽：先用 conditions 与 fields 投影缩小范围，结果不足再放宽，不要一次性全表查询。",
     "",

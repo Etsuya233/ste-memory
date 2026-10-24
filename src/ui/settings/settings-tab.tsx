@@ -207,10 +207,6 @@ export function SettingsTab(props: {
     void changeSettings(() => props.settingsService.setMirrorEnabled(enabled));
   }
 
-  function toggleMirrorHistory(includeHistory: boolean): void {
-    void changeSettings(() => props.settingsService.setMirrorHistoryIncluded(includeHistory));
-  }
-
   async function exportBackup(): Promise<void> {
     try {
       const snapshot = await props.backup.loadSnapshot();
@@ -1054,14 +1050,16 @@ export function SettingsTab(props: {
             <div className="stm-setting-row">
               <div className="stm-setting-label">
                 <div className="stm-setting-name">镜像包含修订历史</div>
+                <div className="stm-setting-desc">文件快照始终保存完整修订历史</div>
               </div>
               <label className="stm-switch" data-bar-unframed>
                 <input
                   type="checkbox"
                   data-action="toggle-mirror-history"
                   aria-label="镜像包含修订历史"
-                  checked={props.settings.mirror.includeHistory}
-                  onChange={(event) => toggleMirrorHistory(event.target.checked)}
+                  checked={true}
+                  disabled
+                  readOnly
                 />
                 <span className="stm-switch-track" aria-hidden="true"></span>
               </label>

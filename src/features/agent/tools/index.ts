@@ -16,6 +16,12 @@ export type {
   QueryRecordsToolResult,
   QueryRecordsToolResultRecord,
 } from "./query/query-records-tool.ts";
+export {
+  QUERY_SQL_TOOL_NAME,
+  QUERY_SQL_MAX_ROWS,
+  createQuerySqlTool,
+} from "./query/query-sql-tool.ts";
+export type { QuerySqlToolDependencies, QuerySqlToolResult } from "./query/query-sql-tool.ts";
 export { ProposalState } from "./proposal/proposal-state.ts";
 export type {
   ProposalStateApplyResult,

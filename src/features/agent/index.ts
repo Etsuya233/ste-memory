@@ -25,6 +25,8 @@ export {
   QueryRecordsToolError,
   createQueryRecordsTool,
 } from "./tools/index.ts";
+export { QUERY_SQL_TOOL_NAME, QUERY_SQL_MAX_ROWS, createQuerySqlTool } from "./tools/index.ts";
+export type { QuerySqlToolDependencies, QuerySqlToolResult } from "./tools/index.ts";
 export type {
   QueryRecordsToolDependencies,
   QueryRecordsToolParams,

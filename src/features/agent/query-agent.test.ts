@@ -27,6 +27,33 @@ function toolCallArgs(table: string, conditions?: Record<string, unknown>[]) {
 }
 
 describe("QueryAgent", () => {
+  it("宿主支持SQL时挂载query_sql并允许复杂条件", async () => {
+    const space = createTestMemorySpace();
+    let calledSql: string | undefined;
+    const streamFn = scriptedStreamFn((context: Context) => {
+      expect(context.tools?.some((tool) => tool.name === "query_sql")).toBe(true);
+      expect(context.systemPrompt).toContain("JOIN");
+      if (!lastToolResult(context))
+        return assistantMessage(
+          [toolCallMessage("sql-1", "query_sql", { sql: "SELECT 1 AS found" })],
+          "toolUse",
+        );
+      return assistantMessage([textMessage("已查询。")], "stop");
+    });
+    const agent = new QueryAgent({
+      llm: { streamFn, model: fakeModel() },
+      reader: {
+        ...space.reader,
+        async querySql(_id, sql) {
+          calledSql = sql;
+          return [{ found: 1 }];
+        },
+      },
+    });
+    const result = await agent.run({ memorySpaceId: SPACE_ID, messages: [userMessage("查询")] });
+    expect(calledSql).toBe("SELECT 1 AS found");
+    expect(result.answer).toBe("已查询。");
+  });
   it("跑通整循环：工具调用 → 查询结果 → 回答（自然停止）", async () => {
     const space = createTestMemorySpace();
     const streamFn = scriptedStreamFn((context: Context) => {

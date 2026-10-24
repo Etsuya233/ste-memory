@@ -220,11 +220,24 @@ export function thinkingMessage(text: string): AssistantMessage["content"][numbe
     open: () => undefined,
   };
   const waiters: Array<() => void> = [];
-  const streamFn: StreamFn = (_model, context) => {
+  const streamFn: StreamFn = (_model, context, options) => {
     calls.count += 1;
     contexts.push(context);
     const stream = new ScriptedEventStream();
+    let ended = false;
+    const abort = () => {
+      if (ended) return;
+      ended = true;
+      const message = assistantMessage([], "aborted", "测试取消");
+      stream.push({ type: "error", reason: "aborted", error: message });
+      stream.end(message);
+    };
+    options?.signal?.addEventListener("abort", abort, { once: true });
+    if (options?.signal?.aborted) abort();
     const respondNow = () => {
+      if (ended) return;
+      ended = true;
+      options?.signal?.removeEventListener("abort", abort);
       const message = respond(context);
       stream.push({ type: "start", partial: message });
       if (message.stopReason === "error" || message.stopReason === "aborted") {

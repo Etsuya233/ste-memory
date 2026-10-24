@@ -1,0 +1,540 @@
+import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
+import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import type { MemoryField, MemoryRecord, MemoryTable } from "../../features/memory/index.ts";
+import type {
+  SqliteEntities,
+  SqliteEntityKind,
+  SqliteExecution,
+  SqliteMemoryClient,
+  SqliteView,
+} from "./types.ts";
+
+const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
+const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+const collections = {
+  table: "tables",
+  field: "fields",
+  record: "records",
+  history: "history",
+  evidence: "evidence",
+} as const;
+const isList = (field: MemoryField): boolean =>
+  ["short_text_list", "multi_select", "multi_reference"].includes(field.type);
+interface SpaceDatabase {
+  write: Database;
+  committed: Database;
+  snapshot: MemorySpaceBackup;
+  transaction: boolean;
+}
+
+/** The same engine runs in a dedicated browser Worker and in real-WASM Node tests. */
+export class SqliteMemoryEngine implements SqliteMemoryClient {
+  private readonly spaces = new Map<string, SpaceDatabase>();
+  private readonly sqlite: Sqlite3Static;
+  constructor(sqlite: Sqlite3Static) {
+    this.sqlite = sqlite;
+  }
+
+  private database(spaceId: string, view: SqliteView = "committed"): Database {
+    return this.session(spaceId)[view];
+  }
+  private session(spaceId: string): SpaceDatabase {
+    const session = this.spaces.get(spaceId);
+    if (!session) throw new Error(`SQLite 空间尚未初始化：${spaceId}`);
+    return session;
+  }
+  private rows(
+    db: Database,
+    sql: string,
+    bind: readonly (string | number | null | Uint8Array)[] = [],
+  ): Record<string, unknown>[] {
+    return db.exec({
+      sql,
+      bind: [...bind],
+      rowMode: "object",
+      returnValue: "resultRows",
+    }) as Record<string, unknown>[];
+  }
+  private newDatabase(): Database {
+    const db = new this.sqlite.oo1.DB(":memory:", "c");
+    const decoder = new TextDecoder();
+    const textAt = (pointer: number, length: number): string =>
+      decoder.decode(this.sqlite.wasm.heap8u().subarray(pointer, pointer + length));
+    db.checkRc(
+      this.sqlite.capi.sqlite3_create_collation_v2(
+        db.pointer!,
+        "STE_LOCALE",
+        this.sqlite.capi.SQLITE_UTF8,
+        0,
+        (_ctx, l1, p1, l2, p2) => textAt(p1, l1).localeCompare(textAt(p2, l2)),
+        0,
+      ),
+    );
+    db.checkRc(
+      this.sqlite.capi.sqlite3_create_collation_v2(
+        db.pointer!,
+        "STE_UTF16",
+        this.sqlite.capi.SQLITE_UTF8,
+        0,
+        (_ctx, l1, p1, l2, p2) => {
+          const a = textAt(p1, l1),
+            b = textAt(p2, l2);
+          return a === b ? 0 : a < b ? -1 : 1;
+        },
+        0,
+      ),
+    );
+    db.createFunction("ste_lower", (_ctx, value) =>
+      value === null ? null : String(value).toLocaleLowerCase(),
+    );
+    db.exec(
+      "PRAGMA foreign_keys=ON; CREATE TABLE __entities(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)),PRIMARY KEY(kind,id)) STRICT;",
+    );
+    db.createFunction("ste_text_valid", (_ctx, value, required, max, pattern) => {
+      if (value === null) return required ? 0 : 1;
+      const text = String(value);
+      return (!required || text.trim().length > 0) &&
+        (max === null || text.length <= Number(max)) &&
+        (pattern === null || text.length === 0 || new RegExp(String(pattern)).test(text))
+        ? 1
+        : 0;
+    });
+    db.createFunction("ste_date_valid", (_ctx, value, datetime) => {
+      if (value === null) return 1;
+      const text = String(value);
+      if (!(datetime ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/).test(text))
+        return 0;
+      const day = text.slice(0, 10),
+        date = new Date(`${day}T00:00:00.000Z`);
+      if (Number.isNaN(date.valueOf()) || !date.toISOString().startsWith(day)) return 0;
+      return !datetime ||
+        text
+          .slice(11)
+          .split(":")
+          .map(Number)
+          .every((n, index) => n < (index === 0 ? 24 : 60))
+        ? 1
+        : 0;
+    });
+    db.createFunction("ste_list_valid", (_ctx, value, required, max, pattern) => {
+      if (value === null) return required ? 0 : 1;
+      const values: unknown = JSON.parse(String(value));
+      if (
+        !Array.isArray(values) ||
+        values.some((item) => typeof item !== "string") ||
+        new Set(values).size !== values.length ||
+        (required && values.length === 0)
+      )
+        return 0;
+      return values.every(
+        (item: string) =>
+          (max === null || item.length <= Number(max)) &&
+          (pattern === null || item.length === 0 || new RegExp(String(pattern)).test(item)),
+      )
+        ? 1
+        : 0;
+    });
+    return db;
+  }
+  async importSpace(snapshot: MemorySpaceBackup): Promise<void> {
+    const db = this.newDatabase();
+    try {
+      db.exec("BEGIN");
+      this.store(db, "space", snapshot.space);
+      for (const kind of Object.keys(collections) as (keyof typeof collections)[]) {
+        for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
+      }
+      this.rebuild(db);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+    const old = this.spaces.get(snapshot.space.id);
+    const committed = this.newDatabase();
+    const session = {
+      write: db,
+      committed,
+      snapshot: structuredClone(snapshot),
+      transaction: false,
+    };
+    this.spaces.set(snapshot.space.id, session);
+    try {
+      await this.publish(snapshot.space.id);
+    } catch (error) {
+      db.close();
+      committed.close();
+      if (old) this.spaces.set(snapshot.space.id, old);
+      else this.spaces.delete(snapshot.space.id);
+      throw error;
+    }
+    old?.write.close();
+    old?.committed.close();
+  }
+  private store(
+    db: Database,
+    kind: SqliteEntityKind,
+    entity: SqliteEntities[SqliteEntityKind],
+  ): void {
+    const id = "evidence_id" in entity ? entity.evidence_id : entity.id;
+    this.rows(
+      db,
+      "INSERT INTO __entities(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data",
+      [kind, id, JSON.stringify(entity)],
+    );
+  }
+  private entities<K extends SqliteEntityKind>(db: Database, kind: K): SqliteEntities[K][] {
+    return this.rows(db, "SELECT data FROM __entities WHERE kind=? ORDER BY rowid", [kind]).map(
+      (row) => JSON.parse(row.data as string) as SqliteEntities[K],
+    );
+  }
+  async getEntity<K extends SqliteEntityKind>(
+    spaceId: string,
+    kind: K,
+    id: string,
+    view: SqliteView = "committed",
+  ): Promise<SqliteEntities[K] | undefined> {
+    const row = this.rows(
+      this.database(spaceId, view),
+      "SELECT data FROM __entities WHERE kind=? AND id=?",
+      [kind, id],
+    )[0];
+    return row ? (JSON.parse(row.data as string) as SqliteEntities[K]) : undefined;
+  }
+  async listEntities<K extends SqliteEntityKind>(
+    spaceId: string,
+    kind: K,
+    view: SqliteView = "committed",
+  ): Promise<SqliteEntities[K][]> {
+    return this.entities(this.database(spaceId, view), kind);
+  }
+  async exportSpace(spaceId: string, view: SqliteView = "committed"): Promise<MemorySpaceBackup> {
+    const session = this.session(spaceId),
+      db = this.database(spaceId, view);
+    return {
+      ...structuredClone(session.snapshot),
+      space: this.entities(db, "space")[0]!,
+      tables: this.entities(db, "table"),
+      fields: this.entities(db, "field"),
+      records: this.entities(db, "record"),
+      history: this.entities(db, "history"),
+      evidence: this.entities(db, "evidence"),
+    };
+  }
+  private schema(db: Database): { tables: MemoryTable[]; fields: MemoryField[] } {
+    return { tables: this.entities(db, "table"), fields: this.entities(db, "field") };
+  }
+  private column(field: MemoryField, tables: MemoryTable[]): string {
+    const name = quote(field.key);
+    const type =
+      field.type === "integer" || field.type === "boolean"
+        ? "INTEGER"
+        : field.type === "decimal"
+          ? "REAL"
+          : "TEXT";
+    const checks: string[] = [];
+    if (field.type === "boolean") checks.push(`${name} IN (0,1)`);
+    if (isList(field))
+      checks.push(
+        `ste_list_valid(${name},${field.required ? 1 : 0},${field.maxChars ?? "NULL"},${field.valuePattern === null ? "NULL" : literal(field.valuePattern)})`,
+      );
+    if (field.type === "date" || field.type === "datetime")
+      checks.push(`ste_date_valid(${name},${field.type === "datetime" ? 1 : 0})`);
+    if (field.type === "single_reference") checks.push(`length(${name})>0`);
+    if (["short_text", "long_text", "single_select"].includes(field.type))
+      checks.push(
+        `ste_text_valid(${name},${field.required ? 1 : 0},${field.maxChars ?? "NULL"},${field.valuePattern === null ? "NULL" : literal(field.valuePattern)})`,
+      );
+    if (field.type === "single_select")
+      checks.push(`${name} IN (${field.options.map(literal).join(",")})`);
+    const reference =
+      field.type === "single_reference"
+        ? ` REFERENCES ${quote(this.keysName(tables.find((table) => table.id === field.referenceTableId)!.id))}(id) DEFERRABLE INITIALLY DEFERRED`
+        : "";
+    return `${name} ${type}${field.required ? " NOT NULL" : ""}${checks.map((check) => ` CHECK(${check})`).join("")}${reference}`;
+  }
+  /** Metadata changes rebuild the small dynamic schema inside the caller's savepoint. */
+  private rebuild(db: Database): void {
+    const existing = this.rows(
+      db,
+      "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='__entities' AND substr(name,1,7)!='__keys_'",
+    );
+    // Defer checks while dropping/recreating mutually referencing tables.
+    db.exec("PRAGMA defer_foreign_keys=ON");
+    for (const row of existing) db.exec(`DROP TABLE ${quote(row.name as string)}`);
+    const { tables, fields } = this.schema(db);
+    // Stable ID tables keep foreign-key targets alive while editable schema is rebuilt.
+    // This also permits mutually referencing table definitions and cyclic record graphs.
+    for (const table of tables)
+      db.exec(
+        `CREATE TABLE IF NOT EXISTS ${quote(this.keysName(table.id))}(id TEXT PRIMARY KEY NOT NULL) STRICT`,
+      );
+    const records = this.entities(db, "record");
+    for (const record of records)
+      this.rows(db, `INSERT OR IGNORE INTO ${quote(this.keysName(record.tableId))} VALUES(?)`, [
+        record.id,
+      ]);
+    for (const table of tables) {
+      const ids = records
+        .filter((record) => record.tableId === table.id)
+        .map((record) => record.id);
+      this.rows(
+        db,
+        `DELETE FROM ${quote(this.keysName(table.id))} WHERE id NOT IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(ids)],
+      );
+    }
+    for (const table of tables) {
+      if (table.key.startsWith("__") || table.key.toLowerCase().startsWith("sqlite_"))
+        throw new Error(`SQLite 保留表 Key：${table.key}`);
+      const columns = fields.filter((field) => field.tableId === table.id);
+      if (columns.some((field) => field.key.startsWith("$") || field.key.startsWith("__")))
+        throw new Error(`SQLite 保留字段 Key：${table.key}`);
+      db.exec(
+        `CREATE TABLE ${quote(table.key)} (${quote("$record_id")} TEXT PRIMARY KEY NOT NULL, ${quote("$display_text")} TEXT NOT NULL, ${quote("$created_at")} TEXT NOT NULL, ${quote("$updated_at")} TEXT NOT NULL${columns.map((field) => `,${this.column(field, tables)}`).join("")}) STRICT`,
+      );
+    }
+    for (const field of fields.filter(isList)) {
+      const table = tables.find((table) => table.id === field.tableId)!;
+      const target =
+        field.type === "multi_reference"
+          ? ` CHECK(length(value)>0) REFERENCES ${quote(this.keysName(tables.find((table) => table.id === field.referenceTableId)!.id))}(id) DEFERRABLE INITIALLY DEFERRED`
+          : "";
+      const options =
+        field.type === "multi_select"
+          ? ` CHECK(value IN (${field.options.map(literal).join(",")}))`
+          : "";
+      db.exec(
+        `CREATE TABLE ${quote(this.listName(field))}(record_id TEXT NOT NULL REFERENCES ${quote(this.keysName(table.id))}(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,position INTEGER NOT NULL,value TEXT NOT NULL${target}${options},PRIMARY KEY(record_id,position),UNIQUE(record_id,value)) STRICT`,
+      );
+    }
+    for (const record of this.entities(db, "record")) this.writeRecord(db, record);
+  }
+  private listName(field: MemoryField): string {
+    return `__list_${field.id}`;
+  }
+  private keysName(tableId: string): string {
+    return `__keys_${tableId}`;
+  }
+  private writeRecord(db: Database, record: MemoryRecord): void {
+    const { tables, fields } = this.schema(db),
+      table = tables.find((table) => table.id === record.tableId);
+    if (!table) throw new Error(`记录的表不存在：${record.tableId}`);
+    this.rows(db, `INSERT OR IGNORE INTO ${quote(this.keysName(table.id))} VALUES(?)`, [record.id]);
+    const columns = fields.filter((field) => field.tableId === table.id);
+    const names = [
+      "$record_id",
+      "$display_text",
+      "$created_at",
+      "$updated_at",
+      ...columns.map((field) => field.key),
+    ];
+    const values = [
+      record.id,
+      record.displayText,
+      record.createdAt,
+      record.updatedAt,
+      ...columns.map((field) => {
+        const value = record.payload[field.id] ?? null;
+        return isList(field) && value !== null
+          ? JSON.stringify(value)
+          : typeof value === "boolean"
+            ? Number(value)
+            : value;
+      }),
+    ] as (string | number | null)[];
+    this.rows(
+      db,
+      `INSERT INTO ${quote(table.key)}(${names.map(quote).join(",")}) VALUES(${names.map(() => "?").join(",")}) ON CONFLICT(${quote("$record_id")}) DO UPDATE SET ${names
+        .slice(1)
+        .map((name) => `${quote(name)}=excluded.${quote(name)}`)
+        .join(",")}`,
+      values,
+    );
+    for (const field of columns.filter(isList)) {
+      this.rows(db, `DELETE FROM ${quote(this.listName(field))} WHERE record_id=?`, [record.id]);
+      const values = record.payload[field.id];
+      if (values !== null && values !== undefined) {
+        for (const [position, value] of (values as readonly string[]).entries())
+          this.rows(db, `INSERT INTO ${quote(this.listName(field))} VALUES(?,?,?)`, [
+            record.id,
+            position,
+            value,
+          ]);
+      }
+    }
+  }
+  private async mutation(spaceId: string, action: (db: Database) => void): Promise<void> {
+    const session = this.session(spaceId),
+      own = !session.transaction;
+    if (own) await this.begin(spaceId);
+    session.write.exec("SAVEPOINT __entity_write");
+    try {
+      action(session.write);
+      session.write.exec("RELEASE __entity_write");
+      if (own) await this.commit(spaceId);
+    } catch (error) {
+      if (this.sqlite.capi.sqlite3_get_autocommit(session.write.pointer!) === 0) {
+        if (own) await this.rollback(spaceId);
+        else session.write.exec("ROLLBACK TO __entity_write; RELEASE __entity_write");
+      } else session.transaction = false;
+      throw error;
+    }
+  }
+  async putEntity<K extends SqliteEntityKind>(
+    spaceId: string,
+    kind: K,
+    entity: SqliteEntities[K],
+  ): Promise<void> {
+    await this.mutation(spaceId, (db) => {
+      this.store(db, kind, entity);
+      if (kind === "record") this.writeRecord(db, entity as MemoryRecord);
+      else if (kind === "table" || kind === "field") this.rebuild(db);
+    });
+  }
+  async deleteEntity(spaceId: string, kind: SqliteEntityKind, id: string): Promise<void> {
+    await this.mutation(spaceId, (db) => {
+      if (kind === "record") {
+        const record = this.entities(db, "record").find((record) => record.id === id);
+        if (record) {
+          const table = this.entities(db, "table").find((table) => table.id === record.tableId)!;
+          this.rows(db, `DELETE FROM ${quote(table.key)} WHERE ${quote("$record_id")}=?`, [id]);
+          this.rows(db, `DELETE FROM ${quote(this.keysName(table.id))} WHERE id=?`, [id]);
+        }
+      }
+      this.rows(db, "DELETE FROM __entities WHERE kind=? AND id=?", [kind, id]);
+      if (kind === "table" || kind === "field") this.rebuild(db);
+    });
+  }
+  async begin(spaceId: string): Promise<void> {
+    const session = this.session(spaceId);
+    session.write.exec("BEGIN");
+    session.transaction = true;
+  }
+  async commit(spaceId: string): Promise<void> {
+    const session = this.session(spaceId);
+    const missing = this.rows(session.write, "PRAGMA foreign_key_check");
+    if (missing.length) throw new Error("记忆引用约束未满足");
+    session.write.exec("COMMIT");
+    session.transaction = false;
+    await this.publish(spaceId);
+  }
+  async rollback(spaceId: string): Promise<void> {
+    const session = this.session(spaceId);
+    session.write.exec("ROLLBACK");
+    session.transaction = false;
+  }
+  async savepoint(spaceId: string, name: string): Promise<void> {
+    this.database(spaceId, "write").exec(`SAVEPOINT ${quote(name)}`);
+  }
+  async release(spaceId: string, name: string): Promise<void> {
+    this.database(spaceId, "write").exec(`RELEASE ${quote(name)}`);
+  }
+  async rollbackTo(spaceId: string, name: string): Promise<void> {
+    this.database(spaceId, "write").exec(`ROLLBACK TO ${quote(name)}`);
+  }
+  async publish(spaceId: string): Promise<void> {
+    const session = this.session(spaceId);
+    if (session.transaction) throw new Error("不能发布尚未提交的 SQLite 数据");
+    const db = this.newDatabase();
+    try {
+      db.exec("BEGIN");
+      for (const row of this.rows(session.write, "SELECT kind,id,data FROM __entities"))
+        this.rows(db, "INSERT INTO __entities VALUES(?,?,?)", [
+          row.kind as string,
+          row.id as string,
+          row.data as string,
+        ]);
+      this.rebuild(db);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+    session.committed.close();
+    session.committed = db;
+  }
+  async exec(input: SqliteExecution): Promise<Record<string, unknown>[]> {
+    const {
+      spaceId,
+      sql,
+      bind = [],
+      view = "committed",
+      access = "read",
+      budgetMs = 1000,
+      maxRows,
+      allowedTables,
+    } = input;
+    const db = this.database(spaceId, view),
+      capi = this.sqlite.capi;
+    if (access === "write")
+      throw new Error("业务写入须通过记忆操作端口，以维护修订、证据和字段关系");
+    const deadline = performance.now() + budgetMs;
+    const jsonVirtualTables = new Set(
+      ["json_each", "json_tree"].filter(
+        (name) => !this.entities(db, "table").some((table) => table.key.toLowerCase() === name),
+      ),
+    );
+    const readActions = new Set<number>([
+      capi.SQLITE_SELECT,
+      capi.SQLITE_READ,
+      capi.SQLITE_FUNCTION,
+      capi.SQLITE_RECURSIVE,
+    ]);
+    // SQLite's compile-time authorizer rejects transaction control, PRAGMA, DDL and DML.
+    capi.sqlite3_set_authorizer(
+      db.pointer!,
+      (_arg, action, tableName, functionName) => {
+        if (access === "host") return capi.SQLITE_OK;
+        if (
+          action === capi.SQLITE_READ &&
+          allowedTables !== undefined &&
+          !jsonVirtualTables.has(String(tableName))
+        ) {
+          const columns = allowedTables[String(tableName)];
+          if (!columns || (functionName !== "" && !columns.includes(String(functionName))))
+            return capi.SQLITE_DENY;
+        }
+        if (
+          action === capi.SQLITE_FUNCTION &&
+          ["load_extension", "writefile", "readfile"].includes(String(functionName))
+        )
+          return capi.SQLITE_DENY;
+        return readActions.has(action) ? capi.SQLITE_OK : capi.SQLITE_DENY;
+      },
+      0,
+    );
+    capi.sqlite3_progress_handler(
+      db.pointer!,
+      1000,
+      () => (performance.now() > deadline ? 1 : 0),
+      0,
+    );
+    try {
+      if (maxRows === undefined) return this.rows(db, sql, bind);
+      const rows: Record<string, unknown>[] = [];
+      db.exec({
+        sql,
+        bind: [...bind],
+        rowMode: "object",
+        callback(row) {
+          rows.push(row as Record<string, unknown>);
+          if (rows.length >= maxRows) return false;
+        },
+      });
+      return rows;
+    } finally {
+      capi.sqlite3_set_authorizer(db.pointer!, () => capi.SQLITE_OK, 0);
+      capi.sqlite3_progress_handler(db.pointer!, 0, 0, 0);
+    }
+  }
+  async removeSpace(spaceId: string): Promise<void> {
+    const session = this.session(spaceId);
+    session.write.close();
+    session.committed.close();
+    this.spaces.delete(spaceId);
+  }
+  async close(): Promise<void> {
+    for (const spaceId of this.spaces.keys()) await this.removeSpace(spaceId);
+  }
+}
