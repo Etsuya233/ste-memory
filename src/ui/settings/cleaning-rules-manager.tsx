@@ -1,18 +1,7 @@
 import { Dialog } from "../kit/dialog.tsx";
 import { FormField, Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
-/**
- * 清洗规则管理器（ticket 22 / ADR 0011）：设置 Tab 的「清洗规则」区块。
- *
- * 纯展示层：列表/规则变更走 cleaning-rule-lists 纯函数 → onChange(nextSettings)
- * （宿主写 settings）；当前对话的选择走 onSelectList（宿主写 chatMetadata）。
- * 结构：
- * - 当前对话使用的清洗列表选择行（未启用 + 全部列表）；
- * - 规则列表管理：列表下拉（编辑目标）+ 新建/重命名/删除 + 规则行
- *   （开关/展开编辑/上下重排/删除）；
- * - 导入：从 ST 正则条目（readStRegexEntries 端口：全局 + 当前角色卡 + 当前预设）
- *   或 ST 导出 JSON 文件，对话框内勾选条目 + 选目标列表（已有/新建）+ 导入报告。
- */
+/** 标签清洗规则列表、草稿编辑与测试。 */
 import { SettingsActionMenu } from "./settings-action-menu.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
@@ -33,35 +22,15 @@ import {
   type CleaningRuleList,
 } from "../../features/cleaning/cleaning-rule-lists.ts";
 import {
-  convertStRegexScripts,
-  type StRegexImportItem,
-} from "../../features/cleaning/st-regex-import.ts";
-import type {
-  StRegexEntry,
-  StRegexEntrySource,
-} from "../../infrastructure/sillytavern/chat-adapter.ts";
-import {
-  DEFAULT_IMPORT_LIST_NAME,
-  applyImportedRules,
-  buildStRegexImportReport,
   draftToRule,
-  resolveImportTarget,
   ruleDraftFromRule,
   runCleaningTest,
   validateRuleDraft,
   type CleaningRuleDraft,
   type CleaningTestMessage,
   type CleaningTestRun,
-  type ImportTarget,
-  type StRegexImportReport,
 } from "./cleaning-rules-manager-model.ts";
 import { copyText, createUiId, reportError, reportSuccess } from "../shell/ui-helpers.tsx";
-
-const MODE_LABELS: Record<CleaningRule["mode"], string> = {
-  keep: "保留",
-  discard: "去掉",
-  replace: "替换",
-};
 
 export function CleaningRulesManager(props: {
   readonly onBack?: () => void;
@@ -74,8 +43,6 @@ export function CleaningRulesManager(props: {
   readonly onSelectList: (listId: string | undefined) => void;
   /** 宿主写 settings 并更新面板状态 */
   readonly onChange: (settings: PluginSettings) => void;
-  /** ST 正则条目读取端口（宿主 = getContext()：全局 + 当前角色卡 + 当前预设） */
-  readonly readStRegexEntries: () => readonly StRegexEntry[];
   /** 最近 N 条对话消息读取端口（宿主 = 与填表任务同源的楼层读取，ticket 27） */
   readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
 }) {
@@ -91,17 +58,6 @@ export function CleaningRulesManager(props: {
   const [pendingRuleId, setPendingRuleId] = useState<string | undefined>(undefined);
   const [ruleDraft, setRuleDraft] = useState<CleaningRuleDraft | undefined>(undefined);
   const [ruleError, setRuleError] = useState<string | undefined>(undefined);
-  // 导入对话框状态
-  const [importOpen, setImportOpen] = useState(false);
-  const [importCandidates, setImportCandidates] = useState<readonly StRegexImportItem[]>([]);
-  /** 候选条目来源（与 importCandidates 下标一一对应；文件导入全为 file） */
-  const [importSources, setImportSources] = useState<readonly StRegexEntrySource[]>([]);
-  const [importSelected, setImportSelected] = useState<readonly number[]>([]);
-  const [importTarget, setImportTarget] = useState<ImportTarget>({
-    kind: "new",
-    name: DEFAULT_IMPORT_LIST_NAME,
-  });
-  const [importReport, setImportReport] = useState<StRegexImportReport | null>(null);
   // 清洗测试弹窗状态（ticket 27）：打开时快照规则与草稿（遮罩盖住面板，生命周期内不变）
   const [testOpen, setTestOpen] = useState(false);
   const [testForm, setTestForm] = useState<"text" | "messages">("text");
@@ -125,15 +81,13 @@ export function CleaningRulesManager(props: {
     ? listForm.id
       ? `edit:list:${listForm.id}`
       : "new:list"
-    : importOpen
-      ? "import"
-      : editingRuleId
-        ? pendingRuleId
-          ? "new:rule"
-          : `edit:rule:${editingRuleId}`
-        : detailOpen
-          ? `detail:${editListId}`
-          : "list";
+    : editingRuleId
+      ? pendingRuleId
+        ? "new:rule"
+        : `edit:rule:${editingRuleId}`
+      : detailOpen
+        ? `detail:${editListId}`
+        : "list";
   const { screenRef, rememberScroll } = useSettingsPageNavigation(page);
   const formId = useId();
   const chrome = props.onBack !== undefined;
@@ -179,10 +133,7 @@ export function CleaningRulesManager(props: {
         setListForm(null);
       }
     } else if (editingRuleId) tryCancelEdit();
-    else if (importOpen) {
-      rememberScroll();
-      setImportOpen(false);
-    } else if (detailOpen) {
+    else if (detailOpen) {
       rememberScroll();
       setDetailOpen(false);
     } else props.onBack?.();
@@ -273,7 +224,6 @@ export function CleaningRulesManager(props: {
       rememberScroll();
       setEditListId(id);
       setDetailOpen(true);
-      setImportTarget({ kind: "existing", listId: id });
       setListForm(null);
     } catch (error) {
       reportError(error);
@@ -305,14 +255,8 @@ export function CleaningRulesManager(props: {
     rememberScroll();
     startRuleDraft({
       name: "新规则",
-      mode: "discard",
-      // 新建默认标签类型（ADR 0014）：不懂正则的用户第一眼就是简单路径
-      type: "tag",
-      pattern: "",
-      flags: "g",
-      pre: "",
-      post: "",
-      replacement: "",
+      keepTags: [],
+      excludeTags: [],
       enabled: true,
     });
     setRuleError(undefined);
@@ -343,13 +287,12 @@ export function CleaningRulesManager(props: {
     // 草稿 → 规则（形状统一由模型层 draftToRule 负责；仅名字归一化在此）
     const rule = {
       ...draftToRule(ruleDraft, editingRuleId),
-      name: ruleDraft.name.trim() || "未命名规则",
+      name: ruleDraft.name.trim(),
     };
     if (pendingRuleId === editingRuleId) {
       // 新建路径：校验通过才落库（+ 添加规则 = 编辑草稿，取消不产生空规则）
       apply((current) => addCleaningRule(current, editList.id, rule));
     } else {
-      // 补丁带 id 无影响：updateCleaningRule 按 ruleId 定位后 spread，id 不变
       apply((current) => updateCleaningRule(current, editList.id, editingRuleId, rule));
     }
     setPendingRuleId(undefined);
@@ -369,108 +312,12 @@ export function CleaningRulesManager(props: {
     apply((current) => moveCleaningRule(current, editList.id, ruleId, index + direction));
   }
 
-  // ---- 导入 ----
-
-  function openImportFromSt(): void {
-    rememberScroll();
-    try {
-      const entries = props.readStRegexEntries();
-      const candidates = convertStRegexScripts(
-        entries.map((entry) => entry.script),
-        createUiId,
-      );
-      openImportDialog(
-        candidates,
-        entries.map((entry) => entry.source),
-      );
-    } catch (error) {
-      reportError(error);
-    }
-  }
-
-  /** 从 ST 导出的 JSON 文件导入候选（替换对话框内候选列表，对话框保持打开） */
-  async function importFileIntoDialog(file: File): Promise<void> {
-    let text: string;
-    try {
-      text = await file.text();
-    } catch (error) {
-      reportError(error);
-      return;
-    }
-    try {
-      const candidates = convertStRegexScripts(JSON.parse(text), createUiId);
-      setImportCandidates(candidates);
-      setImportSources(candidates.map(() => "file" as const));
-      // 文件导入同样默认不勾选（用户手动选择）
-      setImportSelected([]);
-      setImportReport(null);
-    } catch (error) {
-      reportError(error);
-      return;
-    }
-  }
-
-  function openImportDialog(
-    candidates: readonly StRegexImportItem[],
-    sources: readonly StRegexEntrySource[],
-  ): void {
-    setImportCandidates(candidates);
-    setImportSources(sources);
-    // 默认不勾选（用户手动选择要导入的条目）；默认目标 = 当前编辑列表
-    setImportSelected([]);
-    // 无列表时新建（名称可在对话框内修改）
-    setImportTarget(
-      editList
-        ? { kind: "existing", listId: editList.id }
-        : { kind: "new", name: DEFAULT_IMPORT_LIST_NAME },
-    );
-    setImportReport(null);
-    setImportOpen(true);
-  }
-
-  function toggleCandidate(index: number): void {
-    setImportSelected((current) =>
-      current.includes(index) ? current.filter((i) => i !== index) : [...current, index],
-    );
-  }
-
-  function confirmImport(): void {
-    // 报告 = 选中的规则 + 全部跳过条目（跳过原因确认后仍可见，ticket 决策）
-    const selectedRules = importCandidates.filter(
-      (item, index) => item.kind === "rule" && importSelected.includes(index),
-    );
-    const skipped = importCandidates.filter((item) => item.kind === "skipped");
-    const report = buildStRegexImportReport([...selectedRules, ...skipped]);
-    const target = resolveImportTarget(importTarget);
-    if (target.kind === "new") {
-      const id = createUiId();
-      apply((current) =>
-        applyImportedRules(current, { ...target, name: target.name }, selectedRules, () => id),
-      );
-      setEditListId(id);
-      setImportTarget({ kind: "existing", listId: id });
-    } else {
-      apply((current) => applyImportedRules(current, target, selectedRules, createUiId));
-      setEditListId(target.listId);
-    }
-    setImportReport(report);
-    rememberScroll();
-    setDetailOpen(true);
-    setImportOpen(false);
-    reportSuccess(`已导入 ${report.created} 条规则`);
-  }
-
-  const importableCount = importCandidates.filter((item) => item.kind === "rule").length;
-  const selectedCount = importSelected.length;
-
   return (
     <div
       ref={screenRef}
       className="stm-settings-detail-page"
       data-stm-section="cleaning-rules"
-      data-cleaning-screen={
-        importOpen ? "import" : editingRuleId ? "rule" : detailOpen ? "detail" : "list"
-      }
+      data-cleaning-screen={editingRuleId ? "rule" : detailOpen ? "detail" : "list"}
     >
       {chrome && (
         <PageChrome
@@ -482,18 +329,16 @@ export function CleaningRulesManager(props: {
                   ? listForm.id
                     ? "重命名清洗列表"
                     : "新建清洗列表"
-                  : importOpen
-                    ? "导入正则"
-                    : editingRuleId
-                      ? pendingRuleId
-                        ? "新建规则"
-                        : "编辑规则"
-                      : detailOpen
-                        ? editList?.name
-                        : "清洗规则"
+                  : editingRuleId
+                    ? pendingRuleId
+                      ? "新建规则"
+                      : "编辑规则"
+                    : detailOpen
+                      ? editList?.name
+                      : "清洗规则"
               }
               subtitle={
-                detailOpen && !editingRuleId && !importOpen && !listForm
+                detailOpen && !editingRuleId && !listForm
                   ? `${editList?.rules.length ?? 0} 条规则`
                   : undefined
               }
@@ -506,7 +351,7 @@ export function CleaningRulesManager(props: {
                       ? "cancel-cleaning-list"
                       : editingRuleId
                         ? "cancel-cleaning-rule"
-                        : detailOpen || importOpen
+                        : detailOpen
                           ? "back-cleaning-lists"
                           : "settings-back"
                   }
@@ -522,14 +367,6 @@ export function CleaningRulesManager(props: {
                     type="submit"
                     form={listFormId}
                     disabled={!listForm.name.trim()}
-                  />
-                ) : importOpen ? (
-                  <PanelBarAction
-                    icon="fa-check"
-                    label="导入所选规则"
-                    data-action="confirm-regex-import"
-                    disabled={selectedCount === 0}
-                    onClick={confirmImport}
                   />
                 ) : editingRuleId ? (
                   <>
@@ -568,11 +405,6 @@ export function CleaningRulesManager(props: {
                           onSelect: renameList,
                         },
                         {
-                          label: "导入规则到此列表",
-                          dataAction: "import-st-regex",
-                          onSelect: openImportFromSt,
-                        },
-                        {
                           label: "删除列表",
                           dataAction: "delete-cleaning-list",
                           danger: true,
@@ -589,12 +421,6 @@ export function CleaningRulesManager(props: {
                   </>
                 ) : (
                   <>
-                    <PanelBarAction
-                      icon="fa-file-import"
-                      label="导入正则"
-                      data-action="import-st-regex"
-                      onClick={openImportFromSt}
-                    />
                     <PanelBarAction
                       icon="fa-plus"
                       label="新建列表"
@@ -636,22 +462,6 @@ export function CleaningRulesManager(props: {
             </Button>
           )}
         </form>
-      ) : importOpen ? (
-        <ImportDialog
-          compact={chrome}
-          candidates={importCandidates}
-          sources={importSources}
-          selected={importSelected}
-          importableCount={importableCount}
-          selectedCount={selectedCount}
-          target={importTarget}
-          targetListName={editList?.name ?? ""}
-          onToggleCandidate={toggleCandidate}
-          onTargetChange={setImportTarget}
-          onImportFile={(file) => void importFileIntoDialog(file)}
-          onConfirm={confirmImport}
-          onCancel={() => setImportOpen(false)}
-        />
       ) : editingRuleId && ruleDraft ? (
         <>
           <CleaningRuleEditor
@@ -686,8 +496,7 @@ export function CleaningRulesManager(props: {
                   onClick={() => beginEdit(rule)}
                   title={rule.name}
                   description=<>
-                    {MODE_LABELS[rule.mode]} ·{" "}
-                    {rule.type === "tag" ? `${rule.pre} … ${rule.post}` : rule.pattern}
+                    保留 {rule.keepTags.length} 个标签 · 排除 {rule.excludeTags.length} 个标签
                   </>
                 />
                 <Switch
@@ -765,7 +574,7 @@ export function CleaningRulesManager(props: {
           </ListGroup>
           {lists.length === 0 && (
             <div className="stm-empty" data-stm-section="cleaning-rules-empty">
-              新建清洗规则列表，或从 ST 导入正则。
+              新建清洗规则列表，配置保留和排除标签。
             </div>
           )}
           {!chrome && (
@@ -778,25 +587,10 @@ export function CleaningRulesManager(props: {
               >
                 新建列表
               </Button>
-              <Button
-                type="button"
-
-                data-action="import-st-regex"
-                onClick={openImportFromSt}
-              >
-                导入正则
-              </Button>
             </div>
           )}
         </>
       )}
-      {importReport !== null && (
-        <div className="stm-setting-hint" data-stm-field="import-report">
-          已导入 {importReport.created} 条规则
-          {importReport.skipped.length ? ` · 跳过 ${importReport.skipped.length} 条` : ""}
-        </div>
-      )}
-
       {testOpen && testSnapshot !== null && (
         <CleaningTestDialog
           form={testForm}
@@ -821,7 +615,7 @@ export function CleaningRulesManager(props: {
   );
 }
 
-/** 规则编辑表单（草稿非空时渲染；保存校验由父组件执行）。 */
+/** 一条规则同时编辑两组标签，组内 OR，先保留后排除。 */
 export function CleaningRuleEditor(props: {
   readonly formId?: string;
   readonly draft: CleaningRuleDraft;
@@ -830,7 +624,7 @@ export function CleaningRuleEditor(props: {
   readonly onSave: () => void;
   readonly onCancel: () => void;
 }) {
-  const draft = props.draft;
+  const { draft } = props;
   return (
     <form
       id={props.formId}
@@ -840,137 +634,93 @@ export function CleaningRuleEditor(props: {
         props.onSave();
       }}
     >
-      <div className="stm-setting-row">
-        <FormField className="stm-settings-field" label={<>规则名称</>}>
-          {(field) => (
-            <Input
-              {...field}
-              type="text"
-
-              data-stm-field="cleaning-rule-name"
-              aria-label="规则名称"
-              value={draft.name}
-              placeholder="规则名称"
-              onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
-            />
-          )}
-        </FormField>
-        <label className="stm-settings-field">
-          <span className="stm-form-label">处理方式</span>
-          <Select
-            data-stm-field="cleaning-rule-mode"
-            aria-label="处理方式"
-            value={draft.mode}
-            onChange={(event) =>
-              props.onDraftChange({ ...draft, mode: event.target.value as CleaningRule["mode"] })
-            }
-          >
-            {(Object.keys(MODE_LABELS) as CleaningRule["mode"][]).map((mode) => (
-              <option key={mode} value={mode}>
-                {MODE_LABELS[mode]}
-              </option>
+      <FormField label="规则名称">
+        {(field) => (
+          <Input
+            {...field}
+            data-stm-field="cleaning-rule-name"
+            value={draft.name}
+            onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
+          />
+        )}
+      </FormField>
+      <p className="stm-setting-hint">
+        先保留后排除，每组命中任一标签即可。标签按普通文本区分大小写匹配，不支持同名嵌套。
+      </p>
+      {(["keepTags", "excludeTags"] as const).map((key) => {
+        const label = key === "keepTags" ? "保留" : "排除";
+        return (
+          <fieldset key={key} className="stm-settings-form" data-stm-field={`cleaning-${key}`}>
+            <legend>{label}标签</legend>
+            <p className="stm-setting-hint">
+              {key === "keepTags"
+                ? "留空表示保留全文；有配置但未命中时输出空文本。多个片段按原文顺序用换行连接。"
+                : "删除标签及其中内容。缺少结束标签时不匹配。"}
+            </p>
+            {draft[key].map((tag, index) => (
+              <div key={index} className="stm-settings-form">
+                <FormField label={`${label}开始标签 ${index + 1}`}>
+                  {(field) => (
+                    <Input
+                      {...field}
+                      value={tag.pre}
+                      placeholder="<正文>"
+                      onChange={(event) =>
+                        props.onDraftChange({
+                          ...draft,
+                          [key]: draft[key].map((item, i) =>
+                            i === index ? { ...item, pre: event.target.value } : item,
+                          ),
+                        })
+                      }
+                    />
+                  )}
+                </FormField>
+                <FormField label={`${label}结束标签 ${index + 1}`}>
+                  {(field) => (
+                    <Input
+                      {...field}
+                      value={tag.post}
+                      placeholder="</正文>"
+                      onChange={(event) =>
+                        props.onDraftChange({
+                          ...draft,
+                          [key]: draft[key].map((item, i) =>
+                            i === index ? { ...item, post: event.target.value } : item,
+                          ),
+                        })
+                      }
+                    />
+                  )}
+                </FormField>
+                <Button
+                  type="button"
+                  aria-label={`删除${label}标签 ${index + 1}`}
+                  onClick={() =>
+                    props.onDraftChange({
+                      ...draft,
+                      [key]: draft[key].filter((_, i) => i !== index),
+                    })
+                  }
+                >
+                  删除标签
+                </Button>
+              </div>
             ))}
-          </Select>
-        </label>
-        <label className="stm-settings-field">
-          <span className="stm-form-label">匹配方式</span>
-          <Select
-            data-stm-field="cleaning-rule-type"
-            aria-label="匹配方式"
-            value={draft.type}
-            title="标签 = 填一对普通文本定界符；正则 = 填正则表达式"
-            onChange={(event) =>
-              props.onDraftChange({ ...draft, type: event.target.value as CleaningRule["type"] })
-            }
-          >
-            <option value="tag">标签</option>
-            <option value="regex">正则</option>
-          </Select>
-        </label>
-      </div>
-      {draft.type === "tag" ? (
-        <div className="stm-setting-row">
-          <FormField className="stm-settings-field" label={<>开始标签</>}>
-            {(field) => (
-              <Input
-                {...field}
-                type="text"
-
-                data-stm-field="cleaning-rule-pre"
-                aria-label="开始标签"
-                value={draft.pre}
-                placeholder="开始标签，如 【内心】"
-                onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
-              />
-            )}
-          </FormField>
-          <FormField className="stm-settings-field" label={<>结束标签</>}>
-            {(field) => (
-              <Input
-                {...field}
-                type="text"
-
-                data-stm-field="cleaning-rule-post"
-                aria-label="结束标签"
-                value={draft.post}
-                placeholder="结束标签，如 【/内心】"
-                onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
-              />
-            )}
-          </FormField>
-        </div>
-      ) : (
-        <div className="stm-setting-row">
-          <FormField className="stm-settings-field" label={<>正则表达式</>}>
-            {(field) => (
-              <Input
-                {...field}
-                type="text"
-                className="stm-mono"
-                data-stm-field="cleaning-rule-pattern"
-                aria-label="正则表达式"
-                value={draft.pattern}
-                placeholder="正则表达式"
-                onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
-              />
-            )}
-          </FormField>
-          <FormField className="stm-settings-field" label={<>正则标志</>}>
-            {(field) => (
-              <Input
-                {...field}
-                type="text"
-                className="stm-mono"
-                data-stm-field="cleaning-rule-flags"
-                aria-label="正则标志"
-                value={draft.flags}
-                placeholder="flags（g/i/m/s/u/y）"
-                onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
-              />
-            )}
-          </FormField>
-        </div>
-      )}
-      {draft.mode === "replace" && (
-        <FormField className="stm-settings-field" label={<>替换内容</>}>
-          {(field) => (
-            <Input
-              {...field}
-              type="text"
-              className="stm-mono"
-              data-stm-field="cleaning-rule-replacement"
-              aria-label="替换内容"
-              value={draft.replacement}
-              placeholder="替换串（支持 $1 / $<name>）"
-              onChange={(event) =>
-                props.onDraftChange({ ...draft, replacement: event.target.value })
+            <Button
+              type="button"
+              data-action={`add-${key}`}
+              onClick={() =>
+                props.onDraftChange({ ...draft, [key]: [...draft[key], { pre: "", post: "" }] })
               }
-            />
-          )}
-        </FormField>
-      )}
+            >
+              添加{label}标签
+            </Button>
+          </fieldset>
+        );
+      })}
       {props.error !== undefined && (
-        <div className="stm-preset-warning" data-stm-field="cleaning-rule-error">
+        <div className="stm-preset-warning" role="alert" data-stm-field="cleaning-rule-error">
           {props.error}
         </div>
       )}
@@ -979,12 +729,7 @@ export function CleaningRuleEditor(props: {
           <Button type="submit" data-action="save-cleaning-rule">
             保存
           </Button>
-          <Button
-            type="button"
-
-            data-action="cancel-cleaning-rule"
-            onClick={props.onCancel}
-          >
+          <Button type="button" data-action="cancel-cleaning-rule" onClick={props.onCancel}>
             取消
           </Button>
         </div>
@@ -992,14 +737,6 @@ export function CleaningRuleEditor(props: {
     </form>
   );
 }
-
-/** 条目来源标签（st-chat-adapter StRegexEntrySource）。 */
-const SOURCE_LABELS: Record<StRegexEntrySource, string> = {
-  global: "全局",
-  scoped: "角色",
-  preset: "预设",
-  file: "文件",
-};
 
 /** 清洗测试弹窗（ticket 27）：对当前编辑列表整条流水线的预览工具。
  * 纯投影：输入/执行/复制全部经回调交给父组件（含未保存草稿快照）。 */
@@ -1128,9 +865,7 @@ export function CleaningTestDialog(props: {
                   <ol data-stm-field={`cleaning-test-steps-${index}`}>
                     {message.steps.map((step, stepIndex) => (
                       <li key={step.ruleId} data-stm-field={`cleaning-test-step-${stepIndex}`}>
-                        <span className="stm-mono">
-                          {step.ruleName} · {MODE_LABELS[step.mode]}
-                        </span>
+                        <span className="stm-mono">{step.ruleName}</span>
                         {step.fromDraft && <span className="stm-chip">草稿</span>}
                         {step.active ? (
                           <pre className="stm-mono stm-modal-text">
@@ -1186,144 +921,4 @@ export function CleaningTestDialog(props: {
 /** 空内容统一显示「（空）」（PreviewModal 先例）。 */
 function renderCleaningText(content: string): string {
   return content === "" ? "（空）" : content;
-}
-
-/** 导入对话框：来源（ST 全局/角色卡/预设 + 文件）+ 候选勾选（默认不选）+ 导入确认。
- * 目标列表 = 当前编辑列表（无列表时新建并填名），无需选择。 */
-export function ImportDialog(props: {
-  readonly compact?: boolean;
-  readonly candidates: readonly StRegexImportItem[];
-  /** 候选来源（与 candidates 下标一一对应） */
-  readonly sources: readonly StRegexEntrySource[];
-  readonly selected: readonly number[];
-  readonly importableCount: number;
-  readonly selectedCount: number;
-  /** 导入目标：已有列表名（existing 时）或新建名称（new 时） */
-  readonly target: ImportTarget;
-  readonly targetListName: string;
-  readonly onToggleCandidate: (index: number) => void;
-  readonly onTargetChange: (target: ImportTarget) => void;
-  /** 从 ST 导出的 JSON 文件导入候选（替换候选列表，对话框保持打开） */
-  readonly onImportFile: (file: File) => void;
-  readonly onConfirm: () => void;
-  readonly onCancel: () => void;
-}) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  return (
-    <div className="stm-preset-editor" data-stm-section="regex-import-dialog">
-      <div className="stm-setting-row">
-        <div className="stm-setting-label">
-          <div className="stm-setting-name">导入正则</div>
-          <div className="stm-setting-hint">
-            列出 ST 的全局、当前角色卡与当前预设中的正则条目；勾选后导入到当前列表
-          </div>
-        </div>
-        <Button
-          type="button"
-
-          data-action="import-st-regex-file"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          从文件导入…
-        </Button>
-      </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/json,.json"
-        style={{ display: "none" }}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) props.onImportFile(file);
-          event.target.value = "";
-        }}
-      />
-      {props.candidates.length === 0 ? (
-        <div className="stm-preset-warning" data-stm-field="import-candidates-empty">
-          ST 中暂无正则条目（全局 / 当前角色卡 / 当前预设）。可先在 ST 的 Regex
-          扩展中配置，或点击「从文件导入」选择 ST 正则扩展导出的 JSON 文件（含其他
-          角色卡与预设条目）。
-        </div>
-      ) : props.importableCount === 0 ? (
-        <div className="stm-preset-warning" data-stm-field="import-candidates-empty">
-          {props.candidates.map((item) =>
-            item.kind === "skipped" ? (
-              <div key={item.scriptName}>
-                跳过「{item.scriptName || "未知"}」：{item.reason}
-              </div>
-            ) : null,
-          )}
-        </div>
-      ) : (
-        <div data-stm-field="import-candidates">
-          {props.candidates.map((item, index) =>
-            item.kind === "rule" ? (
-              <label
-                key={index}
-                className="stm-preset-fragment"
-                data-stm-field={`import-candidate-${index}`}
-              >
-                <input
-                  type="checkbox"
-                  data-action="toggle-import-candidate"
-                  checked={props.selected.includes(index)}
-                  onChange={() => props.onToggleCandidate(index)}
-                />
-                <span>
-                  <span className="stm-chip" data-stm-field={`import-source-${index}`}>
-                    {SOURCE_LABELS[props.sources[index] ?? "file"]}
-                  </span>{" "}
-                  {item.rule.name}
-                </span>
-              </label>
-            ) : (
-              <div key={index} className="stm-preset-warning">
-                跳过「{item.scriptName || "未知"}」：{item.reason}
-              </div>
-            ),
-          )}
-        </div>
-      )}
-      {props.target.kind === "existing" ? (
-        <div className="stm-setting-hint" data-stm-field="import-target-list">
-          导入到：{props.targetListName}
-        </div>
-      ) : (
-        <div className="stm-setting-row">
-          <div className="stm-setting-label">
-            <div className="stm-setting-name">新建列表名称</div>
-          </div>
-          <Input
-            type="text"
-
-            data-stm-field="import-target-name"
-            aria-label="新建列表名称"
-            value={props.target.name}
-            onChange={(event) => props.onTargetChange({ kind: "new", name: event.target.value })}
-          />
-        </div>
-      )}
-      {!props.compact && (
-        <div className="stm-setting-actions">
-          <Button
-            type="button"
-
-            data-action="confirm-regex-import"
-            disabled={props.selectedCount === 0}
-            onClick={props.onConfirm}
-          >
-            导入{props.selectedCount > 0 ? `（${props.selectedCount} 条）` : ""}
-          </Button>
-          <Button
-            type="button"
-
-            data-action="cancel-regex-import"
-            onClick={props.onCancel}
-          >
-            取消
-          </Button>
-        </div>
-      )}
-    </div>
-  );
 }

@@ -101,7 +101,6 @@ import { captureSpaceStructure } from "../../features/table-presets/space-struct
 import type { AgentPresetPreviewPorts } from "../../features/agent-presets/preset-preview-model.ts";
 import type { MacroOverviewRow } from "../../features/macros/macro-overview-model.ts";
 import type { EntryMountControllerPort } from "../shell/entry-placement.ts";
-import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 
 // ---- 设置 Tab ----
@@ -136,7 +135,6 @@ export function SettingsTab(props: {
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
   };
@@ -944,7 +942,6 @@ export function SettingsTab(props: {
               onChange={(next) => {
                 saveSettings(next);
               }}
-              readStRegexEntries={props.cleaning.readStRegexEntries}
               readRecentMessages={props.cleaning.readRecentMessages}
             />
           </div>

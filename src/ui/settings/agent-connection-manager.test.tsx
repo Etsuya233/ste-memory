@@ -42,6 +42,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     ],
     fillTaskConnectionId: undefined,
     queryChatConnectionId: undefined,
+    cleaningSchemaVersion: 2,
     cleaningRuleLists: [],
     memoryViews: [],
     tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },

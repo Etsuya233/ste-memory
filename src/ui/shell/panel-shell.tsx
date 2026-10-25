@@ -43,7 +43,6 @@ import {
 } from "./panel-window.ts";
 import type { PluginSettings, SettingsStore } from "../../features/settings/plugin-settings.ts";
 import type { EntryMountControllerPort } from "./entry-placement.ts";
-import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { FillTaskService } from "../../features/fill-tasks/fill-task-service.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import type { QueryChatService } from "../../features/query-chat/query-chat-service.ts";
@@ -152,7 +151,6 @@ export interface PanelRuntime {
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];

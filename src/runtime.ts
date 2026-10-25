@@ -84,11 +84,7 @@ import { ChatSpaceManager, chatIdentityKey } from "./features/chat-binding/chat-
 import { TablePresetApplyService } from "./features/table-presets/table-preset-apply-service.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import { resolveDefaultTablePreset } from "./features/table-presets/preset-model.ts";
-import {
-  StChatAdapter,
-  type StContext,
-  type StRegexEntry,
-} from "./infrastructure/sillytavern/chat-adapter.ts";
+import { StChatAdapter, type StContext } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { StSettingsStore } from "./infrastructure/sillytavern/settings-store.ts";
 import {
   createAgentConnectionLlmPort,
@@ -158,7 +154,6 @@ export interface SteMemoryRuntime {
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
     readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源，与填表任务同源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
@@ -756,6 +751,12 @@ export async function startSteMemory(
     reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
   });
 
+  function syncCurrentChat() {
+    // 启动、切对话及重新启用时清除旧清洗选择，不依赖用户打开设置页。
+    adapter.cleaningListStore.read();
+    return manager.syncToCurrentChat();
+  }
+
   let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
@@ -778,7 +779,7 @@ export async function startSteMemory(
             void saveSnapshot(snapshot).catch((error) => log.error("旧对话记忆保存失败", error));
           await memoryStore.unload(previous.space.id);
         }
-        await manager.syncToCurrentChat();
+        await syncCurrentChat();
         autoFill.chatReady();
       });
       switching = next.catch((error) => {
@@ -824,7 +825,7 @@ export async function startSteMemory(
 
   if (settings.read().enabled) {
     try {
-      await manager.syncToCurrentChat();
+      await syncCurrentChat();
     } catch (error) {
       manager.reportLoadError(error);
       log.error("记忆空间初始化失败", error);
@@ -858,7 +859,7 @@ export async function startSteMemory(
   const settingsService = new SettingsService({
     store: settings,
     refreshAutoFill: () => autoFill.kick(),
-    syncToCurrentChat: () => manager.syncToCurrentChat(),
+    syncToCurrentChat: () => syncCurrentChat(),
     refreshMemoryMacros: async () => {
       memoryRecall.invalidate("记忆宏或视图设置已修改");
       await macro.kick();
@@ -959,7 +960,6 @@ export async function startSteMemory(
     cleaning: {
       readSelection: () => adapter.cleaningListStore.read(),
       writeSelection: (listId) => adapter.cleaningListStore.write(listId),
-      readStRegexEntries: () => adapter.stRegexEntries,
       readRecentMessages: (count) => adapter.recentMessages(count),
       readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
       writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),

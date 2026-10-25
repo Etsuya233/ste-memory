@@ -182,7 +182,7 @@ describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22
     adapter.cleaningListStore.write("l1");
 
     expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toEqual({
-      version: 1,
+      version: 2,
       listId: "l1",
     });
     expect(adapter.cleaningListStore.read()).toBe("l1");
@@ -194,9 +194,24 @@ describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22
     expect(adapter.cleaningListStore.read()).toBeUndefined();
   });
 
+  it("打开旧对话时删除旧选择并保存，对话切换后继续清理", () => {
+    const saveMetadataDebounced = vi.fn();
+    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
+    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 1, listId: "old" };
+    context.chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "s1" };
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
+    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "s1" });
+    adapter.cleaningListStore.read();
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
+    context.chatMetadata = { [CHAT_METADATA_CLEANING_LIST_KEY]: { version: 1, listId: "other" } };
+    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(2);
+  });
+
   it("损坏值（版本不符/非对象）= 未选择；无 chatMetadata 时不报错", () => {
     const { context, adapter } = stableAdapter();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 2, listId: "l1" };
+    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 1, listId: "l1" };
     expect(adapter.cleaningListStore.read()).toBeUndefined();
     context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = "junk";
     expect(adapter.cleaningListStore.read()).toBeUndefined();
@@ -259,60 +274,6 @@ describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => 
     expect(adapter.chatScopeMacroStore.read()).toEqual([
       { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
     ]);
-  });
-});
-
-describe("StChatAdapter.stRegexEntries（ST 正则条目读取：全局 + 角色卡 + 预设）", () => {
-  const scopedScript = { id: "s1", scriptName: "角色正则" };
-  const globalScript = { id: "g1", scriptName: "全局正则" };
-  const presetScript = { id: "p1", scriptName: "预设正则" };
-
-  function characterWithScripts(scripts: readonly unknown[]): Record<string, unknown> {
-    return { data: { extensions: { regex_scripts: scripts } } };
-  }
-
-  it("三源合并：全局 + 当前角色卡（characterId 下标）+ 当前预设，各带来源", () => {
-    const { adapter } = stableAdapter({
-      characterId: 1,
-      characters: [
-        { name: "角色A" },
-        characterWithScripts([scopedScript, { id: "s2", scriptName: "角色正则2" }]),
-      ],
-      extensionSettings: { regex: [globalScript] },
-      getPresetManager: () => ({ readPresetExtensionField: () => [presetScript] }),
-    });
-    expect(adapter.stRegexEntries).toEqual([
-      { source: "global", script: globalScript },
-      { source: "scoped", script: scopedScript },
-      { source: "scoped", script: { id: "s2", scriptName: "角色正则2" } },
-      { source: "preset", script: presetScript },
-    ]);
-  });
-
-  it("按脚本 id 去重（预设应用后条目可能同时存在于全局）；非对象条目丢弃", () => {
-    const { adapter } = stableAdapter({
-      characterId: 0,
-      characters: [characterWithScripts([globalScript])],
-      extensionSettings: { regex: [globalScript, "junk", { scriptName: "无 id" }] },
-      getPresetManager: () => ({ readPresetExtensionField: () => [globalScript] }),
-    });
-    expect(adapter.stRegexEntries).toEqual([
-      { source: "global", script: globalScript },
-      { source: "global", script: { scriptName: "无 id" } },
-    ]);
-  });
-
-  it("来源缺失（无角色卡/无预设管理器/无全局）→ 空；角色卡未加载不报错", () => {
-    const { adapter: bare } = stableAdapter();
-    expect(bare.stRegexEntries).toEqual([]);
-    const { adapter: noPreset } = stableAdapter({
-      characterId: 0,
-      characters: [characterWithScripts([scopedScript])],
-      getPresetManager: () => undefined,
-    });
-    expect(noPreset.stRegexEntries).toEqual([{ source: "scoped", script: scopedScript }]);
-    const { adapter: shallow } = stableAdapter({ characterId: 0, characters: [] });
-    expect(shallow.stRegexEntries).toEqual([]);
   });
 });
 

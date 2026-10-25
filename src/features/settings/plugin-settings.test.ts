@@ -186,6 +186,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       ],
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
+      cleaningSchemaVersion: 2,
       cleaningRuleLists: [],
       tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
       entryPlacement: "wand",
@@ -264,45 +265,43 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({}).fillTaskConnectionId).toBeUndefined();
   });
 
-  it("清洗规则列表：缺省空数组，损坏项逐项丢弃（ticket 22）", () => {
-    expect(mergeSettings({}).cleaningRuleLists).toEqual([]);
-    const merged = mergeSettings({
-      cleaningRuleLists: [
-        {
-          id: "l1",
-          name: "清洗A",
-          rules: [
-            {
-              id: "r1",
-              name: "去粗体",
-              mode: "discard",
-              pattern: "\\*\\*",
-              flags: "g",
-              enabled: true,
-            },
-          ],
-        },
-        { id: "", name: "缺 id", rules: [] },
-        "junk",
-      ],
-    });
-    expect(merged.cleaningRuleLists).toEqual([
+  it("旧版本或缺少版本号时丢弃全部清洗列表，保留其他设置", () => {
+    for (const cleaningSchemaVersion of [undefined, 1]) {
+      const merged = mergeSettings({
+        cleaningSchemaVersion,
+        enabled: false,
+        macroLimit: 123,
+        cleaningRuleLists: [
+          { id: "old", name: "旧规则", rules: [{ mode: "replace", type: "regex" }] },
+        ],
+      });
+      expect(merged).toMatchObject({
+        cleaningSchemaVersion: 2,
+        cleaningRuleLists: [],
+        enabled: false,
+        macroLimit: 123,
+      });
+    }
+  });
+  it("当前版本的标签列表保存后能够完整读回", () => {
+    const cleaningRuleLists = [
       {
         id: "l1",
-        name: "清洗A",
+        name: "清洗",
         rules: [
           {
             id: "r1",
-            name: "去粗体",
-            mode: "discard",
-            type: "regex",
-            pattern: "\\*\\*",
-            flags: "g",
+            name: "正文",
             enabled: true,
+            keepTags: [{ pre: "<正文>", post: "</正文>" }],
+            excludeTags: [],
           },
         ],
       },
-    ]);
+    ];
+    expect(
+      mergeSettings({ cleaningSchemaVersion: 2, cleaningRuleLists }).cleaningRuleLists,
+    ).toEqual(cleaningRuleLists);
   });
 });
 

@@ -29,6 +29,26 @@ describe("StSettingsStore（extension_settings 宿主）", () => {
     expect(store.read()).toEqual(DEFAULT_SETTINGS);
   });
 
+  it("首次读取旧配置即保存 v2 空列表，仅重置清洗配置且只保存一次", () => {
+    const { context, extensionSettings, saveSettings } = fakeContext();
+    extensionSettings.steMemory = {
+      ...DEFAULT_SETTINGS,
+      cleaningSchemaVersion: 1,
+      enabled: false,
+      macroLimit: 123,
+      cleaningRuleLists: [{ id: "old", rules: [{ type: "regex" }] }],
+    };
+    const store = new StSettingsStore(() => context);
+    expect(store.read()).toMatchObject({
+      cleaningSchemaVersion: 2,
+      cleaningRuleLists: [],
+      enabled: false,
+      macroLimit: 123,
+    });
+    expect(extensionSettings.steMemory).toEqual(store.read());
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("写入后读回原值，并触发 saveSettingsDebounced", () => {
     const { context, extensionSettings, saveSettings } = fakeContext();
     const store = new StSettingsStore(() => context);

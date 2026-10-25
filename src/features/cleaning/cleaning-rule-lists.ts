@@ -1,144 +1,56 @@
-/**
- * 清洗规则列表纯模型（ticket 22 / ADR 0011）：插件级命名的清洗规则集合。
- *
- * - 规则三模式：保留（捕获组 1 否则整段匹配的全局拼接）/ 去掉（删匹配段）/
- *   替换（JS 替换串语义，$1 / $<name>；导入时 {{match}} 已展开为 $0）；
- * - 读取时变换：原文永不改写，上一条输出是下一条输入（apps ADR 0001 精神）；
- * - 聊天选择 = chatMetadata 小指针 {version:1, listId}（独立键，降级安全）；
- * - 持久化合并逐项丢弃损坏数据（同 mergeAgentConnections 防御惯例）。
- */
+/** 标签清洗配置 v2：旧规则直接丢弃，不执行正则或替换。 */
+export const CLEANING_SCHEMA_VERSION = 2;
+export const CLEANING_RULE_NAME_LIMIT = 120;
 
-export const CLEANING_RULE_MODES = ["keep", "discard", "replace"] as const;
-export type CleaningRuleMode = (typeof CLEANING_RULE_MODES)[number];
-
-/** 清洗规则类型：正则（pattern+flags，原有套路）或标签（pre+post 定界符，ADR 0014）。 */
-export const CLEANING_RULE_TYPES = ["regex", "tag"] as const;
-export type CleaningRuleType = (typeof CLEANING_RULE_TYPES)[number];
-
-export interface CleaningRuleBase {
-  readonly id: string;
-  readonly name: string;
-  readonly mode: CleaningRuleMode;
-  /** 仅 replace 模式：JS 替换串（$1 / $<name>）。 */
-  readonly replacement?: string;
-  readonly enabled: boolean;
-}
-
-/** 正则规则：pattern + flags（ST 导入与手动创建的原有形态）。 */
-export interface RegexCleaningRule extends CleaningRuleBase {
-  readonly type: "regex";
-  readonly pattern: string;
-  /** 组合后的 flags 字符串，如 "g" / "gi"。 */
-  readonly flags: string;
-}
-
-/** 标签规则：pre/post 普通文本定界符（ADR 0014，无需正则知识）。 */
-export interface TagCleaningRule extends CleaningRuleBase {
-  readonly type: "tag";
-  /** 开始标签（已 trim；不允许为空）。 */
+export interface CleaningTagPair {
   readonly pre: string;
-  /** 结束标签（已 trim；允许与 pre 相同，如 ** ）。 */
   readonly post: string;
 }
 
-export type CleaningRule = RegexCleaningRule | TagCleaningRule;
+export interface CleaningRule {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly keepTags: readonly CleaningTagPair[];
+  readonly excludeTags: readonly CleaningTagPair[];
+}
 
 export interface CleaningRuleList {
   readonly id: string;
   readonly name: string;
-  /** 规则按数组顺序执行（position = 数组下标，重排即 move）。 */
+  /** 上一条规则的输出作为下一条的输入。 */
   readonly rules: readonly CleaningRule[];
 }
 
-/** 规则名称上限（与 api/web 同口径） */
-export const CLEANING_RULE_NAME_LIMIT = 120;
-
-const VALID_FLAGS_PATTERN = /^[gimsuy]*$/u;
-
-// ---- 持久化合并 ----
-
-/**
- * 把持久化的清洗规则列表原始值合并为合法形状：损坏的列表/规则逐项丢弃
- * （保留其余），未知键不进入结果。规则必须能通过完整校验（含正则编译）。
- */
+/** 版本判断由设置入口负责；当前版本的数据必须通过完整校验。 */
 export function mergeCleaningRuleLists(raw: unknown): readonly CleaningRuleList[] {
-  if (!Array.isArray(raw)) return [];
-  const lists: CleaningRuleList[] = [];
-  for (const item of raw) {
-    if (
-      !isRecord(item) ||
-      typeof item.id !== "string" ||
-      item.id === "" ||
-      typeof item.name !== "string"
-    ) {
-      continue;
+  if (!Array.isArray(raw)) throw new Error("清洗规则列表必须为数组");
+  return raw.map((list: CleaningRuleList) => {
+    if (!list.id || !list.name.trim() || !Array.isArray(list.rules)) {
+      throw new Error("清洗规则列表缺少 ID、名称或规则数组");
     }
-    const rules: CleaningRule[] = [];
-    if (Array.isArray(item.rules)) {
-      for (const rawRule of item.rules) {
-        const rule = mergeCleaningRule(rawRule);
-        if (rule) rules.push(rule);
-      }
-    }
-    lists.push({ id: item.id, name: item.name, rules });
-  }
-  return lists;
+    return {
+      id: list.id,
+      name: list.name,
+      rules: list.rules.map((rule) => {
+        if (!rule.id || typeof rule.enabled !== "boolean")
+          throw new Error("清洗规则缺少 ID 或启用状态");
+        const error = validateCleaningRule(rule);
+        if (error) throw new Error(error);
+        return {
+          id: rule.id,
+          name: rule.name.trim(),
+          enabled: rule.enabled,
+          keepTags: rule.keepTags.map(normalizeTag),
+          excludeTags: rule.excludeTags.map(normalizeTag),
+        };
+      }),
+    };
+  });
 }
 
-function mergeCleaningRule(raw: unknown): CleaningRule | undefined {
-  if (
-    !isRecord(raw) ||
-    typeof raw.id !== "string" ||
-    raw.id === "" ||
-    typeof raw.name !== "string" ||
-    !isCleaningRuleMode(raw.mode) ||
-    typeof raw.enabled !== "boolean"
-  ) {
-    return undefined;
-  }
-  const type = raw.type === undefined ? "regex" : raw.type; // 缺省 = 旧形状 regex（ADR 0014）
-  if (type !== "regex" && type !== "tag") {
-    return undefined;
-  }
-  const replacement =
-    raw.mode === "replace" && typeof raw.replacement === "string" && raw.replacement !== ""
-      ? raw.replacement
-      : undefined;
-  if (type === "tag") {
-    if (
-      typeof raw.pre !== "string" ||
-      raw.pre.trim() === "" ||
-      typeof raw.post !== "string" ||
-      raw.post.trim() === ""
-    ) {
-      return undefined;
-    }
-    const candidate: CleaningRule = {
-      id: raw.id,
-      name: raw.name,
-      mode: raw.mode,
-      type: "tag",
-      pre: raw.pre.trim(),
-      post: raw.post.trim(),
-      replacement,
-      enabled: raw.enabled,
-    };
-    return validateCleaningRule(candidate) === undefined ? candidate : undefined;
-  }
-  if (typeof raw.pattern !== "string" || raw.pattern === "" || typeof raw.flags !== "string") {
-    return undefined;
-  }
-  const candidate: CleaningRule = {
-    id: raw.id,
-    name: raw.name,
-    mode: raw.mode,
-    type: "regex",
-    pattern: raw.pattern,
-    flags: raw.flags,
-    replacement,
-    enabled: raw.enabled,
-  };
-  return validateCleaningRule(candidate) === undefined ? candidate : undefined;
+function normalizeTag(tag: CleaningTagPair): CleaningTagPair {
+  return { pre: tag.pre.trim(), post: tag.post.trim() };
 }
 
 // ---- 列表 CRUD ----
@@ -176,14 +88,7 @@ export function addCleaningRule(
   return updateList(lists, listId, (list) => ({ ...list, rules: [...list.rules, rule] }));
 }
 
-/** 规则补丁：全部字段可选（联合规则的部分覆盖；spread 后需类型收窄）。 */
-export type CleaningRulePatch = Partial<CleaningRuleBase> & {
-  readonly type?: CleaningRuleType;
-  readonly pattern?: string;
-  readonly flags?: string;
-  readonly pre?: string;
-  readonly post?: string;
-};
+export type CleaningRulePatch = Partial<Omit<CleaningRule, "id">>;
 
 export function updateCleaningRule(
   lists: readonly CleaningRuleList[],
@@ -193,8 +98,7 @@ export function updateCleaningRule(
 ): readonly CleaningRuleList[] {
   return updateList(lists, listId, (list) => ({
     ...list,
-    // 联合类型 spread 后判别字段被放宽，收窄回 CleaningRule（shape 由调用方保证）
-    rules: list.rules.map((r) => (r.id === ruleId ? ({ ...r, ...patch } as CleaningRule) : r)),
+    rules: list.rules.map((r) => (r.id === ruleId ? { ...r, ...patch } : r)),
   }));
 }
 
@@ -236,178 +140,114 @@ function updateList(
   return lists.map((list) => (list.id === listId ? mutate(list) : list));
 }
 
-// ---- 校验 ----
+export type CleaningRuleDraft = Omit<CleaningRule, "id">;
 
-export interface CleaningRuleDraft {
-  readonly name: string;
-  readonly mode: CleaningRuleMode;
-  /** 缺省 = regex（旧形状兼容，ADR 0014）。 */
-  readonly type?: CleaningRuleType;
-  /** 仅正则规则（type 缺省或 regex）使用的匹配式与 flags。 */
-  readonly pattern?: string;
-  readonly flags?: string;
-  /** 仅 tag 规则（type="tag"）使用的开始/结束标签。 */
-  readonly pre?: string;
-  readonly post?: string;
-  readonly replacement?: string;
-}
-
-/** 全量校验规则输入（编辑/导入/合并共用）；返回错误消息（undefined 表示通过）。 */
 export function validateCleaningRule(input: CleaningRuleDraft): string | undefined {
-  if (typeof input.name !== "string" || input.name.trim().length === 0) {
-    return "清洗规则名称不能为空";
-  }
-  if (input.name.length > CLEANING_RULE_NAME_LIMIT) {
+  if (!input.name.trim()) return "清洗规则名称不能为空";
+  if (input.name.length > CLEANING_RULE_NAME_LIMIT)
     return `清洗规则名称不能超过 ${CLEANING_RULE_NAME_LIMIT} 个字符`;
-  }
-  if (!isCleaningRuleMode(input.mode)) {
-    return "清洗规则模式必须是 keep、discard 或 replace";
-  }
-  const type = input.type ?? "regex";
-  if (!isCleaningRuleType(type)) {
-    return "清洗规则类型必须是 regex 或 tag";
-  }
-  if (type === "tag") {
-    if (typeof input.pre !== "string" || input.pre.trim() === "") {
-      return "开始标签不能为空";
+  if (!Array.isArray(input.keepTags) || !Array.isArray(input.excludeTags))
+    return "保留标签和排除标签必须为数组";
+  if (input.keepTags.length + input.excludeTags.length === 0) return "请至少添加一个保留或排除标签";
+  for (const [label, tags] of [
+    ["保留", input.keepTags],
+    ["排除", input.excludeTags],
+  ] as const) {
+    for (const tag of tags) {
+      if (!tag.pre.trim() || !tag.post.trim()) return `${label}标签的开始和结束标签不能为空`;
     }
-    if (typeof input.post !== "string" || input.post.trim() === "") {
-      return "结束标签不能为空";
-    }
-  } else {
-    if (typeof input.pattern !== "string" || input.pattern.length === 0) {
-      return "正则表达式不能为空";
-    }
-    if (
-      typeof input.flags !== "string" ||
-      !VALID_FLAGS_PATTERN.test(input.flags) ||
-      new Set(input.flags).size !== input.flags.length
-    ) {
-      return "正则 flags 只能是 g/i/m/s/u/y 且不能重复";
-    }
-    try {
-      new RegExp(input.pattern, input.flags);
-    } catch {
-      return "正则表达式语法错误";
-    }
-  }
-  if (
-    input.mode === "replace" &&
-    (typeof input.replacement !== "string" || input.replacement === "")
-  ) {
-    return "替换模式必须提供替换串";
   }
   return undefined;
 }
 
-function isCleaningRuleMode(value: unknown): value is CleaningRuleMode {
-  return value === "keep" || value === "discard" || value === "replace";
-}
-
-function isCleaningRuleType(value: unknown): value is CleaningRuleType {
-  return (CLEANING_RULE_TYPES as readonly unknown[]).includes(value);
-}
-
-// ---- 聊天选择（chatMetadata 小指针，ADR 0011）----
-
-/** 聊天选择写入 chatMetadata 的形态：{version:1, listId}（版本信封，未来演进）。 */
 export function formatCleaningListSelection(listId: string): {
-  readonly version: 1;
+  readonly version: 2;
   readonly listId: string;
 } {
-  return { version: 1, listId };
+  return { version: CLEANING_SCHEMA_VERSION, listId };
 }
 
-/** 解析聊天选择：{version:1, listId} → listId；缺失/版本不符/垃圾 → undefined（视为未选择）。 */
 export function parseCleaningListSelection(raw: unknown): string | undefined {
-  if (!isRecord(raw) || raw.version !== 1 || typeof raw.listId !== "string" || raw.listId === "") {
-    return undefined;
-  }
-  return raw.listId;
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const selection = raw as { version?: unknown; listId?: unknown };
+  return selection.version === CLEANING_SCHEMA_VERSION &&
+    typeof selection.listId === "string" &&
+    selection.listId !== ""
+    ? selection.listId
+    : undefined;
 }
 
-/** 解析当前对话选中的清洗规则：未选择或列表已删除（悬空引用）→ 空（不清洗）。 */
 export function resolveSelectedCleaningRules(
   lists: readonly CleaningRuleList[],
   selection: string | undefined,
 ): readonly CleaningRule[] {
-  if (selection === undefined) return [];
-  const list = lists.find((candidate) => candidate.id === selection);
-  return list ? list.rules : [];
+  return lists.find((list) => list.id === selection)?.rules ?? [];
 }
 
-/** 聊天选择读写端口（宿主 = StChatAdapter.cleaningListStore，chatMetadata 小指针）。 */
 export interface CleaningListStore {
-  /** 当前对话所选列表 id；未选择/无法识别为 undefined */
   read(): string | undefined;
-  /** 写入选择（undefined = 清除，删除键）；写即触发防抖持久化 */
   write(listId: string | undefined): void;
 }
 
-// ---- 变换（读取时应用，apps ADR 0001 语义 + replace 模式）----
-
-/**
- * 按传入顺序执行（调用方保证有序——列表数组序），只应用启用规则；
- * 上一条的输出是下一条的输入。
- */
 export function applyCleaningRules(content: string, rules: readonly CleaningRule[]): string {
-  let result = content;
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
-    result = applyCleaningRule(result, rule);
-  }
-  return result;
+  return rules.reduce(
+    (text, rule) => (rule.enabled ? applyCleaningRule(text, rule) : text),
+    content,
+  );
 }
 
-/**
- * 单条规则变换：
- * - 去掉 = 删除所有匹配段（flags 不含 g 只删第一处）；无匹配原样不动；
- * - 替换 = 以替换串替换匹配（JS $1 / $<name> 语义；flags 不含 g 只替第一处）；
- * - 保留 = 内容替换为「捕获组 1（若有）否则整段匹配」的全局拼接；
- *   flags 不含 g 只取第一处；无匹配原样不动；
- * - 能匹配空串的正则允许（JS 引擎对零长匹配自动推进 lastIndex，不会死循环）。
- */
+/** 同组标签一次扫描，按原文顺序匹配；标签都是区分大小写的普通文本。 */
+function tagSegments(
+  content: string,
+  tags: readonly CleaningTagPair[],
+): { start: number; inner: number; end: number; after: number; tag: CleaningTagPair }[] {
+  const segments = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    let next:
+      | { start: number; inner: number; end: number; after: number; tag: CleaningTagPair }
+      | undefined;
+    for (const tag of tags) {
+      const start = content.indexOf(tag.pre, cursor);
+      if (start < 0) continue;
+      const inner = start + tag.pre.length;
+      const end = content.indexOf(tag.post, inner);
+      if (end < 0) continue;
+      const after = end + tag.post.length;
+      // 同一起点选覆盖更长的完整片段，避免 OR 的结果受配置顺序影响。
+      if (!next || start < next.start || (start === next.start && after > next.after))
+        next = { start, inner, end, after, tag };
+    }
+    if (!next) break;
+    segments.push(next);
+    cursor = next.after;
+  }
+  return segments;
+}
+
+function excludeTaggedContent(content: string, tags: readonly CleaningTagPair[]): string {
+  let cursor = 0;
+  const pieces: string[] = [];
+  for (const segment of tagSegments(content, tags)) {
+    pieces.push(content.slice(cursor, segment.start));
+    cursor = segment.after;
+  }
+  pieces.push(content.slice(cursor));
+  return pieces.join("");
+}
+
 export function applyCleaningRule(content: string, rule: CleaningRule): string {
-  const regex = compileCleaningRegex(rule);
-  if (rule.mode === "discard") {
-    return content.replace(regex, "");
-  }
-  if (rule.mode === "replace") {
-    // 标签规则承诺纯文本替换串：函数替换器避免 $1/$&/$$ 等 JS 替换模式被解释（ADR 0014 §2）
-    if (rule.type === "tag") return content.replace(regex, () => rule.replacement ?? "");
-    return content.replace(regex, rule.replacement ?? "");
-  }
-  const matches: readonly RegExpMatchArray[] = regex.global
-    ? [...content.matchAll(regex)]
-    : (() => {
-        const match = content.match(regex);
-        return match ? [match] : [];
-      })();
-  if (matches.length === 0) return content;
-  return matches.map(cleaningCapture).join("");
-}
-
-/**
- * 规则 → 正则：正则规则原样编译；标签规则编译为 (?:pre)(捕获组 1 = 中间内容)(?:post)
- * （ADR 0014）——pre/post 字面转义、非贪婪跨行、强制全局，三种模式语义与正则规则一致。
- */
-function compileCleaningRegex(rule: CleaningRule): RegExp {
-  if (rule.type === "regex") return new RegExp(rule.pattern, rule.flags);
-  const pattern = `(?:${escapeRegexLiteral(rule.pre)})([\\s\\S]*?)(?:${escapeRegexLiteral(rule.post)})`;
-  return new RegExp(pattern, "g");
-}
-
-/** 普通文本按字面匹配：转义全部正则元字符。 */
-function escapeRegexLiteral(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** 有捕获组 1 时输出捕获组 1（即使捕获到空串），否则输出整段匹配。 */
-function cleaningCapture(match: RegExpMatchArray): string {
-  const group = match[1];
-  return group !== undefined ? group : match[0];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (rule.keepTags.length === 0) return excludeTaggedContent(content, rule.excludeTags);
+  const kept = tagSegments(content, rule.keepTags)
+    .map((segment) => {
+      // 提取时已剥去边界，仍保留标签身份，确保同一标签同时配置时排除优先。
+      if (
+        rule.excludeTags.some((tag) => tag.pre === segment.tag.pre && tag.post === segment.tag.post)
+      )
+        return "";
+      return content.slice(segment.inner, segment.end);
+    })
+    .filter((text) => text !== "")
+    .join("\n");
+  return excludeTaggedContent(kept, rule.excludeTags);
 }

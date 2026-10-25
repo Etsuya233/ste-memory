@@ -1152,10 +1152,8 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
         {
           id: "c1",
           name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
+          keepTags: [],
+          excludeTags: [{ pre: "**", post: "**" }],
           enabled: true,
         },
       ],
@@ -1163,7 +1161,7 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
     await waitForTerminal(harness, view.runId);
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("原始内容 带标记");
+    expect(prompt).toContain("原始内容 ");
     expect(prompt).not.toContain("**");
 
     // 空规则列表 = 不清洗（缺省无端口由既有测试断言原文进提示词）
@@ -1202,10 +1200,8 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
               {
                 id: "c1",
                 name: "去标记",
-                mode: "discard",
-                type: "regex",
-                pattern: "\\*\\*",
-                flags: "g",
+                keepTags: [],
+                excludeTags: [{ pre: "**", post: "**" }],
                 enabled: true,
               },
             ]
@@ -1220,9 +1216,9 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     });
     await waitForTerminal(harness, view.runId);
     expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("原始内容 带标记");
+    expect(prompts[0]).toContain("原始内容 ");
     expect(prompts[0]).not.toContain("**");
-    expect(prompts[1]).toContain("带标记");
+    expect(prompts[1]).toContain("消息  5");
     expect(prompts[1]).not.toContain("**");
   });
 });
@@ -2092,10 +2088,8 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
         {
           id: "c1",
           name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
+          keepTags: [],
+          excludeTags: [{ pre: "**", post: "**" }],
           enabled: true,
         },
       ],
@@ -2108,7 +2102,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(terminal.status).toBe("succeeded");
 
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("设定 带标记 原文");
+    expect(prompt).toContain("设定  原文");
     expect(prompt).not.toContain("**");
     // 证据存原文（清洗只作用于 Agent 输入，不破坏证据）
     const evidenceRows = await harness.db.memoryEvidence.toArray();
