@@ -134,7 +134,7 @@ export function SettingsTab(props: {
   >;
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
-    readonly writeSelection: (listId: string | undefined) => void;
+    readonly writeSelection: (ruleId: string | undefined) => void;
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
   };
@@ -154,13 +154,13 @@ export function SettingsTab(props: {
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
 }) {
-  // 当前对话的清洗列表选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
+  // 当前对话的清洗规则选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
   // 变更即写 chatMetadata（防抖持久化）；对话切换（status 变化）后重新读取。
-  const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(() =>
+  const [chatCleaningRuleId, setChatCleaningRuleId] = useState<string | undefined>(() =>
     props.cleaning.readSelection(),
   );
   useEffect(() => {
-    setChatCleaningListId(props.cleaning.readSelection());
+    setChatCleaningRuleId(props.cleaning.readSelection());
   }, [props.status, props.cleaning]);
   // 当前对话的聊天 Scope 宏（双 Scope 宏系统）：本地态 = chatMetadata 的镜像，
   // 变更即写 chatMetadata（防抖持久化）+ macro.kick()；对话切换（status 变化）后重新读取。
@@ -545,7 +545,7 @@ export function SettingsTab(props: {
         {
           key: "cleaning",
           title: "清洗规则",
-          summary: cleaningSummary(props.settings, chatCleaningListId),
+          summary: cleaningSummary(props.settings, chatCleaningRuleId),
         },
       ],
     },
@@ -934,10 +934,10 @@ export function SettingsTab(props: {
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
               settings={props.settings}
-              selectedListId={chatCleaningListId}
-              onSelectList={(listId) => {
-                props.cleaning.writeSelection(listId);
-                setChatCleaningListId(listId);
+              selectedRuleId={chatCleaningRuleId}
+              onSelectRule={(ruleId) => {
+                props.cleaning.writeSelection(ruleId);
+                setChatCleaningRuleId(ruleId);
               }}
               onChange={(next) => {
                 saveSettings(next);

@@ -148,13 +148,21 @@ describe("折叠头摘要", () => {
     expect(cleaningSummary(DEFAULT_SETTINGS, undefined)).toBe("未配置");
   });
 
-  it("cleaningSummary：有列表 + 选中", () => {
+  it("cleaningSummary：有规则 + 选中", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
-      cleaningRuleLists: [{ id: "l1", name: "我的列表", rules: [] }],
+      cleaningRules: [
+        {
+          id: "l1",
+          name: "我的规则",
+          enabled: true,
+          keepTags: [],
+          excludeTags: [{ pre: "<x>", post: "</x>" }],
+        },
+      ],
     } as unknown as PluginSettings;
-    expect(cleaningSummary(settings, "l1")).toBe("1列表 · 当前:我的列表");
-    expect(cleaningSummary(settings, undefined)).toBe("1列表 · 未选择");
+    expect(cleaningSummary(settings, "l1")).toBe("1条规则 · 当前:我的规则");
+    expect(cleaningSummary(settings, undefined)).toBe("1条规则 · 未选择");
   });
 
   it("mirrorSummary：停用", () => {

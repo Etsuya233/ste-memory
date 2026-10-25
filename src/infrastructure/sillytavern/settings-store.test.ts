@@ -29,19 +29,19 @@ describe("StSettingsStore（extension_settings 宿主）", () => {
     expect(store.read()).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("首次读取旧配置即保存 v2 空列表，仅重置清洗配置且只保存一次", () => {
+  it("首次读取旧配置即保存 v3 空规则库，仅重置清洗配置且只保存一次", () => {
     const { context, extensionSettings, saveSettings } = fakeContext();
     extensionSettings.steMemory = {
       ...DEFAULT_SETTINGS,
-      cleaningSchemaVersion: 1,
+      cleaningSchemaVersion: 2,
       enabled: false,
       macroLimit: 123,
       cleaningRuleLists: [{ id: "old", rules: [{ type: "regex" }] }],
     };
     const store = new StSettingsStore(() => context);
     expect(store.read()).toMatchObject({
-      cleaningSchemaVersion: 2,
-      cleaningRuleLists: [],
+      cleaningSchemaVersion: 3,
+      cleaningRules: [],
       enabled: false,
       macroLimit: 123,
     });

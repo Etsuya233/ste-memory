@@ -23,10 +23,10 @@ import type { ChatFileTarget, ChatSnapshotFileStore } from "../../features/chat-
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
 import {
-  formatCleaningListSelection,
-  parseCleaningListSelection,
-  type CleaningListStore,
-} from "../../features/cleaning/cleaning-rule-lists.ts";
+  formatCleaningRuleSelection,
+  readCleaningRuleSelection,
+  type CleaningRuleStore,
+} from "../../features/cleaning/cleaning-rules.ts";
 import { resolveFloorJump } from "./floor-jump.ts";
 import {
   mergeChatScopeMacros,
@@ -168,9 +168,10 @@ export const CHAT_METADATA_BINDING_KEY = "steMemory";
 /** 记忆镜像在 chatMetadata 里的键（ticket 16 / ADR 0023）：独立键，不动绑定键——
  * 旧版本插件忽略新键（降级安全），绑定读取路径（三态 + unrecognized 防御）零改动。 */
 export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
-/** 清洗规则列表选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
+/** 清洗规则选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
  * 随对话文件走（重命名不丢），旧版本插件忽略新键（镜像键同款降级安全）。 */
-export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
+// 沿用历史存储键以便读取并删除旧选择，v3 载荷改用 ruleId。
+export const CHAT_METADATA_CLEANING_RULE_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
@@ -404,31 +405,31 @@ export class StChatAdapter {
   }
 
   /**
-   * chatMetadata 清洗列表选择读写端口（ticket 22 / ADR 0011）：独立键小指针
-   * {version:2, listId}；写入 undefined = 清除选择（删除键）。随对话文件走。
+   * chatMetadata 清洗规则选择读写端口（ticket 22 / ADR 0011）：独立键小指针
+   * {version:3, ruleId}；写入 undefined = 清除选择（删除键）。随对话文件走。
    */
-  get cleaningListStore(): CleaningListStore {
+  get cleaningRuleStore(): CleaningRuleStore {
     return {
       read: () => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
-        const raw = metadata?.[CHAT_METADATA_CLEANING_LIST_KEY];
-        const selection = parseCleaningListSelection(raw);
+        const raw = metadata?.[CHAT_METADATA_CLEANING_RULE_KEY];
+        const selection = readCleaningRuleSelection(raw);
         // 旧版选择随对话打开时清除，不再指向已丢弃的规则列表。
         if (raw !== undefined && selection === undefined && metadata) {
-          delete metadata[CHAT_METADATA_CLEANING_LIST_KEY];
+          delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
           context.saveMetadataDebounced?.();
         }
         return selection;
       },
-      write: (listId) => {
+      write: (ruleId) => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
         if (!metadata) return;
-        if (listId === undefined) {
-          delete metadata[CHAT_METADATA_CLEANING_LIST_KEY];
+        if (ruleId === undefined) {
+          delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
         } else {
-          metadata[CHAT_METADATA_CLEANING_LIST_KEY] = formatCleaningListSelection(listId);
+          metadata[CHAT_METADATA_CLEANING_RULE_KEY] = formatCleaningRuleSelection(ruleId);
         }
         context.saveMetadataDebounced?.();
       },

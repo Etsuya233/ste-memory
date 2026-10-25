@@ -5,7 +5,7 @@ import type { MemorySpaceId } from "../../features/memory/index.ts";
 import type { ChatSpaceBinding } from "../../features/chat-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
-  CHAT_METADATA_CLEANING_LIST_KEY,
+  CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_CHAT_SCOPE_MACROS_KEY,
   CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
@@ -173,53 +173,53 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
   });
 });
 
-describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22 / ADR 0011）", () => {
+describe("StChatAdapter.cleaningRuleStore（清洗列表选择读写，ticket 22 / ADR 0011）", () => {
   it("写入 {version:1,listId} 信封 + 触发防抖持久化；读回 listId；清除 = 删除键", () => {
     const saveMetadataDebounced = vi.fn();
     const { context, adapter } = stableAdapter({ saveMetadataDebounced });
 
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
-    adapter.cleaningListStore.write("l1");
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    adapter.cleaningRuleStore.write("l1");
 
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toEqual({
-      version: 2,
-      listId: "l1",
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toEqual({
+      version: 3,
+      ruleId: "l1",
     });
-    expect(adapter.cleaningListStore.read()).toBe("l1");
+    expect(adapter.cleaningRuleStore.read()).toBe("l1");
     expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
     expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
 
-    adapter.cleaningListStore.write(undefined);
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    adapter.cleaningRuleStore.write(undefined);
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
   });
 
   it("打开旧对话时删除旧选择并保存，对话切换后继续清理", () => {
     const saveMetadataDebounced = vi.fn();
     const { context, adapter } = stableAdapter({ saveMetadataDebounced });
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 1, listId: "old" };
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, ruleId: "old" };
     context.chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "s1" };
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
     expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "s1" });
-    adapter.cleaningListStore.read();
+    adapter.cleaningRuleStore.read();
     expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
-    context.chatMetadata = { [CHAT_METADATA_CLEANING_LIST_KEY]: { version: 1, listId: "other" } };
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    context.chatMetadata = { [CHAT_METADATA_CLEANING_RULE_KEY]: { version: 1, ruleId: "other" } };
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
     expect(saveMetadataDebounced).toHaveBeenCalledTimes(2);
   });
 
   it("损坏值（版本不符/非对象）= 未选择；无 chatMetadata 时不报错", () => {
     const { context, adapter } = stableAdapter();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 1, listId: "l1" };
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = "junk";
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, ruleId: "l1" };
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = "junk";
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
 
     const { adapter: noMetadata } = stableAdapter({ chatMetadata: undefined });
     expect(() => {
-      noMetadata.cleaningListStore.write("l1");
-      noMetadata.cleaningListStore.read();
+      noMetadata.cleaningRuleStore.write("l1");
+      noMetadata.cleaningRuleStore.read();
     }).not.toThrow();
   });
 });

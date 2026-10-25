@@ -1,21 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCleaningRule,
-  applyCleaningRules,
   validateCleaningRule,
-  mergeCleaningRuleLists,
-  createCleaningRuleList,
-  renameCleaningRuleList,
-  removeCleaningRuleList,
-  addCleaningRule,
-  updateCleaningRule,
-  moveCleaningRule,
+  mergeCleaningRules,
+  saveCleaningRule,
   removeCleaningRule,
-  formatCleaningListSelection,
-  parseCleaningListSelection,
-  resolveSelectedCleaningRules,
+  formatCleaningRuleSelection,
+  readCleaningRuleSelection,
+  findSelectedCleaningRule,
   type CleaningRule,
-} from "./cleaning-rule-lists.ts";
+} from "./cleaning-rules.ts";
 const a = { pre: "<a>", post: "</a>" };
 const b = { pre: "【正文】", post: "【/正文】" };
 const hidden = { pre: "<think>", post: "</think>" };
@@ -34,7 +28,7 @@ describe("标签清洗", () => {
       applyCleaningRule("前【正文】乙【/正文】中<a>甲</a><a>丙</a>后", rule({ keepTags: [a, b] })),
     ).toBe("乙\n甲\n丙");
   });
-  it("先提取内容，再按 OR 删除多个排除标签", () => {
+  it("先按 OR 删除多个排除标签，再提取内容", () => {
     expect(
       applyCleaningRule(
         "外<think>忽略</think><a>甲<think>推理</think>乙【注】注释【/注】丙</a>外",
@@ -85,16 +79,23 @@ describe("标签清洗", () => {
     expect(applyCleaningRule(content, rule({ keepTags: [short, long] }))).toBe("甲</short>乙");
     expect(applyCleaningRule(content, rule({ keepTags: [long, short] }))).toBe("甲</short>乙");
   });
-  it("列表顺序执行，停用规则跳过", () => {
+  it("停用规则跳过", () => {
     const content = "外<a>甲<think>思考</think>乙</a>";
-    expect(applyCleaningRules(content, [rule({ excludeTags: [] }), rule({ keepTags: [] })])).toBe(
-      "甲乙",
+    expect(applyCleaningRule(content, rule({ enabled: false }))).toBe(content);
+  });
+  it("先排除思考区域，再提取正文，思考中的正文不会泄漏", () => {
+    expect(applyCleaningRule("<think><a>草稿</a></think><a>正式</a>", rule())).toBe("正式");
+    expect(applyCleaningRule("<think><a>草稿</a></think>", rule())).toBe("");
+  });
+  it("排除后不再有保留标签时输出空，保留组为空时返回排除后的全文", () => {
+    expect(applyCleaningRule("前<think><a>草稿</a></think>后", rule())).toBe("");
+    expect(applyCleaningRule("前<think><a>草稿</a></think>后", rule({ keepTags: [] }))).toBe(
+      "前后",
     );
-    expect(applyCleaningRules(content, [rule({ enabled: false })])).toBe(content);
   });
 });
 
-describe("配置与列表", () => {
+describe("独立命名清洗规则", () => {
   it("拒绝空名称、超长名称、空规则和不完整标签", () => {
     for (const patch of [
       { name: " " },
@@ -106,38 +107,26 @@ describe("配置与列表", () => {
       expect(validateCleaningRule(rule(patch))).toBeDefined();
     expect(validateCleaningRule(rule())).toBeUndefined();
   });
-  it("当前版本读取时规范化标签空格并验证规则", () => {
-    expect(
-      mergeCleaningRuleLists([
-        { id: "l1", name: "列表", rules: [rule({ keepTags: [{ pre: " <a> ", post: " </a> " }] })] },
-      ])[0]!.rules[0]!.keepTags,
-    ).toEqual([a]);
-    expect(() =>
-      mergeCleaningRuleLists([
-        { id: "l1", name: "列表", rules: [rule({ keepTags: [], excludeTags: [] })] },
-      ]),
-    ).toThrow("请至少添加");
+  it("当前版本直接读取规则并规范化标签，没有子规则数组", () => {
+    const result = mergeCleaningRules([rule({ keepTags: [{ pre: " <a> ", post: " </a> " }] })]);
+    expect(result[0]!.keepTags).toEqual([a]);
+    expect(result[0]).not.toHaveProperty("rules");
+    expect(() => mergeCleaningRules([rule({ keepTags: [], excludeTags: [] })])).toThrow(
+      "请至少添加",
+    );
   });
-  it("创建、重命名、规则修改重排删除和列表删除", () => {
-    let lists = createCleaningRuleList([], "l1", "列表");
-    lists = renameCleaningRuleList(lists, "l1", "正文");
-    lists = addCleaningRule(lists, "l1", rule());
-    lists = addCleaningRule(lists, "l1", rule({ id: "r2" }));
-    lists = updateCleaningRule(lists, "l1", "r1", { enabled: false });
-    lists = moveCleaningRule(lists, "l1", "r2", 0);
-    expect(lists[0]).toMatchObject({
-      name: "正文",
-      rules: [{ id: "r2" }, { id: "r1", enabled: false }],
-    });
-    expect(resolveSelectedCleaningRules(lists, "l1")).toHaveLength(2);
-    expect(resolveSelectedCleaningRules(lists, "old")).toEqual([]);
-    lists = removeCleaningRule(lists, "l1", "r1");
-    expect(lists[0]!.rules).toHaveLength(1);
-    expect(removeCleaningRuleList(lists, "l1")).toEqual([]);
+  it("独立保存、修改和删除规则；对话只选择其中一份", () => {
+    let rules = saveCleaningRule([], rule());
+    rules = saveCleaningRule(rules, rule({ id: "r2", name: "另一份" }));
+    rules = saveCleaningRule(rules, rule({ name: "修改", enabled: false }));
+    expect(rules).toHaveLength(2);
+    expect(findSelectedCleaningRule(rules, "r1")).toMatchObject({ name: "修改", enabled: false });
+    expect(findSelectedCleaningRule(rules, "missing")).toBeUndefined();
+    expect(removeCleaningRule(rules, "r1").map((r) => r.id)).toEqual(["r2"]);
   });
-  it("对话选择使用 v2，旧版本选择失效", () => {
-    expect(formatCleaningListSelection("l1")).toEqual({ version: 2, listId: "l1" });
-    expect(parseCleaningListSelection(formatCleaningListSelection("l1"))).toBe("l1");
-    expect(parseCleaningListSelection({ version: 1, listId: "l1" })).toBeUndefined();
+  it("对话选择使用 v3 的 ruleId，旧列表选择失效", () => {
+    expect(formatCleaningRuleSelection("r1")).toEqual({ version: 3, ruleId: "r1" });
+    expect(readCleaningRuleSelection(formatCleaningRuleSelection("r1"))).toBe("r1");
+    expect(readCleaningRuleSelection({ version: 2, listId: "old" })).toBeUndefined();
   });
 });

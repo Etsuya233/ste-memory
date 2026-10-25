@@ -21,7 +21,7 @@ import {
 } from "./features/settings/plugin-settings.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
-  CHAT_METADATA_CLEANING_LIST_KEY,
+  CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_MIRROR_KEY,
   type StContext,
 } from "./infrastructure/sillytavern/chat-adapter.ts";
@@ -84,23 +84,23 @@ function startTestRuntime(
 }
 
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
-  it("启动和切对话时清除旧清洗选择，保留 v2 选择", async () => {
+  it("启动和切对话时清除旧清洗选择，保留 v3 选择", async () => {
     const db = createTestDatabase();
     const { context, chatMetadata, handlers } = fakeStContext();
-    chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 1, listId: "old" };
+    chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, listId: "old" };
     const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
-    expect(chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
+    expect(chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
     context.chatId = "other";
     context.chatMetadata = {
-      [CHAT_METADATA_CLEANING_LIST_KEY]: { version: 1, listId: "other-old" },
+      [CHAT_METADATA_CLEANING_RULE_KEY]: { version: 2, listId: "other-old" },
     };
     await handlers.get("chat_id_changed")?.();
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 2, listId: "new" };
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 3, ruleId: "new" };
     await handlers.get("chat_id_changed")?.();
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toEqual({
-      version: 2,
-      listId: "new",
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toEqual({
+      version: 3,
+      ruleId: "new",
     });
     expect(runtime.cleaning.readSelection()).toBe("new");
   });

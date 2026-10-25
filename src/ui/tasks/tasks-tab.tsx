@@ -132,8 +132,8 @@ export function TasksTab(props: {
         historyTasks: recent,
         pendingTasks,
         cleaning: {
-          selectedListId: props.runtime.cleaning.readSelection(),
-          lists: props.settings.cleaningRuleLists,
+          selectedRuleId: props.runtime.cleaning.readSelection(),
+          rules: props.settings.cleaningRules,
         },
       });
       if (
@@ -156,7 +156,7 @@ export function TasksTab(props: {
     } catch (error) {
       reportError(error);
     }
-  }, [props.runtime, spaceId, props.settings.cleaningRuleLists]);
+  }, [props.runtime, spaceId, props.settings.cleaningRules]);
 
   useEffect(() => {
     if (props.autoFillFocus) {

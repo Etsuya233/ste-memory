@@ -1,68 +1,47 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyCleaningRules,
-  type CleaningRule,
-} from "../../features/cleaning/cleaning-rule-lists.ts";
+import { applyCleaningRule, type CleaningRule } from "../../features/cleaning/cleaning-rules.ts";
 import { runCleaningTest, ruleDraftFromRule, draftToRule } from "./cleaning-rules-manager-model.ts";
 const rule: CleaningRule = {
   id: "r1",
   name: "正文",
   enabled: true,
   keepTags: [{ pre: "<a>", post: "</a>" }],
-  excludeTags: [],
+  excludeTags: [{ pre: "<think>", post: "</think>" }],
 };
-describe("清洗测试与草稿", () => {
-  it("逐消息清洗与真实流水线一致，保留名字和原文", () => {
+describe("单规则清洗测试与草稿", () => {
+  it("每条消息只执行当前规则，与真实执行一致，保留名字和原文", () => {
     const messages = [
-      { name: "角色<a>名字</a>", content: "外<a>甲</a>" },
+      { name: "角色<a>名字</a>", content: "<think><a>草稿</a></think><a>正式</a>" },
       { name: "用户", content: "未命中" },
     ];
-    const result = runCleaningTest([rule], new Map(), messages);
+    const result = runCleaningTest(rule, messages);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") throw new Error("测试未执行");
     result.messages.forEach((message, i) => {
-      expect(message.output).toBe(applyCleaningRules(messages[i]!.content, [rule]));
+      expect(message.output).toBe(applyCleaningRule(messages[i]!.content, rule));
       expect(message.input).toBe(messages[i]!.content);
       expect(message.name).toBe(messages[i]!.name);
+      expect(message).not.toHaveProperty("steps");
     });
+    expect(result.messages[0]!.output).toBe("正式");
   });
-  it("未保存草稿覆盖已有规则，新规则草稿追加", () => {
+  it("草稿可独立测试，不修改已保存规则", () => {
     const draft = {
       ...ruleDraftFromRule(rule),
       keepTags: [],
       excludeTags: [{ pre: "<a>", post: "</a>" }],
     };
-    const result = runCleaningTest(
-      [rule],
-      new Map([
-        [rule.id, draft],
-        ["r2", { ...draft, enabled: false }],
-      ]),
-      [{ name: "", content: "外<a>甲</a>" }],
-    );
-    expect(result).toMatchObject({
-      kind: "ok",
-      messages: [
-        {
-          output: "外",
-          steps: [
-            { fromDraft: true, active: true },
-            { fromDraft: true, active: false },
-          ],
-        },
-      ],
-    });
-  });
-  it("不完整的启用草稿报告错误，停用草稿跳过", () => {
-    const draft = { ...ruleDraftFromRule(rule), keepTags: [{ pre: "", post: "" }] };
-    expect(runCleaningTest([rule], new Map([[rule.id, draft]]), [])).toMatchObject({
-      kind: "error",
-    });
     expect(
-      runCleaningTest([rule], new Map([[rule.id, { ...draft, enabled: false }]]), [
-        { name: "", content: "原文" },
-      ]),
-    ).toMatchObject({ kind: "ok", anyActiveRule: false, messages: [{ output: "原文" }] });
+      runCleaningTest(draftToRule(draft, "r1"), [{ name: "", content: "外<a>正文</a>" }]),
+    ).toMatchObject({ kind: "ok", messages: [{ output: "外" }] });
+    expect(rule.keepTags).toEqual([{ pre: "<a>", post: "</a>" }]);
+  });
+  it("不完整启用规则报告错误；停用规则保留原文", () => {
+    const invalid = { ...rule, keepTags: [{ pre: "", post: "" }] };
+    expect(runCleaningTest(invalid, [])).toMatchObject({ kind: "error" });
+    expect(
+      runCleaningTest({ ...invalid, enabled: false }, [{ name: "", content: "原文" }]),
+    ).toMatchObject({ kind: "ok", active: false, messages: [{ output: "原文" }] });
   });
   it("保存时规范化标签，草稿保留输入", () => {
     const draft = { ...ruleDraftFromRule(rule), keepTags: [{ pre: " <a> ", post: " </a> " }] };

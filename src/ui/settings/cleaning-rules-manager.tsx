@@ -1,9 +1,6 @@
 import { Dialog } from "../kit/dialog.tsx";
 import { FormField, Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
-/** 标签清洗规则列表、草稿编辑与测试。 */
-import { SettingsActionMenu } from "./settings-action-menu.tsx";
-import { Disclosure } from "../shell/disclosure.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
 import { useSettingsPageNavigation } from "./settings-page-navigation.ts";
@@ -11,16 +8,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import {
-  addCleaningRule,
-  createCleaningRuleList,
-  moveCleaningRule,
+  saveCleaningRule,
   removeCleaningRule,
-  removeCleaningRuleList,
-  renameCleaningRuleList,
-  updateCleaningRule,
   type CleaningRule,
-  type CleaningRuleList,
-} from "../../features/cleaning/cleaning-rule-lists.ts";
+} from "../../features/cleaning/cleaning-rules.ts";
 import {
   draftToRule,
   ruleDraftFromRule,
@@ -30,73 +21,39 @@ import {
   type CleaningTestMessage,
   type CleaningTestRun,
 } from "./cleaning-rules-manager-model.ts";
-import { copyText, createUiId, reportError, reportSuccess } from "../shell/ui-helpers.tsx";
+import { copyText, createUiId, reportSuccess } from "../shell/ui-helpers.tsx";
 
 export function CleaningRulesManager(props: {
   readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settings: PluginSettings;
-  /** 当前对话所选列表 id（undefined = 未启用清洗） */
-  readonly selectedListId: string | undefined;
-  /** 当前对话选择变更（undefined = 清除选择）；宿主写 chatMetadata */
-  readonly onSelectList: (listId: string | undefined) => void;
-  /** 宿主写 settings 并更新面板状态 */
+  readonly selectedRuleId: string | undefined;
+  readonly onSelectRule: (ruleId: string | undefined) => void;
   readonly onChange: (settings: PluginSettings) => void;
-  /** 最近 N 条对话消息读取端口（宿主 = 与填表任务同源的楼层读取，ticket 27） */
   readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
 }) {
-  const lists = props.settings.cleaningRuleLists;
-  // 编辑目标列表：优先当前对话所选；未选择/悬空时取第一个列表
-  const [editListId, setEditListId] = useState<string | undefined>(
-    props.selectedListId ?? lists[0]?.id,
-  );
-  const editList = lists.find((list) => list.id === editListId) ?? lists[0];
-  // 规则行编辑草稿（展开 + 本地草稿，保存时校验通过才落 settings）
-  const [editingRuleId, setEditingRuleId] = useState<string | undefined>(undefined);
-  /** 待创建规则 id（+ 添加规则后先编辑、保存才落库；取消则丢弃） */
-  const [pendingRuleId, setPendingRuleId] = useState<string | undefined>(undefined);
-  const [ruleDraft, setRuleDraft] = useState<CleaningRuleDraft | undefined>(undefined);
-  const [ruleError, setRuleError] = useState<string | undefined>(undefined);
-  // 清洗测试弹窗状态（ticket 27）：打开时快照规则与草稿（遮罩盖住面板，生命周期内不变）
-  const [testOpen, setTestOpen] = useState(false);
-  const [testForm, setTestForm] = useState<"text" | "messages">("text");
-  const [testText, setTestText] = useState("");
-  const [testMessages, setTestMessages] = useState<readonly CleaningTestMessage[]>([]);
-  const [testResult, setTestResult] = useState<CleaningTestRun | undefined>(undefined);
-  const [testLoadHint, setTestLoadHint] = useState<string | null>(null);
-  const [testSnapshot, setTestSnapshot] = useState<{
-    readonly rules: readonly CleaningRule[];
-    readonly draftOverrides: ReadonlyMap<string, CleaningRuleDraft>;
-  } | null>(null);
-
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [listForm, setListForm] = useState<{
-    id?: string;
-    name: string;
-    initialName: string;
-  } | null>(null);
-  const listFormId = useId();
-  const page = listForm
-    ? listForm.id
-      ? `edit:list:${listForm.id}`
-      : "new:list"
-    : editingRuleId
-      ? pendingRuleId
-        ? "new:rule"
-        : `edit:rule:${editingRuleId}`
-      : detailOpen
-        ? `detail:${editListId}`
-        : "list";
+  const rules = props.settings.cleaningRules;
+  const [editingId, setEditingId] = useState<string>();
+  const [draft, setDraft] = useState<CleaningRuleDraft>();
+  const [error, setError] = useState<string>();
+  const initialDraft = useRef("");
+  const dirty = draft !== undefined && JSON.stringify(draft) !== initialDraft.current;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const existing = rules.find((rule) => rule.id === editingId);
+  const page = editingId ? `edit:${editingId}` : "rules";
   const { screenRef, rememberScroll } = useSettingsPageNavigation(page);
   const formId = useId();
   const chrome = props.onBack !== undefined;
-  const initialRuleDraft = useRef("");
-  const dirty =
-    (ruleDraft !== undefined && JSON.stringify(ruleDraft) !== initialRuleDraft.current) ||
-    (listForm !== null && listForm.name !== listForm.initialName);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
+  const [testRule, setTestRule] = useState<CleaningRule>();
+  const [testHasDraft, setTestHasDraft] = useState(false);
+  const [testForm, setTestForm] = useState<"text" | "messages">("text");
+  const [testText, setTestText] = useState("");
+  const [testMessages, setTestMessages] = useState<readonly CleaningTestMessage[]>([]);
+  const [testResult, setTestResult] = useState<CleaningTestRun>();
+  const [testLoadHint, setTestLoadHint] = useState<string | null>(null);
+
   useEffect(() => {
     props.onEditingChange?.(chrome);
     return () => props.onEditingChange?.(false);
@@ -114,202 +71,72 @@ export function CleaningRulesManager(props: {
       window.removeEventListener("beforeunload", beforeUnload);
     };
   }, [props.registerLeaveGuard]);
-  function startRuleDraft(value: CleaningRuleDraft) {
-    initialRuleDraft.current = JSON.stringify(value);
-    setRuleDraft(value);
-  }
-  function tryCancelEdit() {
-    if (!dirty || window.confirm("规则有未保存的修改，放弃修改并返回吗？")) cancelEdit();
-  }
-  function openList(id: string) {
+
+  function beginEdit(rule: CleaningRule) {
     rememberScroll();
-    selectEditList(id);
-    setDetailOpen(true);
+    setEditingId(rule.id);
+    const value = ruleDraftFromRule(rule);
+    initialDraft.current = JSON.stringify(value);
+    setDraft(value);
+    setError(undefined);
+  }
+  function closeEditor() {
+    rememberScroll();
+    setEditingId(undefined);
+    setDraft(undefined);
+    setError(undefined);
   }
   function back() {
-    if (listForm) {
-      if (!dirty || window.confirm("列表名称尚未保存，放弃并返回吗？")) {
-        rememberScroll();
-        setListForm(null);
-      }
-    } else if (editingRuleId) tryCancelEdit();
-    else if (detailOpen) {
-      rememberScroll();
-      setDetailOpen(false);
+    if (editingId) {
+      if (!dirty || window.confirm("规则有未保存的修改，放弃修改并返回吗？")) closeEditor();
     } else props.onBack?.();
   }
-
-  function apply(
-    mutate: (current: readonly CleaningRuleList[]) => readonly CleaningRuleList[],
-  ): void {
-    props.onChange({ ...props.settings, cleaningRuleLists: mutate(lists) });
-  }
-
-  function selectEditList(listId: string): void {
-    setEditListId(listId);
-    setEditingRuleId(undefined);
-    setPendingRuleId(undefined);
-    setRuleDraft(undefined);
-    setRuleError(undefined);
-  }
-
-  // ---- 清洗测试（ticket 27）----
-
-  /** 打开弹窗：快照当前编辑列表与未保存草稿（编辑中规则覆盖/新建草稿追加，模型处理）。 */
-  function openTest(): void {
-    if (!editList) return;
-    setTestSnapshot({
-      rules: editList.rules,
-      draftOverrides:
-        editingRuleId !== undefined && ruleDraft !== undefined
-          ? new Map([[editingRuleId, ruleDraft]])
-          : new Map(),
+  function save() {
+    const validation = validateRuleDraft(draft!);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    props.onChange({
+      ...props.settings,
+      cleaningRules: saveCleaningRule(rules, draftToRule(draft!, editingId!)),
     });
-    setTestForm("text");
+    closeEditor();
+    reportSuccess("规则已保存");
+  }
+  function remove() {
+    if (!window.confirm(`删除清洗规则「${existing!.name}」？引用它的对话将不再清洗。`)) return;
+    props.onChange({ ...props.settings, cleaningRules: removeCleaningRule(rules, editingId!) });
+    if (props.selectedRuleId === editingId) props.onSelectRule(undefined);
+    closeEditor();
+  }
+  function openTest() {
+    setTestRule(draftToRule(draft!, editingId!));
+    setTestHasDraft(!existing || dirty);
     setTestText("");
     setTestMessages([]);
+    setTestForm("text");
     setTestResult(undefined);
     setTestLoadHint(null);
-    setTestOpen(true);
   }
-
-  /** 运行：单条文本形态 = 一条无名消息，与消息列表共用逐条执行模型。 */
-  function runTest(): void {
-    const snapshot = testSnapshot;
-    if (!snapshot) return;
-    const messages = testForm === "text" ? [{ name: "", content: testText }] : testMessages;
-    setTestResult(runCleaningTest(snapshot.rules, snapshot.draftOverrides, messages));
-  }
-
-  /** 载入当前对话最近 20 条（对齐填表任务默认块大小）；无消息提示且不切换形态。 */
-  function loadTestMessages(): void {
-    const loaded = props.readRecentMessages(20);
-    if (loaded.length === 0) {
+  function loadTestMessages() {
+    const messages = props.readRecentMessages(20);
+    if (messages.length === 0) {
       setTestLoadHint("当前对话没有消息");
       return;
     }
-    setTestMessages(loaded.map((message) => ({ name: message.name, content: message.content })));
+    setTestMessages(messages.map(({ name, content }) => ({ name, content })));
     setTestForm("messages");
+    setTestResult(undefined);
     setTestLoadHint(null);
-    setTestResult(undefined); // 切换输入形态后旧结果失效（消息条数不再对应）
   }
-
-  /** 复制结果（多消息 = 逐条拼接，名字非空时前缀「名字：」与展示一致）。 */
-  function copyTestResult(): void {
+  function copyResult() {
     if (testResult?.kind !== "ok") return;
-    const lines = testResult.messages.map((message) =>
-      message.name === "" ? message.output : `${message.name}：${message.output}`,
+    copyText(
+      testResult.messages
+        .map((message) => (message.name ? `${message.name}：${message.output}` : message.output))
+        .join("\n"),
     );
-    copyText(lines.join("\n"));
-  }
-
-  function createList(): void {
-    rememberScroll();
-    setListForm({ name: "我的清洗列表", initialName: "我的清洗列表" });
-  }
-  function renameList(): void {
-    if (!editList) return;
-    rememberScroll();
-    setListForm({ id: editList.id, name: editList.name, initialName: editList.name });
-  }
-  function saveListForm() {
-    if (!listForm?.name.trim()) return;
-    const id = listForm.id ?? createUiId();
-    try {
-      apply((current) =>
-        listForm.id
-          ? renameCleaningRuleList(current, id, listForm.name.trim())
-          : createCleaningRuleList(current, id, listForm.name.trim()),
-      );
-      rememberScroll();
-      setEditListId(id);
-      setDetailOpen(true);
-      setListForm(null);
-    } catch (error) {
-      reportError(error);
-    }
-  }
-
-  function deleteList(): void {
-    if (!editList) return;
-    if (!window.confirm(`删除清洗列表「${editList.name}」？引用它的对话将不再清洗。`)) return;
-    const deletedId = editList.id;
-    rememberScroll();
-    setDetailOpen(false);
-    apply((current) => removeCleaningRuleList(current, deletedId));
-    if (props.selectedListId === deletedId) props.onSelectList(undefined);
-    const remaining = lists.filter((list) => list.id !== deletedId);
-    setEditListId(remaining[0]?.id);
-    setEditingRuleId(undefined);
-    setPendingRuleId(undefined);
-    setRuleDraft(undefined);
-    setRuleError(undefined);
-  }
-
-  /** 添加规则：先进入编辑态（草稿），保存校验通过才落库（避免空 pattern 规则入设置）。 */
-  function addRule(): void {
-    if (!editList) return;
-    const id = createUiId();
-    setPendingRuleId(id);
-    setEditingRuleId(id);
-    rememberScroll();
-    startRuleDraft({
-      name: "新规则",
-      keepTags: [],
-      excludeTags: [],
-      enabled: true,
-    });
-    setRuleError(undefined);
-  }
-
-  function beginEdit(rule: CleaningRule): void {
-    setEditingRuleId(rule.id);
-    rememberScroll();
-    startRuleDraft(ruleDraftFromRule(rule));
-    setRuleError(undefined);
-  }
-
-  function cancelEdit(): void {
-    rememberScroll();
-    setEditingRuleId(undefined);
-    setPendingRuleId(undefined);
-    setRuleDraft(undefined);
-    setRuleError(undefined);
-  }
-
-  function saveEdit(): void {
-    if (!editList || !editingRuleId || !ruleDraft) return;
-    const error = validateRuleDraft(ruleDraft);
-    if (error !== undefined) {
-      setRuleError(error);
-      return;
-    }
-    // 草稿 → 规则（形状统一由模型层 draftToRule 负责；仅名字归一化在此）
-    const rule = {
-      ...draftToRule(ruleDraft, editingRuleId),
-      name: ruleDraft.name.trim(),
-    };
-    if (pendingRuleId === editingRuleId) {
-      // 新建路径：校验通过才落库（+ 添加规则 = 编辑草稿，取消不产生空规则）
-      apply((current) => addCleaningRule(current, editList.id, rule));
-    } else {
-      apply((current) => updateCleaningRule(current, editList.id, editingRuleId, rule));
-    }
-    setPendingRuleId(undefined);
-    cancelEdit();
-    reportSuccess("规则已保存");
-  }
-
-  function removeRule(ruleId: string): void {
-    if (!editList) return;
-    apply((current) => removeCleaningRule(current, editList.id, ruleId));
-    if (editingRuleId === ruleId) cancelEdit();
-  }
-
-  function moveRule(ruleId: string, direction: -1 | 1): void {
-    if (!editList) return;
-    const index = editList.rules.findIndex((rule) => rule.id === ruleId);
-    apply((current) => moveCleaningRule(current, editList.id, ruleId, index + direction));
   }
 
   return (
@@ -317,70 +144,31 @@ export function CleaningRulesManager(props: {
       ref={screenRef}
       className="stm-settings-detail-page"
       data-stm-section="cleaning-rules"
-      data-cleaning-screen={editingRuleId ? "rule" : detailOpen ? "detail" : "list"}
+      data-cleaning-screen={editingId ? "rule" : "rules"}
     >
       {chrome && (
         <PageChrome
           pageKey={page}
           header={
             <PanelBar
-              title={
-                listForm
-                  ? listForm.id
-                    ? "重命名清洗列表"
-                    : "新建清洗列表"
-                  : editingRuleId
-                    ? pendingRuleId
-                      ? "新建规则"
-                      : "编辑规则"
-                    : detailOpen
-                      ? editList?.name
-                      : "清洗规则"
-              }
-              subtitle={
-                detailOpen && !editingRuleId && !listForm
-                  ? `${editList?.rules.length ?? 0} 条规则`
-                  : undefined
-              }
+              title={editingId ? (existing ? "编辑清洗规则" : "新建清洗规则") : "清洗规则"}
               leading={
                 <PanelBarAction
                   icon="fa-arrow-left"
-                  label={editingRuleId ? "取消编辑" : "返回"}
-                  data-action={
-                    listForm
-                      ? "cancel-cleaning-list"
-                      : editingRuleId
-                        ? "cancel-cleaning-rule"
-                        : detailOpen
-                          ? "back-cleaning-lists"
-                          : "settings-back"
-                  }
+                  label={editingId ? "取消编辑" : "返回"}
                   onClick={back}
+                  data-action={editingId ? "cancel-cleaning-rule" : "settings-back"}
                 />
               }
               trailing={
-                listForm ? (
-                  <PanelBarAction
-                    icon="fa-check"
-                    label="保存列表名称"
-                    data-action="save-cleaning-list"
-                    type="submit"
-                    form={listFormId}
-                    disabled={!listForm.name.trim()}
-                  />
-                ) : editingRuleId ? (
+                editingId ? (
                   <>
-                    {!pendingRuleId && (
-                      <PanelBarAction
-                        icon="fa-trash"
-                        label="删除规则"
-                        data-action="remove-cleaning-rule"
-                        danger
-                        onClick={() => {
-                          if (window.confirm("删除此清洗规则？")) removeRule(editingRuleId);
-                        }}
-                      />
-                    )}
+                    <PanelBarAction
+                      icon="fa-flask"
+                      label="测试规则"
+                      data-action="test-cleaning-rule"
+                      onClick={openTest}
+                    />
                     <PanelBarAction
                       icon="fa-check"
                       label="保存规则"
@@ -389,233 +177,167 @@ export function CleaningRulesManager(props: {
                       form={formId}
                     />
                   </>
-                ) : detailOpen ? (
-                  <>
-                    <PanelBarAction
-                      icon="fa-flask"
-                      label="测试规则列表"
-                      data-action="test-cleaning-list"
-                      onClick={openTest}
-                    />
-                    <SettingsActionMenu
-                      actions={[
-                        {
-                          label: "重命名",
-                          dataAction: "rename-cleaning-list",
-                          onSelect: renameList,
-                        },
-                        {
-                          label: "删除列表",
-                          dataAction: "delete-cleaning-list",
-                          danger: true,
-                          onSelect: deleteList,
-                        },
-                      ]}
-                    />
-                    <PanelBarAction
-                      icon="fa-plus"
-                      label="添加规则"
-                      data-action="add-cleaning-rule"
-                      onClick={addRule}
-                    />
-                  </>
                 ) : (
-                  <>
-                    <PanelBarAction
-                      icon="fa-plus"
-                      label="新建列表"
-                      data-action="create-cleaning-list"
-                      onClick={createList}
-                    />
-                  </>
+                  <PanelBarAction
+                    icon="fa-plus"
+                    label="新建规则"
+                    data-action="create-cleaning-rule"
+                    onClick={() =>
+                      beginEdit({
+                        id: createUiId(),
+                        name: "新规则",
+                        enabled: true,
+                        excludeTags: [],
+                        keepTags: [],
+                      })
+                    }
+                  />
                 )
               }
             />
           }
         />
       )}
-      {listForm ? (
-        <form
-          id={listFormId}
-          className="stm-settings-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveListForm();
-          }}
-        >
-          <FormField className="stm-form-row" label={<>列表名称</>}>
-            {(field) => (
-              <Input
-                {...field}
-
-                data-stm-field="cleaning-list-name"
-                value={listForm.name}
-                autoFocus
-                required
-                onChange={(event) => setListForm({ ...listForm, name: event.target.value })}
-              />
-            )}
-          </FormField>
-          {!chrome && (
-            <Button type="submit" data-action="save-cleaning-list">
-              保存列表名称
-            </Button>
-          )}
-        </form>
-      ) : editingRuleId && ruleDraft ? (
+      {draft ? (
         <>
           <CleaningRuleEditor
             formId={chrome ? formId : undefined}
-            draft={ruleDraft}
-            error={ruleError}
-            onDraftChange={(next) => {
-              setRuleDraft(next);
-              setRuleError(undefined);
+            draft={draft}
+            error={error}
+            onDraftChange={(value) => {
+              setDraft(value);
+              setError(undefined);
             }}
-            onSave={saveEdit}
-            onCancel={tryCancelEdit}
+            onSave={save}
+            onCancel={back}
           />
-          <Disclosure icon="fa-flask" title="测试草稿">
-            <Button
-              type="button"
-
-              data-action="test-cleaning-list"
-              onClick={openTest}
-            >
-              测试当前规则列表
-            </Button>
-          </Disclosure>
-        </>
-      ) : detailOpen && editList ? (
-        <>
-          <ListGroup as="ul" className="stm-settings-item-list" data-stm-field="cleaning-rule-list">
-            {editList.rules.map((rule) => (
-              <li key={rule.id} className="stm-settings-item-with-toggle">
-                <NavigationRow
-                  data-action="edit-cleaning-rule"
-                  onClick={() => beginEdit(rule)}
-                  title={rule.name}
-                  description=<>
-                    保留 {rule.keepTags.length} 个标签 · 排除 {rule.excludeTags.length} 个标签
-                  </>
-                />
-                <Switch
-                  aria-label={`启用规则 ${rule.name}`}
-                  checked={rule.enabled}
-                  onChange={(event) =>
-                    apply((current) =>
-                      updateCleaningRule(current, editList.id, rule.id, {
-                        enabled: event.target.checked,
-                      }),
-                    )
-                  }
-                />
-              </li>
-            ))}
-          </ListGroup>
-          {editList.rules.length === 0 && <div className="stm-empty">还没有清洗规则</div>}
-          <Disclosure icon="fa-arrows-up-down" title="规则顺序">
-            <ListGroup>
-              {editList.rules.map((rule, index) => (
-                <div className="stm-settings-order-row" key={rule.id}>
-                  <span>{rule.name}</span>
-                  <PanelBarAction
-                    icon="fa-arrow-up"
-                    label={`上移规则 ${rule.name}`}
-                    data-action="move-cleaning-rule-up"
-                    disabled={index === 0}
-                    onClick={() => moveRule(rule.id, -1)}
-                  />
-                  <PanelBarAction
-                    icon="fa-arrow-down"
-                    label={`下移规则 ${rule.name}`}
-                    data-action="move-cleaning-rule-down"
-                    disabled={index === editList.rules.length - 1}
-                    onClick={() => moveRule(rule.id, 1)}
-                  />
-                </div>
-              ))}
-            </ListGroup>
-          </Disclosure>
+          <div className="stm-setting-actions">
+            {!chrome && (
+              <Button type="button" data-action="test-cleaning-rule" onClick={openTest}>
+                测试规则
+              </Button>
+            )}
+            {existing && (
+              <Button
+                type="button"
+                variant="danger"
+                data-action="remove-cleaning-rule"
+                onClick={remove}
+              >
+                删除规则
+              </Button>
+            )}
+          </div>
         </>
       ) : (
         <>
           <label className="stm-form-row">
             <span className="stm-form-label">当前对话</span>
             <Select
-              data-stm-field="chat-cleaning-list"
-              aria-label="当前对话使用的列表"
-              value={props.selectedListId ?? ""}
-              onChange={(event) => props.onSelectList(event.target.value || undefined)}
+              data-stm-field="chat-cleaning-rule"
+              aria-label="当前对话使用的规则"
+              value={props.selectedRuleId ?? ""}
+              onChange={(event) => props.onSelectRule(event.target.value || undefined)}
             >
               <option value="">未启用清洗</option>
-              {lists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name}
+              {rules.map((rule) => (
+                <option key={rule.id} value={rule.id}>
+                  {rule.name}
                 </option>
               ))}
             </Select>
           </label>
           <ListGroup as="ul" className="stm-settings-item-list">
-            {lists.map((list) => (
-              <li key={list.id}>
+            {rules.map((rule) => (
+              <li key={rule.id} className="stm-settings-item-with-toggle">
                 <NavigationRow
-                  data-action="open-cleaning-list"
-                  data-list-id={list.id}
-                  onClick={() => openList(list.id)}
-                  title={list.name}
-                  description=<>
-                    {list.rules.length} 条规则
-                    {list.id === props.selectedListId ? " · 当前对话使用" : ""}
-                  </>
+                  title={rule.name}
+                  data-action="edit-cleaning-rule"
+                  data-rule-id={rule.id}
+                  onClick={() => beginEdit(rule)}
+                  description={
+                    <>
+                      排除 {rule.excludeTags.length} 个标签 · 保留 {rule.keepTags.length} 个标签
+                      {rule.id === props.selectedRuleId ? " · 当前对话使用" : ""}
+                    </>
+                  }
+                />
+                <Switch
+                  aria-label={`启用规则 ${rule.name}`}
+                  checked={rule.enabled}
+                  onChange={(event) =>
+                    props.onChange({
+                      ...props.settings,
+                      cleaningRules: saveCleaningRule(rules, {
+                        ...rule,
+                        enabled: event.target.checked,
+                      }),
+                    })
+                  }
                 />
               </li>
             ))}
           </ListGroup>
-          {lists.length === 0 && (
+          {rules.length === 0 && (
             <div className="stm-empty" data-stm-section="cleaning-rules-empty">
-              新建清洗规则列表，配置保留和排除标签。
+              新建清洗规则，配置排除和保留标签。
             </div>
           )}
           {!chrome && (
-            <div className="stm-setting-actions">
-              <Button
-                type="button"
-
-                data-action="create-cleaning-list"
-                onClick={createList}
-              >
-                新建列表
-              </Button>
-            </div>
+            <Button
+              type="button"
+              data-action="create-cleaning-rule"
+              onClick={() =>
+                beginEdit({
+                  id: createUiId(),
+                  name: "新规则",
+                  enabled: true,
+                  excludeTags: [],
+                  keepTags: [],
+                })
+              }
+            >
+              新建规则
+            </Button>
           )}
         </>
       )}
-      {testOpen && testSnapshot !== null && (
+      {testRule && (
         <CleaningTestDialog
           form={testForm}
           text={testText}
           messages={testMessages}
           result={testResult}
-          hasDraftOverrides={testSnapshot.draftOverrides.size > 0}
+          hasDraftOverrides={testHasDraft}
           loadHint={testLoadHint}
-          onTextChange={setTestText}
-          onMessageChange={(index, patch) =>
+          onTextChange={(text) => {
+            setTestText(text);
+            setTestResult(undefined);
+          }}
+          onMessageChange={(index, patch) => {
             setTestMessages((current) =>
               current.map((message, i) => (i === index ? { ...message, ...patch } : message)),
+            );
+            setTestResult(undefined);
+          }}
+          onLoadMessages={loadTestMessages}
+          onRun={() =>
+            setTestResult(
+              runCleaningTest(
+                testRule,
+                testForm === "text" ? [{ name: "", content: testText }] : testMessages,
+              ),
             )
           }
-          onLoadMessages={loadTestMessages}
-          onRun={runTest}
-          onCopy={copyTestResult}
-          onClose={() => setTestOpen(false)}
+          onCopy={copyResult}
+          onClose={() => setTestRule(undefined)}
         />
       )}
     </div>
   );
 }
 
-/** 一条规则同时编辑两组标签，组内 OR，先保留后排除。 */
+/** 一条规则同时编辑两组标签，组内 OR，先排除后保留。 */
 export function CleaningRuleEditor(props: {
   readonly formId?: string;
   readonly draft: CleaningRuleDraft;
@@ -645,16 +367,16 @@ export function CleaningRuleEditor(props: {
         )}
       </FormField>
       <p className="stm-setting-hint">
-        先保留后排除，每组命中任一标签即可。标签按普通文本区分大小写匹配，不支持同名嵌套。
+        先排除后保留，每组命中任一标签即可。标签按普通文本区分大小写匹配，不支持同名嵌套。
       </p>
-      {(["keepTags", "excludeTags"] as const).map((key) => {
+      {(["excludeTags", "keepTags"] as const).map((key) => {
         const label = key === "keepTags" ? "保留" : "排除";
         return (
           <fieldset key={key} className="stm-settings-form" data-stm-field={`cleaning-${key}`}>
             <legend>{label}标签</legend>
             <p className="stm-setting-hint">
               {key === "keepTags"
-                ? "留空表示保留全文；有配置但未命中时输出空文本。多个片段按原文顺序用换行连接。"
+                ? "留空表示保留排除后的全文；有配置但未命中时输出空文本。多个片段按原文顺序用换行连接。"
                 : "删除标签及其中内容。缺少结束标签时不匹配。"}
             </p>
             {draft[key].map((tag, index) => (
@@ -738,7 +460,7 @@ export function CleaningRuleEditor(props: {
   );
 }
 
-/** 清洗测试弹窗（ticket 27）：对当前编辑列表整条流水线的预览工具。
+/** 清洗测试弹窗（ticket 27）：对当前清洗规则的预览工具。
  * 纯投影：输入/执行/复制全部经回调交给父组件（含未保存草稿快照）。 */
 export function CleaningTestDialog(props: {
   readonly form: "text" | "messages";
@@ -841,9 +563,9 @@ export function CleaningTestDialog(props: {
         )}
         {props.result !== undefined && props.result.kind === "ok" && (
           <div data-stm-field="cleaning-test-result">
-            {!props.result.anyActiveRule && (
+            {!props.result.active && (
               <div className="stm-preset-warning" data-stm-field="cleaning-test-no-active-rule">
-                列表没有启用规则，结果为原文
+                当前规则已停用，结果为原文
               </div>
             )}
             {props.result.messages.map((message, index) => (
@@ -861,22 +583,6 @@ export function CleaningTestDialog(props: {
                 <div className="stm-preset-fragment-body">
                   <div className="stm-setting-hint">原文</div>
                   <pre className="stm-mono stm-modal-text">{renderCleaningText(message.input)}</pre>
-                  <div className="stm-setting-hint">步骤</div>
-                  <ol data-stm-field={`cleaning-test-steps-${index}`}>
-                    {message.steps.map((step, stepIndex) => (
-                      <li key={step.ruleId} data-stm-field={`cleaning-test-step-${stepIndex}`}>
-                        <span className="stm-mono">{step.ruleName}</span>
-                        {step.fromDraft && <span className="stm-chip">草稿</span>}
-                        {step.active ? (
-                          <pre className="stm-mono stm-modal-text">
-                            {renderCleaningText(step.output)}
-                          </pre>
-                        ) : (
-                          <span className="stm-setting-hint">跳过（已停用）</span>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
                   <div className="stm-setting-hint">最终结果</div>
                   <pre className="stm-mono stm-modal-text">
                     {renderCleaningText(message.output)}

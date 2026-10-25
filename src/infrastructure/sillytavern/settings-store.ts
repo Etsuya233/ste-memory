@@ -4,7 +4,7 @@ import {
   type PluginSettings,
   type SettingsStore,
 } from "../../features/settings/plugin-settings.ts";
-import { CLEANING_SCHEMA_VERSION } from "../../features/cleaning/cleaning-rule-lists.ts";
+import { CLEANING_SCHEMA_VERSION } from "../../features/cleaning/cleaning-rules.ts";
 import type { StContext } from "./chat-adapter.ts";
 
 /**
