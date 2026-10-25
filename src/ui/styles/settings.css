@@ -689,12 +689,14 @@
   font-size: var(--stm-fs-sm);
   color: var(--stm-fg-2);
 }
-.stm-settings-item-with-toggle {
+.stm-settings-item-with-toggle,
+.stm-settings-item-with-action {
   display: flex;
   align-items: center;
   padding-right: var(--stm-space-4);
 }
-.stm-settings-item-with-toggle > .stm-settings-item-row {
+.stm-settings-item-with-toggle > .stm-settings-item-row,
+.stm-settings-item-with-action > .stm-settings-item-row {
   flex: 1;
   min-width: 0;
 }

@@ -33,8 +33,6 @@ export function TablePresetEditor(props: {
   readonly chrome?: boolean;
   readonly initial: ResolvedTablePreset;
   readonly isNew: boolean;
-  readonly initialTableKey?: string;
-  readonly initialFieldKey?: string;
   readonly presetActions?: (draft: ResolvedTablePreset) => SettingsMenuAction[];
   readonly onSave: (preset: ResolvedTablePreset) => void;
   readonly onClose: () => void;
@@ -42,9 +40,7 @@ export function TablePresetEditor(props: {
 }) {
   const [draft, setDraft] = useState(props.initial);
   const [error, setError] = useState("");
-  const [selectedTableKey, setSelectedTableKey] = useState<string | null>(
-    props.initialTableKey ?? null,
-  );
+  const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
   const [configPage, setConfigPage] = useState<"info" | "order" | "table-order" | null>(() =>
     props.isNew && props.initial.tables.length === 0 ? "info" : null,
   );
@@ -52,17 +48,10 @@ export function TablePresetEditor(props: {
   const [vectorEditor, setVectorEditor] = useState<string | null>(null);
   const [tableEditor, setTableEditor] = useState<number | "new" | null>(null);
   const [managingFields, setManagingFields] = useState(false);
-  const [fieldEditor, setFieldEditor] = useState<{ table: number; field: number | "new" } | null>(
-    () =>
-      props.initialFieldKey
-        ? {
-            table: props.initial.tables.findIndex((table) => table.key === props.initialTableKey),
-            field: props.initial.tables
-              .find((table) => table.key === props.initialTableKey)!
-              .fields.findIndex((field) => field.key === props.initialFieldKey),
-          }
-        : null,
-  );
+  const [fieldEditor, setFieldEditor] = useState<{
+    table: number;
+    field: number | "new";
+  } | null>(null);
   const page = configPage
     ? `config:${configPage}`
     : tableEditor !== null
@@ -82,15 +71,10 @@ export function TablePresetEditor(props: {
   const [formDirty, setFormDirty] = useState(false);
   const [fieldConstraints, setFieldConstraints] = useState<
     Pick<TablePresetField, "maxChars" | "valuePattern" | "valuePatternMessage">
-  >(() => {
-    const initialField = props.initial.tables
-      .find((table) => table.key === props.initialTableKey)
-      ?.fields.find((field) => field.key === props.initialFieldKey);
-    return {
-      maxChars: initialField?.maxChars ?? null,
-      valuePattern: initialField?.valuePattern ?? null,
-      valuePatternMessage: initialField?.valuePatternMessage ?? null,
-    };
+  >({
+    maxChars: null,
+    valuePattern: null,
+    valuePatternMessage: null,
   });
 
   const dirty = formDirty || JSON.stringify(draft) !== JSON.stringify(props.initial);
