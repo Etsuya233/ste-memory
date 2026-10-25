@@ -29,25 +29,38 @@ import {
   replacePresetTable,
 } from "./table-preset-editor-model.ts";
 
+/** 比较可编辑内容；id / builtIn 在编辑期间不变，且不参与脏状态判断。 */
+function presetContent(preset: ResolvedTablePreset): string {
+  return JSON.stringify({
+    name: preset.name,
+    description: preset.description,
+    prompt: preset.prompt,
+    tables: preset.tables,
+  });
+}
+
 export function TablePresetEditor(props: {
   readonly chrome?: boolean;
   readonly initial: ResolvedTablePreset;
   readonly isNew: boolean;
   readonly presetActions?: (draft: ResolvedTablePreset) => SettingsMenuAction[];
-  readonly onSave: (preset: ResolvedTablePreset) => void;
+  /** 每次完成操作立即写回预设库；返回规范化后的预设，不再有顶层“保存预设”。 */
+  readonly onChange: (preset: ResolvedTablePreset) => ResolvedTablePreset;
   readonly onClose: () => void;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
 }) {
   const [draft, setDraft] = useState(props.initial);
   const [error, setError] = useState("");
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
-  const [configPage, setConfigPage] = useState<"info" | "order" | "table-order" | null>(() =>
+  const [configPage, setConfigPage] = useState<"info" | null>(() =>
     props.isNew && props.initial.tables.length === 0 ? "info" : null,
   );
   const [strategyEditor, setStrategyEditor] = useState<string | null>(null);
   const [vectorEditor, setVectorEditor] = useState<string | null>(null);
   const [tableEditor, setTableEditor] = useState<number | "new" | null>(null);
   const [managingFields, setManagingFields] = useState(false);
+  const [sortingFields, setSortingFields] = useState(false);
+  const [sortingTables, setSortingTables] = useState(false);
   const [fieldEditor, setFieldEditor] = useState<{
     table: number;
     field: number | "new";
@@ -77,7 +90,7 @@ export function TablePresetEditor(props: {
     valuePatternMessage: null,
   });
 
-  const dirty = formDirty || JSON.stringify(draft) !== JSON.stringify(props.initial);
+  const dirty = formDirty || presetContent(draft) !== presetContent(props.initial);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const readonly = props.initial.builtIn;
@@ -103,8 +116,31 @@ export function TablePresetEditor(props: {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
-  function updateTable(index: number, table: TablePresetTable) {
+  /** 写库并把本地草稿推进到规范化后的新值；异常交给调用方的 run 处理。 */
+  function persist(next: ResolvedTablePreset) {
+    setDraft(props.onChange(next));
+  }
+  function persistTable(index: number, table: TablePresetTable) {
+    persist({ ...draft, tables: replacePresetTable(draft.tables, index, table) });
+  }
+  /** 开关、删除、排序等即时操作自行吞掉错误并展示提示。 */
+  function commit(next: ResolvedTablePreset) {
+    run(() => persist(next));
+  }
+  /** 提交当前草稿；没有变化时不写库。 */
+  function persistDraft() {
+    if (presetContent(draft) === presetContent(props.initial)) return;
+    setDraft(props.onChange(draft));
+  }
+  function commitDraft() {
+    run(persistDraft);
+  }
+  /** 属性页暂时只更新草稿，返回时提交。 */
+  function setTableDraft(index: number, table: TablePresetTable) {
     setDraft({ ...draft, tables: replacePresetTable(draft.tables, index, table) });
+  }
+  function updateTable(index: number, table: TablePresetTable) {
+    commit({ ...draft, tables: replacePresetTable(draft.tables, index, table) });
   }
   function close() {
     if (!dirty || window.confirm("预设有未保存的修改，放弃修改并返回列表吗？")) props.onClose();
@@ -112,7 +148,7 @@ export function TablePresetEditor(props: {
   function moveTable(index: number, delta: number) {
     const tables = [...draft.tables];
     [tables[index], tables[index + delta]] = [tables[index + delta]!, tables[index]!];
-    setDraft({ ...draft, tables });
+    commit({ ...draft, tables });
   }
   function moveField(tableIndex: number, index: number, delta: number) {
     const table = draft.tables[tableIndex]!;
@@ -140,14 +176,14 @@ export function TablePresetEditor(props: {
             if (tableEditor === "new") {
               if (draft.tables.some((t) => t.key === normalized.key))
                 throw new Error(`表格 Key 已存在：${normalized.key}`);
-              setDraft({
+              persist({
                 ...draft,
                 tables: [
                   ...draft.tables,
                   { ...normalized, enabled: true, displayStrategy: null, fields: [] },
                 ],
               });
-            } else updateTable(tableEditor, { ...draft.tables[tableEditor]!, ...normalized });
+            } else persistTable(tableEditor, { ...draft.tables[tableEditor]!, ...normalized });
             rememberScroll();
             setSelectedTableKey(normalized.key);
             setTableEditor(null);
@@ -198,7 +234,7 @@ export function TablePresetEditor(props: {
               valuePattern: sameType ? fieldConstraints.valuePattern : null,
               valuePatternMessage: sameType ? fieldConstraints.valuePatternMessage : null,
             };
-            updateTable(fieldEditor.table, {
+            persistTable(fieldEditor.table, {
               ...fieldTable,
               displayStrategy: field
                 ? renamePresetDisplayField(fieldTable, field.key, updated.key)
@@ -229,12 +265,16 @@ export function TablePresetEditor(props: {
     setStrategyEditor(null);
     setVectorEditor(null);
     setManagingFields(false);
+    setSortingFields(false);
+    setSortingTables(false);
     setSelectedTableKey(key);
   }
   function openTableForm(index: number | "new") {
     setConfigPage(null);
     setStrategyEditor(null);
     setVectorEditor(null);
+    setManagingFields(false);
+    setSortingFields(false);
     rememberScroll();
     setTableEditor(index);
   }
@@ -242,6 +282,8 @@ export function TablePresetEditor(props: {
     setConfigPage(null);
     setStrategyEditor(null);
     setVectorEditor(null);
+    setManagingFields(false);
+    setSortingFields(false);
     const source = field === "new" ? null : draft.tables[table]!.fields[field]!;
     setFieldConstraints({
       maxChars: source?.maxChars ?? null,
@@ -253,8 +295,11 @@ export function TablePresetEditor(props: {
   }
   function backToTable() {
     rememberScroll();
-    setStrategyEditor(null);
-    setVectorEditor(null);
+    run(() => {
+      persistDraft();
+      setStrategyEditor(null);
+      setVectorEditor(null);
+    });
   }
   function deleteTable(index: number) {
     run(() => {
@@ -268,7 +313,9 @@ export function TablePresetEditor(props: {
       );
       if (dependencies.length) throw new Error(`请先调整引用字段：${dependencies.join("、")}`);
       if (window.confirm(`删除预设表「${table.name}」及其全部字段？`)) {
-        setDraft({ ...draft, tables: draft.tables.filter((_, i) => i !== index) });
+        persist({ ...draft, tables: draft.tables.filter((_, i) => i !== index) });
+        setTableEditor(null);
+        setFieldEditor(null);
         openTable(null);
       }
     });
@@ -277,12 +324,14 @@ export function TablePresetEditor(props: {
     const table = draft.tables[tableIndex]!;
     const target = table.fields[fieldIndex]!;
     if (window.confirm(`删除字段「${target.name}」？`)) {
-      updateTable(tableIndex, {
-        ...table,
-        fields: table.fields.filter((_, i) => i !== fieldIndex),
+      run(() => {
+        persistTable(tableIndex, {
+          ...table,
+          fields: table.fields.filter((_, i) => i !== fieldIndex),
+        });
+        setFieldEditor(null);
+        setFormDirty(false);
       });
-      setFieldEditor(null);
-      setFormDirty(false);
     }
   }
   const creatingInfo = props.isNew && props.initial.tables.length === 0 && configPage === "info";
@@ -291,29 +340,25 @@ export function TablePresetEditor(props: {
       ? creatingInfo
         ? "新建预设"
         : "预设信息"
-      : configPage === "order"
-        ? "字段顺序"
-        : configPage === "table-order"
-          ? "表格顺序"
-          : tableEditor !== null
-            ? tableEditor === "new"
-              ? "新建表格"
-              : "编辑表格"
-            : fieldEditor
-              ? field
-                ? "编辑字段"
-                : "新建字段"
-              : strategyEditor
-                ? "显示策略"
-                : vectorEditor
-                  ? "向量索引"
-                  : selectedTable
-                    ? selectedTable.name
-                    : readonly
-                      ? draft.name
-                      : props.isNew && !draft.name.trim()
-                        ? "新建预设"
-                        : "编辑预设";
+      : tableEditor !== null
+        ? tableEditor === "new"
+          ? "新建表格"
+          : "编辑表格"
+        : fieldEditor
+          ? field
+            ? "编辑字段"
+            : "新建字段"
+          : strategyEditor
+            ? "显示策略"
+            : vectorEditor
+              ? "向量索引"
+              : selectedTable
+                ? selectedTable.name
+                : readonly
+                  ? draft.name
+                  : props.isNew && props.initial.tables.length === 0
+                    ? "新建预设"
+                    : "编辑预设";
   const nested =
     (!creatingInfo && configPage !== null) ||
     editing ||
@@ -325,7 +370,10 @@ export function TablePresetEditor(props: {
     : configPage
       ? () => {
           rememberScroll();
-          setConfigPage(null);
+          run(() => {
+            persistDraft();
+            setConfigPage(null);
+          });
         }
       : editing
         ? cancelSubform
@@ -341,45 +389,17 @@ export function TablePresetEditor(props: {
       ? "全部启用"
       : `已启用 ${selectedTable.fields.filter((item) => item.enabled).length}`
     : "";
-  const menuActions: SettingsMenuAction[] = selectedTable
-    ? [
-        {
-          label: "字段顺序",
-          dataAction: "order-preset-fields",
-          onSelect: () => {
-            rememberScroll();
-            setConfigPage("order");
-            setStrategyEditor(null);
-            setVectorEditor(null);
-          },
-        },
-        {
-          label: "删除表格及字段",
-          dataAction: "delete-table",
-          danger: true,
-          onSelect: () => deleteTable(selectedTableIndex),
-        },
-      ]
-    : [
-        ...(props.presetActions?.(draft) ?? []),
-        {
-          label: "表格顺序",
-          dataAction: "order-preset-tables",
-          disabled: draft.tables.length < 2,
-          onSelect: () => {
-            rememberScroll();
-            setConfigPage("table-order");
-          },
-        },
-        {
-          label: "预设信息与填写规则",
-          dataAction: "edit-preset-info",
-          onSelect: () => {
-            rememberScroll();
-            setConfigPage("info");
-          },
-        },
-      ];
+  const menuActions: SettingsMenuAction[] = [
+    ...(props.presetActions?.(draft) ?? []),
+    {
+      label: "预设信息与填写规则",
+      dataAction: "edit-preset-info",
+      onSelect: () => {
+        rememberScroll();
+        setConfigPage("info");
+      },
+    },
+  ];
   return (
     <div
       ref={screenRef}
@@ -397,9 +417,7 @@ export function TablePresetEditor(props: {
               leading={
                 <PanelBarAction
                   icon="fa-arrow-left"
-                  label={
-                    editing ? "取消编辑" : nested ? "返回" : readonly ? "返回预设详情" : "取消编辑"
-                  }
+                  label={editing ? "取消编辑" : nested ? "返回" : "返回预设列表"}
                   data-action="close-table-preset"
                   onClick={back}
                 />
@@ -416,6 +434,15 @@ export function TablePresetEditor(props: {
                         onClick={() => deleteField(fieldEditor.table, fieldEditor.field as number)}
                       />
                     )}
+                    {tableEditor !== null && tableEditor !== "new" && (
+                      <PanelBarAction
+                        icon="fa-trash"
+                        label="删除表格"
+                        data-action="delete-table"
+                        danger
+                        onClick={() => deleteTable(tableEditor)}
+                      />
+                    )}
                     <PanelBarAction
                       icon="fa-check"
                       label={fieldEditor ? "完成字段编辑" : "完成表格编辑"}
@@ -424,16 +451,30 @@ export function TablePresetEditor(props: {
                       form={formId}
                     />
                   </>
-                ) : (
-                  <>
-                    <PanelBarAction
-                      icon="fa-check"
-                      label="保存预设"
-                      data-action="save-table-preset"
-                      onClick={() => run(() => props.onSave(draft))}
+                ) : configPage !== null ||
+                  strategyEditor !== null ||
+                  vectorEditor !== null ? undefined : selectedTable ? (
+                  <label
+                    className="stm-switch"
+                    data-bar-unframed
+                    title={selectedTable.enabled ? "停用表格" : "启用表格"}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTable.enabled}
+                      data-action="toggle-table"
+                      aria-label={`启用表格 ${selectedTable.name}`}
+                      onChange={(event) =>
+                        updateTable(selectedTableIndex, {
+                          ...selectedTable,
+                          enabled: event.target.checked,
+                        })
+                      }
                     />
-                    <SettingsActionMenu actions={menuActions} />
-                  </>
+                    <span className="stm-switch-track" aria-hidden="true" />
+                  </label>
+                ) : (
+                  <SettingsActionMenu actions={menuActions} />
                 )
               }
             />
@@ -445,16 +486,6 @@ export function TablePresetEditor(props: {
           <button type="button" className="stm-button" onClick={back}>
             返回
           </button>
-          {!readonly && !editing && (
-            <button
-              type="button"
-              className="stm-button"
-              data-action="save-table-preset"
-              onClick={() => run(() => props.onSave(draft))}
-            >
-              保存预设
-            </button>
-          )}
         </div>
       )}
       {error && (
@@ -467,6 +498,7 @@ export function TablePresetEditor(props: {
           disabled={readonly}
           className="stm-settings-fields"
           data-stm-section="preset-info"
+          onBlur={commitDraft}
         >
           <label className="stm-form-row">
             <span className="stm-form-label">预设名称</span>
@@ -493,50 +525,8 @@ export function TablePresetEditor(props: {
               onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
             />
           </label>
-          <p className="stm-setting-hint">保存更新预设库；已有空间保持原状。</p>
+          <p className="stm-setting-hint">修改会自动保存到预设库；已有空间保持原状。</p>
         </fieldset>
-      ) : configPage === "table-order" ? (
-        <div className="stm-grouped-list">
-          {draft.tables.map((table, index) => (
-            <div className="stm-settings-order-row" key={table.key}>
-              <span>{table.name}</span>
-              <PanelBarAction
-                icon="fa-arrow-up"
-                label={`上移表格 ${table.name}`}
-                disabled={index === 0}
-                onClick={() => moveTable(index, -1)}
-              />
-              <PanelBarAction
-                icon="fa-arrow-down"
-                label={`下移表格 ${table.name}`}
-                disabled={index === draft.tables.length - 1}
-                onClick={() => moveTable(index, 1)}
-              />
-            </div>
-          ))}
-        </div>
-      ) : configPage === "order" && selectedTable ? (
-        <div className="stm-settings-detail-page">
-          <div className="stm-grouped-list">
-            {selectedTable.fields.map((f, fi) => (
-              <div key={f.key} className="stm-settings-order-row">
-                <span>{f.name}</span>
-                <PanelBarAction
-                  icon="fa-arrow-up"
-                  label={`上移字段 ${f.name}`}
-                  disabled={fi === 0}
-                  onClick={() => moveField(selectedTableIndex, fi, -1)}
-                />
-                <PanelBarAction
-                  icon="fa-arrow-down"
-                  label={`下移字段 ${f.name}`}
-                  disabled={fi === selectedTable.fields.length - 1}
-                  onClick={() => moveField(selectedTableIndex, fi, 1)}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
       ) : tableEditor !== null ? (
         tableForm
       ) : fieldEditor ? (
@@ -586,7 +576,7 @@ export function TablePresetEditor(props: {
               className="stm-input"
               value={strategy?.type ?? "none"}
               onChange={(event) =>
-                updateTable(selectedTableIndex, {
+                setTableDraft(selectedTableIndex, {
                   ...selectedTable,
                   displayStrategy:
                     event.target.value === "none"
@@ -609,7 +599,7 @@ export function TablePresetEditor(props: {
                 className="stm-input"
                 value={strategy.fieldKey}
                 onChange={(event) =>
-                  updateTable(selectedTableIndex, {
+                  setTableDraft(selectedTableIndex, {
                     ...selectedTable,
                     displayStrategy: { type: "field", fieldKey: event.target.value },
                   })
@@ -634,7 +624,7 @@ export function TablePresetEditor(props: {
                 placeholder="使用 {字段Key} 引用字段"
                 value={strategy.template}
                 onChange={(event) =>
-                  updateTable(selectedTableIndex, {
+                  setTableDraft(selectedTableIndex, {
                     ...selectedTable,
                     displayStrategy: { type: "template", template: event.target.value },
                   })
@@ -642,15 +632,19 @@ export function TablePresetEditor(props: {
               />
             </label>
           )}
+          <p className="stm-setting-hint">返回时自动保存本表显示策略。</p>
         </fieldset>
       ) : vectorEditor && selectedTable ? (
-        <PresetVectorIndexEditor
-          table={selectedTable}
-          readonly={readonly}
-          onChange={(vectorIndex) =>
-            updateTable(selectedTableIndex, { ...selectedTable, vectorIndex })
-          }
-        />
+        <>
+          <PresetVectorIndexEditor
+            table={selectedTable}
+            readonly={readonly}
+            onChange={(vectorIndex) =>
+              setTableDraft(selectedTableIndex, { ...selectedTable, vectorIndex })
+            }
+          />
+          <p className="stm-setting-hint">返回时自动保存本表向量索引。</p>
+        </>
       ) : selectedTable ? (
         <>
           <TableFieldsPanel
@@ -664,7 +658,23 @@ export function TablePresetEditor(props: {
                     data-action="toggle-preset-field-edit"
                     aria-pressed={managingFields}
                     disabled={readonly}
-                    onClick={() => setManagingFields((prev) => !prev)}
+                    onClick={() => {
+                      setSortingFields(false);
+                      setManagingFields((prev) => !prev);
+                    }}
+                  />
+                ) : null}
+                {selectedTable.fields.length > 1 ? (
+                  <PanelBarAction
+                    icon={sortingFields ? "fa-check" : "fa-sort"}
+                    label={sortingFields ? "完成排序" : "调整字段顺序"}
+                    data-action="toggle-preset-field-order"
+                    aria-pressed={sortingFields}
+                    disabled={readonly}
+                    onClick={() => {
+                      setManagingFields(false);
+                      setSortingFields((prev) => !prev);
+                    }}
                   />
                 ) : null}
                 <PanelBarAction
@@ -694,19 +704,40 @@ export function TablePresetEditor(props: {
                         disabled: readonly,
                         onClick: () => openFieldForm(selectedTableIndex, fi),
                       }}
-                      toggle={{
-                        checked: f.enabled,
-                        disabled: readonly || dependent,
-                        onChange: (event) =>
-                          updateTable(selectedTableIndex, {
-                            ...selectedTable,
-                            fields: selectedTable.fields.map((item, i) =>
-                              i === fi ? { ...item, enabled: event.target.checked } : item,
-                            ),
-                          }),
-                      }}
+                      toggle={
+                        sortingFields
+                          ? undefined
+                          : {
+                              checked: f.enabled,
+                              disabled: readonly || dependent,
+                              onChange: (event) =>
+                                updateTable(selectedTableIndex, {
+                                  ...selectedTable,
+                                  fields: selectedTable.fields.map((item, i) =>
+                                    i === fi ? { ...item, enabled: event.target.checked } : item,
+                                  ),
+                                }),
+                            }
+                      }
                       actions={
-                        managingFields ? (
+                        sortingFields ? (
+                          <div className="stm-bar-group stm-field-management-actions">
+                            <PanelBarAction
+                              icon="fa-arrow-up"
+                              label={`上移字段 ${f.name}`}
+                              data-action="move-preset-field-up"
+                              disabled={readonly || fi === 0}
+                              onClick={() => moveField(selectedTableIndex, fi, -1)}
+                            />
+                            <PanelBarAction
+                              icon="fa-arrow-down"
+                              label={`下移字段 ${f.name}`}
+                              data-action="move-preset-field-down"
+                              disabled={readonly || fi === selectedTable.fields.length - 1}
+                              onClick={() => moveField(selectedTableIndex, fi, 1)}
+                            />
+                          </div>
+                        ) : managingFields ? (
                           <div className="stm-bar-group stm-field-management-actions">
                             <PanelBarAction
                               icon="fa-trash-can"
@@ -780,21 +811,33 @@ export function TablePresetEditor(props: {
             status={`${draft.tables.length} 张表`}
             emptyTitle="还没有预设表格"
             actions={
-              <PanelBarAction
-                icon="fa-plus"
-                label="新建表格"
-                data-action="create-table"
-                disabled={readonly}
-                onClick={() => openTableForm("new")}
-              />
+              <>
+                {draft.tables.length > 1 ? (
+                  <PanelBarAction
+                    icon={sortingTables ? "fa-check" : "fa-sort"}
+                    label={sortingTables ? "完成排序" : "调整表格顺序"}
+                    data-action="toggle-preset-table-order"
+                    aria-pressed={sortingTables}
+                    disabled={readonly}
+                    onClick={() => setSortingTables((prev) => !prev)}
+                  />
+                ) : null}
+                <PanelBarAction
+                  icon="fa-plus"
+                  label="新建表格"
+                  data-action="create-table"
+                  disabled={readonly}
+                  onClick={() => openTableForm("new")}
+                />
+              </>
             }
           >
             {draft.tables.length > 0 ? (
               <ul className="stm-grouped-list stm-settings-item-list">
-                {draft.tables.map((table) => (
+                {draft.tables.map((table, index) => (
                   <li
                     key={table.key}
-                    className="stm-settings-item-with-toggle"
+                    className={sortingTables ? "stm-settings-item-with-action" : undefined}
                     data-table-key={table.key}
                   >
                     <button
@@ -807,25 +850,29 @@ export function TablePresetEditor(props: {
                         <span className="stm-settings-item-title">{table.name}</span>
                         <span className="stm-settings-item-summary">
                           {table.key} · {table.fields.length} 个字段
+                          {table.enabled ? "" : " · 已停用"}
                         </span>
                       </span>
                       <i className="fa-solid fa-chevron-right" aria-hidden="true" />
                     </button>
-                    <label className="stm-switch">
-                      <input
-                        type="checkbox"
-                        aria-label={`启用表格 ${table.name}`}
-                        checked={table.enabled}
-                        disabled={readonly}
-                        onChange={(event) =>
-                          updateTable(draft.tables.indexOf(table), {
-                            ...table,
-                            enabled: event.target.checked,
-                          })
-                        }
-                      />
-                      <span className="stm-switch-track" aria-hidden="true" />
-                    </label>
+                    {sortingTables ? (
+                      <div className="stm-bar-group stm-field-management-actions">
+                        <PanelBarAction
+                          icon="fa-arrow-up"
+                          label={`上移表格 ${table.name}`}
+                          data-action="move-preset-table-up"
+                          disabled={readonly || index === 0}
+                          onClick={() => moveTable(index, -1)}
+                        />
+                        <PanelBarAction
+                          icon="fa-arrow-down"
+                          label={`下移表格 ${table.name}`}
+                          data-action="move-preset-table-down"
+                          disabled={readonly || index === draft.tables.length - 1}
+                          onClick={() => moveTable(index, 1)}
+                        />
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

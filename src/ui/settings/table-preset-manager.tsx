@@ -349,6 +349,40 @@ export function TablePresetManager(props: {
     }
   }
 
+  /** 预设编辑即时落库：每次完成表格/字段/属性操作都写回预设库。 */
+  function commitPreset(draft: ResolvedTablePreset): ResolvedTablePreset {
+    if (!editor) return draft;
+    const now = new Date().toISOString();
+    const validated = validateTablePresetContent({
+      name: draft.name,
+      description: draft.description,
+      prompt: draft.prompt,
+      tables: draft.tables,
+    });
+    const exists = props.presets.userPresets.some((preset) => preset.id === draft.id);
+    const next = exists
+      ? overwriteUserTablePreset(
+          renameUserTablePreset(props.presets, draft.id, {
+            name: validated.name,
+            description: validated.description,
+            now,
+          }),
+          draft.id,
+          { structure: validated, now },
+        )
+      : saveUserTablePreset(props.presets, {
+          id: draft.id,
+          name: validated.name,
+          description: validated.description,
+          structure: validated,
+          now,
+        }).settings;
+    changePresets(next);
+    const saved = resolveTablePreset(next, SYSTEM_TABLE_PRESET, draft.id);
+    setEditor({ isNew: false, initial: saved });
+    return saved;
+  }
+
   if (editor)
     return (
       <div ref={screenRef}>
@@ -386,39 +420,10 @@ export function TablePresetManager(props: {
               : []),
           ]}
           registerLeaveGuard={props.registerLeaveGuard}
+          onChange={commitPreset}
           onClose={() => {
             rememberScroll();
             setEditor(null);
-          }}
-          onSave={(draft) => {
-            const now = new Date().toISOString();
-            const validated = validateTablePresetContent({
-              name: draft.name,
-              description: draft.description,
-              prompt: draft.prompt,
-              tables: draft.tables,
-            });
-            const next = editor.isNew
-              ? saveUserTablePreset(props.presets, {
-                  id: draft.id,
-                  name: validated.name,
-                  description: validated.description,
-                  structure: validated,
-                  now,
-                }).settings
-              : overwriteUserTablePreset(
-                  renameUserTablePreset(props.presets, draft.id, {
-                    name: validated.name,
-                    description: validated.description,
-                    now,
-                  }),
-                  draft.id,
-                  { structure: validated, now },
-                );
-            changePresets(next);
-            rememberScroll();
-            setEditor(null);
-            reportSuccess(`已保存预设「${draft.name.trim()}」`);
           }}
         />
       </div>
@@ -442,11 +447,14 @@ export function TablePresetManager(props: {
     );
   }
   function createPreset() {
+    const names = new Set(rows.map((row) => row.name));
+    let name = "未命名预设";
+    for (let index = 2; names.has(name); index++) name = `未命名预设 ${index}`;
     openEditor({
       isNew: true,
       initial: {
         id: createUiId(),
-        name: "",
+        name,
         description: "",
         prompt: "",
         tables: [],

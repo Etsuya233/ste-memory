@@ -113,7 +113,8 @@ const path = require("node:path");
       "field draft protects page leave",
     );
     await action("save-preset-field").click();
-    await action("save-table-preset").click();
+    await action("close-table-preset").click();
+    await action("close-table-preset").click();
     const saved = await p.evaluate(
       () => window.__UI_PREVIEW__.runtime.settings.read().tablePresets.userPresets[0],
     );

@@ -20,6 +20,12 @@ const path = require("node:path");
   const openTable = async (name) => {
     await a("open-preset-table").filter({ hasText: name }).click();
   };
+  const preset = async () =>
+    p.evaluate(() =>
+      window.__UI_PREVIEW__.runtime.settings
+        .read()
+        .tablePresets.userPresets.find((item) => item.name.includes("副本")),
+    );
   try {
     await p.goto("http://127.0.0.1:8799/?tab=settings&fixture=preset-fields");
     await p.evaluate(() => {
@@ -40,12 +46,10 @@ const path = require("node:path");
     );
     await shot("preview");
     await a("close-preset-structure-preview").click();
-    assert.equal(await p.locator('[data-stm-section="preset-structure-preview"]').count(), 0);
 
     await a("open-table-preset").filter({ hasText: "剧情记忆" }).click();
     assert.equal(await a("open-preset-table").count(), 8, "builtin opens editable copy");
-    assert.equal(await p.locator('[data-stm-field="preset-field-detail"]').count(), 0);
-    assert.ok((await p.locator(".stm-header-title:visible").innerText()).includes("编辑预设"));
+    assert.equal(await a("save-table-preset").count(), 0, "no whole-preset save button");
     await shot("copy-overview");
     await a("settings-more").click();
     for (const n of ["export-table-preset", "copy-preset"])
@@ -54,6 +58,7 @@ const path = require("node:path");
 
     await openTable("人际关系");
     assert.equal(await p.locator(".stm-field-row input").count(), 4);
+    assert.equal(await a("toggle-table").count(), 1, "table switch lives in detail header");
     assert.ok(await a("add-field").isVisible());
     assert.equal(await p.locator(".stm-table-settings .stm-settings-item-row").count(), 3);
     const row = p.locator(".stm-field-row").filter({ hasText: "关系定性" });
@@ -62,20 +67,52 @@ const path = require("node:path");
     await row.locator("button").click();
     await p.locator('[data-stm-field="field-name"]').fill("关系定性已修改");
     await a("save-preset-field").click();
-    assert.equal(await a("open-preset-table").count(), 0, "field completion stays in draft");
+    let saved = await preset();
+    assert.equal(
+      saved.tables.find((table) => table.key === "relationships").fields.find(
+        (field) => field.key === "summary",
+      ).enabled,
+      false,
+      "field switch saves immediately",
+    );
+    assert.equal(
+      saved.tables.find((table) => table.key === "relationships").fields.find(
+        (field) => field.key === "summary",
+      ).name,
+      "关系定性已修改",
+    );
     await shot("copy-fields");
-    await a("save-table-preset").click();
-    assert.equal(await a("open-table-preset").count(), 4, "save returns to preset list");
 
+    await a("close-table-preset").click();
+    await a("toggle-preset-table-order").click();
+    await a("move-preset-table-up").nth(1).click();
+    saved = await preset();
+    assert.equal(saved.tables[0].key, "relationships", "table order saves immediately");
+    await shot("table-order");
+
+    await openTable("人际关系");
+    await a("toggle-preset-field-order").click();
+    await a("move-preset-field-down").first().click();
+    saved = await preset();
+    assert.deepEqual(
+      saved.tables
+        .find((table) => table.key === "relationships")
+        .fields.map((field) => field.key),
+      ["character_b", "character_a", "summary", "key_facts"],
+      "field order saves immediately",
+    );
+    await shot("field-order");
+
+    await a("close-table-preset").click();
+    await a("close-table-preset").click();
+    assert.equal(await a("open-table-preset").count(), 4, "back returns to preset list");
     await a("open-table-preset").filter({ hasText: "剧情记忆 副本" }).click();
-    assert.equal(await a("open-preset-table").count(), 8, "user preset enters editor directly");
     await openTable("人际关系");
     const savedRow = p.locator(".stm-field-row").filter({ hasText: "关系定性已修改" });
     assert.equal(await savedRow.locator("input").isChecked(), false);
-    assert.ok(await a("toggle-preset-field-edit").isVisible());
     await a("toggle-preset-field-edit").click();
     assert.equal(await a("delete-preset-field").count(), 4, "field list offers inline delete");
-    await shot("user-fields");
+    await shot("user-fields-manage");
     await a("toggle-preset-field-edit").click();
 
     await savedRow.locator("button").click();
@@ -85,28 +122,23 @@ const path = require("node:path");
     assert.equal(await p.locator('[data-stm-field="field-name"]').inputValue(), "丢弃字段改动");
     p.once("dialog", (d) => d.accept());
     await a("close-table-preset").click();
-    const editedRow = p.locator(".stm-field-row").filter({ hasText: "关系定性已修改" });
-    await editedRow.locator("label").click();
-    await a("close-table-preset").click();
-    p.once("dialog", (d) => d.dismiss());
-    await a("close-table-preset").click();
     assert.equal(
-      await a("open-preset-table").count(),
-      8,
-      "dismiss keeps the overall editor",
+      await p
+        .locator(".stm-field-row")
+        .filter({ hasText: "关系定性已修改" })
+        .count(),
+      1,
+      "cancelled field form does not write",
     );
-    p.once("dialog", (d) => d.accept());
-    await a("close-table-preset").click();
-    assert.equal(await a("open-table-preset").count(), 4, "cancel returns to preset list");
 
-    await a("open-table-preset").filter({ hasText: "剧情记忆 副本" }).click();
-    await openTable("人际关系");
-    const reopenedRow = p.locator(".stm-field-row").filter({ hasText: "关系定性已修改" });
-    assert.ok(await reopenedRow.isVisible());
-    assert.equal(await reopenedRow.locator("input").isChecked(), false, "cancel discards draft");
+    await a("close-table-preset").click();
+    await a("settings-more").click();
+    for (const n of ["export-table-preset", "copy-preset", "overwrite-preset", "delete-preset"])
+      assert.ok(await a(n).isVisible(), n + " reachable");
+    await p.keyboard.press("Escape");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS preset list direct edit, builtin copy, structure preview modal, shared field/config sections, draft save/reopen, cancel protection.",
+      "PASS preset list direct edit, builtin copy, structure preview modal, immediate property save, inline table/field ordering, form cancel protection.",
     );
   } finally {
     await b.close();
