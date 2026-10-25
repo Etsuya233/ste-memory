@@ -158,8 +158,9 @@ src/
 - 功能层不依赖 `infrastructure/` 与 `ui/`；具体实现由 `runtime.ts` 装配注入。
 - `tests/architecture/` 与 ESLint `no-restricted-imports` 同时强制以上方向。
 - 填表与问答通过记录服务的 `commitProposal` 提交，仓库、ID、时钟和显示计算由
-  Memory 内部管理；填表任务的全部分块共用 SQLite 事务，任务内工具即时写入并返回
-  真实记录 ID。普通读取只看已提交快照，任务成功后再保存文件和 IndexedDB 台账。
+  Memory 内部管理；填表任务每个批次独立使用 SQLite 事务，批内工具即时写入并返回
+  真实记录 ID。每批成功后保存文件和 IndexedDB 台账；失败或取消仅回滚当前批次。
+  普通读取只看已提交快照，后续批次可读取之前批次的成果。
 - 记忆结构、记录、历史与证据的旧 IndexedDB 表仅保存序列化快照缓存；差量更新缓存
   不清除向量。任务、台账、向量和独立日志继续使用 IndexedDB。
 - SQLite 资源随包发布；宏配置与界面不变，结构化记忆查询编译为参数化 SQL。

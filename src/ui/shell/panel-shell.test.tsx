@@ -114,11 +114,13 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       kick: vi.fn(async () => {}),
     },
     tasks: {
+      retryStates: new Map(),
       submit: vi.fn(async () => ({}) as never),
       submitInit: vi.fn(async () => ({}) as never),
       cancel: vi.fn(async () => ({}) as never),
       retry: vi.fn(async () => ({}) as never),
       activeTask: vi.fn(async () => undefined),
+      pendingTasks: vi.fn(async () => []),
       recentTasks: vi.fn(async () => []),
       ledgerStatuses: vi.fn(async () => []),
       markFloorStatuses: vi.fn(async () => undefined),

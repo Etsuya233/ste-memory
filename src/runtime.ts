@@ -1,3 +1,5 @@
+import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
+import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import {
   MemoryRecallService,
   DEFAULT_RECALL_CONFIGURATION,
@@ -124,6 +126,7 @@ export interface SteMemoryRuntime {
   readonly retrieval: VectorRetrievalService;
   readonly sqlConsole: SqlConsole;
   readonly memoryRecall: MemoryRecallService;
+  readonly autoFill: AutoFillService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
@@ -457,8 +460,7 @@ export async function startSteMemory(
     createEvidenceId: () => createId("evidence") as MemoryEvidenceId,
     now,
     logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),
-    // 填表任务内容清洗（ticket 22 / ADR 0011）：块处理时实时读取当前对话所选
-    // 列表的规则（设置活对象 + chatMetadata 小指针；未选择/列表已删 → 不清洗）
+    // 任务开始执行时冻结当前对话的清洗规则，后续批次共用该快照。
     resolveCleaningRules: () =>
       resolveSelectedCleaningRules(
         settings.read().cleaningRuleLists,
@@ -492,10 +494,7 @@ export async function startSteMemory(
   });
   persistence.onStatusChange(() => mirror.reportSaveStatus(persistence.getStatus()));
   const presetApply = new TablePresetApplyService({
-    cancelActiveTask: async (id) => {
-      const active = await tasks.activeTask(id);
-      if (active) await tasks.cancel(id, active.runId);
-    },
+    cancelActiveTask: (id) => tasks.cancelAll(id),
     rebuild: spaceStructureRebuild,
     defaultPreset: () =>
       resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET),
@@ -676,15 +675,12 @@ export async function startSteMemory(
   // 表格预设的应用流程（TablePresetApplyService）。
   const spaceMaintenance = new SpaceMaintenanceService({
     clearRecords: (id) => spaces.clearRecords(id),
-    cancelActiveTask: async (id) => {
-      const active = await tasks.activeTask(id);
-      if (active) await tasks.cancel(id, active.runId);
-    },
+    cancelActiveTask: (id) => tasks.cancelAll(id),
     clearTasks: (id) => fillTaskRepository.clear(id),
     clearLedger: (id) => floorLedgerRepository.clear(id),
   });
 
-  // 页面/浏览器重开：所有非终态填表任务标记 interrupted，不自动重放（关页语义）
+  // 页面/浏览器重开：运行项标记 interrupted 并暂停队列，等待项保留
   await tasks.markInterruptedOnStartup();
   // 镜像同步启动：本地变更在轮询中回填进对话文件（文件自洽）
   await mirror.start();
@@ -722,9 +718,48 @@ export async function startSteMemory(
     },
   });
 
+  const autoFill = new AutoFillService({
+    tasks,
+    chatStore: adapter.autoFillStore,
+    globalSettings: () => settings.read().autoFill,
+    current: () => {
+      const status = manager.getStatus();
+      const snapshot = adapter.getChatSnapshot();
+      const identity = chatIdentityKey(snapshot);
+      if (!settings.read().enabled || status?.kind !== "active" || !identity) return undefined;
+      const binding = adapter.bindingStore.read();
+      if (binding.kind !== "bound" || binding.binding.spaceId !== status.space.id) return undefined;
+      if (binding.binding.version === 2 && binding.binding.chatIdentity !== identity)
+        return undefined;
+      return {
+        identity,
+        spaceId: status.space.id,
+        chatLength: adapter.chatMessageCount(),
+        aiFloor: adapter.latestAiFloor(),
+      };
+    },
+    notify: showAutoFillNotification,
+    confirmResume: async (task) => {
+      const context = getContext() as StContext;
+      const result = await context.callGenericPopup?.(
+        `上次填表任务（楼层 #${task.from}–#${task.to}）因切换对话中断。是否继续填表？已成功填写的楼层会保留。`,
+        2,
+        "",
+        { okButton: "继续填表", cancelButton: "暂不继续" },
+      );
+      return result === 1;
+    },
+    dismissReminder: () => {
+      if (typeof document !== "undefined")
+        document.getElementById("stm-auto-fill-reminder")?.remove();
+    },
+    reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
+  });
+
   let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
+      const stoppingAutoFill = autoFill.chatChanged();
       memoryRecall.chatChanged();
       chatEpoch++;
       retrieval.setContext(retrievalContext(), null, true);
@@ -733,6 +768,7 @@ export async function startSteMemory(
       const previous = manager.getStatus();
       manager.clearCurrent();
       const next = switching.then(async () => {
+        await stoppingAutoFill;
         await tasks.interruptForChatChange();
         if (previous?.kind === "active") {
           await memoryStore.whenIdle(previous.space.id);
@@ -743,6 +779,7 @@ export async function startSteMemory(
           await memoryStore.unload(previous.space.id);
         }
         await manager.syncToCurrentChat();
+        autoFill.chatReady();
       });
       switching = next.catch((error) => {
         manager.reportLoadError(error);
@@ -753,7 +790,11 @@ export async function startSteMemory(
     // 把召回 Promise 原样返回 MESSAGE_SENT，ST 等待后才构建本轮提示词。
     onMessageEvent: (kind, floor) =>
       kind === "message_sent" && floor !== undefined ? memoryRecall.messageSent(floor) : undefined,
-    onGenerationStarted: (type, options, dryRun) => memoryRecall.started(type, options, dryRun),
+    onGenerationStarted: (type, options, dryRun) => {
+      memoryRecall.started(type, options, dryRun);
+      if (!dryRun && type !== "quiet" && type !== "impersonate") autoFill.generationStarted();
+    },
+    onGenerationEnded: () => autoFill.generationEnded(),
     onGenerationStopped: () => memoryRecall.stop(),
     onGenerationFinished: (dryRun) => memoryRecall.generationFinished(dryRun),
     shouldAwaitRecall: () => memoryRecall.getState().status === "preparing",
@@ -793,6 +834,7 @@ export async function startSteMemory(
   }
   // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
   // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
+  autoFill.start();
   await macro.start();
   let recallMacroRegistered = false;
   if (resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall") {
@@ -805,6 +847,7 @@ export async function startSteMemory(
   manager.onStatusChange(() => {
     const status = manager.getStatus();
     if (status?.kind === "active") vectorSync.activate(status.space.id);
+    autoFill.kick();
     void macro.kick().catch((error) => {
       log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
     });
@@ -814,6 +857,7 @@ export async function startSteMemory(
   });
   const settingsService = new SettingsService({
     store: settings,
+    refreshAutoFill: () => autoFill.kick(),
     syncToCurrentChat: () => manager.syncToCurrentChat(),
     refreshMemoryMacros: async () => {
       memoryRecall.invalidate("记忆宏或视图设置已修改");
@@ -869,6 +913,7 @@ export async function startSteMemory(
       },
     },
     memoryRecall,
+    autoFill,
     spaceMaintenance,
     presetApply,
     logs,

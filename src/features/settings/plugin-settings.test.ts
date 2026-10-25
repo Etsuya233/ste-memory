@@ -160,6 +160,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
   it("完整合法数据：原样保留", () => {
     const settings: PluginSettings = {
       fillAgentTimeoutSeconds: 900,
+      autoFill: DEFAULT_SETTINGS.autoFill,
       enabled: false,
       macroName: "{{ctx}}",
       macroLimit: 4000,
@@ -303,4 +304,18 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       },
     ]);
   });
+});
+
+it("旧设置补齐自动填表默认值，保存后保留显式关闭和 false", () => {
+  expect(mergeSettings({}).autoFill).toEqual(DEFAULT_SETTINGS.autoFill);
+  expect(
+    mergeSettings({ autoFill: { mode: "off", includeCurrent: false, blockSize: 4 } }).autoFill,
+  ).toMatchObject({
+    mode: "off",
+    includeCurrent: false,
+    blockSize: 4,
+    retries: 2,
+    retryDelaySeconds: 10,
+  });
+  expect(() => mergeSettings({ autoFill: { interval: 0 } })).toThrow("正整数");
 });

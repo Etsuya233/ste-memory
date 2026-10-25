@@ -337,3 +337,42 @@
     background: var(--stm-hover);
   }
 }
+
+.stm-auto-fill-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.stm-auto-fill-fields .stm-task-field {
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.stm-auto-fill-fields input,
+.stm-auto-fill-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.stm-auto-fill-notice {
+  position: fixed;
+  right: 16px;
+  top: 68px;
+  z-index: 100000;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border: 1px solid var(--stm-accent);
+  border-radius: 10px;
+  background: var(--stm-surface);
+  color: var(--stm-ink);
+  font: 14px/1.5 var(--stm-font);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 18px #0004;
+}
+#stm-auto-fill-reminder {
+  top: 138px;
+}

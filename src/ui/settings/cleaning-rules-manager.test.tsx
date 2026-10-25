@@ -1,3 +1,4 @@
+import { DEFAULT_AUTO_FILL_SETTINGS } from "../../features/fill-tasks/auto-fill-settings.ts";
 /**
  * 清洗规则管理器冒烟测试（react-dom/server renderToString，无 jsdom）：
  * 验证渲染契约（data-action / data-stm-field）与关键态（空列表、规则行折叠/
@@ -25,6 +26,7 @@ import {
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
     fillAgentTimeoutSeconds: 300,
+    autoFill: DEFAULT_AUTO_FILL_SETTINGS,
     enabled: true,
     macroName: "{{memoryContext}}",
     macroLimit: 2000,

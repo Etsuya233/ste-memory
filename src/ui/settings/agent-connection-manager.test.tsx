@@ -1,3 +1,4 @@
+import { DEFAULT_AUTO_FILL_SETTINGS } from "../../features/fill-tasks/auto-fill-settings.ts";
 /**
  * Agent API 连接管理器冒烟测试（react-dom/server renderToString，无 jsdom）：
  * 验证渲染契约（data-action / data-stm-field）与关键态（连接列表行、密钥状态
@@ -29,6 +30,7 @@ function connection(overrides: Partial<AgentConnection> = {}): AgentConnection {
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
   return {
     fillAgentTimeoutSeconds: 300,
+    autoFill: DEFAULT_AUTO_FILL_SETTINGS,
     enabled: true,
     macroName: "{{memoryContext}}",
     macroLimit: 2000,

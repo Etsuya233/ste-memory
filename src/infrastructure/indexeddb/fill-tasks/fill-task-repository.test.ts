@@ -202,24 +202,19 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     });
   });
 
-  it("createIfIdle：空间内已有活动任务时拒绝创建并返回该任务（并发提交守卫）", async () => {
+  it("并发入队分配递增序号，只有队首可以从 queued 转 running", async () => {
     const db = createTestDatabase();
     const tasks = new DexieFillTaskRepository(db, () => NOW);
-
-    await tasks.create(task());
-    // 已有 running 任务：拒绝创建，返回冲突任务；新任务不落库
-    const conflict = await tasks.createIfIdle(SPACE_A, task({ runId: "run-2" }));
-    expect(conflict).toMatchObject({ runId: "run-1" });
-    expect(await tasks.find("run-2")).toBeUndefined();
-    // 其他空间不受影响
-    expect(
-      await tasks.createIfIdle(SPACE_B, task({ runId: "run-b", memorySpaceId: SPACE_B })),
-    ).toBeUndefined();
-
-    // 终态后活动名额释放：允许创建
-    await tasks.markSucceeded("run-1");
-    expect(await tasks.createIfIdle(SPACE_A, task({ runId: "run-3" }))).toBeUndefined();
-    expect(await tasks.find("run-3")).toMatchObject({ status: "running" });
+    const queued = await Promise.all(
+      [1, 2, 3].map((index) => tasks.enqueue(task({ runId: `run-${index}`, status: "queued" }))),
+    );
+    expect(queued.map((item) => item.queuePosition)).toEqual([1, 2, 3]);
+    expect(await tasks.markRunning("run-2")).toBe(false);
+    expect(await tasks.markRunning("run-1")).toBe(true);
+    await tasks.markFailed("run-1", "失败");
+    expect(await tasks.markRunning("run-2")).toBe(false);
+    await tasks.release("run-1");
+    expect(await tasks.markRunning("run-2")).toBe(true);
   });
 
   it("markInterruptedOnStartup：非终态全部置 interrupted（返回被中断行），终态保持原样，不自动重放", async () => {

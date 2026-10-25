@@ -7,6 +7,11 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { AutoFillFields, AUTO_FILL_MODE_LABELS } from "../tasks/auto-fill-controls.tsx";
+import {
+  validateAutoFillSettings,
+  type AutoFillSettings,
+} from "../../features/fill-tasks/auto-fill-settings.ts";
 import { createBackupFile, serializeBackupFile } from "../../features/backup/index.ts";
 import {
   backupFilename,
@@ -548,6 +553,11 @@ export function SettingsTab(props: {
       label: "模型连接",
       items: [
         {
+          key: "auto-fill",
+          title: "自动填表",
+          summary: `${AUTO_FILL_MODE_LABELS[props.settings.autoFill.mode]} · 间隔 ${props.settings.autoFill.interval} 层 · 每批 ${props.settings.autoFill.blockSize} 层`,
+        },
+        {
           key: "agent-connections",
           title: "Agent 连接",
           summary: agentConnectionsSummary(props.settings),
@@ -863,6 +873,26 @@ export function SettingsTab(props: {
         )}
       </div>
 
+      <div
+        className="stm-setting-group"
+        data-group="auto-fill"
+        hidden={activeGroup !== "auto-fill"}
+      >
+        {activeGroup === "auto-fill" && (
+          <AutoFillFields
+            values={props.settings.autoFill}
+            onChange={(values) => {
+              try {
+                const autoFill = values as AutoFillSettings;
+                validateAutoFillSettings(autoFill);
+                saveSettings({ ...props.settings, autoFill });
+              } catch (error) {
+                reportError(error);
+              }
+            }}
+          />
+        )}
+      </div>
       {/* Agent 连接 */}
       <div
         className="stm-setting-group stm-setting-group--collapsible"

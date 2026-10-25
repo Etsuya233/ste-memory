@@ -42,9 +42,9 @@ export interface TaskStatusViewModel {
 export interface TasksTabViewModel {
   /** 当前对话消息数（触发校验的楼层上限） */
   readonly chatLength: number;
-  /** 是否允许触发（插件启用 + 对话非空 + 无活动任务） */
+  /** 是否允许触发（对话非空；运行期间可继续入队） */
   readonly canTrigger: boolean;
-  /** 是否允许触发初始化填表（仅要求无活动任务；不依赖对话消息数） */
+  /** 是否允许触发初始化填表（不依赖对话消息数；运行期间可继续入队） */
   readonly canTriggerInit: boolean;
   /** 对话为空（无消息可填表） */
   readonly noMessages: boolean;
@@ -65,6 +65,7 @@ export interface TasksTabViewModel {
   readonly coverage: CoverageViewModel;
   /** 任务历史（终态任务 createdAt 倒序）：状态/范围/时间/错误，失败与中断可重试 */
   readonly history: readonly TaskHistoryItemViewModel[];
+  readonly pendingTasks: readonly FillTaskView[];
   /** 当前对话清洗配置提示（ticket 22）：如「清洗：我的清洗」/「未启用清洗」 */
   readonly cleaningHint: string;
 }
@@ -174,7 +175,10 @@ export function validateFloorRange(
  *  初始化任务（kind=init）无楼层：running 显示初始化文案，不显示楼层进度。 */
 export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
   switch (task.status) {
+    case "queued":
+      return { label: "等待中", detail: "按提交顺序等待执行" };
     case "running":
+      if (task.phase === "saving") return { label: "保存中", detail: "正在提交当前批次…" };
       return task.kind === "init"
         ? { label: "运行中", detail: "正在初始化…" }
         : { label: "运行中", detail: `已处理 ${task.processedCount}/${task.totalCount} 层` };
@@ -243,9 +247,11 @@ export function buildCoverageViewModel(input: {
   readonly ledger: readonly FloorLedgerEntry[];
   /** 活动任务楼层范围（无活动任务为 undefined → 无「任务中」类别） */
   readonly activeRange: { readonly from: number; readonly to: number } | undefined;
+  readonly plannedRanges?: readonly FloorRange[];
   readonly chatLength: number;
 }): CoverageViewModel {
   const byFloor = new Map(input.ledger.map((entry) => [entry.floor, entry.status]));
+  const planned = input.plannedRanges ?? (input.activeRange ? [input.activeRange] : []);
   const counts: Record<CoverageStatus, number> = {
     processed: 0,
     running: 0,
@@ -258,9 +264,7 @@ export function buildCoverageViewModel(input: {
     const status: CoverageStatus =
       ledgerStatus === "processed" || ledgerStatus === "error"
         ? ledgerStatus
-        : input.activeRange !== undefined &&
-            floor >= input.activeRange.from &&
-            floor <= input.activeRange.to
+        : planned.some((range) => floor >= range.from && floor <= range.to)
           ? "running"
           : "untracked";
     counts[status] += 1;
@@ -324,6 +328,7 @@ export function buildTasksTabViewModel(input: {
   readonly activeTask: FillTaskView | undefined;
   /** 最近任务列表（createdAt 倒序；运行中任务被过滤，活动任务区展示） */
   readonly historyTasks: readonly FillTaskView[];
+  readonly pendingTasks?: readonly FillTaskView[];
   /** 当前对话清洗配置（ticket 22 / ADR 0011）：所选列表 id + 全部列表 */
   readonly cleaning: {
     readonly selectedListId: string | undefined;
@@ -336,7 +341,8 @@ export function buildTasksTabViewModel(input: {
   const active = input.activeTask;
   const coverage = buildCoverageViewModel({
     ledger: input.ledger,
-    activeRange: active ? { from: active.from, to: active.to } : undefined,
+    activeRange: active?.kind === "floor" ? { from: active.from, to: active.to } : undefined,
+    plannedRanges: input.pendingTasks?.filter((task) => task.kind === "floor"),
     chatLength: input.chatLength,
   });
   const history = input.historyTasks
@@ -344,9 +350,9 @@ export function buildTasksTabViewModel(input: {
     .map(toHistoryItem);
   return {
     chatLength: input.chatLength,
-    canTrigger: !active && input.chatLength > 0,
-    // 初始化填表不依赖对话消息数（新对话 0 消息也可初始化）；活动任务占用时禁用
-    canTriggerInit: !active,
+    canTrigger: input.chatLength > 0,
+    // 初始化填表不依赖对话消息数，运行期间也可入队。
+    canTriggerInit: true,
     noMessages: input.chatLength <= 0,
     hasActiveTask: active !== undefined,
     activeTaskRunId: active?.runId ?? null,
@@ -361,6 +367,7 @@ export function buildTasksTabViewModel(input: {
     defaultTo: first ? String(first.to) : "",
     coverage,
     history,
+    pendingTasks: input.pendingTasks ?? [],
     cleaningHint: resolveCleaningHint(input.cleaning.lists, input.cleaning.selectedListId),
   };
 }

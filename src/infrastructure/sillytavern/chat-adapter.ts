@@ -1,4 +1,8 @@
 import type {
+  AutoFillChatStore,
+  AutoFillChatState,
+} from "../../features/fill-tasks/auto-fill-settings.ts";
+import type {
   ChatBindingStore,
   ChatBindingStoreRead,
   ChatSnapshot,
@@ -203,6 +207,7 @@ export interface StEventBridge {
   onGroupStarted?(): void;
   onGroupEnded?(): void;
   onMessageChanged?(): void;
+  onGenerationEnded?(): void;
 }
 
 export type FloorJumpResult =
@@ -246,6 +251,38 @@ export class StChatAdapter {
 
   constructor(getContext: () => StContext) {
     this.#getContext = getContext;
+  }
+
+  get autoFillStore(): AutoFillChatStore {
+    return {
+      read: () => {
+        const raw = this.#getContext().chatMetadata?.steMemoryAutoFill;
+        return raw === undefined
+          ? { overrides: {}, pausedReason: null }
+          : (raw as AutoFillChatState);
+      },
+      write: (state) => {
+        const context = this.#getContext();
+        if (!context.chatMetadata) throw new Error("当前聊天元数据尚未就绪");
+        context.chatMetadata.steMemoryAutoFill = state;
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  latestAiFloor(): number {
+    const chat = this.#getContext().chat ?? [];
+    for (let floor = chat.length - 1; floor >= 0; floor -= 1) {
+      const message = chat[floor] as { is_user?: boolean; is_system?: boolean; mes?: string };
+      if (
+        !message.is_user &&
+        !message.is_system &&
+        typeof message.mes === "string" &&
+        message.mes.trim() !== ""
+      )
+        return floor;
+    }
+    return -1;
   }
 
   /** 当前对话快照（空串 chatId 按未保存处理） */
@@ -602,6 +639,7 @@ export class StChatAdapter {
           this.#generation = null;
         }
         bridge.onGenerationFinished?.(false);
+        bridge.onGenerationEnded?.();
       });
     if (types.GENERATION_STOPPED)
       source.on(types.GENERATION_STOPPED, () => {

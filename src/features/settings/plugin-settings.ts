@@ -1,3 +1,8 @@
+import {
+  DEFAULT_AUTO_FILL_SETTINGS,
+  validateAutoFillSettings,
+  type AutoFillSettings,
+} from "../fill-tasks/auto-fill-settings.ts";
 /**
  * 插件设置模型（纯逻辑层 seam 的一部分）：设置形状 + 默认值合并 + 存储端口。
  * 宿主 = StSettingsStore（ST extension_settings 对象，随 ST settings.json 持久化）。
@@ -42,6 +47,7 @@ export interface PluginSettings {
   readonly embeddingConnection?: EmbeddingConnection;
   /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
+  readonly autoFill: AutoFillSettings;
   /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
   readonly enabled: boolean;
   /** 记忆宏全局前缀（ticket 15 生效；默认建议 {{ste}}，用户可直接粘贴进提示词预设）：
@@ -74,6 +80,7 @@ export const SETTINGS_KEY = "steMemory";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   fillAgentTimeoutSeconds: 600,
+  autoFill: DEFAULT_AUTO_FILL_SETTINGS,
   enabled: true,
   macroName: "{{ste}}",
   macroLimit: 2000,
@@ -101,6 +108,11 @@ export interface SettingsStore {
 export function mergeSettings(raw: unknown): PluginSettings {
   const source = isRecord(raw) ? raw : {};
   const agentConnections = mergeAgentConnections(source.agentConnections);
+  const autoFill = {
+    ...DEFAULT_AUTO_FILL_SETTINGS,
+    ...(source.autoFill as Partial<AutoFillSettings> | undefined),
+  };
+  validateAutoFillSettings(autoFill);
   if (
     source.fillAgentTimeoutSeconds !== undefined &&
     (typeof source.fillAgentTimeoutSeconds !== "number" ||
@@ -116,6 +128,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
       source.fillAgentTimeoutSeconds === undefined
         ? DEFAULT_SETTINGS.fillAgentTimeoutSeconds
         : (source.fillAgentTimeoutSeconds as number),
+    autoFill,
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
     macroLimit:

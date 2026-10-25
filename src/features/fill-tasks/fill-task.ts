@@ -3,7 +3,7 @@ import type { MemorySpaceId } from "../memory/index.ts";
 /**
  * 填表任务领域类型与端口（ticket 13）。
  *
- * 状态机（扩展侧简化版，api 的 queued/pause/cancel_requested 不进入本实现）：
+ * 状态机：queued → running → succeeded / failed / interrupted。失败与对话切换可阻塞队列。
  * - idle：无任务行（未提交过 / 全部终态）；
  * - running：任务已提交、后台块循环执行中；
  * - running → succeeded / failed：自然完成 / 块失败（携带可读错误信息）；
@@ -17,9 +17,9 @@ import type { MemorySpaceId } from "../memory/index.ts";
  * 触发 UI 的「未处理范围」与覆盖视图（14）都从台账计算。
  */
 
-export type FillTaskStatus = "running" | "succeeded" | "failed" | "interrupted";
+export type FillTaskStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted";
 
-/** 终态：不再占用活动名额，不再被任务循环处理。 */
+/** 终态：执行循环已结束；blocksQueue 为 true 时仍保留在队列中等待处理。 */
 export const FILL_TASK_TERMINAL_STATUSES = [
   "succeeded",
   "failed",
@@ -40,6 +40,13 @@ export function isFillTaskTerminal(status: FillTaskStatus): boolean {
 export type FillTaskKind = "floor" | "init";
 
 interface FillTaskBase {
+  readonly automatic?: boolean;
+  /** 持久化的入队序号；同空间内递增，重试沿用原位置。 */
+  readonly queuePosition?: number;
+  /** 失败或切换对话后阻塞队列，直到重试或取消。 */
+  readonly blocksQueue?: boolean;
+  readonly retryPolicy?: { readonly retries: number; readonly delaySeconds: number };
+  readonly interruptionReason?: "chat-changed";
   readonly runId: string;
   readonly memorySpaceId: MemorySpaceId;
   /**
@@ -66,8 +73,6 @@ export type FillTask =
 export type FillTaskView = FillTask & {
   readonly processedCount: number;
   readonly totalCount: number;
-  /** 当前任务已暂存的楼层数，尚未提交，不计入 processedCount。 */
-  readonly stagedCount?: number;
   readonly phase?: "running" | "saving";
 };
 
@@ -118,21 +123,22 @@ export interface FloorLedgerRepository {
 
 export interface FillTaskRepository {
   create(task: FillTask): Promise<void>;
-  /**
-   * 原子守卫创建（并发提交兜底）：空间内无活动任务才创建并返回 undefined；
-   * 有活动任务时拒绝创建并返回该冲突任务（事务内检查 + 写入，防双提交竞态）。
-   */
-  createIfIdle(memorySpaceId: MemorySpaceId, task: FillTask): Promise<FillTask | undefined>;
-  /** 当前非终态任务（单空间单活动任务守卫）；无则 undefined。 */
+  /** 原子分配队列位置并创建；重试替换阻塞项时沿用其位置。 */
+  enqueue(task: FillTask, replaces?: string): Promise<FillTask>;
+  pending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;
+  markRunning(runId: string): Promise<boolean>;
+  release(runId: string): Promise<void>;
+  interruptPending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;
+  /** 当前 running 任务；无则 undefined。 */
   findActive(memorySpaceId: MemorySpaceId): Promise<FillTask | undefined>;
   find(runId: string): Promise<FillTask | undefined>;
   /** 仅 running → succeeded；状态不允许时返回 false（取消竞态兜底，不覆盖中断）。 */
   markSucceeded(runId: string): Promise<boolean>;
   /** 仅 running → failed（携带可读错误信息）；状态不允许时返回 false。 */
   markFailed(runId: string, errorMessage: string): Promise<boolean>;
-  /** 仅 running → interrupted（用户取消）；状态不允许时返回 false。 */
-  markInterrupted(runId: string): Promise<boolean>;
-  /** 启动时把所有非终态任务标记 interrupted（页面/浏览器重开，不自动重放），
+  /** queued / running → interrupted（用户取消）；状态不允许时返回 false。 */
+  markInterrupted(runId: string, reason?: "chat-changed"): Promise<boolean>;
+  /** 启动时把 running 任务标记 interrupted 并阻塞，queued 任务保留，
    *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
   markInterruptedOnStartup(): Promise<readonly FillTask[]>;
   /** 最近任务（createdAt 倒序，id 兜底），供触发 UI 展示最近一次任务结果。 */
@@ -146,7 +152,7 @@ export class FillTaskConflictError extends Error {
   readonly task: FillTask;
 
   constructor(task: FillTask) {
-    super(`该记忆空间已有正在进行的填表任务（${task.runId}），请等待其结束或取消后重试`);
+    super(`该记忆空间已有待处理的填表任务（${task.runId}），请等待其结束或取消后重试`);
     this.name = "FillTaskConflictError";
     this.task = task;
   }

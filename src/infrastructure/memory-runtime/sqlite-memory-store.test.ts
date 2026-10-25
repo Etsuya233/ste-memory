@@ -113,6 +113,36 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await client.close();
   });
 
+  it("keeps the first batch committed when the next batch rolls back", async () => {
+    const save = vi.fn(async () => {});
+    store.onCommitted = save;
+    const first = await store.begin(id());
+    const created = (await writer(store.repositories("write", first)).create(id(), tableId(), {
+      payload: { name: "第一批" },
+    }))!;
+    await store.finish(id(), first, true);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    const next = await store.begin(id());
+    const batch = writer(store.repositories("write", next));
+    expect(
+      await store.repositories("write", next).records.find(id(), tableId(), created.id),
+    ).toEqual(created);
+    await batch.update(id(), tableId(), created.id, {
+      expectedRevisionId: created.revisionId,
+      revisionSource: "agent",
+      patch: { name: "未提交更新" },
+    });
+    await batch.create(id(), tableId(), { payload: { name: "未提交新增" } });
+    expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
+    await store.finish(id(), next, false);
+    expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
+    expect(await db.memoryRecords.toArray()).toEqual([created]);
+    expect(save).toHaveBeenCalledTimes(1);
+    const third = await store.begin(id());
+    await store.finish(id(), third, false);
+  });
+
   it("task create and update are visible only to the task connection until commit", async () => {
     const committed = store.repositories();
     const token = await store.begin(id());
