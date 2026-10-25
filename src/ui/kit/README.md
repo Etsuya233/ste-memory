@@ -54,6 +54,37 @@ import "./kit/components.css";
 
 菜单触发器通过 `renderTrigger` 注入，必须把提供的原生按钮属性和 ref 传给实际按钮。菜单和弹窗保留在主题根的 DOM 子树中，原生 top layer 负责显示层级，主题继承得以保留。不要把它们 portal 到主题根以外。
 
+## 横向表单行 FormRow
+
+`FormRow` 左侧为标签，右侧为输入控件；统一字体、行高和宿主 label 的间距。
+单独使用时自带分组表面；放进 `ListGroup` 时采用外层圆角和行间分隔线。
+通过 render function 将标签关联、帮助和错误信息绑定到实际控件；原生事件、ref、disabled 等继续传给 Input 或 Select。
+
+```tsx
+import { FormRow, Input, Select } from "./kit/controls.tsx";
+import { ListGroup } from "./kit/list.tsx";
+
+<FormRow label="名称" error={nameError}>
+  {(field) => <Input {...field} value={name} onChange={changeName} />}
+</FormRow>;
+
+<ListGroup>
+  <FormRow label="开始">
+    {(field) => <Input {...field} value={start} onChange={changeStart} />}
+  </FormRow>
+  <FormRow label="结束">{(field) => <Input {...field} value={end} onChange={changeEnd} />}</FormRow>
+  <FormRow label="连接">
+    {(field) => (
+      <Select {...field}>
+        <option>跟随当前连接</option>
+      </Select>
+    )}
+  </FormRow>
+</ListGroup>;
+```
+
+`ListGroup as="ul|ol"` 时，每个 `FormRow` 仍需放在 `li` 内。上下布局的复杂表单继续使用 `FormField`。
+
 ## 外观的修改位置
 
 `theme.css` 定义颜色、尺寸、材质等语义令牌；`components.css` 定义公共结构与必要的控件形态。Glass 的内容组使用干净实色表面，操作胶囊和浮层使用磨砂；Classic 使用实色和清晰边界；Material 使用带强调色的表面与填充状态。模糊仅用于操作层与浮层，长列表不逐行模糊。

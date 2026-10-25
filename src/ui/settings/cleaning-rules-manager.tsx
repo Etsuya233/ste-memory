@@ -1,5 +1,5 @@
 import { Dialog } from "../kit/dialog.tsx";
-import { Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
+import { Button, FormRow, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
@@ -347,7 +347,6 @@ export function CleaningRuleEditor(props: {
   readonly onCancel: () => void;
 }) {
   const { draft } = props;
-  const nameId = useId();
   return (
     <form
       id={props.formId}
@@ -358,17 +357,18 @@ export function CleaningRuleEditor(props: {
       }}
     >
       <div className="stm-cleaning-intro">
-        <div className="stm-cleaning-card stm-cleaning-name-row">
-          <label htmlFor={nameId}>规则名称</label>
-          <Input
-            id={nameId}
-            data-stm-field="cleaning-rule-name"
-            value={draft.name}
-            placeholder="为规则命名"
-            autoComplete="off"
-            onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
-          />
-        </div>
+        <FormRow label="规则名称">
+          {(field) => (
+            <Input
+              {...field}
+              data-stm-field="cleaning-rule-name"
+              value={draft.name}
+              placeholder="为规则命名"
+              autoComplete="off"
+              onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
+            />
+          )}
+        </FormRow>
         <p className="stm-cleaning-footnote">先排除后保留，每组命中任一标签即可。</p>
       </div>
       {(["excludeTags", "keepTags"] as const).map((key) => {
@@ -376,7 +376,7 @@ export function CleaningRuleEditor(props: {
         return (
           <fieldset key={key} className="stm-cleaning-section" data-stm-field={`cleaning-${key}`}>
             <legend>{label}标签</legend>
-            <div className="stm-cleaning-card">
+            <ListGroup className="stm-cleaning-card">
               {draft[key].map((tag, index) => (
                 <div key={index} className="stm-cleaning-pair">
                   <Button
@@ -398,25 +398,27 @@ export function CleaningRuleEditor(props: {
                   </Button>
                   <div className="stm-cleaning-pair-fields">
                     {(["pre", "post"] as const).map((boundary) => (
-                      <label key={boundary} className="stm-cleaning-tag-row">
-                        <span>{boundary === "pre" ? "开始" : "结束"}</span>
-                        <Input
-                          aria-label={`${label}${boundary === "pre" ? "开始" : "结束"}标签 ${index + 1}`}
-                          value={tag[boundary]}
-                          placeholder={boundary === "pre" ? "<正文>" : "</正文>"}
-                          autoComplete="off"
-                          autoCapitalize="none"
-                          spellCheck={false}
-                          onChange={(event) =>
-                            props.onDraftChange({
-                              ...draft,
-                              [key]: draft[key].map((item, i) =>
-                                i === index ? { ...item, [boundary]: event.target.value } : item,
-                              ),
-                            })
-                          }
-                        />
-                      </label>
+                      <FormRow key={boundary} label={boundary === "pre" ? "开始" : "结束"}>
+                        {(field) => (
+                          <Input
+                            {...field}
+                            aria-label={`${label}${boundary === "pre" ? "开始" : "结束"}标签 ${index + 1}`}
+                            value={tag[boundary]}
+                            placeholder={boundary === "pre" ? "<正文>" : "</正文>"}
+                            autoComplete="off"
+                            autoCapitalize="none"
+                            spellCheck={false}
+                            onChange={(event) =>
+                              props.onDraftChange({
+                                ...draft,
+                                [key]: draft[key].map((item, i) =>
+                                  i === index ? { ...item, [boundary]: event.target.value } : item,
+                                ),
+                              })
+                            }
+                          />
+                        )}
+                      </FormRow>
                     ))}
                   </div>
                 </div>
@@ -440,7 +442,7 @@ export function CleaningRuleEditor(props: {
                 </svg>
                 添加{label}标签
               </Button>
-            </div>
+            </ListGroup>
             <p className="stm-cleaning-footnote">
               {key === "keepTags"
                 ? "留空时保留其余全文；已配置但未命中时输出空文本。"
