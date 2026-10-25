@@ -396,7 +396,9 @@ select.ui-input {
   -webkit-backdrop-filter: var(--ui-float-backdrop);
 }
 .ui-action-menu > button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
   width: 100%;
   min-height: var(--ui-control-h);
   padding: var(--ui-space-3);
@@ -408,6 +410,25 @@ select.ui-input {
   text-align: left;
   cursor: pointer;
 }
+.ui-menu-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ui-menu-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  margin-left: auto;
+  font-size: 20px;
+  line-height: 1;
+}
+.ui-action-menu > [aria-checked="true"] {
+  color: var(--ui-accent-text);
+  background: var(--ui-accent-tint);
+  font-weight: var(--ui-weight-semibold);
+}
+
 .ui-action-menu > .ui-menu-danger {
   color: var(--ui-danger);
 }

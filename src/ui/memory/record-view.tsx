@@ -1,4 +1,12 @@
 import { ActionGroup } from "../kit/actions.tsx";
+import { ActionMenu } from "../kit/action-menu.tsx";
+import { DEFAULT_RECORD_LIST_ORDER } from "../../features/memory/index.ts";
+import {
+  loadRecordSort,
+  nextRecordSort,
+  recordSortOptions,
+  saveRecordSort,
+} from "./record-sort-model.ts";
 import { Button, Input } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
@@ -19,6 +27,7 @@ import type {
   MemoryRecordHistory,
   MemoryRecordId,
   MemoryRecordPage,
+  MemoryRecordListOrder,
   MemoryTable,
   MemoryTableId,
 } from "../../features/memory/index.ts";
@@ -140,6 +149,10 @@ export function RecordsTab(props: {
   // 窄屏式选择器：搜索框默认折叠在右侧，点击展开
   const [searchOpen, setSearchOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [recordOrder, setRecordOrder] = useState(DEFAULT_RECORD_LIST_ORDER);
+  const [sortVersion, setSortVersion] = useState(0);
+  const sortOptions = recordSortOptions(fields);
+  const sortLabel = sortOptions.find((option) => option.fieldId === recordOrder.fieldId)!.label;
   const [editor, setEditor] = useState<{
     original: MemoryRecord | null;
     draft: RecordFormDraft;
@@ -182,6 +195,7 @@ export function RecordsTab(props: {
     setTables(undefined);
     setSelectedTableId(null);
     setFields([]);
+    setRecordOrder(DEFAULT_RECORD_LIST_ORDER);
     setRecordPage(undefined);
     setDetailRecordId(null);
     setDetailRecord(undefined);
@@ -245,22 +259,26 @@ export function RecordsTab(props: {
     if (!spaceId || !selectedTableId) {
       setRecordPage(undefined);
       setFields([]);
+      setRecordOrder(DEFAULT_RECORD_LIST_ORDER);
       return;
     }
     let cancelled = false;
     setLoading(true);
     void (async () => {
       try {
-        const [fieldList, pageData] = await Promise.all([
-          props.runtime.fields.list(spaceId, selectedTableId),
-          props.runtime.records.list(spaceId, selectedTableId, {
-            page,
-            pageSize: RECORD_PAGE_SIZE,
-            search: search.length > 0 ? search : undefined,
-          }),
-        ]);
+        const fieldList = await props.runtime.fields.list(spaceId, selectedTableId);
+        if (cancelled) return;
+        const order = loadRecordSort(spaceId, selectedTableId, fieldList);
+        // Validate the saved field against the current schema before loading a page.
+        const pageData = await props.runtime.records.list(spaceId, selectedTableId, {
+          page,
+          pageSize: RECORD_PAGE_SIZE,
+          search: search.length > 0 ? search : undefined,
+          order,
+        });
         if (cancelled) return;
         setFields(fieldList);
+        setRecordOrder(order);
         setRecordPage(pageData);
         setLoadError(null);
       } catch (error) {
@@ -274,7 +292,16 @@ export function RecordsTab(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.runtime, spaceId, selectedTableId, page, search, reloadKey, props.dataVersion]);
+  }, [
+    props.runtime,
+    spaceId,
+    selectedTableId,
+    page,
+    search,
+    reloadKey,
+    props.dataVersion,
+    sortVersion,
+  ]);
 
   // 引用字段目标表记录（表单选项；失败不阻塞，Memory 引用校验兜底）
   useEffect(() => {
@@ -549,6 +576,16 @@ export function RecordsTab(props: {
     setDetailRecordId(null);
     setEditingKey(null);
     setSearchOpen(false);
+  }
+
+  function changeRecordSort(fieldId: MemoryRecordListOrder["fieldId"]): void {
+    if (!confirmDiscardIfDirty()) return;
+    const order = nextRecordSort(recordOrder, fieldId);
+    saveRecordSort(spaceId!, selectedTableId!, order);
+    discardGrid();
+    setRecordOrder(order);
+    setPage(1);
+    setSortVersion((version) => version + 1);
   }
 
   function openRecord(recordId: MemoryRecordId): void {
@@ -938,6 +975,38 @@ export function RecordsTab(props: {
               {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
             </div>
           )}
+          <ActionGroup>
+            <ActionMenu
+              label={`排序：${sortLabel} · ${recordOrder.direction === "asc" ? "升序" : "降序"}`}
+              actions={sortOptions.map((option) => ({
+                id: option.fieldId,
+                dataAction: "record-sort-option",
+                label: option.label,
+                ariaLabel:
+                  option.fieldId === recordOrder.fieldId
+                    ? `${option.label} · ${recordOrder.direction === "asc" ? "升序" : "降序"}`
+                    : option.label,
+                trailing:
+                  option.fieldId === recordOrder.fieldId ? (
+                    <i
+                      className={`fa-solid ${recordOrder.direction === "asc" ? "fa-arrow-up-short-wide" : "fa-arrow-down-wide-short"}`}
+                      aria-hidden="true"
+                    />
+                  ) : undefined,
+                checked: option.fieldId === recordOrder.fieldId,
+                disabled: loading || !selectedTableId,
+                onSelect: () => changeRecordSort(option.fieldId),
+              }))}
+              renderTrigger={(triggerProps) => (
+                <PanelBarAction
+                  {...triggerProps}
+                  icon="fa-sort"
+                  label={triggerProps["aria-label"]!}
+                  data-action="record-sort-toggle"
+                />
+              )}
+            />
+          </ActionGroup>
           <ActionGroup className="stm-record-view-switch" role="group" aria-label="记录显示方式">
             <PanelBarAction
               icon="fa-list"

@@ -166,6 +166,85 @@ function createService() {
 }
 
 describe("MemoryRecordService", () => {
+  it("sorts by creation time before paging regardless of repository order, with stable ID ties", async () => {
+    const { service, records } = createService();
+    const base = (await service.create(spaceId, characterTableId, { payload: { [nameId]: "A" } }))!;
+    records.values.splice(
+      0,
+      1,
+      { ...base, id: "z" as MemoryRecordId, createdAt: "2026-08-03T00:00:00.000Z" },
+      { ...base, id: "b" as MemoryRecordId, createdAt: "2026-08-01T00:00:00.000Z" },
+      { ...base, id: "a" as MemoryRecordId, createdAt: "2026-08-01T00:00:00.000Z" },
+    );
+    expect(
+      (await service.list(spaceId, characterTableId, { page: 1, pageSize: 2 }))?.records.map(
+        (r) => r.id,
+      ),
+    ).toEqual(["a", "b"]);
+    expect(
+      (await service.list(spaceId, characterTableId, { page: 2, pageSize: 2 }))?.records.map(
+        (r) => r.id,
+      ),
+    ).toEqual(["z"]);
+    expect(
+      (
+        await service.list(spaceId, characterTableId, {
+          page: 1,
+          pageSize: 3,
+          order: { fieldId: "$created_at", direction: "desc" },
+        })
+      )?.records.map((r) => r.id),
+    ).toEqual(["z", "a", "b"]);
+  });
+
+  it("sorts filtered records numerically and keeps null/missing values last in both directions", async () => {
+    const { service } = createService();
+    for (const payload of [
+      { [nameId]: "A", [ageId]: 10, [roleId]: "主角" },
+      { [nameId]: "B", [ageId]: 2, [roleId]: "主角" },
+      { [nameId]: "C", [ageId]: null, [roleId]: "主角" },
+      { [nameId]: "D", [roleId]: "主角" },
+      { [nameId]: "E", [ageId]: 1, [roleId]: "配角" },
+    ])
+      await service.create(spaceId, characterTableId, { payload });
+    for (const direction of ["asc", "desc"] as const) {
+      const page = await service.list(spaceId, characterTableId, {
+        page: 1,
+        pageSize: 10,
+        search: "主角",
+        order: { fieldId: ageId, direction },
+      });
+      expect(page?.records.map((r) => r.displayText)).toEqual(
+        direction === "asc" ? ["B", "A", "C", "D"] : ["A", "B", "C", "D"],
+      );
+      expect(page?.total).toBe(4);
+    }
+  });
+
+  it("sorts by update time and scalar field values", async () => {
+    const { service, records } = createService();
+    await service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "B", [activeId]: false, [birthdayId]: "2000-02-01" },
+    });
+    await service.create(spaceId, characterTableId, {
+      payload: { [nameId]: "A", [activeId]: true, [birthdayId]: "2000-01-01" },
+    });
+    records.values[1] = { ...records.values[1]!, updatedAt: "2026-08-01T00:00:00.000Z" };
+    for (const [fieldId, direction, expected] of [
+      ["$updated_at", "desc", ["A", "B"]],
+      [nameId, "asc", ["A", "B"]],
+      [activeId, "asc", ["B", "A"]],
+      [birthdayId, "asc", ["A", "B"]],
+    ] as const) {
+      const page = await service.list(spaceId, characterTableId, {
+        page: 1,
+        pageSize: 10,
+        order: { fieldId, direction },
+      });
+      expect(page?.records.map((r) => r.displayText)).toEqual(expected);
+    }
+  });
+
   it("creates a typed current record with stable identity, display text, and source details", async () => {
     const { service } = createService();
     const location = await service.create(spaceId, locationTableId, {
