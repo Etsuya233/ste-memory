@@ -1114,3 +1114,199 @@
   font-size: var(--stm-fs-xs);
   font-weight: var(--stm-weight-regular);
 }
+
+/* 清洗规则采用 iOS inset grouped form；限定在业务组件内，避免通用表单重置吞掉分组。 */
+.stm-cleaning-editor {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  gap: 28px;
+  width: 100%;
+  max-width: 680px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0 8px;
+  color: var(--ui-fg);
+  font-family: var(--ui-font);
+}
+.stm-cleaning-card {
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--ui-surface);
+  isolation: isolate;
+}
+.stm-cleaning-editor .stm-cleaning-section {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.stm-cleaning-section > legend {
+  margin: 0 0 8px;
+  padding: 0 16px;
+  color: var(--ui-fg-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.stm-cleaning-name-row,
+.stm-cleaning-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.stm-cleaning-name-row {
+  padding: 0 18px;
+}
+.stm-cleaning-name-row > label,
+.stm-cleaning-tag-row > span {
+  flex-shrink: 0;
+  font-weight: 400;
+}
+.stm-cleaning-editor .ui-input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  outline-offset: -2px;
+  background: transparent;
+  color: var(--ui-fg);
+  box-shadow: none;
+  text-align: right;
+  font-size: 16px;
+}
+.stm-cleaning-editor .ui-input::placeholder {
+  color: var(--ui-fg-3);
+  opacity: 0.65;
+}
+.stm-cleaning-editor .ui-input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  border-radius: 6px;
+}
+.stm-cleaning-pair {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 18px 0 8px;
+}
+.stm-cleaning-pair + .stm-cleaning-pair {
+  border-top: 1px solid var(--ui-border);
+}
+.stm-cleaning-pair-fields {
+  flex: 1;
+  min-width: 0;
+}
+.stm-cleaning-tag-row {
+  min-height: 52px;
+}
+.stm-cleaning-tag-row + .stm-cleaning-tag-row {
+  border-top: 1px solid var(--ui-border);
+}
+.stm-cleaning-tag-row .ui-input {
+  font-family: var(--ui-mono);
+}
+.stm-cleaning-editor .stm-cleaning-remove.ui-button {
+  display: grid;
+  flex: 0 0 44px;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  margin: 0 8px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ui-danger);
+  box-shadow: none;
+}
+.stm-cleaning-editor .stm-cleaning-add.ui-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-accent);
+  box-shadow: none;
+  font-size: 16px;
+  font-weight: 400;
+  text-align: left;
+}
+.stm-cleaning-editor .stm-cleaning-pair + .stm-cleaning-add.ui-button {
+  border-top: 1px solid var(--ui-border);
+}
+.stm-cleaning-editor .stm-cleaning-add:hover,
+.stm-cleaning-editor .stm-cleaning-remove:hover {
+  background: var(--ui-hover);
+}
+.stm-cleaning-editor .stm-cleaning-add:active,
+.stm-cleaning-editor .stm-cleaning-remove:active {
+  background: var(--ui-pressed);
+}
+.stm-cleaning-footnote,
+.stm-cleaning-help {
+  margin: 8px 16px 0;
+  color: var(--ui-fg-2);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.stm-cleaning-help {
+  margin-top: -8px;
+}
+.stm-cleaning-help > summary {
+  width: fit-content;
+  min-height: 32px;
+  cursor: pointer;
+}
+.stm-cleaning-help > p {
+  max-width: 58ch;
+  margin: 6px 0 0;
+}
+[data-stm-section="cleaning-rules"] > .stm-cleaning-actions {
+  align-self: center;
+  width: 100%;
+  max-width: 680px;
+  margin: 0;
+}
+[data-stm-section="cleaning-rules"] .stm-cleaning-actions > .ui-button {
+  min-height: 50px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+.stm-settings-navigation .stm-cleaning-picker {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  margin: 0;
+  padding: 0 18px;
+  border-radius: 22px;
+  background: var(--ui-surface);
+}
+.stm-cleaning-picker .ui-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  border: 0;
+  background: transparent;
+  text-align: right;
+  box-shadow: none;
+}

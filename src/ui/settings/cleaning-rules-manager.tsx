@@ -1,5 +1,5 @@
 import { Dialog } from "../kit/dialog.tsx";
-import { FormField, Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
+import { Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
@@ -211,7 +211,7 @@ export function CleaningRulesManager(props: {
             onSave={save}
             onCancel={back}
           />
-          <div className="stm-setting-actions">
+          <div className="stm-setting-actions stm-cleaning-actions">
             {!chrome && (
               <Button type="button" data-action="test-cleaning-rule" onClick={openTest}>
                 测试规则
@@ -231,7 +231,7 @@ export function CleaningRulesManager(props: {
         </>
       ) : (
         <>
-          <label className="stm-form-row">
+          <label className="stm-form-row stm-cleaning-picker">
             <span className="stm-form-label">当前对话</span>
             <Select
               data-stm-field="chat-cleaning-rule"
@@ -337,7 +337,7 @@ export function CleaningRulesManager(props: {
   );
 }
 
-/** 一条规则同时编辑两组标签，组内 OR，先排除后保留。 */
+/** iOS 分组表单：每个标签对占两行，操作与字段放在同一个 surface 内。 */
 export function CleaningRuleEditor(props: {
   readonly formId?: string;
   readonly draft: CleaningRuleDraft;
@@ -347,100 +347,114 @@ export function CleaningRuleEditor(props: {
   readonly onCancel: () => void;
 }) {
   const { draft } = props;
+  const nameId = useId();
   return (
     <form
       id={props.formId}
-      className="stm-settings-form"
+      className="stm-cleaning-editor"
       onSubmit={(event) => {
         event.preventDefault();
         props.onSave();
       }}
     >
-      <FormField label="规则名称">
-        {(field) => (
+      <div className="stm-cleaning-intro">
+        <div className="stm-cleaning-card stm-cleaning-name-row">
+          <label htmlFor={nameId}>规则名称</label>
           <Input
-            {...field}
+            id={nameId}
             data-stm-field="cleaning-rule-name"
             value={draft.name}
+            placeholder="为规则命名"
+            autoComplete="off"
             onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
           />
-        )}
-      </FormField>
-      <p className="stm-setting-hint">
-        先排除后保留，每组命中任一标签即可。标签按普通文本区分大小写匹配，不支持同名嵌套。
-      </p>
+        </div>
+        <p className="stm-cleaning-footnote">先排除后保留，每组命中任一标签即可。</p>
+      </div>
       {(["excludeTags", "keepTags"] as const).map((key) => {
         const label = key === "keepTags" ? "保留" : "排除";
         return (
-          <fieldset key={key} className="stm-settings-form" data-stm-field={`cleaning-${key}`}>
+          <fieldset key={key} className="stm-cleaning-section" data-stm-field={`cleaning-${key}`}>
             <legend>{label}标签</legend>
-            <p className="stm-setting-hint">
+            <div className="stm-cleaning-card">
+              {draft[key].map((tag, index) => (
+                <div key={index} className="stm-cleaning-pair">
+                  <Button
+                    type="button"
+                    className="stm-cleaning-remove"
+                    aria-label={`删除${label}标签 ${index + 1}`}
+                    title={`删除${label}标签 ${index + 1}`}
+                    onClick={() =>
+                      props.onDraftChange({
+                        ...draft,
+                        [key]: draft[key].filter((_, i) => i !== index),
+                      })
+                    }
+                  >
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <circle cx="10" cy="10" r="9" fill="currentColor" />
+                      <path d="M6 10h8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </Button>
+                  <div className="stm-cleaning-pair-fields">
+                    {(["pre", "post"] as const).map((boundary) => (
+                      <label key={boundary} className="stm-cleaning-tag-row">
+                        <span>{boundary === "pre" ? "开始" : "结束"}</span>
+                        <Input
+                          aria-label={`${label}${boundary === "pre" ? "开始" : "结束"}标签 ${index + 1}`}
+                          value={tag[boundary]}
+                          placeholder={boundary === "pre" ? "<正文>" : "</正文>"}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          onChange={(event) =>
+                            props.onDraftChange({
+                              ...draft,
+                              [key]: draft[key].map((item, i) =>
+                                i === index ? { ...item, [boundary]: event.target.value } : item,
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                className="stm-cleaning-add"
+                data-action={`add-${key}`}
+                onClick={() =>
+                  props.onDraftChange({ ...draft, [key]: [...draft[key], { pre: "", post: "" }] })
+                }
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
+                  <path
+                    d="M6 10h8M10 6v8"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                添加{label}标签
+              </Button>
+            </div>
+            <p className="stm-cleaning-footnote">
               {key === "keepTags"
-                ? "留空表示保留排除后的全文；有配置但未命中时输出空文本。多个片段按原文顺序用换行连接。"
-                : "删除标签及其中内容。缺少结束标签时不匹配。"}
+                ? "留空时保留其余全文；已配置但未命中时输出空文本。"
+                : "删除标签及其中内容，保留其余文本。"}
             </p>
-            {draft[key].map((tag, index) => (
-              <div key={index} className="stm-settings-form">
-                <FormField label={`${label}开始标签 ${index + 1}`}>
-                  {(field) => (
-                    <Input
-                      {...field}
-                      value={tag.pre}
-                      placeholder="<正文>"
-                      onChange={(event) =>
-                        props.onDraftChange({
-                          ...draft,
-                          [key]: draft[key].map((item, i) =>
-                            i === index ? { ...item, pre: event.target.value } : item,
-                          ),
-                        })
-                      }
-                    />
-                  )}
-                </FormField>
-                <FormField label={`${label}结束标签 ${index + 1}`}>
-                  {(field) => (
-                    <Input
-                      {...field}
-                      value={tag.post}
-                      placeholder="</正文>"
-                      onChange={(event) =>
-                        props.onDraftChange({
-                          ...draft,
-                          [key]: draft[key].map((item, i) =>
-                            i === index ? { ...item, post: event.target.value } : item,
-                          ),
-                        })
-                      }
-                    />
-                  )}
-                </FormField>
-                <Button
-                  type="button"
-                  aria-label={`删除${label}标签 ${index + 1}`}
-                  onClick={() =>
-                    props.onDraftChange({
-                      ...draft,
-                      [key]: draft[key].filter((_, i) => i !== index),
-                    })
-                  }
-                >
-                  删除标签
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              data-action={`add-${key}`}
-              onClick={() =>
-                props.onDraftChange({ ...draft, [key]: [...draft[key], { pre: "", post: "" }] })
-              }
-            >
-              添加{label}标签
-            </Button>
           </fieldset>
         );
       })}
+      <details className="stm-cleaning-help">
+        <summary>匹配说明</summary>
+        <p>
+          标签按普通文本区分大小写匹配，支持跨行。缺少结束标签时不匹配，不支持同名嵌套。多个保留片段按原文顺序用换行连接。
+        </p>
+      </details>
       {props.error !== undefined && (
         <div className="stm-preset-warning" role="alert" data-stm-field="cleaning-rule-error">
           {props.error}
@@ -448,7 +462,7 @@ export function CleaningRuleEditor(props: {
       )}
       {!props.formId && (
         <div className="stm-setting-actions">
-          <Button type="submit" data-action="save-cleaning-rule">
+          <Button type="submit" variant="primary" data-action="save-cleaning-rule">
             保存
           </Button>
           <Button type="button" data-action="cancel-cleaning-rule" onClick={props.onCancel}>
