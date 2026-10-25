@@ -18,4 +18,6 @@ export interface MemorySpaceReader {
   listTables(memorySpaceId: MemorySpaceId): Promise<readonly MemoryTable[]>;
   listFields(memorySpaceId: MemorySpaceId, tableId: MemoryTableId): Promise<readonly MemoryField[]>;
   queryRecords(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage>;
+  /** Optional host SQL capability. The host enforces read-only authorization and execution/result budgets. */
+  querySql?(memorySpaceId: MemorySpaceId, sql: string): Promise<readonly Record<string, unknown>[]>;
 }

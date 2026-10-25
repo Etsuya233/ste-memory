@@ -45,6 +45,7 @@ export function buildSpaceInfo(
     case "unsaved-chat":
     case "space-missing":
     case "binding-unrecognized":
+    case "load-error":
       return { title: status.humanMsg, detail: "", tone: "warning" };
   }
 }
@@ -54,6 +55,10 @@ export function mirrorStatusSummary(status: ChatMirrorStatus): string {
   switch (status.kind) {
     case "disabled":
       return "已停用（开启后随对话文件同步记忆镜像）";
+    case "saving":
+      return "正在保存到对话文件";
+    case "failed":
+      return `对话文件保存失败：${status.error}`;
     case "idle": {
       if (status.lastWrittenAt === undefined) return "已启用（尚未写回）";
       const size =
@@ -82,5 +87,7 @@ export function runtimeStatusLabel(status: SpaceContextStatus | undefined): stri
       return "已加载 · 空间数据未就绪";
     case "binding-unrecognized":
       return "已加载 · 空间绑定无法识别";
+    case "load-error":
+      return "记忆空间加载失败";
   }
 }

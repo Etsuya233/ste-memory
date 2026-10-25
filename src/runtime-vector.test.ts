@@ -11,6 +11,7 @@ import {
   type SettingsStore,
 } from "./features/settings/plugin-settings.ts";
 import type { VectorEmbeddingPort } from "./features/vector-index/index.ts";
+import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
 
 async function setup(embedding: VectorEmbeddingPort) {
   const db = createTestDatabase();
@@ -27,6 +28,7 @@ async function setup(embedding: VectorEmbeddingPort) {
     characterId: 1,
     groupId: null,
     name2: "向量测试",
+    characters: [{ avatar: "other.png" }, { avatar: "vector.png" }],
     chat: [{}, {}],
     chatMetadata: {},
     saveMetadataDebounced: vi.fn(),
@@ -44,6 +46,7 @@ async function setup(embedding: VectorEmbeddingPort) {
   const runtime = await startSteMemory(() => context, {
     createDb: () => db,
     createLogDb: () => createTestLogDatabase(),
+    ...createRuntimeTestPorts(() => context),
     settingsStore,
     embedding,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

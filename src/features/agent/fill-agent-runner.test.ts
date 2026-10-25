@@ -149,6 +149,31 @@ function scriptedSubmitAgent() {
 }
 
 describe("runFillAgent", () => {
+  it("宿主提供SQL能力时填表Agent挂载只读query_sql", async () => {
+    const harness = await createHarness();
+    let query: string | undefined;
+    const streamFn = scriptedStreamFn((context) => {
+      expect(context.tools?.some((tool) => tool.name === "query_sql")).toBe(true);
+      if (!lastToolResult(context))
+        return assistantMessage(
+          [toolCallMessage("sql-fill", "query_sql", { sql: "SELECT 1 AS found" })],
+          "toolUse",
+        );
+      return assistantMessage([textMessage("无需变更。")], "stop");
+    });
+    const result = await runFillAgent({
+      ...runInput(harness, streamFn),
+      reader: {
+        ...harness.reader,
+        async querySql(_id, sql) {
+          query = sql;
+          return [{ found: 1 }];
+        },
+      },
+    });
+    expect(query).toBe("SELECT 1 AS found");
+    expect(result.errorMessage).toBeUndefined();
+  });
   it("守卫：编排消息与本轮消息都为空时抛错", async () => {
     const harness = await createHarness();
     await expect(

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import {
   MUTATE_TOOL_NAME,
-  PROPOSAL_PREVIEW_TOOL_NAME,
   QUERY_RECORDS_TOOL_NAME,
   SUBMIT_PROPOSAL_TOOL_NAME,
 } from "../agent/index.ts";
@@ -121,7 +120,6 @@ function scriptedFillAgent() {
             table: "characters",
             patch: { name: "云烬" },
           }),
-          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
           toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
         ],
         "toolUse",
@@ -155,7 +153,6 @@ function makeFailFirstRespond() {
             table: "characters",
             patch: { name: "云烬" },
           }),
-          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
           toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
         ],
         "toolUse",
@@ -170,34 +167,13 @@ function failOnceThenFill() {
   return scriptedStreamFn(makeFailFirstRespond());
 }
 
-/** 台账注入失败替身：验证批次提交与台账标记同事务（markProcessed 抛错 → 记录也回滚）。 */
+/** 台账注入失败替身：验证进度失败不撤销已保存记忆。 */
 class FailingLedgerRepository extends DexieFloorLedgerRepository {
   override async markProcessed(
     _memorySpaceId: MemorySpaceId,
     _floors: readonly number[],
   ): Promise<void> {
     throw new Error("台账写入失败（测试注入）");
-  }
-}
-
-/**
- * 台账写入后把任务行置 interrupted 的替身：模拟取消落在批提交与批结束行之间
- * （记录已提交、任务随即中断），验证批结束行状态取自本批实际结果。
- */
-class CancellingLedgerRepository extends DexieFloorLedgerRepository {
-  readonly #cancel: () => Promise<void>;
-
-  constructor(db: SteMemoryDatabase, now: () => string, cancel: () => Promise<void>) {
-    super(db, now);
-    this.#cancel = cancel;
-  }
-
-  override async markProcessed(
-    memorySpaceId: MemorySpaceId,
-    floors: readonly number[],
-  ): Promise<void> {
-    await super.markProcessed(memorySpaceId, floors);
-    await this.#cancel();
   }
 }
 
@@ -224,10 +200,10 @@ async function createHarness(
     readonly logs?: LogRepository;
     readonly logError?: (message: string, error: unknown) => void;
     readonly resolveCleaningRules?: () => readonly CleaningRule[];
-    /** 台账 markProcessed 注入失败（事务回滚验证；缺省 = 真实 Dexie 台账） */
+    /** 台账 markProcessed 注入失败；缺省使用真实 Dexie 台账。 */
     readonly failLedgerMarkProcessed?: boolean;
-    /** 台账写入后并发取消（取消落在批提交与批结束行之间；缺省 = 不取消） */
-    readonly cancelDuringCommit?: boolean;
+    readonly onSave?: () => Promise<void>;
+    readonly saveError?: boolean;
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -238,20 +214,9 @@ async function createHarness(
   const spaceId = space.id;
 
   const tasks = new DexieFillTaskRepository(db, () => NOW);
-  let ledger: DexieFloorLedgerRepository = options.failLedgerMarkProcessed
+  const ledger: DexieFloorLedgerRepository = options.failLedgerMarkProcessed
     ? new FailingLedgerRepository(db, () => NOW)
     : new DexieFloorLedgerRepository(db, () => NOW);
-  if (options.cancelDuringCommit) {
-    // 取消走任务行状态（与并发取消同一步骤）：台账写入完成后立即中断当前任务
-    ledger = new CancellingLedgerRepository(
-      db,
-      () => NOW,
-      async () => {
-        const active = await tasks.findActive(spaceId);
-        if (active) await tasks.markInterrupted(active.runId);
-      },
-    );
-  }
   const logs = options.logs ?? new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
   const source: FillTaskSource =
     options.source ??
@@ -281,24 +246,67 @@ async function createHarness(
   let historySeq = 0;
   let revisionSeq = 0;
   let evidenceSeq = 0;
-  const recordWriter = new MemoryRecordService(
-    services.tableRepository,
-    services.fieldRepository,
-    services.recordRepository,
-    () => `record-${++recordSeq}` as MemoryRecordId,
-    () => `history-${++historySeq}` as MemoryRecordHistoryId,
-    () => `revision-${++revisionSeq}` as MemoryRevisionId,
-    () => NOW,
-  );
   let runSeq = 0;
   const service = new FillTaskService({
     tasks,
     ledger,
     source,
-    reader,
-    ports,
-    evidence: services.recordRepository,
-    recordWriter,
+    beginTask: async () => {
+      const staged = createTestDatabase(`ste-fill-staged-${++harnessSeq}-`);
+      const stagedServices = createServices(staged, () => NOW);
+      for (const name of [
+        "memoryTables",
+        "memoryFields",
+        "memoryRecords",
+        "memoryRecordHistory",
+        "memoryEvidence",
+      ] as const) {
+        await staged.table(name).bulkPut(await db.table(name).toArray());
+      }
+      const writer = new MemoryRecordService(
+        stagedServices.tableRepository,
+        stagedServices.fieldRepository,
+        stagedServices.recordRepository,
+        () => `record-${++recordSeq}` as MemoryRecordId,
+        () => `history-${++historySeq}` as MemoryRecordHistoryId,
+        () => `revision-${++revisionSeq}` as MemoryRevisionId,
+        () => NOW,
+      );
+      return {
+        reader: {
+          ...reader,
+          queryRecords: (spaceId, input) =>
+            new MemoryRecordQueryService(
+              stagedServices.tableRepository,
+              stagedServices.fieldRepository,
+              stagedServices.recordRepository,
+            ).query(spaceId, input),
+        },
+        ports: { ...ports, records: stagedServices.recordRepository },
+        evidence: stagedServices.recordRepository,
+        recordWriter: writer,
+        commitAndSave: async () => {
+          const names = ["memoryRecords", "memoryRecordHistory", "memoryEvidence"] as const;
+          const snapshots = await Promise.all(names.map((name) => staged.table(name).toArray()));
+          await db.transaction(
+            "rw",
+            [db.memoryRecords, db.memoryRecordHistory, db.memoryEvidence],
+            async () => {
+              for (let i = 0; i < names.length; i++) {
+                await db.table(names[i]!).clear();
+                await db.table(names[i]!).bulkPut(snapshots[i]!);
+              }
+            },
+          );
+          await options.onSave?.();
+          if (options.saveError) throw new Error("聊天文件保存失败");
+        },
+        rollback: async () => {},
+        release: async () => {
+          await staged.delete();
+        },
+      };
+    },
     runInTransaction: (work) =>
       // 事务作用域函数必须声明为 async：非 async 包装（() => work()）不会触发
       // Dexie 的 expected-awaits 追踪，事务会在承诺链完成前提交（PrematureCommit）。
@@ -467,7 +475,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(streamFn.calls.count).toBe(6);
   });
 
-  it("台账标记失败：记录提交与台账更新同事务回滚（无半批数据、楼层保持 untracked）", async () => {
+  it("台账标记失败：保留已经保存的完整记忆，楼层保持原状态", async () => {
     // 台账写入抛错（同事务内第二步失败）：整批回滚，记录/历史/证据都不落库
     const harness = await createHarness({
       streamFn: scriptedFillAgent(),
@@ -482,14 +490,14 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
 
     // 记录/历史/证据与台账同事务：提交被回滚，数据一行不留
     const characters = (await services.tableRepository.findByKey(spaceId, "characters" as never))!;
-    expect(await services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
+    expect(await services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
     expect(await harness.db.memoryRecordHistory.count()).toBe(0);
-    expect(await harness.db.memoryEvidence.count()).toBe(0);
+    expect(await harness.db.memoryEvidence.count()).toBe(2);
     // 台账「processed」标记随事务回滚（同批不产生半批状态）；失败收口在事务之外
     // 单独把出错块标记 error，其余楼层保持 untracked（与块失败语义一致）
     expect(await floorStatuses(harness)).toEqual([
-      "error",
-      "error",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -539,7 +547,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(text).toContain("[1] 鲍勃：[reg] 原始内容 **带标记**");
   });
 
-  it("块失败：出错块楼层标记 error、未处理楼层保持 untracked、任务 failed 并停止，失败原因可读", async () => {
+  it("块失败：旧台账保持原样、任务 failed 并停止，失败原因可读", async () => {
     const streamFn = failingAgent();
     const harness = await createHarness({ streamFn });
     const { service, spaceId } = harness;
@@ -550,8 +558,8 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(terminal.errorMessage).toContain("模型炸了");
 
     expect(await floorStatuses(harness)).toEqual([
-      "error",
-      "error",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -568,7 +576,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(streamFn.calls.count).toBe(1);
   });
 
-  it("块失败保留已提交块：块 1 成功提交后块 2 失败，已提交数据/楼层保持 processed", async () => {
+  it("后续块失败：整次任务记录和证据全部回滚，楼层保持原样", async () => {
     // 前两次流式调用（块 1：工具轮 + 回答轮）走成功脚本；第 3 次起（块 2）失败
     const calls = { n: 0 };
     const streamFn = scriptedStreamFn((context) => {
@@ -584,7 +592,6 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
               table: "characters",
               patch: { name: "云烬" },
             }),
-            toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
             toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
           ],
           "toolUse",
@@ -602,10 +609,10 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
 
     // 块 1 已提交：楼层 processed、记录与证据落库；块 2 出错楼层标记 error；块 3 未跑
     expect(await floorStatuses(harness)).toEqual([
-      "processed",
-      "processed",
-      "error",
-      "error",
+      "untracked",
+      "untracked",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
     ]);
@@ -613,11 +620,11 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       spaceId,
       "characters" as never,
     ))!;
-    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(2);
+    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
+    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
   });
 
-  it("对话切换：块开始前检测到 chatId 变化，任务 failed（可读原因），楼层不标记", async () => {
+  it("对话切换：块开始前检测到 chatId 变化，任务 interrupted，楼层不标记", async () => {
     // 块 1 的回答轮（第 2 次调用）同步切换 chatId：块 1 提交完成后，
     // 块 2 开始前的安全点必然检测到对话已切换（确定性，无竞态）
     const chat = { id: "story" };
@@ -638,7 +645,6 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
             table: "characters",
             patch: { name: "云烬" },
           }),
-          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
           toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
         ],
         "toolUse",
@@ -649,13 +655,13 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
 
     const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 5, blockSize: 2 });
     const terminal = await waitForTerminal(harness, view.runId);
-    expect(terminal.status).toBe("failed");
-    expect(terminal.errorMessage).toContain("对话已切换");
+    expect(terminal.status).toBe("interrupted");
+    expect(terminal.errorMessage).toBeNull();
 
     // 块 1 已提交（已提交块保留）；块 2 起未跑、楼层不标记
     expect(await floorStatuses(harness)).toEqual([
-      "processed",
-      "processed",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -665,7 +671,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       spaceId,
       "characters" as never,
     ))!;
-    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
+    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
   });
 
   it("块内没有可处理的消息：任务 failed 且错误信息可读", async () => {
@@ -711,7 +717,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(resubmit.runId).not.toBe(first.runId);
   });
 
-  it("用户取消：任务立即置 interrupted，循环在安全点停止并丢弃未提交提案，楼层不标记", async () => {
+  it("用户取消：打断模型并回滚所有分块后标记 interrupted，楼层不标记", async () => {
     const streamFn = gatedStreamFn(scriptedFillAgent().respond, 3);
     const harness = await createHarness({ streamFn });
     const { service, spaceId } = harness;
@@ -734,8 +740,8 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
     expect(await floorStatuses(harness)).toEqual([
-      "processed",
-      "processed",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -746,8 +752,8 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       spaceId,
       "characters" as never,
     ))!;
-    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(2);
+    expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
+    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
   });
 
   it("取消已终态任务抛状态错误；任务不存在抛 NotFound", async () => {
@@ -870,8 +876,8 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(failed.status).toBe("failed");
     expect(await floorStatuses(harness)).toEqual([
       "untracked",
-      "error",
-      "error",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -1175,7 +1181,7 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     expect(rawPrompts.join("\n")).toContain("**带标记**");
   });
 
-  it("规则在块处理时实时读取：中途变更对后续块生效（Q12）", async () => {
+  it("任务开始时冻结规则：中途变更不影响后续块", async () => {
     const prompts: string[] = [];
     let calls = 0;
     const markedSource: FillTaskSource = {
@@ -1216,7 +1222,8 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     expect(prompts).toHaveLength(2);
     expect(prompts[0]).toContain("原始内容 带标记");
     expect(prompts[0]).not.toContain("**");
-    expect(prompts[1]).toContain("**带标记**");
+    expect(prompts[1]).toContain("带标记");
+    expect(prompts[1]).not.toContain("**");
   });
 });
 
@@ -1389,7 +1396,6 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
               table: "characters",
               patch: { name: "云烬" },
             }),
-            toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
             toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
           ],
           "toolUse",
@@ -1478,8 +1484,8 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       errorMessage: null,
     });
     const afterCancel = lifecycleRows(await logRowsByKey(harness, view.runId));
-    expect(afterCancel[4]).toMatchObject({ type: "fill-task", level: "warn" });
-    expect(payloadOf(afterCancel[4]!)).toEqual({
+    expect(afterCancel[5]).toMatchObject({ type: "fill-task", level: "warn" });
+    expect(payloadOf(afterCancel[5]!)).toEqual({
       phase: "end",
       status: "interrupted",
       errorMessage: null,
@@ -1492,8 +1498,8 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
     expect(await floorStatuses(harness)).toEqual([
-      "processed",
-      "processed",
+      "untracked",
+      "untracked",
       "untracked",
       "untracked",
       "untracked",
@@ -1505,10 +1511,10 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       ["fill-run", "info"],
       ["fill-run", "info"],
       ["fill-run", "info"],
-      ["fill-task", "warn"],
       ["fill-run", "warn"],
+      ["fill-task", "warn"],
     ]);
-    expect(payloadOf(final[5]!)).toEqual({
+    expect(payloadOf(final[4]!)).toEqual({
       phase: "end",
       batch: 2,
       block: { from: 2, to: 3 },
@@ -1636,27 +1642,120 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     ).toBe(false);
   });
 
-  it("取消落在批提交之后：批结束行记 succeeded（本批已写入），不被随后的中断改写", async () => {
-    const harness = await createHarness({ cancelDuringCommit: true });
+  it("进入保存阶段后拒绝取消，保持提交结果并正常完成任务", async () => {
+    let cancelError: unknown;
+    const harness: Harness = await createHarness({
+      onSave: async () => {
+        const active = await harness.tasks.findActive(harness.spaceId);
+        try {
+          await harness.service.cancel(harness.spaceId, active!.runId);
+        } catch (error) {
+          cancelError = error;
+        }
+      },
+    });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    expect((await waitForTerminal(harness, view.runId)).status).toBe("succeeded");
+    expect(cancelError).toBeInstanceOf(FillTaskStateError);
+    expect(await harness.db.memoryRecords.count()).toBe(1);
+  });
+
+  it("保存失败保留已经提交的记忆，台账保持原样", async () => {
+    const harness = await createHarness({ saveError: true });
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    expect(await waitForTerminal(harness, view.runId)).toEqual({
+      status: "failed",
+      errorMessage: "聊天文件保存失败",
+    });
+    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(0);
+  });
+
+  it("提交前输入原文变化回滚，保留已有楼层状态", async () => {
+    let changed = false;
+    const source: FillTaskSource = {
+      chatId: () => "story",
+      chatMessageCount: () => CHAT_LENGTH,
+      messagesInRange: (from, to) =>
+        defaultMessagesInRange(from, to).map((message) =>
+          changed ? { ...message, content: "编辑后的内容" } : message,
+        ),
+    };
+    const respond = scriptedFillAgent().respond;
+    const streamFn = scriptedStreamFn((context) => {
+      const result = respond(context);
+      if (lastToolResult(context)) changed = true;
+      return result;
+    });
+    const harness = await createHarness({ source, streamFn });
+    await harness.ledger.markProcessed(harness.spaceId, [0]);
+    const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+    expect((await waitForTerminal(harness, view.runId)).errorMessage).toContain("输入消息已变化");
+    expect(await harness.db.memoryRecords.count()).toBe(0);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(1);
+  });
+
+  it("任务内创建返回真实ID，后续分块可读取修改，普通读取保持旧快照", async () => {
+    let block = 0;
+    let id = "";
+    const observed: number[] = [];
+    const streamFn = gatedStreamFn((context) => {
+      const last = lastToolResult(context);
+      if (!last) {
+        block++;
+        return assistantMessage(
+          [toolCallMessage("query", QUERY_RECORDS_TOOL_NAME, { table: "characters" })],
+          "toolUse",
+        );
+      }
+      if (last.toolName === QUERY_RECORDS_TOOL_NAME) {
+        const data = JSON.parse(textOf(last)) as { records: { id: string; revisionId: string }[] };
+        observed.push(data.records.length);
+        return assistantMessage(
+          [
+            toolCallMessage(
+              "change",
+              MUTATE_TOOL_NAME,
+              block === 1
+                ? { op: "create", table: "characters", patch: { name: "林" } }
+                : {
+                    op: "update",
+                    table: "characters",
+                    recordId: data.records[0]!.id,
+                    expectedRevisionId: data.records[0]!.revisionId,
+                    patch: { name: "林更新" },
+                  },
+            ),
+          ],
+          "toolUse",
+        );
+      }
+      if (last.toolName === MUTATE_TOOL_NAME) {
+        const data = JSON.parse(textOf(last)) as { recordId: string };
+        if (block === 1) id = data.recordId;
+        else expect(data.recordId).toBe(id);
+        return assistantMessage(
+          [toolCallMessage("finish", SUBMIT_PROPOSAL_TOOL_NAME, {})],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("完成")], "stop");
+    }, 5);
+    const harness = await createHarness({ streamFn });
     const view = await harness.service.submit({
       memorySpaceId: harness.spaceId,
       from: 0,
       to: 1,
-      blockSize: 2,
+      blockSize: 1,
     });
-    const terminal = await waitForTerminal(harness, view.runId);
-
-    // 取消在提交事务内落地：记录已写入，任务行被置 interrupted
-    expect(terminal.status).toBe("interrupted");
+    await vi.waitFor(() => expect(streamFn.calls.count).toBe(5));
+    expect(id).toBe("record-1");
+    expect(await harness.db.memoryRecords.count()).toBe(0);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(0);
+    streamFn.gate.open();
+    expect((await waitForTerminal(harness, view.runId)).status).toBe("succeeded");
+    expect(observed).toEqual([0, 1]);
     expect(await harness.db.memoryRecords.count()).toBe(1);
-
-    // 批结束行状态取自本批是否真正写入：已提交的批保持 succeeded，
-    // 任务级中断由任务行/取消路径的结束行表达
-    const runs = lifecycleRows(await logRowsByKey(harness, view.runId)).filter(
-      (row) => row.type === "fill-run",
-    );
-    expect(payloadOf(runs.at(-1)!)).toMatchObject({ phase: "end", status: "succeeded" });
-    expect(runs.at(-1)!.level).toBe("info");
   });
 });
 
@@ -1841,15 +1940,15 @@ describe("FillTaskService 填表 Agent 决策行（ADR 0016「上下文 + 轮次
     // 取消后放行块 2：进行中轮次照常落库（任务已中断，行仍完整），随后循环收尾
     streamFn.gate.open();
     const released = Date.now() + 5_000;
-    while (Date.now() < released && (await agentRows(harness, view.runId)).length < 6) {
+    while (Date.now() < released && (await agentRows(harness, view.runId)).length < 5) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const rows = await agentRows(harness, view.runId);
     expect(contextRows(rows)).toHaveLength(2);
     const turns = turnRows(rows);
-    expect(turns.map((row) => row.level)).toEqual(["info", "info", "info", "info"]);
-    expect(turns.map((row) => payloadOf(row).round)).toEqual([1, 2, 1, 2]);
-    expect(turns.map((row) => payloadOf(row).batch)).toEqual([1, 1, 2, 2]);
+    expect(turns.map((row) => row.level)).toEqual(["info", "info", "error"]);
+    expect(turns.map((row) => payloadOf(row).round)).toEqual([1, 2, 1]);
+    expect(turns.map((row) => payloadOf(row).batch)).toEqual([1, 1, 2]);
   });
 
   it("初始化填表：上下文行省略楼层区间（block）且无预设，turn 行 round 从 1 递增", async () => {
@@ -1977,7 +2076,6 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
               table: "characters",
               patch: { name: "云烬" },
             }),
-            toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
             toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
           ],
           "toolUse",

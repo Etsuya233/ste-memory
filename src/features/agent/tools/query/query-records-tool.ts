@@ -132,7 +132,7 @@ const QUERY_RECORDS_TOOL_DESCRIPTION = [
   "- table：表 key，必填。可用表 key 见系统提示中的摘要；填错会报错并附带可用 key 列表。",
   "- fields：仅填写表内字段 key；系统字段 $created_at/$updated_at 仅用于条件和排序，不能投影。省略时返回全部启用字段。",
   '- 查空引用示例：conditions:[{field:"所属总结字段Key",op:"equals",value:null}]；null 无引号，空字符串不能代替空引用。',
-  "- conditions：过滤条件列表，多个条件为 AND 语义（OR 请分多次查询）。",
+  "- conditions：过滤条件列表，多个条件为 AND 语义；需要 OR 或分组时可使用宿主提供的 query_sql，否则分多次查询。",
   "  每项为 { field, op, value }：field 是字段 key 或系统字段（$record_id 支持 equals/not_equals/in/not_in，",
   "  $display_text 支持文本操作符，$created_at/$updated_at 支持有序操作符）；",
   "  op 取值 equals / not_equals / in / not_in / contains / not_contains / greater_than /",

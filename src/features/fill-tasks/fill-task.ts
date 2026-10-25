@@ -7,7 +7,7 @@ import type { MemorySpaceId } from "../memory/index.ts";
  * - idle：无任务行（未提交过 / 全部终态）；
  * - running：任务已提交、后台块循环执行中；
  * - running → succeeded / failed：自然完成 / 块失败（携带可读错误信息）；
- * - running → interrupted：用户取消（立即落库，循环在安全点停止）或
+ * - running → interrupted：用户取消（中止并回滚后落库）或
  *   页面/浏览器重开（启动标记，不自动重放）。
  *
  * 楼层进度台账：按（记忆空间, 同步楼层）记录 processed / error 行，
@@ -66,6 +66,9 @@ export type FillTask =
 export type FillTaskView = FillTask & {
   readonly processedCount: number;
   readonly totalCount: number;
+  /** 当前任务已暂存的楼层数，尚未提交，不计入 processedCount。 */
+  readonly stagedCount?: number;
+  readonly phase?: "running" | "saving";
 };
 
 /** 楼层填表状态（语义与 api SourceMessageStatusValue 一致）。 */

@@ -32,6 +32,7 @@ export type {
   UpdateMemoryRecordInput,
 } from "./record-writer.ts";
 export { MemoryRecordQueryService } from "./record-query.ts";
+export type { MemoryRecordQueryExecutor } from "./record-query.ts";
 export type {
   QueryRecordFieldId,
   QueryRecordOperator,

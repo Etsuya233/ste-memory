@@ -176,6 +176,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("SQLite 显式保存门面", () => {
+  it("启动不轮询，kick 和重建保存直达新协调器", async () => {
+    const directSave = vi.fn(async () => undefined);
+    const h = createHarness({ directSave });
+    seedBinding(h, "space-1");
+    await h.sync.start();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(directSave).not.toHaveBeenCalled();
+    expect(h.writeCalls).toEqual([]);
+    await h.sync.kick();
+    await h.sync.flushRebuiltSpace("space-1" as MemorySpaceId, "char:3:story");
+    expect(directSave).toHaveBeenCalledTimes(2);
+    expect(directSave).toHaveBeenLastCalledWith("space-1", "char:3:story");
+    expect(h.writeCalls).toEqual([]);
+  });
+
+  it("保存阶段和失败转发到现有面板状态订阅", () => {
+    const h = createHarness({ directSave: vi.fn() });
+    const listener = vi.fn();
+    h.sync.onStatusChange(listener);
+    h.sync.reportSaveStatus({ kind: "saving", identity: "char:3:story" });
+    expect(h.sync.getStatus()).toEqual({ kind: "saving" });
+    h.sync.reportSaveStatus({ kind: "failed", identity: "char:3:story", error: "offline" });
+    expect(h.sync.getStatus()).toEqual({ kind: "failed", error: "offline" });
+    h.sync.reportSaveStatus({ kind: "saved", identity: "char:3:story" });
+    expect(h.sync.getStatus()).toMatchObject({ kind: "idle", lastWrittenAt: BASE_TIME });
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("ChatMetadataMirrorSync 写回（本地 → 对话文件）", () => {
   it("重建后立即覆盖较新的旧镜像，不等待防抖；普通 kick 仍遵守 LWW", async () => {
     const h = createHarness();

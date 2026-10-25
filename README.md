@@ -2,8 +2,9 @@
 
 SillyTavern 长对话记忆插件的源码仓库：在对话文件之外维护可修订的「记忆表格」，
 供角色卡与提示词预设通过宏注入当前认知，并支持手动编辑、Agent 填表、问答与
-本地备份/镜像恢复。全部数据默认存在浏览器 IndexedDB 与对话文件（chatMetadata）
-中，不依赖任何远端服务。
+本地备份/镜像恢复。记忆在线读写运行在 SQLite WASM Worker 的内存数据库中；
+默认从对话文件加载完整记忆快照，每次提交后立即尝试写回原对话文件。
+IndexedDB 保留本地快照缓存、任务与向量数据，不依赖额外数据库服务。
 
 ## Prerequisites
 
@@ -22,7 +23,7 @@ pnpm install
 
 ```bash
 pnpm watch        # esbuild watch 增量构建；配了 .env 就同步到 ST，Junction 模式自动跳过拷贝
-pnpm build        # 产物写到 dist/：index.js / manifest.json / style.css
+pnpm build        # dist/：index.js / sqlite-worker.js / sqlite3.wasm / manifest.json / style.css
 pnpm st:link      # 把 ST 扩展目录做成指向 dist/ 的链接（开发直连，见下）
 pnpm st:unlink    # 解除该链接（只删链接，不动 dist）
 pnpm typecheck    # tsc -p tsconfig.json
@@ -67,6 +68,14 @@ Authorization 时发送空鉴权值。`Content-Type` 固定为 `application/json
 纯向量新增与同指纹替换保留当前快照并提示重新搜索。搜索不接入宏、查询 Agent 或提示词注入。
 查询长度上限为连接限制与 4000 字符中的较小值，超长需自行缩短，分数仅表示相似程度。
 端点、模型及维度变化需重建；换密钥无需重建。同名远端模型更换权重无法自动识别，需强制重算。
+
+## SQL 控制台
+
+“检索”页通过“向量 / SQL”切换手动查询方式。SQL 页可浏览实际表结构、插入名称与示例，
+用 Ctrl / ⌘ + Enter 执行 SQL，并查看多个结果集、列信息、变更行数与耗时，支持复制 JSON。
+允许 DDL、DML、PRAGMA、事务与多语句，不限制行数或执行时间。它直接操作当前空间的运行库，
+不自动保存快照；修改不保证保留，直接改业务表也不生成修订或证据。Agent 的 SQL 权限保持只读。
+详见 [手动 SQL 控制台决策](./docs/adr/st/0020-manual-sql-console.md)。
 
 ## 自动召回
 
@@ -149,7 +158,15 @@ src/
 - 功能层不依赖 `infrastructure/` 与 `ui/`；具体实现由 `runtime.ts` 装配注入。
 - `tests/architecture/` 与 ESLint `no-restricted-imports` 同时强制以上方向。
 - 填表与问答通过记录服务的 `commitProposal` 提交，仓库、ID、时钟和显示计算由
-  Memory 内部管理；填表提交和台账更新仍由外层组织同一个事务。
+  Memory 内部管理；填表任务的全部分块共用 SQLite 事务，任务内工具即时写入并返回
+  真实记录 ID。普通读取只看已提交快照，任务成功后再保存文件和 IndexedDB 台账。
+- 记忆结构、记录、历史与证据的旧 IndexedDB 表仅保存序列化快照缓存；差量更新缓存
+  不清除向量。任务、台账、向量和独立日志继续使用 IndexedDB。
+- SQLite 资源随包发布；宏配置与界面不变，结构化记忆查询编译为参数化 SQL。
+  Agent 另有只读 `query_sql`，支持 AND/OR、括号、JOIN、聚合与子查询，写入仍经业务工具。
+  真实 ST 的 Edge 浏览器已完成 Worker/WASM、保存、事务与备份导入验收，
+  结果见 [浏览器验收记录](./docs/sqlite-browser-e2e.md)；其他 WebView 仍待验证。
+  实施状态见 [SQLite 迁移方案](./docs/sqlite-migration-plan.md)。
 - 设置保存后的宏、镜像与聊天同步由 `SettingsService` 负责；设置页和表格页只接收
   实际使用的服务，UI 负责草稿与错误展示。
 - 表格结构只在两处产生：首次创建对话时复制默认表格预设、设置页应用预设；两者共用
@@ -171,6 +188,7 @@ pnpm build
 - 领域与插件词汇：[`CONTEXT.md`](./CONTEXT.md)
 - 结构决策：[`docs/adr`](./docs/adr)（插件决策在 `docs/adr/st`）
 - 对话文件镜像格式：[`docs/chat-metadata-mirror.md`](./docs/chat-metadata-mirror.md)
+- SQLite 运行与保存边界：[`docs/adr/st/0019-sqlite-runtime.md`](./docs/adr/st/0019-sqlite-runtime.md)
 - 记忆视图与记忆查询：[`docs/memory-views.md`](./docs/memory-views.md)
 - 表格预设：[`docs/table-presets.md`](./docs/table-presets.md)
 - 系统自带预设的默认表结构：[`docs/system-memory-tables.md`](./docs/system-memory-tables.md)

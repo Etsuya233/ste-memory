@@ -12,6 +12,7 @@ import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "../memory/index.ts";
 import { composeQueryAgentSystemPrompt } from "./prompt-composer.ts";
 import { createQueryRecordsTool } from "./tools/query/query-records-tool.ts";
+import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
 
 /** 单次 run 的总超时：5 分钟（参考值，11.5 可按需调整）。 */
 export const DEFAULT_QUERY_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -39,7 +40,7 @@ export type QueryAgentRunHooks = RunHooks;
  * QueryAgent：对记忆空间内容提问的问答 Agent。
  *
  * - 每请求一个 Agent 实例（多轮历史由客户端回传）；
- * - 只挂只读工具 query_records，模型无 tool_calls 自然停止即结束（普通 Agent 循环，无 terminate）；
+ * - 挂载只读 query_records，以及宿主支持时的 query_sql；无 tool_calls 时自然结束；
  * - MemorySpaceTableDigest 每次 run 构建一次，提示词组合与工具校验共用；
  * - 总超时 timeoutMs（默认 5 分钟），超时/取消经 agent.abort() 按 streamFn 契约收尾。
  */
@@ -69,9 +70,12 @@ export class QueryAgent {
     // 每请求一个 Agent 实例；query_records 只读且相互独立，工具默认并行执行。
     const agent = new Agent({
       initialState: {
-        systemPrompt: composeQueryAgentSystemPrompt(digest),
+        systemPrompt: composeQueryAgentSystemPrompt(digest, this.#reader.querySql !== undefined),
         model: this.#llm.model,
-        tools: [createQueryRecordsTool({ reader: this.#reader, digest })],
+        tools: [
+          createQueryRecordsTool({ reader: this.#reader, digest }),
+          ...optionalQuerySqlTools(this.#reader, digest),
+        ],
       },
       streamFn: this.#llm.streamFn,
       getApiKey: this.#llm.getApiKey,

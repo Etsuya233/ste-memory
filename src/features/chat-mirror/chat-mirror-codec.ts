@@ -11,11 +11,10 @@ import { chatMirrorFileSchema } from "./chat-mirror-file.ts";
 
 /** 对话文件镜像编解码（纯函数，ADR 0023）：信封 ↔ 对象。
  *
- * - createChatMirrorFile：组装信封；includeHistory=false 时把 data.history
- *   裁为空数组（设置项「镜像包含修订历史」关闭，体积主要来源）。
- * - decodeChatMirrorFile：**忽略语义**——format/version 不匹配（未来版本）、
- *   结构损坏、空间 id 不一致、完整性违规一律返回 null，由调用方决定忽略并
- *   原样保留（与云同步文件「抛错中止」相反：镜像坏了不能打断打开流程）。
+ * - createChatMirrorFile：组装信封；保留旧调用的 includeHistory 裁剪参数，
+ *   当前 SQLite 保存入口固定包含完整历史。
+ * - decodeChatMirrorFile：format/version 不匹配、结构损坏、空间 id 不一致、
+ *   完整性违规一律返回 null；当前初始化和保存调用方据此报告错误并停止覆盖。
  *   旧版镜像缺初始化来源/表格顺序键，解码时做与备份文件同一套归一化。
  */
 

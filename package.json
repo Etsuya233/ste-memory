@@ -39,6 +39,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@earendil-works/pi-agent-core": "^0.83.0",
     "@earendil-works/pi-ai": "^0.83.0",
+    "@sqlite.org/sqlite-wasm": "3.54.1-build1",
     "dexie": "^4.4.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -2,14 +2,17 @@ import { build, type BuildOptions } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_DIR = path.join(PACKAGE_ROOT, "dist");
 const ENTRY = path.join(PACKAGE_ROOT, "src", "index.ts");
+const require = createRequire(import.meta.url);
 
-/** 静态资产：manifest 直接拷贝；样式按固定顺序聚合为单文件 style.css */
+/** 静态资产随插件发布，SQLite WASM 不依赖 CDN；样式聚合为 style.css。 */
 const STATIC_ASSETS: ReadonlyArray<{ from: string; to: string }> = [
   { from: path.join(PACKAGE_ROOT, "manifest.json"), to: "manifest.json" },
+  { from: require.resolve("@sqlite.org/sqlite-wasm/sqlite3.wasm"), to: "sqlite3.wasm" },
 ];
 
 /**
@@ -70,8 +73,11 @@ export interface BuildExtensionOptions {
 /** esbuild 配置（dev 与 prod 的唯一定义处，watch.ts 与 build.ts 共用） */
 export function createEsbuildOptions(outdir: string, dev: boolean): BuildOptions {
   return {
-    entryPoints: [ENTRY],
-    outfile: path.join(outdir, "index.js"),
+    entryPoints: {
+      index: ENTRY,
+      "sqlite-worker": path.join(PACKAGE_ROOT, "src/infrastructure/sqlite/worker.ts"),
+    },
+    outdir,
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -91,7 +97,7 @@ export function createEsbuildOptions(outdir: string, dev: boolean): BuildOptions
 }
 
 /**
- * 构建插件产物：esbuild 打包单文件 js + 拷贝 manifest 与 css。
+ * 构建主模块与独立 SQLite Worker，并复制 WASM、manifest 与样式。
  * @returns 所有产物的绝对路径
  */
 export async function buildExtension(options: BuildExtensionOptions = {}): Promise<string[]> {
@@ -101,12 +107,14 @@ export async function buildExtension(options: BuildExtensionOptions = {}): Promi
 
   await build(createEsbuildOptions(outdir, dev));
 
-  const outputs = [path.join(outdir, "index.js")];
+  const outputs = [path.join(outdir, "index.js"), path.join(outdir, "sqlite-worker.js")];
   if (dev) {
     outputs.push(path.join(outdir, "index.js.map"));
+    outputs.push(path.join(outdir, "sqlite-worker.js.map"));
   } else {
     // 清理 dev 残留的 sourcemap，避免拷贝进 ST 扩展目录
     rmSync(path.join(outdir, "index.js.map"), { force: true });
+    rmSync(path.join(outdir, "sqlite-worker.js.map"), { force: true });
   }
   outputs.push(...copyStaticAssets(outdir));
   return outputs;

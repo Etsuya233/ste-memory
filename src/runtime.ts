@@ -11,6 +11,7 @@ import {
   MemoryRecordService,
   MemorySpaceService,
   MemoryTableService,
+  createReadTimeDisplayTextResolver,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -26,16 +27,27 @@ import { buildMemorySpaceTableDigest } from "./features/agent/index.ts";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { ChatMetadataMirrorSync } from "./features/chat-mirror/chat-metadata-mirror-sync.ts";
 import {
+  ChatSnapshotPersistence,
+  type ChatSnapshotFileStore,
+  type ChatFileTarget,
+} from "./features/chat-mirror/chat-snapshot-persistence.ts";
+import {
+  createSqliteMemoryClient,
+  type SqliteMemoryClient,
+} from "./infrastructure/sqlite/client.ts";
+import { querySqliteRecords } from "./infrastructure/sqlite/query-executor.ts";
+import type { SqlConsole } from "./features/sql-console/sql-console.ts";
+import { SqliteMemoryStore } from "./infrastructure/memory-runtime/sqlite-memory-store.ts";
+import { SqliteMemoryBackupRepository } from "./infrastructure/memory-runtime/sqlite-backup-repository.ts";
+import type { SqliteRepositories } from "./infrastructure/memory-runtime/sqlite-memory-store.ts";
+import type { MemorySpaceBackup } from "./features/backup/backup-file.ts";
+import type { FillTaskSession } from "./features/fill-tasks/fill-task-session.ts";
+import {
   DexieFillTaskRepository,
   DexieFloorLedgerRepository,
   DexieLogRepository,
-  DexieMemoryBackupRepository,
-  DexieMemoryFieldRepository,
+  type DexieMemoryBackupRepository,
   DexieMemoryChangeSource,
-  DexieMemoryRecordRepository,
-  DexieMemorySpaceRepository,
-  DexieMemoryTableRepository,
-  DexieSpaceStructureRebuild,
   SteMemoryDatabase,
   SteMemoryLogDatabase,
 } from "./infrastructure/indexeddb/index.ts";
@@ -110,6 +122,7 @@ export interface SteMemoryRuntime {
   readonly tasks: FillTaskService;
   readonly vector: VectorIndexService;
   readonly retrieval: VectorRetrievalService;
+  readonly sqlConsole: SqlConsole;
   readonly memoryRecall: MemoryRecallService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
@@ -165,6 +178,9 @@ export interface SteMemoryRuntime {
 }
 
 export interface StartSteMemoryOptions {
+  /** Explicit host adapter; tests use the real WASM engine in-process. */
+  readonly createSqlite?: () => SqliteMemoryClient | Promise<SqliteMemoryClient>;
+  readonly snapshotFiles?: ChatSnapshotFileStore;
   /** 测试与其他宿主可注入 embedding 实现；浏览器默认使用独立 HTTP 连接。 */
   readonly embedding?: VectorEmbeddingPort;
   readonly log?: PluginLog;
@@ -211,12 +227,21 @@ export async function startSteMemory(
   const logDb = options.createLogDb ? options.createLogDb() : new SteMemoryLogDatabase();
   const settings = options.settingsStore ?? new StSettingsStore(() => getContext() as StContext);
 
-  const spaceRepository = new DexieMemorySpaceRepository(db);
-  const tableRepository = new DexieMemoryTableRepository(db);
-  const fieldRepository = new DexieMemoryFieldRepository(db);
-  const recordRepository = new DexieMemoryRecordRepository(db);
-  const backup = new DexieMemoryBackupRepository(db);
-  const spaceStructureRebuild = new DexieSpaceStructureRebuild(db, spaceRepository);
+  const sqlite = await (options.createSqlite ?? createSqliteMemoryClient)();
+  const memoryStore = new SqliteMemoryStore(sqlite, db);
+  const repositories = memoryStore.repositories();
+  const {
+    spaces: spaceRepository,
+    tables: tableRepository,
+    fields: fieldRepository,
+    records: recordRepository,
+  } = repositories;
+  const backup = new SqliteMemoryBackupRepository(
+    db,
+    memoryStore,
+    options.createSqlite ?? createSqliteMemoryClient,
+  );
+  const spaceStructureRebuild = memoryStore.structureRebuild();
 
   const spaces = new MemorySpaceService(
     spaceRepository,
@@ -259,16 +284,83 @@ export async function startSteMemory(
       type: unknown,
     ) => adapter.interceptGeneration(abort, type),
   });
-  const reader: MemorySpaceReader = {
-    getSpace: (id) => spaces.find(id),
-    listTables: (memorySpaceId) => tables.list(memorySpaceId),
-    listFields: (memorySpaceId, tableId) => fields.list(memorySpaceId, tableId),
-    queryRecords: (memorySpaceId, input) =>
-      new MemoryRecordQueryService(tableRepository, fieldRepository, recordRepository).query(
-        memorySpaceId,
-        input,
-      ),
+  const makeReader = (
+    repos: SqliteRepositories,
+    view: "write" | "committed",
+  ): MemorySpaceReader => ({
+    getSpace: (id) => repos.spaces.find(id),
+    listTables: (id) => repos.tables.list(id),
+    listFields: (id, tableId) => repos.fields.list(id, tableId),
+    queryRecords: (id, input) =>
+      new MemoryRecordQueryService(
+        repos.tables,
+        repos.fields,
+        repos.records,
+        (spaceId, query, display) => querySqliteRecords(sqlite, spaceId, query, view, display),
+      ).query(id, input),
+    querySql: async (id, sql) => {
+      if (!(await memoryStore.ensure(id))) throw new Error(`记忆空间不存在: ${id}`);
+      const allowedTables: Record<string, readonly string[]> = {};
+      const display = createReadTimeDisplayTextResolver({
+        getTable: (tableId) => repos.tables.find(id, tableId),
+        getFields: (tableId) => repos.fields.list(id, tableId),
+        findRecord: (tableId, recordId) =>
+          repos.records.find(id, tableId, recordId as MemoryRecordId),
+      });
+      for (const table of await repos.tables.list(id)) {
+        if (!table.enabled) continue;
+        allowedTables[table.key] = [
+          "$record_id",
+          "$display_text",
+          "$created_at",
+          "$updated_at",
+          ...(await repos.fields.list(id, table.id))
+            .filter((field) => field.enabled)
+            .map((field) => field.key),
+        ];
+        // Display values depend on referenced records; refresh the SQL projection without creating revisions.
+        const quotedTable = `"${table.key.replaceAll('"', '""')}"`;
+        for (const record of await repos.records.list(id, table.id)) {
+          await sqlite.exec({
+            spaceId: id,
+            view,
+            access: "host",
+            sql: `UPDATE ${quotedTable} SET "$display_text"=? WHERE "$record_id"=?`,
+            bind: [await display(record), record.id],
+          });
+        }
+      }
+      return sqlite.exec({
+        spaceId: id,
+        sql,
+        view,
+        access: "read",
+        allowedTables,
+        maxRows: 101,
+        budgetMs: 1000,
+      });
+    },
+  });
+  const reader = makeReader(repositories, "committed");
+  const persistence = new ChatSnapshotPersistence(
+    options.snapshotFiles ?? adapter.snapshotFileStore,
+    () => options.version ?? "",
+  );
+  const targets = new Map<string, ChatFileTarget>();
+  const saveSnapshot = async (unit: MemorySpaceBackup): Promise<void> => {
+    if (!settings.read().enabled || !settings.read().mirror.enabled) return;
+    const target = targets.get(unit.space.id);
+    if (!target) return; // New spaces acquire their file target when the binding is published.
+    const binding = adapter.bindingStore.read();
+    const ownBinding =
+      binding.kind === "bound" &&
+      binding.binding.spaceId === unit.space.id &&
+      chatIdentityKey(adapter.getChatSnapshot()) === target.identity
+        ? binding.binding
+        : undefined;
+    await persistence.save(target, unit, ownBinding);
   };
+  memoryStore.onCommitted = saveSnapshot;
   /**
    * LLM 端口工厂（ADR 0010）：选中 Agent 连接 → 连接端口；否则跟随 ST 当前连接
    * （旧行为零变化）。任务开始时构造一次（ST 快照 + 连接快照），之后 streamFn
@@ -312,21 +404,52 @@ export async function startSteMemory(
     ledger: floorLedgerRepository,
     logs,
     source: adapter,
-    reader,
-    ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
-    evidence: recordRepository,
-    recordWriter: records,
-    runInTransaction: runInTransaction([
-      db.memoryTables,
-      db.memoryFields,
-      db.memoryRecords,
-      db.memoryRecordHistory,
-      db.memoryEvidence,
-      db.floorFillLedger,
-      // 任务表进事务：块提交在事务内复检任务行（running），与空间结构重建
-      // （删除任务行）互斥——重建后旧任务不可能再写入（spec 6.3 / AC-12）
-      db.memoryFillTasks,
-    ]),
+    beginTask: async (task, signal): Promise<FillTaskSession> => {
+      signal.throwIfAborted();
+      const token = await memoryStore.begin(task.memorySpaceId);
+      const baseline = await sqlite.exportSpace(task.memorySpaceId, "write");
+      const taskRepos = memoryStore.repositories("write", token);
+      const taskRecords = new MemoryRecordService(
+        taskRepos.tables,
+        taskRepos.fields,
+        taskRepos.records,
+        () => createId("record") as MemoryRecordId,
+        () => createId("record-history") as MemoryRecordHistoryId,
+        () => createId("revision") as MemoryRevisionId,
+        now,
+        taskRepos.records,
+        () => createId("evidence") as MemoryEvidenceId,
+      );
+      let ended = false;
+      return {
+        reader: makeReader(taskRepos, "write"),
+        ports: { tables: taskRepos.tables, fields: taskRepos.fields, records: taskRepos.records },
+        evidence: taskRepos.records,
+        recordWriter: taskRecords,
+        commitAndSave: async () => {
+          signal.throwIfAborted();
+          await memoryStore.consolidateTask(
+            baseline,
+            token,
+            createId("revision") as MemoryRevisionId,
+            now(),
+          );
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, true);
+        },
+        rollback: async () => {
+          if (ended) return;
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, false);
+        },
+        release: async () => {
+          if (ended) return;
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, false);
+        },
+      };
+    },
+    runInTransaction: runInTransaction([db.floorFillLedger, db.memoryFillTasks]),
     createLlm,
     createPromptContext,
     createRunId: () => createId("task"),
@@ -344,13 +467,21 @@ export async function startSteMemory(
   });
 
   const mirror = new ChatMetadataMirrorSync({
+    directSave: async (id, expectedIdentity) => {
+      if (chatIdentityKey(adapter.getChatSnapshot()) !== expectedIdentity)
+        throw new Error("对话已切换，未保存当前快照");
+      const target = adapter.captureFileTarget();
+      if (target) targets.set(id, target);
+      const unit = await memoryStore.snapshot(id);
+      if (unit) await saveSnapshot(unit);
+    },
     getChat: () => adapter.getChatSnapshot(),
     bindingStore: adapter.bindingStore,
     mirrorStore: adapter.mirrorStore,
     backup,
     changes: new DexieMemoryChangeSource(db),
     isEnabled: () => settings.read().enabled && settings.read().mirror.enabled,
-    includeHistory: () => settings.read().mirror.includeHistory,
+    includeHistory: () => true,
     appVersion: () => options.version ?? "",
     now: () => new Date(),
     log: {
@@ -359,6 +490,7 @@ export async function startSteMemory(
       error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
     },
   });
+  persistence.onStatusChange(() => mirror.reportSaveStatus(persistence.getStatus()));
   const presetApply = new TablePresetApplyService({
     cancelActiveTask: async (id) => {
       const active = await tasks.activeTask(id);
@@ -376,15 +508,50 @@ export async function startSteMemory(
     },
     now,
   });
+  const newBindings = new Set<string>();
+  const branchSources = new Map<MemorySpaceId, MemorySpaceBackup>();
   const manager = new ChatSpaceManager({
     getChat: () => adapter.getChatSnapshot(),
-    bindingStore: adapter.bindingStore,
+    bindingStore: {
+      read: () => adapter.bindingStore.read(),
+      write: (binding) => {
+        const previous = adapter.bindingStore.read();
+        const target = adapter.captureFileTarget();
+        if (target) targets.set(binding.spaceId, target);
+        if (previous.kind !== "bound" || previous.binding.spaceId !== binding.spaceId)
+          newBindings.add(binding.spaceId);
+        adapter.bindingStore.write(binding);
+      },
+    },
+    prepareSpace: async (binding) => {
+      const target = adapter.captureFileTarget();
+      if (!target) throw new Error("当前对话缺少可保存的文件身份");
+      targets.set(binding.spaceId, target);
+      if (!settings.read().mirror.enabled || newBindings.has(binding.spaceId)) return false;
+      const existed = await db.memorySpaces.get(binding.spaceId);
+      const unit = await persistence.load(target, binding.spaceId);
+      if (chatIdentityKey(adapter.getChatSnapshot()) !== target.identity) return false;
+      if (unit && binding.version === 2 && binding.chatIdentity !== target.identity) {
+        const sameFileImport =
+          !existed &&
+          target.kind === "character" &&
+          binding.chatIdentity.replace(/^char:[^:]+:/, "") === target.chatId;
+        if (!sameFileImport) {
+          branchSources.set(binding.spaceId, unit);
+          return { restored: false, space: unit.space };
+        }
+      }
+      if (unit) await memoryStore.replace(unit);
+      return unit !== undefined && existed === undefined;
+    },
+    branchSource: (id) => branchSources.get(id),
+    onReady: async (binding) => {
+      const unit = await memoryStore.snapshot(binding.spaceId);
+      if (unit) await saveSnapshot(unit);
+      newBindings.delete(binding.spaceId);
+    },
     spaces,
     installer: { installDefaultStructure: (id) => presetApply.installDefaultStructure(id) },
-    mirrorRestore: {
-      // 空间缺失时从对话文件镜像恢复（镜像有效 + spaceId 与绑定一致才恢复）
-      restore: (binding) => mirror.restoreFromMirror(binding),
-    },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
     // 分支对话分离：cloneSpace 克隆空间 + ID 工厂
     backup,
@@ -495,13 +662,9 @@ export async function startSteMemory(
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     recordWriter: records,
     // 提交批次的事务作用域（不含台账表）：记录/历史/证据读写全集。
-    runInTransaction: runInTransaction([
-      db.memoryTables,
-      db.memoryFields,
-      db.memoryRecords,
-      db.memoryRecordHistory,
-      db.memoryEvidence,
-    ]),
+    runInTransaction: async (work) => {
+      await work();
+    },
     createLlm: createQueryChatLlm,
     getCurrentSpaceId: () => {
       const status = manager.getStatus();
@@ -559,6 +722,7 @@ export async function startSteMemory(
     },
   });
 
+  let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
       memoryRecall.chatChanged();
@@ -566,9 +730,25 @@ export async function startSteMemory(
       retrieval.setContext(retrievalContext(), null, true);
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
       if (!settings.read().enabled) return;
-      void manager.syncToCurrentChat().catch((error) => {
+      const previous = manager.getStatus();
+      manager.clearCurrent();
+      const next = switching.then(async () => {
+        await tasks.interruptForChatChange();
+        if (previous?.kind === "active") {
+          await memoryStore.whenIdle(previous.space.id);
+          const snapshot = await memoryStore.snapshot(previous.space.id);
+          // Capture/export precedes closing SQLite. The file writer owns its independent copy.
+          if (snapshot)
+            void saveSnapshot(snapshot).catch((error) => log.error("旧对话记忆保存失败", error));
+          await memoryStore.unload(previous.space.id);
+        }
+        await manager.syncToCurrentChat();
+      });
+      switching = next.catch((error) => {
+        manager.reportLoadError(error);
         log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
       });
+      return switching;
     },
     // 把召回 Promise 原样返回 MESSAGE_SENT，ST 等待后才构建本轮提示词。
     onMessageEvent: (kind, floor) =>
@@ -602,7 +782,12 @@ export async function startSteMemory(
   });
 
   if (settings.read().enabled) {
-    await manager.syncToCurrentChat();
+    try {
+      await manager.syncToCurrentChat();
+    } catch (error) {
+      manager.reportLoadError(error);
+      log.error("记忆空间初始化失败", error);
+    }
     const status = manager.getStatus();
     if (status?.kind === "active") vectorSync.activate(status.space.id);
   }
@@ -666,6 +851,23 @@ export async function startSteMemory(
     tasks,
     vector,
     retrieval,
+    sqlConsole: {
+      async execute(spaceId, sql) {
+        if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        try {
+          return await sqlite.executeConsole(spaceId, sql);
+        } finally {
+          retrieval.invalidate(spaceId, "SQL 已执行，请重新搜索");
+          recallRetrieval.invalidate(spaceId, "SQL 已执行");
+          memoryRecall.invalidate("SQL 已执行");
+          macro.kick();
+        }
+      },
+      async schema(spaceId) {
+        if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        return sqlite.consoleSchema(spaceId);
+      },
+    },
     memoryRecall,
     spaceMaintenance,
     presetApply,

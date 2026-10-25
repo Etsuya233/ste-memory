@@ -8,6 +8,7 @@ import {
 } from "./infrastructure/indexeddb/test-support.ts";
 import {
   DexieFillTaskRepository,
+  DexieMemoryBackupRepository,
   DexieMemorySpaceRepository,
   DexieMemoryTableRepository,
 } from "./infrastructure/indexeddb/index.ts";
@@ -29,6 +30,7 @@ import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import type { MemorySpaceBackup } from "./features/backup/index.ts";
 import type { MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
+import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
 
 function fakeLog() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -46,6 +48,12 @@ function fakeStContext(overrides: Partial<StContext> = {}): {
     characterId: 3,
     groupId: null,
     name2: "爱丽丝",
+    characters: [
+      { avatar: "other0.png" },
+      { avatar: "other1.png" },
+      { avatar: "other2.png" },
+      { avatar: "alice.png" },
+    ],
     chat: [{}, {}],
     chatMetadata,
     saveMetadataDebounced: vi.fn(),
@@ -67,7 +75,11 @@ function startTestRuntime(
   getContext: () => unknown,
   options: StartSteMemoryOptions,
 ): Promise<SteMemoryRuntime> {
-  return startSteMemory(getContext, { createLogDb: () => createTestLogDatabase(), ...options });
+  return startSteMemory(getContext, {
+    createLogDb: () => createTestLogDatabase(),
+    ...createRuntimeTestPorts(getContext),
+    ...options,
+  });
 }
 
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
@@ -360,16 +372,188 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       settingsStore,
     });
 
-    // 默认设置镜像启用：启动评估后为 idle（尚未写回），写回由轮询+防抖驱动（seam 已测）
+    // 默认设置镜像启用：新空间初始化完成后立即保存完整快照。
     const status = runtime.mirror.getStatus();
     expect(status.kind).toBe("idle");
     if (status.kind !== "idle") return;
-    expect(status.lastWrittenAt).toBeUndefined();
+    expect(status.lastWrittenAt).toEqual(expect.any(String));
+    expect(context.chatMetadata?.[CHAT_METADATA_MIRROR_KEY]).toBeDefined();
 
     // 设置关闭镜像：kick 后回到 disabled
     settingsStore.write({ ...settings, mirror: { enabled: false, includeHistory: true } });
     await runtime.mirror.kick();
     expect(runtime.mirror.getStatus()).toEqual({ kind: "disabled" });
+  });
+
+  it("本地已有较新空间时，同步开启仍以较旧文件快照初始化 SQLite", async () => {
+    const db = createTestDatabase();
+    const fileUnit: MemorySpaceBackup = {
+      space: {
+        id: "file-first" as MemorySpaceId,
+        name: "文件中的旧版本",
+        initializationSource: null,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+      tables: [],
+      fields: [],
+      records: [],
+      history: [],
+      evidence: [],
+    };
+    await new DexieMemoryBackupRepository(db).restoreSpace({
+      ...fileUnit,
+      space: { ...fileUnit.space, name: "本地较新版本", updatedAt: "2026-10-24T00:00:00.000Z" },
+    });
+    const { context, chatMetadata } = fakeStContext();
+    chatMetadata[CHAT_METADATA_BINDING_KEY] = {
+      version: 2,
+      spaceId: "file-first",
+      chatIdentity: "char:3:story",
+    };
+    chatMetadata[CHAT_METADATA_MIRROR_KEY] = createChatMirrorFile(
+      fileUnit,
+      "file-first",
+      fileUnit.space.updatedAt,
+      "test",
+    );
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    expect(runtime.manager.getStatus()).toMatchObject({
+      kind: "active",
+      created: false,
+      space: { id: "file-first", name: "文件中的旧版本" },
+    });
+    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual(fileUnit.space);
+    expect(await new DexieMemorySpaceRepository(db).find(fileUnit.space.id)).toEqual(
+      fileUnit.space,
+    );
+  });
+
+  it("切换对话立即重试 A 已提交但未保存的数据，B 初始化不会串写", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    let failNextSave = false;
+    const write = vi.fn<typeof ports.snapshotFiles.write>(async (target, file, binding) => {
+      if (failNextSave) {
+        failNextSave = false;
+        throw new Error("file offline");
+      }
+      await ports.snapshotFiles.write(target, file, binding);
+    });
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+      snapshotFiles: { read: ports.snapshotFiles.read, write },
+    });
+    const first = runtime.manager.getStatus();
+    if (first?.kind !== "active") throw new Error("expect A active");
+    const table = (await runtime.tables.list(first.space.id)).find(
+      (item) => item.key === "characters",
+    )!;
+    const field = (await runtime.fields.list(first.space.id, table.id)).find(
+      (item) => item.key === "name",
+    )!;
+    failNextSave = true;
+    await expect(
+      runtime.records.create(first.space.id, table.id, {
+        payload: { [field.id]: "切换时仍需保存" },
+      }),
+    ).rejects.toThrow("file offline");
+    expect(runtime.mirror.getStatus()).toMatchObject({ kind: "failed" });
+    ports.snapshotWrites.length = 0;
+    context.chatId = "B";
+    context.chatMetadata = { otherPlugin: "B 独有数据" };
+    await handlers.get("chat_id_changed")!("B");
+    const second = runtime.manager.getStatus();
+    if (second?.kind !== "active") throw new Error("expect B active");
+    expect(second.space.id).not.toBe(first.space.id);
+    const savedA = ports.snapshotWrites.find((saved) => saved.target.chatId === "story");
+    expect(savedA?.target).toMatchObject({ identity: "char:3:story", avatarUrl: "alice.png" });
+    expect(savedA?.file.spaceId).toBe(first.space.id);
+    expect(
+      savedA?.file.data.records.some((record) => record.payload[field.id] === "切换时仍需保存"),
+    ).toBe(true);
+    const savedB = ports.snapshotWrites.find((saved) => saved.target.chatId === "B");
+    expect(savedB?.file.spaceId).toBe(second.space.id);
+    expect(savedB?.file.data.records).toEqual([]);
+    expect(context.chatMetadata.otherPlugin).toBe("B 独有数据");
+    expect(context.chatMetadata[CHAT_METADATA_MIRROR_KEY]).toMatchObject({
+      spaceId: second.space.id,
+    });
+  });
+
+  it("分支文件只作为克隆来源，不覆盖原空间的本地缓存和 SQLite 数据", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const original = runtime.manager.getStatus();
+    if (original?.kind !== "active") throw new Error("expect original active");
+    const table = (await runtime.tables.list(original.space.id)).find(
+      (item) => item.key === "characters",
+    )!;
+    const field = (await runtime.fields.list(original.space.id, table.id)).find(
+      (item) => item.key === "name",
+    )!;
+    const record = await runtime.records.create(original.space.id, table.id, {
+      payload: { [field.id]: "原空间较新内容" },
+    });
+    if (!record) throw new Error("expect record created");
+    const currentUnit = (await runtime.backup.loadSnapshot()).spaces.find(
+      (item) => item.space.id === original.space.id,
+    )!;
+    const branchUnit = structuredClone(currentUnit);
+    Object.assign(branchUnit.records[0]!, {
+      payload: { [field.id]: "分支文件旧内容" },
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    });
+    context.chatId = "branch-story";
+    context.chatMetadata = {
+      [CHAT_METADATA_BINDING_KEY]: structuredClone(original.binding),
+      [CHAT_METADATA_MIRROR_KEY]: createChatMirrorFile(
+        branchUnit,
+        original.space.id,
+        "2026-08-01T00:00:00.000Z",
+        "test",
+      ),
+    };
+    await handlers.get("chat_id_changed")!("branch-story");
+    expect(runtime.manager.getStatus()).toMatchObject({ kind: "branch-detected" });
+    expect((await db.memoryRecords.get(record.id))?.payload[field.id]).toBe("原空间较新内容");
+    expect(
+      (await runtime.records.find(original.space.id, table.id, record.id))?.payload[field.id],
+    ).toBe("原空间较新内容");
+    const cloned = await runtime.manager.resolveBranch({
+      action: "clone",
+      sourceSpaceId: original.space.id,
+    });
+    if (cloned.kind !== "active") throw new Error("expect cloned active");
+    const clonedTable = (await runtime.tables.list(cloned.space.id)).find(
+      (item) => item.key === "characters",
+    )!;
+    const clonedField = (await runtime.fields.list(cloned.space.id, clonedTable.id)).find(
+      (item) => item.key === "name",
+    )!;
+    const records = (await runtime.records.list(cloned.space.id, clonedTable.id, {
+      page: 1,
+      pageSize: 100,
+    }))!.records;
+    expect(records).toHaveLength(1);
+    expect(records[0]!.id).not.toBe(record.id);
+    expect(records[0]!.payload[clonedField.id]).toBe("分支文件旧内容");
+    expect((await db.memoryRecords.get(record.id))?.payload[field.id]).toBe("原空间较新内容");
+    expect(
+      (await runtime.records.find(original.space.id, table.id, record.id))?.payload[field.id],
+    ).toBe("原空间较新内容");
+    expect(context.chatMetadata[CHAT_METADATA_MIRROR_KEY]).toMatchObject({
+      spaceId: cloned.space.id,
+    });
   });
 
   it("绑定在、空间缺失、文件里有有效镜像：启动即从镜像恢复（active/restored，数据落地）", async () => {

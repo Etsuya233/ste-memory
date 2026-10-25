@@ -10,9 +10,8 @@ import { memorySpaceBackupSchema } from "../backup/backup-file.ts";
  *   appVersion, data }`；data 与备份单元**完全同构**（space/tables/fields/
  *   records/history/evidence 六要素）——结构校验复用 memorySpaceBackupSchema、
  *   完整性校验复用 validateSpaceBackupUnit，零裁剪。
- * - updatedAt = 空间指纹的 LWW 键（本地与文件镜像比较的版本依据）。
- * - 与云同步文件语义不同：镜像只是随文件走的恢复源，**未知版本/损坏一律
- *   返回 null 由调用方忽略**（不抛错、不打断打开流程、不覆盖无法识别的内容）。
+ * - updatedAt 记录快照时间；当前 SQLite 初始化固定采用文件快照，不按时间戳竞争。
+ * - 未知版本/损坏由解码器返回 null；当前初始化与保存调用方据此报告错误并停止覆盖。
  */
 
 export const CHAT_MIRROR_FORMAT = "ste-memory-chat-mirror" as const;
@@ -24,10 +23,10 @@ export interface ChatMirrorFile {
   readonly version: typeof CHAT_MIRROR_VERSION;
   /** 镜像所属记忆空间（与 data.space.id 一致；恢复时须与绑定指针一致） */
   readonly spaceId: string;
-  /** LWW 键：空间指纹的最大 updatedAt */
+  /** 快照记录的空间更新时间，不参与本地与文件的来源选择。 */
   readonly updatedAt: string;
   readonly appVersion: string;
-  /** 单空间完整快照（与备份单元同构；history 可被设置裁剪为空数组） */
+  /** 单空间完整快照；当前 SQLite 保存入口始终包含历史。 */
   readonly data: MemorySpaceBackup;
 }
 
