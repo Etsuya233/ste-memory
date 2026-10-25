@@ -1,27 +1,10 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps } from "react";
+import { Disclosure as UiDisclosure } from "../kit/disclosure.tsx";
 
-/** 原生展开区统一标题、状态与内容布局，保留 details 的键盘和开合行为。 */
+/** Host icon adapter; the kit accepts arbitrary icon content. */
 export function Disclosure({
   icon,
-  title,
-  meta,
-  children,
-  className = "",
   ...props
-}: Omit<ComponentProps<"details">, "title"> & {
-  readonly icon: string;
-  readonly title: string;
-  readonly meta?: ReactNode;
-}) {
-  return (
-    <details {...props} className={`stm-disclosure ${className}`}>
-      <summary className="stm-disclosure-summary">
-        <i className={`fa-solid ${icon} stm-disclosure-icon`} aria-hidden="true" />
-        <span className="stm-disclosure-title">{title}</span>
-        {meta != null ? <span className="stm-disclosure-meta">{meta}</span> : null}
-        <i className="fa-solid fa-chevron-right stm-disclosure-chevron" aria-hidden="true" />
-      </summary>
-      <div className="stm-disclosure-body">{children}</div>
-    </details>
-  );
+}: Omit<ComponentProps<typeof UiDisclosure>, "leading"> & { readonly icon: string }) {
+  return <UiDisclosure {...props} leading={<i className={`fa-solid ${icon}`} />} />;
 }

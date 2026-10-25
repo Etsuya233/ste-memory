@@ -1,10 +1,11 @@
+import { Button } from "../kit/controls.tsx";
 import { useEffect, useId, useRef, useState } from "react";
 import type {
   SqlExecutionResult,
   SqlResultSet,
   SqlValue,
 } from "../../features/sql-console/sql-console.ts";
-import { Tabs } from "../shell/tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 
 export interface SqlRunResult {
   readonly sql: string;
@@ -98,15 +99,15 @@ export function SqlResults(props: { readonly result: SqlRunResult; readonly data
             <p className="stm-sql-card-meta">执行于 {props.result.at}</p>
           </div>
         </div>
-        <button
-          className="stm-button stm-sql-copy-button"
+        <Button
+          className="stm-sql-copy-button"
           type="button"
           data-action="sql-copy-json"
           onClick={copyResults}
         >
           <i className={`fa-solid ${copied ? "fa-check" : "fa-copy"}`} aria-hidden="true" />
           {copied ? "已复制" : "复制 JSON"}
-        </button>
+        </Button>
       </div>
       <div className="stm-sql-results-body">
         <div className="stm-sql-result-stats" aria-live="polite">

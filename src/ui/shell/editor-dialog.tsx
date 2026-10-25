@@ -1,30 +1,22 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { Dialog } from "../kit/dialog.tsx";
 
-/** 原生模态层负责焦点约束、Escape 和关闭后的焦点恢复。 */
+/** The shell supplies editor geometry; the kit owns native modal behavior. */
 export function EditorDialog(props: {
   readonly label: string;
   readonly section: string;
   readonly onClose: () => void;
   readonly children: ReactNode;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current!;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      className="stm-editor-dialog stm-modal-overlay stm-modal-overlay--sheet"
-      aria-label={props.label}
+    <Dialog
+      label={props.label}
+      onClose={props.onClose}
       data-stm-section={props.section}
-      onCancel={(event) => {
-        event.preventDefault();
-        props.onClose();
-      }}
+      className="stm-modal-overlay--sheet"
+      contentClassName="stm-modal stm-modal--editor"
     >
-      <div className="stm-modal stm-modal--editor">{props.children}</div>
-    </dialog>
+      {props.children}
+    </Dialog>
   );
 }

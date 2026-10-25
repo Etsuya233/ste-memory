@@ -1,3 +1,5 @@
+import { FormField, Button, Input, Select, Switch } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 /**
  * Agent 提示词预设管理器（ticket 17 / ADR 0006 + 消息编排扩展）：设置 Tab 的
  * 「Agent 提示词预设」区块。
@@ -589,39 +591,42 @@ export function AgentPresetManager(props: {
             saveNewPreset();
           }}
         >
-          <label className="stm-form-row">
-            <span className="stm-form-label">预设名称</span>
-            <input
-              className="stm-input"
-              data-stm-field="new-agent-preset-name"
-              value={creatingName}
-              required
-              autoFocus
-              onChange={(event) => setCreatingName(event.target.value)}
-            />
-          </label>
+          <FormField className="stm-form-row" label={<>预设名称</>}>
+            {(field) => (
+              <Input
+                {...field}
+
+                data-stm-field="new-agent-preset-name"
+                value={creatingName}
+                required
+                autoFocus
+                onChange={(event) => setCreatingName(event.target.value)}
+              />
+            )}
+          </FormField>
           {!props.onBack && (
-            <button type="submit" className="stm-button" data-action="save-agent-preset">
+            <Button type="submit" data-action="save-agent-preset">
               创建预设
-            </button>
+            </Button>
           )}
         </form>
       ) : message ? (
         <div data-stm-section="agent-message-editor">
-          <label className="stm-form-row">
-            <span className="stm-form-label">消息名称</span>
-            <input
-              className="stm-input"
-              aria-label="消息名称"
-              data-stm-field={`message-name-${message.id}`}
-              value={message.name}
-              onChange={(event) => updateMessage({ name: event.target.value })}
-            />
-          </label>
+          <FormField className="stm-form-row" label={<>消息名称</>}>
+            {(field) => (
+              <Input
+                {...field}
+
+                aria-label="消息名称"
+                data-stm-field={`message-name-${message.id}`}
+                value={message.name}
+                onChange={(event) => updateMessage({ name: event.target.value })}
+              />
+            )}
+          </FormField>
           <label className="stm-form-row">
             <span className="stm-form-label">消息角色</span>
-            <select
-              className="stm-input"
+            <Select
               aria-label="消息角色"
               data-stm-field={`message-role-select-${message.id}`}
               value={message.role}
@@ -632,7 +637,7 @@ export function AgentPresetManager(props: {
                   {AGENT_PRESET_ROLE_LABELS[role]}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="stm-form-row">
             <span className="stm-form-label">消息内容</span>
@@ -671,59 +676,47 @@ export function AgentPresetManager(props: {
         detailPreset ? (
           <>
             {detailPresetId !== activeId && (
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="activate-agent-preset"
                 disabled={detailPresetId === activeId}
                 onClick={() => selectPreset(detailPresetId)}
               >
                 {detailPresetId === activeId ? "当前使用" : "设为当前预设"}
-              </button>
+              </Button>
             )}
             {digestMissing && (
               <div className="stm-preset-warning" data-stm-field="digest-warning">
                 缺少表格摘要占位符，Agent 无法读取表与字段说明。
               </div>
             )}
-            <ul className="stm-grouped-list stm-settings-item-list">
+            <ListGroup as="ul" className="stm-settings-item-list">
               {detailPreset.messages.map((item, index) => (
                 <li key={item.id} className="stm-settings-item-with-toggle">
-                  <button
-                    type="button"
-                    className="stm-settings-item-row"
+                  <NavigationRow
                     data-action="toggle-message"
                     onClick={() => beginMessage(item)}
-                  >
-                    <span className="stm-settings-item-main">
-                      <span className="stm-settings-item-title">
-                        {item.name || `消息 ${index + 1}`}
-                      </span>
-                      <span className="stm-settings-item-summary">
-                        {AGENT_PRESET_ROLE_LABELS[item.role]} ·{" "}
-                        {item.content.split("\n")[0] || "空内容"}
-                      </span>
-                    </span>
-                    <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                  </button>
-                  <label className="stm-switch">
-                    <input
-                      type="checkbox"
-                      aria-label={`启用消息 ${index + 1}`}
-                      checked={item.enabled}
-                      onChange={(event) =>
-                        apply((presets) =>
-                          updateAgentPresetMessage(presets, detailPreset.id, item.id, {
-                            enabled: event.target.checked,
-                          }),
-                        )
-                      }
-                    />
-                    <span className="stm-switch-track" aria-hidden="true" />
-                  </label>
+                    title={item.name || `消息 ${index + 1}`}
+                    description=<>
+                      {AGENT_PRESET_ROLE_LABELS[item.role]} ·{" "}
+                      {item.content.split("\n")[0] || "空内容"}
+                    </>
+                  />
+                  <Switch
+                    aria-label={`启用消息 ${index + 1}`}
+                    checked={item.enabled}
+                    onChange={(event) =>
+                      apply((presets) =>
+                        updateAgentPresetMessage(presets, detailPreset.id, item.id, {
+                          enabled: event.target.checked,
+                        }),
+                      )
+                    }
+                  />
                 </li>
               ))}
-            </ul>
+            </ListGroup>
             <Disclosure icon="fa-arrows-up-down" title="消息顺序">
               <DndContext
                 sensors={sensors}
@@ -744,26 +737,26 @@ export function AgentPresetManager(props: {
         ) : (
           <div data-stm-section="builtin-preset">
             {activeId !== BUILTIN_AGENT_PRESET_ID && (
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="activate-agent-preset"
                 disabled={activeId === BUILTIN_AGENT_PRESET_ID}
                 onClick={() => selectPreset(BUILTIN_AGENT_PRESET_ID)}
               >
                 {activeId === BUILTIN_AGENT_PRESET_ID ? "当前使用" : "设为当前预设"}
-              </button>
+              </Button>
             )}
             <p className="stm-setting-hint">系统默认预设 · 工作流指令与表格摘要 · 只读</p>
             {!props.onBack && (
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="copy-builtin-preset"
                 onClick={copyBuiltinAsCustom}
               >
                 复制为自定义
-              </button>
+              </Button>
             )}
             <Disclosure icon="fa-eye" title="系统指令">
               <pre className="stm-modal-text">{PROPOSAL_AGENT_BASE_INSTRUCTIONS}</pre>
@@ -772,62 +765,48 @@ export function AgentPresetManager(props: {
         )
       ) : (
         <>
-          <ul className="stm-grouped-list stm-settings-item-list">
+          <ListGroup as="ul" className="stm-settings-item-list">
             <li>
-              <button
-                type="button"
-                className="stm-settings-item-row"
+              <NavigationRow
                 data-action="select-agent-preset"
                 data-preset-id={BUILTIN_AGENT_PRESET_ID}
                 onClick={() => openPreset(BUILTIN_AGENT_PRESET_ID)}
-              >
-                <span className="stm-settings-item-main">
-                  <span className="stm-settings-item-title">系统默认</span>
-                  <span className="stm-settings-item-summary">
-                    内置{activeId === BUILTIN_AGENT_PRESET_ID ? " · 当前使用" : ""}
-                  </span>
-                </span>
-                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-              </button>
+                title=<>系统默认</>
+                description=<>内置{activeId === BUILTIN_AGENT_PRESET_ID ? " · 当前使用" : ""}</>
+              />
             </li>
             {agentPresets.presets.map((preset) => (
               <li key={preset.id}>
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
+                <NavigationRow
                   data-action="select-agent-preset"
                   data-preset-id={preset.id}
                   onClick={() => openPreset(preset.id)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{preset.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {preset.messages.length} 条消息{preset.id === activeId ? " · 当前使用" : ""}
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
+                  title={preset.name}
+                  description=<>
+                    {preset.messages.length} 条消息{preset.id === activeId ? " · 当前使用" : ""}
+                  </>
+                />
               </li>
             ))}
-          </ul>
+          </ListGroup>
           {!props.onBack && (
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="create-preset"
                 onClick={createNew}
               >
                 新建预设
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="import-preset"
                 onClick={() => importInputRef.current!.click()}
               >
                 导入
-              </button>
+              </Button>
             </div>
           )}
           {agentPresets.presets.length > 1 && (
@@ -1031,15 +1010,15 @@ export function AgentPresetPreviewPanel(props: {
         onChange={(event) => props.onPreviewTextChange(event.target.value)}
       />
       <div className="stm-setting-actions">
-        <button
+        <Button
           type="button"
-          className="stm-button"
+
           data-action="refresh-preset-preview"
           onClick={props.onRefresh}
           disabled={props.loading}
         >
           重新展开
-        </button>
+        </Button>
       </div>
       {props.loading && (
         <div className="stm-setting-hint" data-stm-field="preset-preview-loading">
@@ -1100,14 +1079,14 @@ function PreviewItemCard(props: { readonly item: AgentPresetPreviewItem }) {
         <span className="stm-preset-preview-source" title={props.item.sourceName}>
           {props.item.sourceName}
         </span>
-        <button
+        <Button
           type="button"
-          className="stm-button stm-preset-preview-copy"
+          className="stm-preset-preview-copy"
           data-action="copy-preset-preview-message"
           onClick={() => void copy()}
         >
           复制
-        </button>
+        </Button>
       </div>
       <pre className="stm-preset-preview-text" data-stm-field="preset-preview-text-content">
         {props.item.text}

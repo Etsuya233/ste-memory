@@ -1,3 +1,6 @@
+import { Dialog } from "../kit/dialog.tsx";
+import { FormField, Button, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 /**
  * 清洗规则管理器（ticket 22 / ADR 0011）：设置 Tab 的「清洗规则」区块。
  *
@@ -614,21 +617,23 @@ export function CleaningRulesManager(props: {
             saveListForm();
           }}
         >
-          <label className="stm-form-row">
-            <span className="stm-form-label">列表名称</span>
-            <input
-              className="stm-input"
-              data-stm-field="cleaning-list-name"
-              value={listForm.name}
-              autoFocus
-              required
-              onChange={(event) => setListForm({ ...listForm, name: event.target.value })}
-            />
-          </label>
+          <FormField className="stm-form-row" label={<>列表名称</>}>
+            {(field) => (
+              <Input
+                {...field}
+
+                data-stm-field="cleaning-list-name"
+                value={listForm.name}
+                autoFocus
+                required
+                onChange={(event) => setListForm({ ...listForm, name: event.target.value })}
+              />
+            )}
+          </FormField>
           {!chrome && (
-            <button type="submit" className="stm-button" data-action="save-cleaning-list">
+            <Button type="submit" data-action="save-cleaning-list">
               保存列表名称
-            </button>
+            </Button>
           )}
         </form>
       ) : importOpen ? (
@@ -661,60 +666,47 @@ export function CleaningRulesManager(props: {
             onCancel={tryCancelEdit}
           />
           <Disclosure icon="fa-flask" title="测试草稿">
-            <button
+            <Button
               type="button"
-              className="stm-button"
+
               data-action="test-cleaning-list"
               onClick={openTest}
             >
               测试当前规则列表
-            </button>
+            </Button>
           </Disclosure>
         </>
       ) : detailOpen && editList ? (
         <>
-          <ul
-            className="stm-grouped-list stm-settings-item-list"
-            data-stm-field="cleaning-rule-list"
-          >
+          <ListGroup as="ul" className="stm-settings-item-list" data-stm-field="cleaning-rule-list">
             {editList.rules.map((rule) => (
               <li key={rule.id} className="stm-settings-item-with-toggle">
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
+                <NavigationRow
                   data-action="edit-cleaning-rule"
                   onClick={() => beginEdit(rule)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{rule.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {MODE_LABELS[rule.mode]} ·{" "}
-                      {rule.type === "tag" ? `${rule.pre} … ${rule.post}` : rule.pattern}
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
-                <label className="stm-switch">
-                  <input
-                    type="checkbox"
-                    aria-label={`启用规则 ${rule.name}`}
-                    checked={rule.enabled}
-                    onChange={(event) =>
-                      apply((current) =>
-                        updateCleaningRule(current, editList.id, rule.id, {
-                          enabled: event.target.checked,
-                        }),
-                      )
-                    }
-                  />
-                  <span className="stm-switch-track" aria-hidden="true" />
-                </label>
+                  title={rule.name}
+                  description=<>
+                    {MODE_LABELS[rule.mode]} ·{" "}
+                    {rule.type === "tag" ? `${rule.pre} … ${rule.post}` : rule.pattern}
+                  </>
+                />
+                <Switch
+                  aria-label={`启用规则 ${rule.name}`}
+                  checked={rule.enabled}
+                  onChange={(event) =>
+                    apply((current) =>
+                      updateCleaningRule(current, editList.id, rule.id, {
+                        enabled: event.target.checked,
+                      }),
+                    )
+                  }
+                />
               </li>
             ))}
-          </ul>
+          </ListGroup>
           {editList.rules.length === 0 && <div className="stm-empty">还没有清洗规则</div>}
           <Disclosure icon="fa-arrows-up-down" title="规则顺序">
-            <div className="stm-grouped-list">
+            <ListGroup>
               {editList.rules.map((rule, index) => (
                 <div className="stm-settings-order-row" key={rule.id}>
                   <span>{rule.name}</span>
@@ -734,15 +726,14 @@ export function CleaningRulesManager(props: {
                   />
                 </div>
               ))}
-            </div>
+            </ListGroup>
           </Disclosure>
         </>
       ) : (
         <>
           <label className="stm-form-row">
             <span className="stm-form-label">当前对话</span>
-            <select
-              className="stm-input"
+            <Select
               data-stm-field="chat-cleaning-list"
               aria-label="当前对话使用的列表"
               value={props.selectedListId ?? ""}
@@ -754,30 +745,24 @@ export function CleaningRulesManager(props: {
                   {list.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
-          <ul className="stm-grouped-list stm-settings-item-list">
+          <ListGroup as="ul" className="stm-settings-item-list">
             {lists.map((list) => (
               <li key={list.id}>
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
+                <NavigationRow
                   data-action="open-cleaning-list"
                   data-list-id={list.id}
                   onClick={() => openList(list.id)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{list.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {list.rules.length} 条规则
-                      {list.id === props.selectedListId ? " · 当前对话使用" : ""}
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
+                  title={list.name}
+                  description=<>
+                    {list.rules.length} 条规则
+                    {list.id === props.selectedListId ? " · 当前对话使用" : ""}
+                  </>
+                />
               </li>
             ))}
-          </ul>
+          </ListGroup>
           {lists.length === 0 && (
             <div className="stm-empty" data-stm-section="cleaning-rules-empty">
               新建清洗规则列表，或从 ST 导入正则。
@@ -785,22 +770,22 @@ export function CleaningRulesManager(props: {
           )}
           {!chrome && (
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="create-cleaning-list"
                 onClick={createList}
               >
                 新建列表
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="import-st-regex"
                 onClick={openImportFromSt}
               >
                 导入正则
-              </button>
+              </Button>
             </div>
           )}
         </>
@@ -856,22 +841,23 @@ export function CleaningRuleEditor(props: {
       }}
     >
       <div className="stm-setting-row">
-        <label className="stm-settings-field">
-          <span className="stm-form-label">规则名称</span>
-          <input
-            type="text"
-            className="stm-input"
-            data-stm-field="cleaning-rule-name"
-            aria-label="规则名称"
-            value={draft.name}
-            placeholder="规则名称"
-            onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
-          />
-        </label>
+        <FormField className="stm-settings-field" label={<>规则名称</>}>
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+
+              data-stm-field="cleaning-rule-name"
+              aria-label="规则名称"
+              value={draft.name}
+              placeholder="规则名称"
+              onChange={(event) => props.onDraftChange({ ...draft, name: event.target.value })}
+            />
+          )}
+        </FormField>
         <label className="stm-settings-field">
           <span className="stm-form-label">处理方式</span>
-          <select
-            className="stm-input"
+          <Select
             data-stm-field="cleaning-rule-mode"
             aria-label="处理方式"
             value={draft.mode}
@@ -884,12 +870,11 @@ export function CleaningRuleEditor(props: {
                 {MODE_LABELS[mode]}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="stm-settings-field">
           <span className="stm-form-label">匹配方式</span>
-          <select
-            className="stm-input"
+          <Select
             data-stm-field="cleaning-rule-type"
             aria-label="匹配方式"
             value={draft.type}
@@ -900,77 +885,89 @@ export function CleaningRuleEditor(props: {
           >
             <option value="tag">标签</option>
             <option value="regex">正则</option>
-          </select>
+          </Select>
         </label>
       </div>
       {draft.type === "tag" ? (
         <div className="stm-setting-row">
-          <label className="stm-settings-field">
-            <span className="stm-form-label">开始标签</span>
-            <input
-              type="text"
-              className="stm-input"
-              data-stm-field="cleaning-rule-pre"
-              aria-label="开始标签"
-              value={draft.pre}
-              placeholder="开始标签，如 【内心】"
-              onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
-            />
-          </label>
-          <label className="stm-settings-field">
-            <span className="stm-form-label">结束标签</span>
-            <input
-              type="text"
-              className="stm-input"
-              data-stm-field="cleaning-rule-post"
-              aria-label="结束标签"
-              value={draft.post}
-              placeholder="结束标签，如 【/内心】"
-              onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
-            />
-          </label>
+          <FormField className="stm-settings-field" label={<>开始标签</>}>
+            {(field) => (
+              <Input
+                {...field}
+                type="text"
+
+                data-stm-field="cleaning-rule-pre"
+                aria-label="开始标签"
+                value={draft.pre}
+                placeholder="开始标签，如 【内心】"
+                onChange={(event) => props.onDraftChange({ ...draft, pre: event.target.value })}
+              />
+            )}
+          </FormField>
+          <FormField className="stm-settings-field" label={<>结束标签</>}>
+            {(field) => (
+              <Input
+                {...field}
+                type="text"
+
+                data-stm-field="cleaning-rule-post"
+                aria-label="结束标签"
+                value={draft.post}
+                placeholder="结束标签，如 【/内心】"
+                onChange={(event) => props.onDraftChange({ ...draft, post: event.target.value })}
+              />
+            )}
+          </FormField>
         </div>
       ) : (
         <div className="stm-setting-row">
-          <label className="stm-settings-field">
-            <span className="stm-form-label">正则表达式</span>
-            <input
-              type="text"
-              className="stm-input stm-mono"
-              data-stm-field="cleaning-rule-pattern"
-              aria-label="正则表达式"
-              value={draft.pattern}
-              placeholder="正则表达式"
-              onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
-            />
-          </label>
-          <label className="stm-settings-field">
-            <span className="stm-form-label">正则标志</span>
-            <input
-              type="text"
-              className="stm-input stm-mono"
-              data-stm-field="cleaning-rule-flags"
-              aria-label="正则标志"
-              value={draft.flags}
-              placeholder="flags（g/i/m/s/u/y）"
-              onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
-            />
-          </label>
+          <FormField className="stm-settings-field" label={<>正则表达式</>}>
+            {(field) => (
+              <Input
+                {...field}
+                type="text"
+                className="stm-mono"
+                data-stm-field="cleaning-rule-pattern"
+                aria-label="正则表达式"
+                value={draft.pattern}
+                placeholder="正则表达式"
+                onChange={(event) => props.onDraftChange({ ...draft, pattern: event.target.value })}
+              />
+            )}
+          </FormField>
+          <FormField className="stm-settings-field" label={<>正则标志</>}>
+            {(field) => (
+              <Input
+                {...field}
+                type="text"
+                className="stm-mono"
+                data-stm-field="cleaning-rule-flags"
+                aria-label="正则标志"
+                value={draft.flags}
+                placeholder="flags（g/i/m/s/u/y）"
+                onChange={(event) => props.onDraftChange({ ...draft, flags: event.target.value })}
+              />
+            )}
+          </FormField>
         </div>
       )}
       {draft.mode === "replace" && (
-        <label className="stm-settings-field">
-          <span className="stm-form-label">替换内容</span>
-          <input
-            type="text"
-            className="stm-input stm-mono"
-            data-stm-field="cleaning-rule-replacement"
-            aria-label="替换内容"
-            value={draft.replacement}
-            placeholder="替换串（支持 $1 / $<name>）"
-            onChange={(event) => props.onDraftChange({ ...draft, replacement: event.target.value })}
-          />
-        </label>
+        <FormField className="stm-settings-field" label={<>替换内容</>}>
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+              className="stm-mono"
+              data-stm-field="cleaning-rule-replacement"
+              aria-label="替换内容"
+              value={draft.replacement}
+              placeholder="替换串（支持 $1 / $<name>）"
+              onChange={(event) =>
+                props.onDraftChange({ ...draft, replacement: event.target.value })
+              }
+            />
+          )}
+        </FormField>
       )}
       {props.error !== undefined && (
         <div className="stm-preset-warning" data-stm-field="cleaning-rule-error">
@@ -979,17 +976,17 @@ export function CleaningRuleEditor(props: {
       )}
       {!props.formId && (
         <div className="stm-setting-actions">
-          <button type="submit" className="stm-button" data-action="save-cleaning-rule">
+          <Button type="submit" data-action="save-cleaning-rule">
             保存
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="cancel-cleaning-rule"
             onClick={props.onCancel}
           >
             取消
-          </button>
+          </Button>
         </div>
       )}
     </form>
@@ -1025,175 +1022,164 @@ export function CleaningTestDialog(props: {
 }) {
   const hasResult = props.result !== undefined;
   return (
-    <div
-      className="stm-modal-overlay"
+    <Dialog
+      label="清洗测试"
+      onClose={props.onClose}
       data-stm-section="cleaning-test-dialog"
-      onClick={props.onClose}
+      contentClassName="stm-modal"
     >
-      <div
-        className="stm-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="清洗测试"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="stm-modal-title" data-stm-field="cleaning-test-title">
-          清洗测试
-        </div>
-        <div className="stm-modal-body">
-          <div className="stm-setting-row">
-            <div className="stm-setting-label">
-              <div className="stm-setting-name">测试输入</div>
-              <div className="stm-setting-hint">
-                {props.form === "text"
-                  ? "整框视为一条消息内容（与填表任务逐条清洗一致）"
-                  : `最近对话消息逐条清洗（${props.messages.length} 条，只清洗内容）`}
-              </div>
+      <div className="stm-modal-title" data-stm-field="cleaning-test-title">
+        清洗测试
+      </div>
+      <div className="stm-modal-body">
+        <div className="stm-setting-row">
+          <div className="stm-setting-label">
+            <div className="stm-setting-name">测试输入</div>
+            <div className="stm-setting-hint">
+              {props.form === "text"
+                ? "整框视为一条消息内容（与填表任务逐条清洗一致）"
+                : `最近对话消息逐条清洗（${props.messages.length} 条，只清洗内容）`}
             </div>
-            <button
-              type="button"
-              className="stm-button"
-              data-action="load-chat-messages"
-              onClick={props.onLoadMessages}
-            >
-              从当前对话载入
-            </button>
           </div>
-          {props.form === "text" ? (
-            <textarea
-              className="stm-input stm-mono stm-modal-textarea"
-              data-stm-field="cleaning-test-input"
-              aria-label="测试消息内容"
-              value={props.text}
-              placeholder="粘贴要测试的消息内容…"
-              onChange={(event) => props.onTextChange(event.target.value)}
-            />
-          ) : (
-            <div data-stm-field="cleaning-test-messages">
-              {props.messages.map((message, index) => (
-                <div key={index} data-stm-field={`cleaning-test-message-${index}`}>
-                  <div className="stm-setting-row">
-                    <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
-                    <input
-                      type="text"
-                      className="stm-input"
-                      data-stm-field={`cleaning-test-message-name-${index}`}
-                      value={message.name}
-                      placeholder="发送者名"
-                      onChange={(event) =>
-                        props.onMessageChange(index, { name: event.target.value })
-                      }
-                    />
-                  </div>
-                  <textarea
-                    className="stm-input stm-mono stm-modal-textarea"
-                    data-stm-field={`cleaning-test-message-content-${index}`}
-                    value={message.content}
-                    placeholder="消息内容（仅内容参与清洗）"
-                    onChange={(event) =>
-                      props.onMessageChange(index, { content: event.target.value })
-                    }
+          <Button
+            type="button"
+
+            data-action="load-chat-messages"
+            onClick={props.onLoadMessages}
+          >
+            从当前对话载入
+          </Button>
+        </div>
+        {props.form === "text" ? (
+          <Textarea
+            className="stm-mono stm-modal-textarea"
+            data-stm-field="cleaning-test-input"
+            aria-label="测试消息内容"
+            value={props.text}
+            placeholder="粘贴要测试的消息内容…"
+            onChange={(event) => props.onTextChange(event.target.value)}
+          />
+        ) : (
+          <div data-stm-field="cleaning-test-messages">
+            {props.messages.map((message, index) => (
+              <div key={index} data-stm-field={`cleaning-test-message-${index}`}>
+                <div className="stm-setting-row">
+                  <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
+                  <Input
+                    type="text"
+
+                    data-stm-field={`cleaning-test-message-name-${index}`}
+                    value={message.name}
+                    placeholder="发送者名"
+                    onChange={(event) => props.onMessageChange(index, { name: event.target.value })}
                   />
                 </div>
-              ))}
-            </div>
-          )}
-          {props.hasDraftOverrides && (
-            <div className="stm-preset-warning" data-stm-field="cleaning-test-draft-hint">
-              含未保存修改：编辑中的规则草稿已参与本次测试
-            </div>
-          )}
-          {props.loadHint !== null && (
-            <div className="stm-preset-warning" data-stm-field="cleaning-test-load-hint">
-              {props.loadHint}
-            </div>
-          )}
-          {props.result !== undefined && props.result.kind === "error" && (
-            <div className="stm-preset-warning" data-stm-field="cleaning-test-error">
-              {props.result.errors.join("；")}
-            </div>
-          )}
-          {props.result !== undefined && props.result.kind === "ok" && (
-            <div data-stm-field="cleaning-test-result">
-              {!props.result.anyActiveRule && (
-                <div className="stm-preset-warning" data-stm-field="cleaning-test-no-active-rule">
-                  列表没有启用规则，结果为原文
+                <Textarea
+                  className="stm-mono stm-modal-textarea"
+                  data-stm-field={`cleaning-test-message-content-${index}`}
+                  value={message.content}
+                  placeholder="消息内容（仅内容参与清洗）"
+                  onChange={(event) =>
+                    props.onMessageChange(index, { content: event.target.value })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        {props.hasDraftOverrides && (
+          <div className="stm-preset-warning" data-stm-field="cleaning-test-draft-hint">
+            含未保存修改：编辑中的规则草稿已参与本次测试
+          </div>
+        )}
+        {props.loadHint !== null && (
+          <div className="stm-preset-warning" data-stm-field="cleaning-test-load-hint">
+            {props.loadHint}
+          </div>
+        )}
+        {props.result !== undefined && props.result.kind === "error" && (
+          <div className="stm-preset-warning" data-stm-field="cleaning-test-error">
+            {props.result.errors.join("；")}
+          </div>
+        )}
+        {props.result !== undefined && props.result.kind === "ok" && (
+          <div data-stm-field="cleaning-test-result">
+            {!props.result.anyActiveRule && (
+              <div className="stm-preset-warning" data-stm-field="cleaning-test-no-active-rule">
+                列表没有启用规则，结果为原文
+              </div>
+            )}
+            {props.result.messages.map((message, index) => (
+              <div
+                key={index}
+                className="stm-preset-fragment"
+                data-stm-field={`cleaning-test-message-result-${index}`}
+              >
+                <div className="stm-preset-fragment-head">
+                  <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
+                  <span className="stm-preset-fragment-preview">
+                    {message.name === "" ? "（无名消息）" : `名字：${message.name}`}
+                  </span>
                 </div>
-              )}
-              {props.result.messages.map((message, index) => (
-                <div
-                  key={index}
-                  className="stm-preset-fragment"
-                  data-stm-field={`cleaning-test-message-result-${index}`}
-                >
-                  <div className="stm-preset-fragment-head">
-                    <span className="stm-preset-fragment-index stm-mono">{index + 1}</span>
-                    <span className="stm-preset-fragment-preview">
-                      {message.name === "" ? "（无名消息）" : `名字：${message.name}`}
-                    </span>
-                  </div>
-                  <div className="stm-preset-fragment-body">
-                    <div className="stm-setting-hint">原文</div>
-                    <pre className="stm-mono stm-modal-text">
-                      {renderCleaningText(message.input)}
-                    </pre>
-                    <div className="stm-setting-hint">步骤</div>
-                    <ol data-stm-field={`cleaning-test-steps-${index}`}>
-                      {message.steps.map((step, stepIndex) => (
-                        <li key={step.ruleId} data-stm-field={`cleaning-test-step-${stepIndex}`}>
-                          <span className="stm-mono">
-                            {step.ruleName} · {MODE_LABELS[step.mode]}
-                          </span>
-                          {step.fromDraft && <span className="stm-chip">草稿</span>}
-                          {step.active ? (
-                            <pre className="stm-mono stm-modal-text">
-                              {renderCleaningText(step.output)}
-                            </pre>
-                          ) : (
-                            <span className="stm-setting-hint">跳过（已停用）</span>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                    <div className="stm-setting-hint">最终结果</div>
-                    <pre className="stm-mono stm-modal-text">
-                      {renderCleaningText(message.output)}
-                    </pre>
-                  </div>
+                <div className="stm-preset-fragment-body">
+                  <div className="stm-setting-hint">原文</div>
+                  <pre className="stm-mono stm-modal-text">{renderCleaningText(message.input)}</pre>
+                  <div className="stm-setting-hint">步骤</div>
+                  <ol data-stm-field={`cleaning-test-steps-${index}`}>
+                    {message.steps.map((step, stepIndex) => (
+                      <li key={step.ruleId} data-stm-field={`cleaning-test-step-${stepIndex}`}>
+                        <span className="stm-mono">
+                          {step.ruleName} · {MODE_LABELS[step.mode]}
+                        </span>
+                        {step.fromDraft && <span className="stm-chip">草稿</span>}
+                        {step.active ? (
+                          <pre className="stm-mono stm-modal-text">
+                            {renderCleaningText(step.output)}
+                          </pre>
+                        ) : (
+                          <span className="stm-setting-hint">跳过（已停用）</span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="stm-setting-hint">最终结果</div>
+                  <pre className="stm-mono stm-modal-text">
+                    {renderCleaningText(message.output)}
+                  </pre>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="stm-modal-footer">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="run-cleaning-test"
-            onClick={props.onRun}
-          >
-            清洗
-          </button>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="copy-cleaning-test"
-            disabled={!hasResult || props.result?.kind !== "ok"}
-            onClick={props.onCopy}
-          >
-            复制结果
-          </button>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="close-cleaning-test"
-            onClick={props.onClose}
-          >
-            关闭
-          </button>
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+      <div className="stm-modal-footer">
+        <Button
+          type="button"
+
+          data-action="run-cleaning-test"
+          onClick={props.onRun}
+        >
+          清洗
+        </Button>
+        <Button
+          type="button"
+
+          data-action="copy-cleaning-test"
+          disabled={!hasResult || props.result?.kind !== "ok"}
+          onClick={props.onCopy}
+        >
+          复制结果
+        </Button>
+        <Button
+          type="button"
+
+          data-action="close-cleaning-test"
+          onClick={props.onClose}
+        >
+          关闭
+        </Button>
+      </div>
+    </Dialog>
   );
 }
 
@@ -1232,14 +1218,14 @@ export function ImportDialog(props: {
             列出 ST 的全局、当前角色卡与当前预设中的正则条目；勾选后导入到当前列表
           </div>
         </div>
-        <button
+        <Button
           type="button"
-          className="stm-button"
+
           data-action="import-st-regex-file"
           onClick={() => fileInputRef.current?.click()}
         >
           从文件导入…
-        </button>
+        </Button>
       </div>
       <input
         ref={fileInputRef}
@@ -1307,9 +1293,9 @@ export function ImportDialog(props: {
           <div className="stm-setting-label">
             <div className="stm-setting-name">新建列表名称</div>
           </div>
-          <input
+          <Input
             type="text"
-            className="stm-input"
+
             data-stm-field="import-target-name"
             aria-label="新建列表名称"
             value={props.target.name}
@@ -1319,23 +1305,23 @@ export function ImportDialog(props: {
       )}
       {!props.compact && (
         <div className="stm-setting-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="confirm-regex-import"
             disabled={props.selectedCount === 0}
             onClick={props.onConfirm}
           >
             导入{props.selectedCount > 0 ? `（${props.selectedCount} 条）` : ""}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="cancel-regex-import"
             onClick={props.onCancel}
           >
             取消
-          </button>
+          </Button>
         </div>
       )}
     </div>

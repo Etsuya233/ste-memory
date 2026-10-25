@@ -1,4 +1,4 @@
-import { Tabs } from "./tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
@@ -649,7 +649,7 @@ export function PanelShell(props: {
       }}
       ref={panelRef}
       popover="manual"
-      className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
+      className={state.open ? "ui-theme stm-panel stm-panel--open" : "ui-theme stm-panel"}
       aria-hidden={!state.open}
     >
       {navOpen && !isWidePanel && (

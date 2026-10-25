@@ -1,3 +1,5 @@
+import { Button, Input, Textarea } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 import type { EmbeddingConnection } from "../../features/settings/embedding-connection.ts";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import type { MemoryRecordId, MemorySpaceId, MemoryTableId } from "../../features/memory/index.ts";
@@ -10,7 +12,7 @@ import type {
 import { Disclosure } from "../shell/disclosure.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBarAction } from "../shell/panel-bar.tsx";
-import { Tabs } from "../shell/tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 
 export function RetrievalTab(props: {
   readonly service: Pick<
@@ -115,8 +117,7 @@ export function RetrievalTab(props: {
       >
         <label className="stm-retrieval-query">
           <span>查询</span>
-          <textarea
-            className="stm-input"
+          <Textarea
             data-action="retrieval-query"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -128,23 +129,22 @@ export function RetrievalTab(props: {
           {query.trim().length}/{Math.min(props.connection?.maxInputChars ?? 4000, 4000)} 字符
         </p>
         <div className="stm-retrieval-submit">
-          <button
-            className="stm-button stm-button--primary"
+          <Button
+            variant="primary"
             type="submit"
             data-action="retrieval-search"
             disabled={!props.spaceId || running}
           >
             搜索记忆
-          </button>
+          </Button>
           {running && (
-            <button
-              className="stm-button"
+            <Button
               type="button"
               data-action="retrieval-cancel"
               onClick={() => props.service.cancel()}
             >
               取消搜索
-            </button>
+            </Button>
           )}
         </div>
         <Disclosure
@@ -158,8 +158,7 @@ export function RetrievalTab(props: {
             <div className="stm-action-row">
               <label>
                 Top K
-                <input
-                  className="stm-input"
+                <Input
                   data-action="retrieval-top-k"
                   type="number"
                   min="1"
@@ -171,8 +170,7 @@ export function RetrievalTab(props: {
               </label>
               <label>
                 最低分（留空关闭）
-                <input
-                  className="stm-input"
+                <Input
                   data-action="retrieval-threshold"
                   type="number"
                   min="-1"
@@ -206,11 +204,11 @@ export function RetrievalTab(props: {
             <div id={`${rangeId}-all`} role="tabpanel" hidden={custom} className="stm-setting-hint">
               搜索当前空间全部可用索引。
             </div>
-            <div
+            <ListGroup
               id={`${rangeId}-custom`}
               role="tabpanel"
               hidden={!custom}
-              className="stm-retrieval-ranges stm-grouped-list"
+              className="stm-retrieval-ranges"
             >
               {ranges
                 .filter((range) => !range.error)
@@ -274,7 +272,7 @@ export function RetrievalTab(props: {
                     ))}
                   </fieldset>
                 ))}
-            </div>
+            </ListGroup>
           </div>
         </Disclosure>
       </form>
@@ -307,7 +305,7 @@ export function RetrievalTab(props: {
           {result.coverage.ready < result.coverage.expected ? (
             <p className="stm-setting-hint">部分索引可用，结果可能遗漏。</p>
           ) : null}
-          <ol className="stm-grouped-list stm-retrieval-hits">
+          <ListGroup as="ol" className="stm-retrieval-hits">
             {result.hits.map((hit) => (
               <li
                 key={JSON.stringify([hit.target.table.id, hit.target.record.id])}
@@ -349,7 +347,7 @@ export function RetrievalTab(props: {
                 </Disclosure>
               </li>
             ))}
-          </ol>
+          </ListGroup>
           <Disclosure
             icon="fa-chart-simple"
             title="搜索详情与索引覆盖"
@@ -405,9 +403,9 @@ export function RetrievalTab(props: {
       ) : null}
       <Disclosure icon="fa-plug" title="空间与连接" className="stm-retrieval-connection">
         <div className="stm-retrieval-options-body">
-          <button className="stm-button" type="button" onClick={props.onSettings}>
+          <Button type="button" onClick={props.onSettings}>
             连接设置
-          </button>
+          </Button>
           <p>空间：{props.spaceId ?? "未绑定"}</p>
           <p>
             {props.connection

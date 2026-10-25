@@ -1,3 +1,4 @@
+import { Button, Select, Switch } from "../kit/controls.tsx";
 import { useEffect, useRef, useState } from "react";
 import type {
   MemoryField,
@@ -17,7 +18,7 @@ import {
 import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { importPresetVectorIndexGroups } from "../../features/table-presets/preset-vector-index.ts";
 import { Disclosure } from "../shell/disclosure.tsx";
-import { Segmented } from "../shell/segmented.tsx";
+import { Segmented } from "../kit/segmented.tsx";
 import { createUiId } from "../shell/ui-helpers.tsx";
 import { VectorGroupEditor, type VectorFieldOption } from "./vector-group-editor.tsx";
 
@@ -295,16 +296,12 @@ export function VectorIndexEditor(props: {
               <span className="stm-vector-state-dot" aria-hidden="true" />
               索引
             </span>
-            <label className="stm-switch">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="启用索引"
-                checked={draft.enabled}
-                onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
-              />
-              <span className="stm-switch-track" aria-hidden="true" />
-            </label>
+            <Switch
+              role="switch"
+              aria-label="启用索引"
+              checked={draft.enabled}
+              onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+            />
           </div>
           <div className="stm-vector-hero-numbers">
             <span>
@@ -416,8 +413,7 @@ export function VectorIndexEditor(props: {
                 <div className="stm-vector-import">
                   <label className="stm-vector-import-field">
                     <span className="stm-vector-import-label">预设</span>
-                    <select
-                      className="stm-input"
+                    <Select
                       aria-label="表格预设"
                       value={presetId}
                       onChange={(event) => {
@@ -431,12 +427,11 @@ export function VectorIndexEditor(props: {
                           {preset.name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <label className="stm-vector-import-field">
                     <span className="stm-vector-import-label">表格</span>
-                    <select
-                      className="stm-input"
+                    <Select
                       aria-label="来源表格"
                       value={presetTableKey}
                       disabled={!selectedPreset}
@@ -448,16 +443,17 @@ export function VectorIndexEditor(props: {
                           {table.name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
-                  <button
+                  <Button
                     type="button"
-                    className="stm-button stm-button--primary stm-vector-import-submit"
+                    variant="primary"
+                    className="stm-vector-import-submit"
                     disabled={!presetTableKey}
                     onClick={importPreset}
                   >
                     导入
-                  </button>
+                  </Button>
                 </div>
                 {draft.presetGroups?.length ? (
                   <div className="stm-vector-source-view">
@@ -555,8 +551,7 @@ export function VectorIndexEditor(props: {
             {sampleRecords.length > 0 ? (
               <label className="stm-vector-sample">
                 <span className="stm-vector-sample-label">示例</span>
-                <select
-                  className="stm-input"
+                <Select
                   aria-label="示例记录"
                   value={sampleRecordId}
                   onChange={(event) => setSampleRecordId(event.target.value)}
@@ -566,7 +561,7 @@ export function VectorIndexEditor(props: {
                       {record.displayText}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             ) : null}
             {groups.length === 0 ? (
@@ -664,9 +659,9 @@ export function VectorIndexEditor(props: {
       </fieldset>
       {!props.formId ? (
         <div className="stm-editor-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             onClick={() => {
               if (
                 JSON.stringify(draft) === JSON.stringify(initial) ||
@@ -676,15 +671,15 @@ export function VectorIndexEditor(props: {
             }}
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="stm-button stm-button--primary"
+            variant="primary"
             disabled={props.saving}
             onClick={() => void save()}
           >
             {props.saving ? "保存中…" : "保存"}
-          </button>
+          </Button>
         </div>
       ) : null}
     </form>

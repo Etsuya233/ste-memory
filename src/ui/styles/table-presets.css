@@ -22,7 +22,7 @@
   margin: 0;
 }
 
-.stm-preset-row .stm-button {
+.stm-preset-row .ui-button {
   flex: 0 0 auto;
   white-space: nowrap;
 }
@@ -92,7 +92,7 @@
 }
 
 /* 表单行内输入与按钮不互相挤压（与 Agent 连接表单同款） */
-.stm-preset-editor .stm-input {
+.stm-preset-editor .ui-input {
   width: auto;
   margin: 0;
 }

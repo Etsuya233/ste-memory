@@ -1,3 +1,5 @@
+import { Button, Input, Switch } from "../kit/controls.tsx";
+import { ListGroup, ListSection, ListRow, NavigationRow } from "../kit/list.tsx";
 import {
   useCallback,
   useEffect,
@@ -30,7 +32,7 @@ import type { MemoryView } from "../../features/macros/memory-views.ts";
 import { AppearanceSettings } from "../shell/appearance-settings.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
-import { Tabs } from "../shell/tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 import { EmbeddingConnectionEditor } from "./embedding-connection-editor.tsx";
 import type { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import {
@@ -649,53 +651,37 @@ export function SettingsTab(props: {
           }
         />
       ) : null}
-      {/* 插件总开关：钉顶且默认展开（不参与折叠） */}
-      <div className="stm-setting-group" data-group="plugin-toggle" hidden={activeGroup !== null}>
-        <div className="stm-setting-row">
-          <div className="stm-setting-label">
-            <div className="stm-setting-name">插件总开关</div>
-            <div className="stm-setting-hint">关闭后暂停绑定与同步</div>
-          </div>
-          <label className="stm-switch" data-bar-unframed>
-            <input
-              type="checkbox"
+      <ListGroup data-group="plugin-toggle" hidden={activeGroup !== null}>
+        <ListRow
+          title="插件总开关"
+          description="关闭后暂停绑定与同步"
+          trailing={
+            <Switch
               data-action="toggle-plugin"
               aria-label="插件总开关"
               checked={props.settings.enabled}
               onChange={(event) => togglePlugin(event.target.checked)}
             />
-            <span className="stm-switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-      </div>
+          }
+        />
+      </ListGroup>
       {activeGroup === null &&
         categories.map((category) => (
-          <section
-            className="stm-settings-category"
-            key={category.label}
-            aria-label={category.label}
-          >
-            <div className="stm-section-label">{category.label}</div>
-            <div className="stm-grouped-list">
+          <ListSection title={category.label} key={category.label}>
+            <ListGroup>
               {category.items.map((item) => (
-                <button
-                  type="button"
-                  className="stm-settings-category-row"
+                <NavigationRow
                   key={item.key}
+                  title={item.title}
+                  description={item.summary}
                   data-action="toggle-settings-group"
                   data-group={item.key}
                   aria-expanded={false}
                   onClick={() => toggleGroup(item.key)}
-                >
-                  <span className="stm-setting-group-header-main">
-                    <span className="stm-setting-name">{item.title}</span>
-                    <span className="stm-setting-group-summary">{item.summary}</span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
+                />
               ))}
-            </div>
-          </section>
+            </ListGroup>
+          </ListSection>
         ))}
       <div
         className="stm-setting-group"
@@ -980,24 +966,24 @@ export function SettingsTab(props: {
             )}
             <div className="stm-section-label">全部记忆空间</div>
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="export-backup"
                 disabled={dataOperation !== null}
                 onClick={() => void runDataOperation("export-backup", exportBackup)}
               >
                 导出备份
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="import-backup"
                 disabled={dataOperation !== null}
                 onClick={() => importInputRef.current?.click()}
               >
                 导入备份
-              </button>
+              </Button>
             </div>
             <input
               ref={importInputRef}
@@ -1015,25 +1001,25 @@ export function SettingsTab(props: {
             <div className="stm-setting-divider" />
             <div className="stm-section-label">当前对话空间</div>
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="export-space-backup"
                 disabled={!canExportSpace || dataOperation !== null}
                 title={canExportSpace ? undefined : "当前对话未绑定记忆空间"}
                 onClick={() => void runDataOperation("export-space-backup", exportSpaceBackup)}
               >
                 导出当前空间
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="import-space-backup"
                 disabled={dataOperation !== null}
                 onClick={() => importSpaceInputRef.current?.click()}
               >
                 导入到当前空间
-              </button>
+              </Button>
             </div>
             <input
               ref={importSpaceInputRef}
@@ -1066,33 +1052,25 @@ export function SettingsTab(props: {
                 <div className="stm-setting-name">随对话文件同步记忆镜像</div>
                 <div className="stm-setting-hint">换设备或清除本地数据后可从对话恢复</div>
               </div>
-              <label className="stm-switch" data-bar-unframed>
-                <input
-                  type="checkbox"
-                  data-action="toggle-mirror"
-                  aria-label="随对话文件同步记忆镜像"
-                  checked={props.settings.mirror.enabled}
-                  onChange={(event) => toggleMirror(event.target.checked)}
-                />
-                <span className="stm-switch-track" aria-hidden="true"></span>
-              </label>
+              <Switch
+                data-action="toggle-mirror"
+                aria-label="随对话文件同步记忆镜像"
+                checked={props.settings.mirror.enabled}
+                onChange={(event) => toggleMirror(event.target.checked)}
+              />
             </div>
             <div className="stm-setting-row">
               <div className="stm-setting-label">
                 <div className="stm-setting-name">镜像包含修订历史</div>
                 <div className="stm-setting-desc">文件快照始终保存完整修订历史</div>
               </div>
-              <label className="stm-switch" data-bar-unframed>
-                <input
-                  type="checkbox"
-                  data-action="toggle-mirror-history"
-                  aria-label="镜像包含修订历史"
-                  checked={true}
-                  disabled
-                  readOnly
-                />
-                <span className="stm-switch-track" aria-hidden="true"></span>
-              </label>
+              <Switch
+                data-action="toggle-mirror-history"
+                aria-label="镜像包含修订历史"
+                checked={true}
+                disabled
+                readOnly
+              />
             </div>
             <div className="stm-setting-row">
               <div className="stm-setting-name">镜像状态</div>
@@ -1172,8 +1150,7 @@ export function SettingsTab(props: {
                   <span className="stm-setting-name">
                     {SAFE_AREA_EDGE_LABELS[edge]} <span className="stm-setting-unit">px</span>
                   </span>
-                  <input
-                    className="stm-input"
+                  <Input
                     type="number"
                     min="0"
                     max="120"
@@ -1187,10 +1164,10 @@ export function SettingsTab(props: {
             </div>
             <div className="stm-setting-row">
               {SAFE_AREA_PRESETS.map((preset) => (
-                <button
+                <Button
                   key={preset.id}
                   type="button"
-                  className="stm-button"
+
                   data-action="apply-safe-area-preset"
                   data-preset={preset.id}
                   aria-pressed={SAFE_AREA_EDGES.every(
@@ -1199,16 +1176,16 @@ export function SettingsTab(props: {
                   onClick={() => setSafeArea({ ...preset.values })}
                 >
                   {preset.label}
-                </button>
+                </Button>
               ))}
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="clear-safe-area"
                 onClick={() => setSafeArea({ ...DEFAULT_SAFE_AREA })}
               >
                 清空
-              </button>
+              </Button>
             </div>
             <div className="stm-setting-hint">单位 px，仅移动端生效</div>
           </div>
@@ -1227,15 +1204,15 @@ export function SettingsTab(props: {
               将删除当前空间的全部记录、修订历史与证据，并同步清空对话文件镜像。操作不可恢复。
             </div>
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button stm-button--danger"
+                variant="danger"
                 data-action="clear-space-records"
                 disabled={!canMaintainSpace || dataOperation !== null}
                 onClick={() => void runDataOperation("clear-space-records", clearSpaceRecords)}
               >
                 {dataOperation === "clear-space-records" ? "正在清除…" : "清除空间记录"}
-              </button>
+              </Button>
             </div>
             <div className="stm-setting-hint">保留表格结构与初始化来源。</div>
           </div>

@@ -1,56 +1,15 @@
-import { useState, type ComponentProps, type PointerEventHandler, type ReactNode } from "react";
+import type { ComponentProps, PointerEventHandler, ReactNode } from "react";
+import { IconButton, ActionGroup } from "../kit/actions.tsx";
 
-/** 标准图标操作；原生按钮属性保留表单、键盘、ref 和页面事件能力。 */
+/** Host icon adapter over the portable icon button. */
 export function PanelBarAction({
   icon,
-  label,
-  emphasis = false,
-  danger = false,
-  onPointerDown,
-  onPointerUp,
-  onPointerCancel,
-  onPointerLeave,
-  onLostPointerCapture,
   ...props
-}: Omit<ComponentProps<"button">, "children" | "className" | "aria-label"> & {
-  readonly icon: string;
-  readonly label: string;
-  readonly emphasis?: boolean;
-  readonly danger?: boolean;
-}) {
-  const [pressed, setPressed] = useState(false);
+}: Omit<ComponentProps<typeof IconButton>, "children"> & { readonly icon: string }) {
   return (
-    <button
-      type="button"
-      {...props}
-      data-pressed={pressed}
-      onPointerDown={(event) => {
-        onPointerDown?.(event);
-        if (props.disabled || event.defaultPrevented || event.button !== 0) return;
-        setPressed(true);
-      }}
-      onPointerUp={(event) => {
-        setPressed(false);
-        onPointerUp?.(event);
-      }}
-      onPointerCancel={(event) => {
-        setPressed(false);
-        onPointerCancel?.(event);
-      }}
-      onPointerLeave={(event) => {
-        setPressed(false);
-        onPointerLeave?.(event);
-      }}
-      onLostPointerCapture={(event) => {
-        setPressed(false);
-        onLostPointerCapture?.(event);
-      }}
-      className={`stm-bar-action${emphasis ? " stm-bar-action--primary" : ""}${danger ? " stm-bar-action--danger" : ""}`}
-      aria-label={label}
-      title={label}
-    >
-      <i className={`fa-solid ${icon}`} aria-hidden="true" />
-    </button>
+    <IconButton {...props}>
+      <i className={`fa-solid ${icon}`} />
+    </IconButton>
   );
 }
 
@@ -85,9 +44,7 @@ export function PanelBar(props: {
     >
       <div className="stm-header-leading">
         {props.leading ? (
-          <div className="stm-bar-group" data-frame={props.leadingFrame ?? "auto"}>
-            {props.leading}
-          </div>
+          <ActionGroup frame={props.leadingFrame ?? "auto"}>{props.leading}</ActionGroup>
         ) : null}
       </div>
       <div className="stm-header-title-wrap">
@@ -96,9 +53,7 @@ export function PanelBar(props: {
       </div>
       <div className="stm-header-trailing">
         {props.trailing ? (
-          <div className="stm-bar-group" data-frame={props.trailingFrame ?? "auto"}>
-            {props.trailing}
-          </div>
+          <ActionGroup frame={props.trailingFrame ?? "auto"}>{props.trailing}</ActionGroup>
         ) : null}
       </div>
       {props.extension ? <div className="stm-header-extension">{props.extension}</div> : null}
@@ -116,13 +71,11 @@ export function PanelBottomBar(props: {
 }) {
   return (
     <footer className="stm-bottom-bar" aria-label={props.label}>
-      <div className="stm-bar-group stm-bottom-bar-main" data-frame={props.mainFrame ?? "auto"}>
+      <ActionGroup className="stm-bottom-bar-main" frame={props.mainFrame ?? "auto"}>
         {props.children}
-      </div>
+      </ActionGroup>
       {props.trailing ? (
-        <div className="stm-bar-group" data-frame={props.trailingFrame ?? "auto"}>
-          {props.trailing}
-        </div>
+        <ActionGroup frame={props.trailingFrame ?? "auto"}>{props.trailing}</ActionGroup>
       ) : null}
     </footer>
   );

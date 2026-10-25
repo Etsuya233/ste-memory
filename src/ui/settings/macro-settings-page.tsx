@@ -1,3 +1,4 @@
+import { Input } from "../kit/controls.tsx";
 /**
  * 宏设置页（原「宏设置」tab）：宏前缀（注册名）+ 每个宏的输出字符上限 +
  * 快照预算摘要 + 合并后的使用说明。改动即时保存（与设置其他项一致）。
@@ -147,8 +148,7 @@ export function MacroSettingsFields(props: {
             可填 ste 或 {"{{ste}}"}；字母开头，可含数字、下划线、连字符。改动即时生效。
           </div>
         </div>
-        <input
-          className="stm-input"
+        <Input
           type="text"
           data-stm-field="macro-name"
           value={props.macroName}
@@ -164,8 +164,7 @@ export function MacroSettingsFields(props: {
             每个宏单独生效；超出从尾部截断并附「……（已截断）」标记
           </div>
         </div>
-        <input
-          className="stm-input"
+        <Input
           type="number"
           min="0"
           step="100"

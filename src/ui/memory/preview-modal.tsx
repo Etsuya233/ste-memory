@@ -1,3 +1,5 @@
+import { Dialog } from "../kit/dialog.tsx";
+import { Button } from "../kit/controls.tsx";
 /**
  * 预览弹窗（issue 01 UI 改版）：宏预览与 Agent 预设预览统一使用的模态框。
  *
@@ -21,45 +23,42 @@ export function PreviewModal(props: {
   readonly onClose: () => void;
 }) {
   return (
-    <div className="stm-modal-overlay" data-stm-section="preview-modal" onClick={props.onClose}>
-      <div
-        className="stm-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={props.title}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="stm-modal-title" data-stm-field="preview-modal-title">
-          {props.title}
-        </div>
-        <div className="stm-modal-body">
-          {props.children !== undefined ? (
-            props.children
-          ) : (
-            <pre className="stm-mono stm-modal-text" data-stm-field="preview-modal-text">
-              {props.text === "" ? "（空）" : props.text}
-            </pre>
-          )}
-        </div>
-        <div className="stm-modal-footer">
-          <button
-            type="button"
-            className="stm-button"
-            data-action="copy-preview"
-            onClick={props.onCopy}
-          >
-            复制
-          </button>
-          <button
-            type="button"
-            className="stm-button"
-            data-action="close-preview-modal"
-            onClick={props.onClose}
-          >
-            关闭
-          </button>
-        </div>
+    <Dialog
+      label={props.title}
+      onClose={props.onClose}
+      data-stm-section="preview-modal"
+      contentClassName="stm-modal"
+    >
+      <div className="stm-modal-title" data-stm-field="preview-modal-title">
+        {props.title}
       </div>
-    </div>
+      <div className="stm-modal-body">
+        {props.children !== undefined ? (
+          props.children
+        ) : (
+          <pre className="stm-mono stm-modal-text" data-stm-field="preview-modal-text">
+            {props.text === "" ? "（空）" : props.text}
+          </pre>
+        )}
+      </div>
+      <div className="stm-modal-footer">
+        <Button
+          type="button"
+
+          data-action="copy-preview"
+          onClick={props.onCopy}
+        >
+          复制
+        </Button>
+        <Button
+          type="button"
+
+          data-action="close-preview-modal"
+          onClick={props.onClose}
+        >
+          关闭
+        </Button>
+      </div>
+    </Dialog>
   );
 }

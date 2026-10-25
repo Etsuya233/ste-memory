@@ -77,7 +77,7 @@
 }
 
 /* 强调色轨道上使用强调色前景做滑块，避免深色主题里与轨道混在一起。 */
-.stm-vector-editor .stm-switch input:checked + .stm-switch-track::after {
+.stm-vector-editor .ui-switch input:checked + .ui-switch-track::after {
   background: var(--stm-accent-fg);
 }
 
@@ -241,24 +241,6 @@
   color: var(--stm-accent-text);
 }
 
-.stm-vector-editor .stm-segmented {
-  gap: 3px;
-  padding: 3px;
-  border-radius: 12px;
-  background: var(--stm-surface-2);
-}
-
-.stm-vector-editor .stm-segmented > button {
-  border-radius: 9px;
-  font-size: var(--stm-fs-sm);
-}
-
-.stm-vector-editor .stm-segmented > button[aria-pressed="true"] {
-  background: var(--stm-accent-tint);
-  color: var(--stm-accent-text);
-  box-shadow: none;
-}
-
 .stm-vector-divider {
   height: 1px;
   background: var(--stm-border);
@@ -406,7 +388,7 @@
   color: var(--stm-fg-2);
 }
 
-.stm-vector-import .stm-input {
+.stm-vector-import .ui-input {
   margin: 0;
 }
 
@@ -659,7 +641,7 @@
   scroll-margin-block: var(--stm-space-2);
 }
 
-.stm-vector-editor .stm-disclosure-body {
+.stm-vector-editor .ui-disclosure-body {
   gap: var(--stm-space-3);
 }
 
@@ -676,7 +658,7 @@
   color: var(--stm-fg-2);
 }
 
-.stm-vector-sample .stm-input {
+.stm-vector-sample .ui-input {
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -839,14 +821,14 @@
   gap: var(--stm-space-2);
 }
 
-.stm-vector-maintenance-actions .stm-button--danger {
+.stm-vector-maintenance-actions .ui-button--danger {
   background: transparent;
   border-color: var(--stm-border);
   color: var(--stm-danger);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .stm-vector-maintenance-actions .stm-button--danger:hover {
+  .stm-vector-maintenance-actions .ui-button--danger:hover {
     border-color: var(--stm-danger);
     background: var(--stm-danger-dim);
   }

@@ -1,3 +1,5 @@
+import { Button, Input } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type {
   MemoryRecallService,
@@ -173,8 +175,7 @@ export function MemoryRecallPanel({
               .map((binding) => (
                 <p role="alert" key={`${binding.scope}/${binding.name}`}>
                   失效绑定：{binding.scope}/{binding.name}{" "}
-                  <button
-                    className="stm-button"
+                  <Button
                     type="button"
                     onClick={() =>
                       setDraft({
@@ -184,14 +185,13 @@ export function MemoryRecallPanel({
                     }
                   >
                     移除
-                  </button>
+                  </Button>
                 </p>
               ))}
             <div className="stm-action-row">
               <label>
                 Top K
-                <input
-                  className="stm-input"
+                <Input
                   type="number"
                   min={1}
                   max={50}
@@ -201,8 +201,7 @@ export function MemoryRecallPanel({
               </label>
               <label>
                 最低分（留空关闭）
-                <input
-                  className="stm-input"
+                <Input
                   type="number"
                   min={-1}
                   max={1}
@@ -218,8 +217,7 @@ export function MemoryRecallPanel({
               </label>
               <label>
                 输出字符上限
-                <input
-                  className="stm-input"
+                <Input
                   type="number"
                   min={500}
                   value={draft.maxChars}
@@ -227,9 +225,7 @@ export function MemoryRecallPanel({
                 />
               </label>
             </div>
-            <button className="stm-button" type="submit">
-              保存当前对话召回配置
-            </button>
+            <Button type="submit">保存当前对话召回配置</Button>
           </form>
         </div>
       </Disclosure>
@@ -240,9 +236,9 @@ export function MemoryRecallPanel({
           ` · ${retrievalState.status === "embedding" ? "生成查询向量" : retrievalState.status === "sorting" ? "本地排序" : "检查候选范围"}`}
       </p>
       {state.status === "preparing" && (
-        <button className="stm-button" type="button" onClick={service.skip}>
+        <Button type="button" onClick={service.skip}>
           跳过本次召回
-        </button>
+        </Button>
       )}
       <Disclosure icon="fa-circle-info" title="宏用法与召回规则">
         <p className="stm-setting-hint">
@@ -301,7 +297,7 @@ function RecallHits({
         ；空内容 {result.coverage.empty}
       </p>
       {state.indexUpdated && <p>索引已有更新，下次发送将使用新索引；本次保留原候选快照。</p>}
-      <ol className="stm-grouped-list stm-retrieval-hits">
+      <ListGroup as="ol" className="stm-retrieval-hits">
         {result.hits.map((hit) => (
           <li key={JSON.stringify([hit.target.table.id, hit.target.record.id])}>
             <button
@@ -320,7 +316,7 @@ function RecallHits({
             </button>
           </li>
         ))}
-      </ol>
+      </ListGroup>
       {result.coverage.issues.map((issue) => (
         <p key={issue}>{issue}</p>
       ))}

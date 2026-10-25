@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { Button } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 import { AutoFillControls } from "./auto-fill-controls.tsx";
 import type { AutoFillService } from "../../features/fill-tasks/auto-fill-service.ts";
 /**
@@ -427,9 +430,9 @@ export function TasksTab(props: {
               )}
               <div className="stm-task-actions">
                 {task.blocksQueue && (
-                  <button
+                  <Button
                     type="button"
-                    className="stm-button"
+
                     onClick={() => {
                       void props.runtime.tasks
                         .retry(currentSpaceId, task.runId)
@@ -438,12 +441,12 @@ export function TasksTab(props: {
                     }}
                   >
                     继续填表
-                  </button>
+                  </Button>
                 )}
                 {task.status !== "running" && (
-                  <button
+                  <Button
                     type="button"
-                    className="stm-button"
+
                     onClick={() => {
                       void props.runtime.tasks
                         .cancel(currentSpaceId, task.runId)
@@ -452,7 +455,7 @@ export function TasksTab(props: {
                     }}
                   >
                     {task.blocksQueue ? "取消本次任务" : "取消等待"}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -460,14 +463,14 @@ export function TasksTab(props: {
         )}
       </div>
       {view.hasActiveTask && view.activeTaskRunId ? (
-        <div className="stm-task-card stm-grouped-list" data-stm-section="active-task">
+        <ListGroup className="stm-task-card" data-stm-section="active-task">
           <div className="stm-task-card-title">
             {view.activeTaskLabel} · {view.activeRange}
           </div>
           <div className="stm-task-card-detail">{view.activeTaskDetail}</div>
-        </div>
+        </ListGroup>
       ) : null}
-      <div className="stm-task-card stm-grouped-list" data-stm-section="trigger">
+      <ListGroup className="stm-task-card" data-stm-section="trigger">
         <div className="stm-task-card-title">手动触发填表</div>
         {view.unprocessedHint ? (
           <div className="stm-task-hint" data-stm-field="unprocessed-hint">
@@ -522,22 +525,22 @@ export function TasksTab(props: {
               }}
             />
           </label>
-          <button
+          <Button
             type="button"
-            className="stm-button stm-button--primary"
+            variant="primary"
             data-action="trigger-fill-task"
             disabled={pending || !view.canTrigger}
             onClick={() => void trigger()}
           >
             触发填表
-          </button>
+          </Button>
         </div>
         {inputError ? (
           <div className="stm-task-error" data-stm-field="range-error">
             {inputError}
           </div>
         ) : null}
-      </div>
+      </ListGroup>
       {view.coverage.totalCount > 0 ? (
         <Disclosure
           icon="fa-layer-group"
@@ -586,7 +589,7 @@ export function TasksTab(props: {
       {view.history.length > 0 ? (
         <section data-stm-section="history" className="stm-task-history">
           <div className="stm-task-card-title">最近结果</div>
-          <ul className="stm-history-list stm-grouped-list">
+          <ListGroup as="ul" className="stm-history-list">
             {view.history.slice(0, 1).map((item) => (
               <li key={item.runId} className="stm-history-item">
                 <div className="stm-history-head">
@@ -603,7 +606,7 @@ export function TasksTab(props: {
                     {item.errorMessage}
                   </div>
                 ) : null}
-                <div className="stm-task-actions stm-bar-group">
+                <ActionGroup className="stm-task-actions">
                   <PanelBarAction
                     icon="fa-list"
                     label="查看任务日志"
@@ -621,13 +624,13 @@ export function TasksTab(props: {
                       onClick={() => void retryTask(item.runId)}
                     />
                   ) : null}
-                </div>
+                </ActionGroup>
               </li>
             ))}
-          </ul>
+          </ListGroup>
           {view.history.length > 1 ? (
             <Disclosure icon="fa-clock-rotate-left" title="任务历史" meta={view.history.length - 1}>
-              <ul className="stm-history-list stm-grouped-list">
+              <ListGroup as="ul" className="stm-history-list">
                 {view.history.slice(1).map((item) => (
                   <li key={item.runId} className="stm-history-item">
                     <div className="stm-history-head">
@@ -645,7 +648,7 @@ export function TasksTab(props: {
                         {item.errorMessage}
                       </div>
                     ) : null}
-                    <div className="stm-task-actions stm-bar-group">
+                    <ActionGroup className="stm-task-actions">
                       <PanelBarAction
                         icon="fa-list"
                         label="查看任务日志"
@@ -663,10 +666,10 @@ export function TasksTab(props: {
                           onClick={() => void retryTask(item.runId)}
                         />
                       ) : null}
-                    </div>
+                    </ActionGroup>
                   </li>
                 ))}
-              </ul>
+              </ListGroup>
             </Disclosure>
           ) : null}
         </section>
@@ -719,15 +722,15 @@ export function TasksTab(props: {
               }}
             />
           </label>
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="mark-floor-statuses"
             disabled={pending || !view.canTrigger || view.pendingTasks.length > 0}
             onClick={() => void markFloorStatus()}
           >
             标记
-          </button>
+          </Button>
         </div>
         {markError ? (
           <div className="stm-task-error" data-stm-field="mark-error">
@@ -746,15 +749,15 @@ export function TasksTab(props: {
             rows={4}
             onChange={(event) => setInitText(event.target.value)}
           />
-          <button
+          <Button
             type="button"
-            className="stm-button stm-button--primary"
+            variant="primary"
             data-action="trigger-init-fill"
             disabled={pending || !view.canTriggerInit}
             onClick={() => void triggerInit()}
           >
             初始化
-          </button>
+          </Button>
         </div>
       </Disclosure>
       {view.noMessages ? (

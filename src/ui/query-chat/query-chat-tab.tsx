@@ -1,3 +1,4 @@
+import { Input } from "../kit/controls.tsx";
 /**
  * 问答 Tab（ticket 20 / ADR 0009 + ADR 0013）：与 Agent 聊天的面板区块。
  *
@@ -48,7 +49,7 @@ import { activeStatus, Placeholder, reportError, reportSuccess } from "../shell/
 
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBarAction, PanelBottomBar } from "../shell/panel-bar.tsx";
-import { Tabs } from "../shell/tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 
 /** 稳定空数组（useSyncExternalStore 快照必须引用稳定，字面量 [] 会触发无限重渲染）。 */
 const EMPTY_MESSAGES: readonly QueryChatMessage[] = [];
@@ -216,8 +217,7 @@ export function QueryChatTab(props: {
                 )
               }
             >
-              <input
-                className="stm-input"
+              <Input
                 type="text"
                 aria-label={mode === "query" ? "问答内容" : "填写内容"}
                 data-action="query-chat-input"

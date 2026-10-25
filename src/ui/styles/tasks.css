@@ -64,7 +64,7 @@
   padding: var(--stm-space-2) var(--stm-space-3);
   border: 1px solid var(--stm-border);
   border-radius: var(--stm-radius);
-  background: var(--stm-input-bg);
+  background: var(--ui-input-bg);
   color: var(--stm-fg);
   font: inherit;
   font-size: max(16px, var(--stm-fs-md));
@@ -81,7 +81,7 @@
 .stm-task-range-sep {
   display: none;
 }
-.stm-task-form .stm-button {
+.stm-task-form .ui-button {
   min-height: var(--stm-control-h);
 }
 .stm-task-error,
@@ -160,13 +160,6 @@
 .stm-history-item {
   position: relative;
   padding: var(--stm-row-padding-y) var(--stm-space-4);
-}
-.stm-history-item + .stm-history-item::before,
-.stm-vector-task + .stm-vector-task::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto var(--stm-space-4);
-  border-top: 1px solid var(--stm-border);
 }
 .stm-history-head {
   display: flex;

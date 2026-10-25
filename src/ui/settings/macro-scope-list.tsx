@@ -1,3 +1,5 @@
+import { Button } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 /**
  * 记忆宏作用域列表（全局宏 / 对话宏共用）：对象行 + 空状态。
  * 行内展示宏表达式、表名、筛选/条数/投影摘要与输出体积；右侧预览/复制按钮。
@@ -66,15 +68,15 @@ export function MacroScopeList(props: {
         <div className="stm-macro-empty-title">{props.emptyTitle}</div>
         <div className="stm-macro-empty-hint">{props.emptyHint}</div>
         <div className="stm-macro-empty-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button stm-button--primary"
+            variant="primary"
             data-action={props.emptyAction}
             disabled={props.createDisabled}
             onClick={props.onEmptyAction}
           >
             {props.emptyActionLabel}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -82,7 +84,7 @@ export function MacroScopeList(props: {
 
   return (
     <>
-      <div className="stm-grouped-list stm-macro-list">
+      <ListGroup className="stm-macro-list">
         {props.macros.map((macro) => (
           <MacroRow
             key={macro.name}
@@ -102,7 +104,7 @@ export function MacroScopeList(props: {
             errorField={props.errorField}
           />
         ))}
-      </div>
+      </ListGroup>
       {preview && (
         <PreviewModal
           title={preview.name}

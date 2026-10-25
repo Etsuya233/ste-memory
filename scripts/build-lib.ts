@@ -20,6 +20,8 @@ const STATIC_ASSETS: ReadonlyArray<{ from: string; to: string }> = [
  * dist/style.css 供 manifest.css 引用。
  */
 export const STYLE_SOURCES: readonly string[] = [
+  "../kit/theme.css",
+  "../kit/components.css",
   "tokens.css",
   "panel-shell.css",
   "memory-tables.css",

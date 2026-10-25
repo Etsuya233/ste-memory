@@ -137,9 +137,9 @@ describe("appearance-model", () => {
     });
     expect(presentation.tone).toBe("light");
     expect(presentation.variables).toEqual({
-      "--stm-bg": "#f5f3ee",
-      "--stm-accent": "#8b5cf6",
-      "--stm-accent-fg": "#09090b",
+      "--ui-bg": "#f2f2f7",
+      "--ui-accent": "#8b5cf6",
+      "--ui-accent-fg": "#09090b",
     });
   });
 });

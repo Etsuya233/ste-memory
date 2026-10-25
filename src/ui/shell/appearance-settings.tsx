@@ -1,3 +1,4 @@
+import { ListGroup } from "../kit/list.tsx";
 import { useSyncExternalStore } from "react";
 import {
   ACCENT_PRESETS,
@@ -76,7 +77,7 @@ export function AppearanceSettings() {
   }
 
   return (
-    <div className="stm-appearance-settings stm-grouped-list">
+    <ListGroup className="stm-appearance-settings">
       <fieldset className="stm-appearance-field">
         <legend>界面样式</legend>
         <div className="stm-appearance-style-grid" role="group" aria-label="界面样式">
@@ -215,7 +216,7 @@ export function AppearanceSettings() {
       {(Object.keys(OPTIONS) as (keyof typeof OPTIONS)[]).map((key) => (
         <fieldset className="stm-appearance-field" key={key}>
           <legend>{OPTIONS[key].label}</legend>
-          <div className="stm-segmented" aria-label={OPTIONS[key].label}>
+          <div className="ui-segmented" aria-label={OPTIONS[key].label}>
             {Object.entries(OPTIONS[key].values).map(([value, label]) => (
               <button
                 type="button"
@@ -238,6 +239,6 @@ export function AppearanceSettings() {
           </div>
         </fieldset>
       ))}
-    </div>
+    </ListGroup>
   );
 }

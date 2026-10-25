@@ -1,3 +1,4 @@
+import { Button } from "../kit/controls.tsx";
 /**
  * 显示策略编辑器组件（ticket 10）。
  *
@@ -231,22 +232,22 @@ export function DisplayStrategyEditor(props: DisplayStrategyEditorProps) {
       </fieldset>
       {!props.formId ? (
         <div className="stm-editor-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="editor-cancel"
             onClick={props.onCancel}
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="stm-button stm-button--primary"
+            variant="primary"
             data-action="editor-submit"
             disabled={validation !== null || props.saving}
           >
             保存
-          </button>
+          </Button>
         </div>
       ) : null}
     </form>

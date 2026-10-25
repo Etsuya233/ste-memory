@@ -59,7 +59,7 @@ export const THEME_PRESETS: readonly {
   { value: "graphite", label: "墨灰", background: "#09090b" },
   { value: "midnight", label: "午夜蓝", background: "#0b1220" },
   { value: "forest", label: "松林", background: "#0b1511" },
-  { value: "porcelain", label: "瓷白", background: "#f5f3ee" },
+  { value: "porcelain", label: "瓷白", background: "#f2f2f7" },
   { value: "sand", label: "沙丘", background: "#e8dfd0" },
 ];
 
@@ -214,7 +214,7 @@ export interface AppearancePresentation {
   readonly background: string;
   readonly accent: string;
   readonly accentForeground: string;
-  readonly variables: Readonly<Record<`--stm-${string}`, string>>;
+  readonly variables: Readonly<Record<`--ui-${string}`, string>>;
 }
 
 /** 面板初始化：把当前外观压成 data-tone 与三条随主题变化的 CSS 变量。 */
@@ -227,9 +227,9 @@ export function presentAppearance(appearance: Appearance): AppearancePresentatio
     accent,
     accentForeground: onAccentColor(accent),
     variables: {
-      "--stm-bg": background,
-      "--stm-accent": accent,
-      "--stm-accent-fg": onAccentColor(accent),
+      "--ui-bg": background,
+      "--ui-accent": accent,
+      "--ui-accent-fg": onAccentColor(accent),
     },
   };
 }

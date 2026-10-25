@@ -14,7 +14,7 @@ export function Segmented<Value extends string>(props: {
 }) {
   return (
     <div
-      className={`stm-segmented${props.className ? ` ${props.className}` : ""}`}
+      className={`ui-segmented${props.className ? ` ${props.className}` : ""}`}
       role="group"
       aria-label={props.label}
     >

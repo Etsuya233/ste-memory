@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { Input, Switch } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { FieldList, FieldListRow } from "./field-list.tsx";
 import { TableConfigSection, TableFieldsPanel } from "./table-detail-sections.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
@@ -678,22 +681,15 @@ export function TablesTab(props: {
                     />
                   </>
                 ) : selectedTable ? (
-                  <label
-                    className="stm-switch"
-                    data-bar-unframed
+                  <Switch
                     title={selectedTable.enabled ? "停用表格" : "启用表格"}
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={busy}
-                      data-action="toggle-table"
-                      data-table-id={selectedTable.id}
-                      checked={selectedTable.enabled}
-                      aria-label={`启用 ${selectedTable.name}`}
-                      onChange={(event) => void toggleTable(selectedTable.id, event.target.checked)}
-                    />
-                    <span className="stm-switch-track" aria-hidden="true" />
-                  </label>
+                    disabled={busy}
+                    data-action="toggle-table"
+                    data-table-id={selectedTable.id}
+                    checked={selectedTable.enabled}
+                    aria-label={`启用 ${selectedTable.name}`}
+                    onChange={(event) => void toggleTable(selectedTable.id, event.target.checked)}
+                  />
                 ) : null
               }
             />
@@ -720,8 +716,7 @@ export function TablesTab(props: {
         <section className="stm-table-index">
           <div className="stm-table-search">
             <i className="fa-solid fa-magnifying-glass" aria-hidden="true" />
-            <input
-              className="stm-input"
+            <Input
               type="search"
               value={search}
               placeholder="搜索表格或 Key"
@@ -730,27 +725,24 @@ export function TablesTab(props: {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <div className="stm-table-rail-list stm-grouped-list">
+          <ListGroup className="stm-table-rail-list">
             {filteredTables.map((table) => (
-              <button
+              <NavigationRow
                 key={table.id}
-                type="button"
-                className={`stm-table-rail-row${table.enabled ? "" : " is-off"}`}
+                className={table.enabled ? "" : "is-off"}
+                title={table.name}
+                description={
+                  <>
+                    {table.fields.length} 个字段{table.enabled ? "" : " · 已停用"}
+                    {table.description ? ` · ${table.description}` : ""}
+                  </>
+                }
                 data-action="expand-table"
                 data-table-id={table.id}
                 onClick={() => selectTable(table.id)}
-              >
-                <span className="stm-table-rail-main">
-                  <span className="stm-table-rail-name">{table.name}</span>
-                  <span className="stm-table-rail-meta">
-                    {table.fields.length} 个字段{table.enabled ? "" : " · 已停用"}
-                    {table.description ? ` · ${table.description}` : ""}
-                  </span>
-                </span>
-                <i className="fa-solid fa-chevron-right stm-table-chevron" aria-hidden="true" />
-              </button>
+              />
             ))}
-          </div>
+          </ListGroup>
           {filteredTables.length === 0 ? (
             <Placeholder
               title={tables.length ? "没有匹配的表格" : "还没有记忆表格"}
@@ -858,7 +850,7 @@ export function TablesTab(props: {
                           }}
                           actions={
                             managingFields ? (
-                              <div className="stm-bar-group stm-field-management-actions">
+                              <ActionGroup className="stm-field-management-actions">
                                 <PanelBarAction
                                   icon="fa-trash-can"
                                   label={`删除字段 ${field.name}`}
@@ -876,7 +868,7 @@ export function TablesTab(props: {
                                     void deleteField(selectedTable.id, field.id, field.name)
                                   }
                                 />
-                              </div>
+                              </ActionGroup>
                             ) : null
                           }
                         />

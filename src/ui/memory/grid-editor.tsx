@@ -1,3 +1,4 @@
+import { Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 /**
  * 记录网格（表格填写视图，ticket 11 改造 + ticket 21 UX）：行 = 记录，列 = 字段。
  *
@@ -412,8 +413,7 @@ export function renderFieldInput(
     case "long_text":
       // 短/长文本统一 textarea 铺满单元格（ticket 21）
       return (
-        <textarea
-          className="stm-input"
+        <Textarea
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -423,8 +423,7 @@ export function renderFieldInput(
       );
     case "short_text_list":
       return (
-        <textarea
-          className="stm-input"
+        <Textarea
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -438,10 +437,10 @@ export function renderFieldInput(
     case "integer":
     case "decimal":
       return (
-        <input
+        <Input
           type="number"
           step={field.type === "decimal" ? "any" : "1"}
-          className="stm-input"
+
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -451,23 +450,19 @@ export function renderFieldInput(
       );
     case "boolean":
       return (
-        <label className="stm-switch">
-          <input
-            type="checkbox"
-            data-stm-field={dataField}
-            aria-label={field.name}
-            autoFocus={autoFocus}
-            checked={value === true}
-            onChange={(event) => updateValue(field.id, event.target.checked)}
-          />
-          <span className="stm-switch-track" aria-hidden="true"></span>
-        </label>
+        <Switch
+          data-stm-field={dataField}
+          aria-label={field.name}
+          autoFocus={autoFocus}
+          checked={value === true}
+          onChange={(event) => updateValue(field.id, event.target.checked)}
+        />
       );
     case "date":
       return (
-        <input
+        <Input
           type="date"
-          className="stm-input"
+
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -477,9 +472,9 @@ export function renderFieldInput(
       );
     case "datetime":
       return (
-        <input
+        <Input
           type="datetime-local"
-          className="stm-input"
+
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -489,8 +484,7 @@ export function renderFieldInput(
       );
     case "single_select":
       return (
-        <select
-          className="stm-input"
+        <Select
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -503,15 +497,15 @@ export function renderFieldInput(
               {option}
             </option>
           ))}
-        </select>
+        </Select>
       );
     case "multi_select":
       // 原生多选（ticket 21）：size 压缩到 3 行适配默认行高，桌面为行内列表框、iOS 全屏选择器
       return (
-        <select
+        <Select
           multiple
           size={Math.min(Math.max(field.options.length, 1), 3)}
-          className="stm-input stm-input--multiselect"
+          className="ui-input--multiselect"
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -528,15 +522,14 @@ export function renderFieldInput(
               {option}
             </option>
           ))}
-        </select>
+        </Select>
       );
     case "single_reference": {
       const options = field.referenceTableId
         ? (referenceRecords.get(field.referenceTableId) ?? [])
         : [];
       return (
-        <select
-          className="stm-input"
+        <Select
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -549,7 +542,7 @@ export function renderFieldInput(
               {record.displayText}
             </option>
           ))}
-        </select>
+        </Select>
       );
     }
     case "multi_reference": {
@@ -557,10 +550,10 @@ export function renderFieldInput(
         ? (referenceRecords.get(field.referenceTableId) ?? [])
         : [];
       return (
-        <select
+        <Select
           multiple
           size={Math.min(Math.max(options.length, 1), 3)}
-          className="stm-input stm-input--multiselect"
+          className="ui-input--multiselect"
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -577,7 +570,7 @@ export function renderFieldInput(
               {record.displayText}
             </option>
           ))}
-        </select>
+        </Select>
       );
     }
   }

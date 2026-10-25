@@ -392,7 +392,7 @@
   min-width: 0;
   min-height: var(--stm-control-h);
   padding: var(--stm-space-2) var(--stm-space-3);
-  background: var(--stm-input-bg);
+  background: var(--ui-input-bg);
   border: 1px solid var(--stm-border);
   border-radius: var(--stm-radius);
   color: var(--stm-fg);

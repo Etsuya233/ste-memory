@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { FormField, Button, Input, Select, Switch } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { FieldList, FieldListRow } from "../memory/field-list.tsx";
 import { TableConfigSection, TableFieldsPanel } from "../memory/table-detail-sections.tsx";
 import { SettingsActionMenu, type SettingsMenuAction } from "./settings-action-menu.tsx";
@@ -454,25 +457,18 @@ export function TablePresetEditor(props: {
                 ) : configPage !== null ||
                   strategyEditor !== null ||
                   vectorEditor !== null ? undefined : selectedTable ? (
-                  <label
-                    className="stm-switch"
-                    data-bar-unframed
+                  <Switch
                     title={selectedTable.enabled ? "停用表格" : "启用表格"}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTable.enabled}
-                      data-action="toggle-table"
-                      aria-label={`启用表格 ${selectedTable.name}`}
-                      onChange={(event) =>
-                        updateTable(selectedTableIndex, {
-                          ...selectedTable,
-                          enabled: event.target.checked,
-                        })
-                      }
-                    />
-                    <span className="stm-switch-track" aria-hidden="true" />
-                  </label>
+                    checked={selectedTable.enabled}
+                    data-action="toggle-table"
+                    aria-label={`启用表格 ${selectedTable.name}`}
+                    onChange={(event) =>
+                      updateTable(selectedTableIndex, {
+                        ...selectedTable,
+                        enabled: event.target.checked,
+                      })
+                    }
+                  />
                 ) : (
                   <SettingsActionMenu actions={menuActions} />
                 )
@@ -483,9 +479,9 @@ export function TablePresetEditor(props: {
       )}
       {!props.chrome && (
         <div className="stm-setting-actions">
-          <button type="button" className="stm-button" onClick={back}>
+          <Button type="button" onClick={back}>
             返回
-          </button>
+          </Button>
         </div>
       )}
       {error && (
@@ -500,22 +496,26 @@ export function TablePresetEditor(props: {
           data-stm-section="preset-info"
           onBlur={commitDraft}
         >
-          <label className="stm-form-row">
-            <span className="stm-form-label">预设名称</span>
-            <input
-              className="stm-input"
-              value={draft.name}
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
-          </label>
-          <label className="stm-form-row">
-            <span className="stm-form-label">说明</span>
-            <input
-              className="stm-input"
-              value={draft.description}
-              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-            />
-          </label>
+          <FormField className="stm-form-row" label={<>预设名称</>}>
+            {(field) => (
+              <Input
+                {...field}
+
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              />
+            )}
+          </FormField>
+          <FormField className="stm-form-row" label={<>说明</>}>
+            {(field) => (
+              <Input
+                {...field}
+
+                value={draft.description}
+                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+              />
+            )}
+          </FormField>
           <label className="stm-form-row">
             <span className="stm-form-label">通用填写规则</span>
             <textarea
@@ -542,27 +542,29 @@ export function TablePresetEditor(props: {
                     ["valuePatternMessage", "格式错误提示"],
                   ] as const
                 ).map(([key, label]) => (
-                  <label className="stm-form-row" key={key}>
-                    <span className="stm-form-label">{label}</span>
-                    <input
-                      className="stm-input"
-                      type={key === "maxChars" ? "number" : "text"}
-                      min={key === "maxChars" ? 1 : undefined}
-                      value={fieldConstraints[key] ?? ""}
-                      onChange={(event) => {
-                        setFormDirty(true);
-                        setFieldConstraints({
-                          ...fieldConstraints,
-                          [key]:
-                            event.target.value === ""
-                              ? null
-                              : key === "maxChars"
-                                ? Number(event.target.value)
-                                : event.target.value,
-                        });
-                      }}
-                    />
-                  </label>
+                  <FormField className="stm-form-row" key={key} label={<>{label}</>}>
+                    {(field) => (
+                      <Input
+                        {...field}
+
+                        type={key === "maxChars" ? "number" : "text"}
+                        min={key === "maxChars" ? 1 : undefined}
+                        value={fieldConstraints[key] ?? ""}
+                        onChange={(event) => {
+                          setFormDirty(true);
+                          setFieldConstraints({
+                            ...fieldConstraints,
+                            [key]:
+                              event.target.value === ""
+                                ? null
+                                : key === "maxChars"
+                                  ? Number(event.target.value)
+                                  : event.target.value,
+                          });
+                        }}
+                      />
+                    )}
+                  </FormField>
                 ))}
               </fieldset>
             </Disclosure>
@@ -572,8 +574,7 @@ export function TablePresetEditor(props: {
         <fieldset className="stm-settings-fields">
           <label className="stm-form-row">
             <span className="stm-form-label">显示策略</span>
-            <select
-              className="stm-input"
+            <Select
               value={strategy?.type ?? "none"}
               onChange={(event) =>
                 setTableDraft(selectedTableIndex, {
@@ -590,13 +591,12 @@ export function TablePresetEditor(props: {
               <option value="none">默认显示</option>
               <option value="field">短文本字段</option>
               <option value="template">派生模板</option>
-            </select>
+            </Select>
           </label>
           {strategy?.type === "field" && (
             <label className="stm-form-row">
               <span className="stm-form-label">显示字段</span>
-              <select
-                className="stm-input"
+              <Select
                 value={strategy.fieldKey}
                 onChange={(event) =>
                   setTableDraft(selectedTableIndex, {
@@ -613,7 +613,7 @@ export function TablePresetEditor(props: {
                       {f.name}
                     </option>
                   ))}
-              </select>
+              </Select>
             </label>
           )}
           {strategy?.type === "template" && (
@@ -721,7 +721,7 @@ export function TablePresetEditor(props: {
                       }
                       actions={
                         sortingFields ? (
-                          <div className="stm-bar-group stm-field-management-actions">
+                          <ActionGroup className="stm-field-management-actions">
                             <PanelBarAction
                               icon="fa-arrow-up"
                               label={`上移字段 ${f.name}`}
@@ -736,9 +736,9 @@ export function TablePresetEditor(props: {
                               disabled={readonly || fi === selectedTable.fields.length - 1}
                               onClick={() => moveField(selectedTableIndex, fi, 1)}
                             />
-                          </div>
+                          </ActionGroup>
                         ) : managingFields ? (
-                          <div className="stm-bar-group stm-field-management-actions">
+                          <ActionGroup className="stm-field-management-actions">
                             <PanelBarAction
                               icon="fa-trash-can"
                               label={`删除字段 ${f.name}`}
@@ -752,7 +752,7 @@ export function TablePresetEditor(props: {
                               }
                               onClick={() => deleteField(selectedTableIndex, fi)}
                             />
-                          </div>
+                          </ActionGroup>
                         ) : null
                       }
                     />
@@ -833,30 +833,24 @@ export function TablePresetEditor(props: {
             }
           >
             {draft.tables.length > 0 ? (
-              <ul className="stm-grouped-list stm-settings-item-list">
+              <ListGroup as="ul" className="stm-settings-item-list">
                 {draft.tables.map((table, index) => (
                   <li
                     key={table.key}
                     className={sortingTables ? "stm-settings-item-with-action" : undefined}
                     data-table-key={table.key}
                   >
-                    <button
-                      type="button"
-                      className="stm-settings-item-row"
+                    <NavigationRow
                       data-action="open-preset-table"
                       onClick={() => openTable(table.key)}
-                    >
-                      <span className="stm-settings-item-main">
-                        <span className="stm-settings-item-title">{table.name}</span>
-                        <span className="stm-settings-item-summary">
-                          {table.key} · {table.fields.length} 个字段
-                          {table.enabled ? "" : " · 已停用"}
-                        </span>
-                      </span>
-                      <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                    </button>
+                      title={table.name}
+                      description=<>
+                        {table.key} · {table.fields.length} 个字段
+                        {table.enabled ? "" : " · 已停用"}
+                      </>
+                    />
                     {sortingTables ? (
-                      <div className="stm-bar-group stm-field-management-actions">
+                      <ActionGroup className="stm-field-management-actions">
                         <PanelBarAction
                           icon="fa-arrow-up"
                           label={`上移表格 ${table.name}`}
@@ -871,11 +865,11 @@ export function TablePresetEditor(props: {
                           disabled={readonly || index === draft.tables.length - 1}
                           onClick={() => moveTable(index, 1)}
                         />
-                      </div>
+                      </ActionGroup>
                     ) : null}
                   </li>
                 ))}
-              </ul>
+              </ListGroup>
             ) : null}
           </TableFieldsPanel>
         </>

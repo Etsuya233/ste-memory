@@ -1,3 +1,4 @@
+import { Button } from "../kit/controls.tsx";
 import { useEffect, useState } from "react";
 import type { MemorySpaceId, MemoryTableId } from "../../features/memory/index.ts";
 import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
@@ -125,33 +126,33 @@ export function TableVectorActions(props: {
         ) : null}
       </div>
       <div className="stm-vector-maintenance-actions">
-        <button
+        <Button
           type="button"
-          className="stm-button"
+
           aria-label="补建缺失或过期的索引"
           disabled={busy}
           onClick={() => void submit(false)}
         >
           补建
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="stm-button"
+
           aria-label="强制重算全部索引"
           disabled={busy}
           onClick={() => void submit(true)}
         >
           重算
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="stm-button stm-button--danger"
+          variant="danger"
           aria-label="清除这张表的索引"
           disabled={busy}
           onClick={() => void clear()}
         >
           清除
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { Button, Input, Select } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
 import type {
@@ -286,7 +289,7 @@ export function VectorTasks(props: {
       ) : null}
       {detail ? (
         <article
-          className="stm-vector-task-detail stm-grouped-list"
+          className="stm-vector-task-detail ui-list-group"
           data-stm-section="vector-task-detail"
         >
           <div className="stm-task-card-title">
@@ -371,8 +374,7 @@ export function VectorTasks(props: {
             <div className="stm-vector-filters">
               <label>
                 空间{" "}
-                <select
-                  className="stm-input"
+                <Select
                   data-action="filter-vector-space"
                   value={spaceFilter}
                   onChange={(event) => {
@@ -386,12 +388,11 @@ export function VectorTasks(props: {
                       {spaceNames.get(id) ?? id}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 表格{" "}
-                <select
-                  className="stm-input"
+                <Select
                   data-action="filter-vector-table"
                   value={tableId}
                   onChange={(event) => {
@@ -405,12 +406,11 @@ export function VectorTasks(props: {
                       {tableNames.get(id) ?? id}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 来源{" "}
-                <select
-                  className="stm-input"
+                <Select
                   data-action="filter-vector-source"
                   value={source}
                   onChange={(event) => {
@@ -421,13 +421,13 @@ export function VectorTasks(props: {
                   <option value="">全部来源</option>
                   <option value="manual">手动</option>
                   <option value="automatic">自动</option>
-                </select>
+                </Select>
               </label>
               <label>
                 记录 / 分组{" "}
-                <input
+                <Input
                   type="search"
-                  className="stm-input"
+
                   data-action="filter-vector-search"
                   value={search}
                   onChange={(event) => {
@@ -436,14 +436,14 @@ export function VectorTasks(props: {
                   }}
                 />
               </label>
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="reset-vector-filters"
                 onClick={reset}
               >
                 清除筛选
-              </button>
+              </Button>
             </div>
           </Disclosure>
           {result?.items.length === 0 ? (
@@ -451,7 +451,7 @@ export function VectorTasks(props: {
           ) : null}
           {!result ? <div className="stm-empty-hint">正在加载任务…</div> : null}
           {result && result.items.length > 0 ? (
-            <ul className="stm-vector-task-list stm-grouped-list">
+            <ListGroup as="ul" className="stm-vector-task-list">
               {result.items.map((task) => (
                 <li className="stm-vector-task" key={task.id}>
                   <label className="stm-vector-task-select">
@@ -493,7 +493,7 @@ export function VectorTasks(props: {
                     ) : null}
                     {task.error ? <span className="stm-task-error">{task.error}</span> : null}
                   </button>
-                  <div className="stm-vector-task-buttons stm-bar-group">
+                  <ActionGroup className="stm-vector-task-buttons">
                     {cancellable(task) ? (
                       <PanelBarAction
                         icon="fa-stop"
@@ -520,10 +520,10 @@ export function VectorTasks(props: {
                         aria-hidden="true"
                       />
                     ) : null}
-                  </div>
+                  </ActionGroup>
                 </li>
               ))}
-            </ul>
+            </ListGroup>
           ) : null}
           <Disclosure icon="fa-circle-info" title="队列说明">
             <p className="stm-task-hint">

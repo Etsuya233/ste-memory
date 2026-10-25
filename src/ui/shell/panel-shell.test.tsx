@@ -276,7 +276,7 @@ describe("PanelShell（面板骨架投影）", () => {
     const model = new PanelModel();
     model.open();
     const html = renderShell(model);
-    expect(html).toContain('class="stm-panel stm-panel--open"');
+    expect(html).toContain('class="ui-theme stm-panel stm-panel--open"');
     expect(html).toContain('aria-hidden="false"');
   });
 
@@ -630,7 +630,7 @@ describe("PanelShell（面板骨架投影）", () => {
       expect(html).toContain(`data-action="toggle-settings-group"`);
     }
     expect(html.match(/aria-expanded="false"/g)?.length).toBeGreaterThanOrEqual(10);
-    expect(html).toContain("fa-chevron-right");
+    expect(html).toContain("ui-row-chevron");
     expect(html).toContain('data-settings-page="categories"');
     expect(html).toContain('data-group="appearance"');
     expect(html).not.toContain('data-stm-section="embedding-connection"');

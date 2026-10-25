@@ -124,7 +124,7 @@
   align-items: center;
 }
 
-.stm-preset-fragment-fields .stm-input {
+.stm-preset-fragment-fields .ui-input {
   flex: 1;
   min-width: 0;
 }

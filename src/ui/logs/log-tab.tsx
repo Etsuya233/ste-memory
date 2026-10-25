@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { Input } from "../kit/controls.tsx";
+import { ListGroup } from "../kit/list.tsx";
 /**
  * 日志 Tab（ADR 0015）：纯查询页——类型/级别/Key 过滤、「查询」按钮刷新、时间
  * 倒序结果列表、点击单条原样展开文本（`<pre>`，同一时间只展开一条）、清空日志。
@@ -141,8 +144,8 @@ export function LogTab(props: {
           setQueryToken((token) => token + 1);
         }}
       >
-        <input
-          className="stm-input"
+        <Input
+
           type="search"
           aria-label="日志 Key"
           placeholder="搜索任务 runId / 日志 Key"
@@ -150,7 +153,7 @@ export function LogTab(props: {
           value={filters.key}
           onChange={(event) => setFilters({ ...filters, key: event.target.value })}
         />
-        <div className="stm-bar-group">
+        <ActionGroup>
           <PanelBarAction
             type="submit"
             icon="fa-magnifying-glass"
@@ -159,7 +162,7 @@ export function LogTab(props: {
             disabled={busy}
             emphasis
           />
-        </div>
+        </ActionGroup>
       </form>
       <Disclosure
         icon="fa-filter"
@@ -229,7 +232,7 @@ export function LogTab(props: {
       ) : view.length === 0 ? (
         <Placeholder title="没有匹配的日志" hint="" />
       ) : (
-        <ul className="stm-log-list stm-grouped-list" data-stm-section="log-list">
+        <ListGroup as="ul" className="stm-log-list" data-stm-section="log-list">
           {view.map((item) => (
             <li key={item.id} className="stm-log-item">
               <button
@@ -260,7 +263,7 @@ export function LogTab(props: {
                 <div className="stm-log-detail" data-stm-section="log-detail" id={detailId}>
                   <div className="stm-log-detail-toolbar">
                     <span className="stm-log-detail-key">{item.key}</span>
-                    <div className="stm-bar-group">
+                    <ActionGroup>
                       <PanelBarAction
                         icon="fa-copy"
                         label="复制日志原文"
@@ -274,14 +277,14 @@ export function LogTab(props: {
                             .catch(reportError);
                         }}
                       />
-                    </div>
+                    </ActionGroup>
                   </div>
                   <pre className="stm-log-pre">{expandedEntry.text}</pre>
                 </div>
               ) : null}
             </li>
           ))}
-        </ul>
+        </ListGroup>
       )}
     </div>
   );

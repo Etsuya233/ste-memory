@@ -1,5 +1,6 @@
+import { Switch } from "../kit/controls.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
-import { Segmented } from "../shell/segmented.tsx";
+import { Segmented } from "../kit/segmented.tsx";
 import { VectorGroupEditor } from "../memory/vector-group-editor.tsx";
 import type {
   TablePresetTable,
@@ -47,16 +48,12 @@ export function PresetVectorIndexEditor(props: {
               <span className="stm-vector-state-dot" aria-hidden="true" />
               索引
             </span>
-            <label className="stm-switch">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="启用索引"
-                checked={config.enabled}
-                onChange={(event) => props.onChange({ ...config, enabled: event.target.checked })}
-              />
-              <span className="stm-switch-track" aria-hidden="true" />
-            </label>
+            <Switch
+              role="switch"
+              aria-label="启用索引"
+              checked={config.enabled}
+              onChange={(event) => props.onChange({ ...config, enabled: event.target.checked })}
+            />
           </div>
           <div className="stm-vector-hero-numbers">
             <span>
