@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { PluginSettings } from "../../features/settings/plugin-settings.ts";
 import type { AgentConnection } from "../../features/settings/agent-connections.ts";
 import type { ConnectionTestResult } from "../../infrastructure/sillytavern/llm/st-backends-status.ts";
+import { createConnectionDraft } from "./agent-connection-draft.ts";
 import {
   AgentConnectionForm,
   AgentConnectionManager,
@@ -125,7 +126,7 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
   function renderForm(draft: AgentConnection, models: readonly string[] = []): string {
     return renderToString(
       <AgentConnectionForm
-        draft={draft}
+        draft={createConnectionDraft(draft, () => "row")}
         models={models}
         testing={false}
         testResult={null}
@@ -157,6 +158,28 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
     expect(html).toContain("gpt-4o");
   });
 
+  it("每个连接显示自己的请求头，值默认隐藏，支持新增与删除", () => {
+    const html = renderForm(
+      connection({ customHeaders: { "X-Tenant": "tenant-a", Authorization: "Basic abc" } }),
+    );
+    expect(html).toContain('data-stm-field="connection-headers"');
+    expect(html).toContain('data-action="add-connection-header"');
+    expect(html).toContain('aria-label="删除请求头 1"');
+    expect(html).toMatch(/aria-label="请求头值 1"[^>]*type="password"/);
+    expect(html).toContain('value="X-Tenant"');
+    expect(html).toContain('value="tenant-a"');
+    expect(renderForm(connection({ customHeaders: { "X-Tenant": "tenant-b" } }))).not.toContain(
+      "tenant-a",
+    );
+  });
+
+  it("重复请求头会提示错误并禁止保存和测试", () => {
+    const html = renderForm(connection({ customHeaders: { "X-Key": "a", "x-key": "b" } }));
+    expect(html).toContain("请求头名称重复");
+    expect(html).toContain('data-action="save-connection" disabled=""');
+    expect(html).toContain('data-action="test-connection" disabled=""');
+  });
+
   it("必填未填全：保存按钮禁用；Base URL 为空：测试按钮禁用", () => {
     const empty = renderForm(connection({ name: "", baseUrl: "", model: "" }));
     expect(empty).toContain('data-action="save-connection" disabled=""');
@@ -181,7 +204,7 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
   it("测试结果展示区就位（成功/失败文案）", () => {
     const okHtml = renderToString(
       <AgentConnectionForm
-        draft={connection()}
+        draft={createConnectionDraft(connection(), () => "row")}
         models={[]}
         testing={false}
         testResult={{ ok: true, text: "连接成功，拉取到 3 个模型" }}
@@ -195,7 +218,7 @@ describe("AgentConnectionForm（编辑表单冒烟）", () => {
     expect(okHtml).toContain("stm-connection-test-ok");
     const failHtml = renderToString(
       <AgentConnectionForm
-        draft={connection()}
+        draft={createConnectionDraft(connection(), () => "row")}
         models={[]}
         testing={false}
         testResult={{ ok: false, text: "Agent 连接 [DeepSeek 主用]：连接测试失败（401）" }}

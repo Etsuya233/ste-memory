@@ -679,7 +679,7 @@ describe("StBackendsLlmAdapter 连接标签（ADR 0010：错误带连接名前�
     const { message } = await runStream(adapter, { messages: [] });
     expect(message.errorMessage).toContain("Agent 连接 [DeepSeek 主用]");
     expect(message.errorMessage).toContain("Invalid API key provided");
-    // reverse_proxy 路径下 401 来自上游：引导语指向上游密钥，不是 ST 会话
+    // 独立连接的鉴权失败提示指向上游服务。
     expect(message.errorMessage).toContain("上游鉴权失败");
     expect(message.errorMessage).not.toContain("刷新页面");
   });
@@ -733,9 +733,11 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
       () => fakeContext(),
     );
     expect(port.model.id).toBe("deepseek-chat");
-    expect((port.model as StBackendsModel).stSource).toBe("openai");
-    expect((port.model as StBackendsModel).reverseProxy).toBe("https://api.deepseek.com/v1");
-    expect((port.model as StBackendsModel).proxyPassword).toBe("sk-1");
+    expect((port.model as StBackendsModel).stSource).toBe("custom");
+    expect((port.model as StBackendsModel).customUrl).toBe("https://api.deepseek.com/v1");
+    expect((port.model as StBackendsModel).customIncludeHeaders).toBe(
+      JSON.stringify({ Authorization: "Bearer sk-1" }),
+    );
     // 生成参数仍来自 ST 快照（决策 Q6：连接不覆盖参数）
     expect(port.model.contextWindow).toBe(8192);
     expect(port.model.maxTokens).toBe(1024);
@@ -753,10 +755,10 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
       },
       () => fakeContext(),
     );
-    expect((port.model as StBackendsModel).reverseProxy).toBe("https://api.deepseek.com/v1");
+    expect((port.model as StBackendsModel).customUrl).toBe("https://api.deepseek.com/v1");
   });
 
-  it("无 key 连接：proxyPassword 为空串（ST 侧不产生 undefined 头）", () => {
+  it("无 Key 连接：显式空 Authorization 隔离宿主凭据", () => {
     const port = createAgentConnectionLlmPort(
       {
         id: "c1",
@@ -767,11 +769,14 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
       },
       () => fakeContext(),
     );
-    expect((port.model as StBackendsModel).proxyPassword).toBe("");
+    expect((port.model as StBackendsModel).customIncludeHeaders).toBe(
+      JSON.stringify({ Authorization: "" }),
+    );
   });
 
-  it("streamFn 跑通：请求体带 reverse_proxy/proxy_password（同源代理 reverse_proxy 路径）", async () => {
+  it("streamFn 通过 custom 代理发送连接请求头，并在工具调用间保留快照", async () => {
     const fetchMock = mockFetch(() => sseResponse([sseEvent(textChunk("好", "stop"))]));
+    const headers = { authorization: "Basic custom", "X-Tenant": "generation-tenant" };
     const port = createAgentConnectionLlmPort(
       {
         id: "c1",
@@ -779,10 +784,12 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
         baseUrl: "https://api.deepseek.com/v1",
         apiKey: "sk-1",
         model: "deepseek-chat",
+        customHeaders: headers,
       },
       () => fakeContext(),
       { fetchImpl: fetchMock.fn, getCsrfToken: async () => "t" },
     );
+    headers["X-Tenant"] = "changed-after-task-start";
     const stream = await port.streamFn(port.model, {
       messages: [{ role: "user", content: "hi", timestamp: 1 }],
     });
@@ -790,10 +797,22 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
     expect(message.stopReason).toBe("stop");
     expect(fetchMock.calls[0]!.url).toBe(ST_GENERATE_ENDPOINT);
     const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
-    expect(body.reverse_proxy).toBe("https://api.deepseek.com/v1");
-    expect(body.proxy_password).toBe("sk-1");
+    expect(body.custom_url).toBe("https://api.deepseek.com/v1");
+    expect(JSON.parse(body.custom_include_headers)).toEqual({
+      Authorization: "Basic custom",
+      "X-Tenant": "generation-tenant",
+    });
+    const second = await port.streamFn(port.model, {
+      messages: [{ role: "user", content: "next", timestamp: 2 }],
+    });
+    await second.result();
+    expect(JSON.parse(fetchMock.calls[1]!.init?.body as string).custom_include_headers).toBe(
+      body.custom_include_headers,
+    );
+    expect(body.reverse_proxy).toBeUndefined();
+    expect(body.proxy_password).toBeUndefined();
     expect(body.model).toBe("deepseek-chat");
-    expect(body.chat_completion_source).toBe("openai");
+    expect(body.chat_completion_source).toBe("custom");
   });
 
   it("ST 生成源未知时仍可构造：连接自带 URL/Key/模型，参数用 ST 默认值兜底", () => {
@@ -802,7 +821,7 @@ describe("createAgentConnectionLlmPort（ADR 0010：Agent 连接端口工厂）"
       () => fakeContext({ chatCompletionSettings: {} }),
     );
     expect(port.model.id).toBe("m");
-    expect((port.model as StBackendsModel).reverseProxy).toBe("https://x");
+    expect((port.model as StBackendsModel).customUrl).toBe("https://x");
     // ST 未配置时的兜底默认值（openai_max_context 缺失 → 4096）
     expect(port.model.contextWindow).toBe(4096);
   });

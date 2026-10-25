@@ -16,7 +16,7 @@ import {
   type AgentPromptPreset,
   type AgentPresetMessage,
 } from "../agent-presets/preset-model.ts";
-import type { AgentConnection } from "./agent-connections.ts";
+import { connectionHeaderError, type AgentConnection } from "./agent-connections.ts";
 import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
 import { mergeCleaningRuleLists, type CleaningRuleList } from "../cleaning/cleaning-rule-lists.ts";
 import { mergeMemoryViews, type MemoryView } from "../macros/memory-views.ts";
@@ -238,12 +238,25 @@ export function mergeAgentConnections(raw: unknown): readonly AgentConnection[] 
     ) {
       continue;
     }
+    if (item.customHeaders !== undefined) {
+      if (
+        !isRecord(item.customHeaders) ||
+        Object.values(item.customHeaders).some((value) => typeof value !== "string")
+      ) {
+        throw new Error("连接的自定义请求头必须为字符串键值表");
+      }
+      const error = connectionHeaderError(Object.entries(item.customHeaders) as [string, string][]);
+      if (error) throw new Error(error);
+    }
     connections.push({
       id: item.id,
       name: item.name,
       baseUrl: item.baseUrl,
       apiKey: item.apiKey,
       model: item.model,
+      ...(item.customHeaders === undefined
+        ? {}
+        : { customHeaders: item.customHeaders as Readonly<Record<string, string>> }),
     });
   }
   return connections;

@@ -86,25 +86,28 @@ describe("buildStGenerateBody（ST 特有请求形状）", () => {
     expect(body.max_tokens).toBe(8000);
   });
 
-  it("Agent 连接（ADR 0010）：模型带 reverseProxy/proxyPassword 时写入请求体", () => {
+  it("Agent 连接：通过 custom 代理传递连接快照", () => {
     const body = buildStGenerateBody(
       testModel({
-        reverseProxy: "https://api.deepseek.com/v1",
-        proxyPassword: "sk-1",
+        stSource: "custom",
+        customUrl: "https://api.deepseek.com/v1",
+        customIncludeHeaders: '{"Authorization":"Bearer sk-1","X-Tenant":"a"}',
       }),
       { messages: [] },
       undefined,
       TEST_CONFIG,
     );
-    expect(body.reverse_proxy).toBe("https://api.deepseek.com/v1");
-    expect(body.proxy_password).toBe("sk-1");
-    expect(body.chat_completion_source).toBe("openai");
+    expect(body.custom_url).toBe("https://api.deepseek.com/v1");
+    expect(body.custom_include_headers).toBe('{"Authorization":"Bearer sk-1","X-Tenant":"a"}');
+    expect(body.chat_completion_source).toBe("custom");
   });
 
   it("缺省（跟随 ST 当前连接）：不写 reverse_proxy/proxy_password（请求体零变化）", () => {
     const body = buildStGenerateBody(testModel(), { messages: [] }, undefined, TEST_CONFIG);
     expect("reverse_proxy" in body).toBe(false);
     expect("proxy_password" in body).toBe(false);
+    expect("custom_url" in body).toBe(false);
+    expect("custom_include_headers" in body).toBe(false);
   });
 
   it("有工具时透传 tools + tool_choice: auto；无工具不带", () => {

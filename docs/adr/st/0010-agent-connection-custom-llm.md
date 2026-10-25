@@ -1,5 +1,15 @@
 # Agent 连接：自定义 LLM 走 ST 同源代理的 reverse_proxy 路径
 
+> 2026-10-25 更新：下述代理路径决策由「每连接独立请求头」需求修订。当前实现统一
+> 使用 `chat_completion_source: "custom"`、`custom_url` 与 `custom_include_headers`，
+> `/status` 和 `/generate` 共用连接配置。原 `openai + reverse_proxy` 路径不合并
+> 自定义请求头，因此需要更换路径。请求头使用 JSON 文本传入 ST 的 YAML 对象读取器。
+>
+> 插件不写入 ST secret store；每次显式传入规范名称的 `Authorization`，使用当前连接
+> 的 API Key 或用户覆盖值，无鉴权时传空字符串，覆盖宿主 Custom 源已有密钥。
+> 自定义头按大小写不敏感校验重复；Content-Type 固定为 JSON。生成模型携带序列化
+> 请求头快照，同一任务后续调用保持一致。密钥和请求头值均按原设置范围存储。
+
 用户要求表格填写 Agent 与查询 Agent 支持各自的 LLM API 配置（URL/Key/模型），此前两者只能复用 ST 当前 Chat Completion 连接（runtime.ts 的 createStLlmPort）。决定：设置模型引入命名「Agent 连接」池（Base URL + API Key + 模型名），每个 Agent 选择「跟随 ST 当前连接」或某个连接；选中自定义连接时，生成请求仍发往 ST 同源代理 `/api/backends/chat-completions/generate`，但以 `chat_completion_source: "openai"` + `reverse_proxy`（规范化后的 Base URL）+ `proxy_password`（API Key）携带连接信息，由 ST 服务端转发上游。
 
 理由：完全复用现有 StBackendsLlmAdapter 的 SSE 解析、工具调用与 CSRF 机制，无 CORS 依赖；密钥不进 ST secret store，对 ST 主连接零副作用。

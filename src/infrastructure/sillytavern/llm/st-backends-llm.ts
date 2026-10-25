@@ -21,6 +21,7 @@ import {
 import { buildStGenerateBody } from "./st-backends-request.ts";
 import {
   agentConnectionLabel,
+  connectionUpstreamHeaders,
   normalizeBaseUrl,
   type AgentConnection,
 } from "../../../features/settings/agent-connections.ts";
@@ -288,7 +289,7 @@ export class StBackendsLlmAdapter {
   async #httpErrorMessage(response: Response): Promise<string> {
     const raw = await safeText(response);
     const detail = parseErrorDetail(raw);
-    // Agent 连接（ADR 0010）：reverse_proxy 路径下 401/403 来自上游（ST 原样透传
+    // Agent 连接的 401/403 引导检查独立连接的上游鉴权（ST 原样透传
     // 状态码），不是 ST 会话/CSRF 问题——引导语必须指向上游密钥/端点，不能误导
     if (this.#options.label) {
       switch (response.status) {
@@ -610,8 +611,7 @@ export function createStLlmPort(
 /**
  * Agent 连接端口工厂（ADR 0010 / spec agent-connections）：生成参数仍读 ST
  * 当前配置快照（决策 Q6，连接不覆盖参数），模型/URL/Key 来自连接；请求走
- * ST 同源代理的 reverse_proxy 路径（openai source + reverse_proxy +
- * proxy_password，ST 服务端转发上游）。
+ * ST 同源代理的 custom 路径，通过请求体携带地址与独立请求头。
  */
 export function createAgentConnectionLlmPort(
   connection: AgentConnection,
@@ -642,11 +642,9 @@ export function createAgentConnectionLlmPort(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
-    stSource: "openai",
-    reverseProxy: baseUrl,
-    // 空串而非省略：ST 侧 reverse_proxy 路径 apiKey = proxy_password，省略会拼
-    // 出 "Bearer undefined" 头
-    proxyPassword: connection.apiKey,
+    stSource: "custom",
+    customUrl: baseUrl,
+    customIncludeHeaders: connectionUpstreamHeaders(connection),
   };
   return {
     model,

@@ -27,10 +27,9 @@ export interface StGenerateBody {
   stream: true;
   chat_completion_source: string;
   include_reasoning: boolean;
-  /** Agent 连接（ADR 0010）：走 ST 同源代理的 reverse_proxy 路径（ST 服务端转发上游） */
-  reverse_proxy?: string;
-  /** Agent 连接（ADR 0010）：随请求体发给 ST 服务端的 API Key（ST 转发上游，浏览器不见上游响应） */
-  proxy_password?: string;
+  /** Agent 连接：由 ST custom 代理转发地址与请求头。 */
+  custom_url?: string;
+  custom_include_headers?: string;
   tools?: StToolBody[];
   tool_choice?: "auto";
 }
@@ -75,10 +74,9 @@ export function buildStGenerateBody(
     chat_completion_source: model.stSource,
     include_reasoning: includeReasoning,
   };
-  // Agent 连接（ADR 0010）：模型带 reverseProxy/proxyPassword 时走 ST 同源代理的
-  // reverse_proxy 路径（URL/Key 均随请求体，ST 服务端转发上游）
-  if (model.reverseProxy !== undefined) body.reverse_proxy = model.reverseProxy;
-  if (model.proxyPassword !== undefined) body.proxy_password = model.proxyPassword;
+  if (model.customUrl !== undefined) body.custom_url = model.customUrl;
+  if (model.customIncludeHeaders !== undefined)
+    body.custom_include_headers = model.customIncludeHeaders;
   const temperature = options?.temperature ?? config.temperature;
   if (temperature !== undefined) body.temperature = temperature;
   if (config.topP !== undefined) body.top_p = config.topP;

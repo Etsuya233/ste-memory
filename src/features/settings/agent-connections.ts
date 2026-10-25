@@ -20,6 +20,40 @@ export interface AgentConnection {
   readonly apiKey: string;
   /** 模型名（手写或从服务拉取的 Select 选择） */
   readonly model: string;
+  /** 仅发送给此连接的上游服务；与 API Key 使用相同的存储范围。 */
+  readonly customHeaders?: Readonly<Record<string, string>>;
+}
+
+/** 表单与发送边界共用校验；名称大小写不敏感，值保留原文。 */
+export function connectionHeaderError(
+  entries: readonly (readonly [string, string])[],
+): string | undefined {
+  const names = new Set<string>();
+  for (const [name, value] of entries) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) return "请求头名称不合法";
+    const lower = name.toLowerCase();
+    if (lower === "content-type") return "Content-Type 固定为 application/json";
+    if (names.has(lower)) return "请求头名称重复（不区分大小写）";
+    if (/[\r\n]/.test(value)) return "请求头值不能包含换行";
+    names.add(lower);
+  }
+  return undefined;
+}
+
+/** JSON 是 YAML 的子集；显式 Authorization 隔离 ST Custom 源保存的密钥。 */
+export function connectionUpstreamHeaders(connection: AgentConnection): string {
+  const entries = Object.entries(connection.customHeaders ?? {});
+  const error = connectionHeaderError(entries);
+  if (error) throw new Error(error);
+  return JSON.stringify(
+    Object.fromEntries([
+      ["Authorization", connection.apiKey ? `Bearer ${connection.apiKey}` : ""],
+      ...entries.map(([name, value]) => [
+        name.toLowerCase() === "authorization" ? "Authorization" : name,
+        value,
+      ]),
+    ]),
+  );
 }
 
 /** Agent 连接的目标 Agent：设置键用途的稳定字符串 */
@@ -55,6 +89,8 @@ export function upsertAgentConnection(
   settings: PluginSettings,
   connection: AgentConnection,
 ): PluginSettings {
+  const error = connectionHeaderError(Object.entries(connection.customHeaders ?? {}));
+  if (error) throw new Error(error);
   const exists = settings.agentConnections.some((c) => c.id === connection.id);
   return {
     ...settings,
@@ -129,15 +165,13 @@ export function sortModelIds(models: readonly string[]): string[] {
 
 /** 测试连接请求体（POST /api/backends/chat-completions/status，ST 同源代理）。 */
 export function buildStatusTestRequest(connection: AgentConnection): {
-  readonly chat_completion_source: "openai";
-  readonly reverse_proxy: string;
-  readonly proxy_password: string;
+  readonly chat_completion_source: "custom";
+  readonly custom_url: string;
+  readonly custom_include_headers: string;
 } {
   return {
-    chat_completion_source: "openai",
-    reverse_proxy: normalizeBaseUrl(connection.baseUrl),
-    // 空串而非省略：ST 侧 reverse_proxy 路径 apiKey = proxy_password，
-    // 省略会拼出 "Bearer undefined" 头
-    proxy_password: connection.apiKey,
+    chat_completion_source: "custom",
+    custom_url: normalizeBaseUrl(connection.baseUrl),
+    custom_include_headers: connectionUpstreamHeaders(connection),
   };
 }

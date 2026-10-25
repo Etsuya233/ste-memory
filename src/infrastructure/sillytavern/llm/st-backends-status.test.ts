@@ -57,10 +57,14 @@ describe("testAgentConnection（测试连接：POST /api/backends/chat-completio
     expect(result).toEqual({ ok: true, models: ["deepseek-chat", "gpt-4o", "gpt-4o-mini"] });
   });
 
-  it("请求形状：同源 status 端点 + openai source + 规范化 reverse_proxy + proxy_password", async () => {
+  it("请求形状：同源 status 端点 + custom source + 规范化地址 + 独立请求头", async () => {
     const fetchMock = mockFetch(() => jsonResponse({ data: [] }));
     await testAgentConnection(
-      connection({ baseUrl: "https://api.deepseek.com/v1/chat/completions/", apiKey: "sk-1" }),
+      connection({
+        baseUrl: "https://api.deepseek.com/v1/chat/completions/",
+        apiKey: "sk-1",
+        customHeaders: { "X-Tenant": "status-tenant" },
+      }),
       makeOptions(fetchMock.fn),
     );
     expect(fetchMock.calls[0]!.url).toBe(ST_STATUS_ENDPOINT);
@@ -68,9 +72,12 @@ describe("testAgentConnection（测试连接：POST /api/backends/chat-completio
     expect(headers["X-CSRF-Token"]).toBe("csrf-abc");
     const body = JSON.parse(fetchMock.calls[0]!.init?.body as string);
     expect(body).toEqual({
-      chat_completion_source: "openai",
-      reverse_proxy: "https://api.deepseek.com/v1",
-      proxy_password: "sk-1",
+      chat_completion_source: "custom",
+      custom_url: "https://api.deepseek.com/v1",
+      custom_include_headers: JSON.stringify({
+        Authorization: "Bearer sk-1",
+        "X-Tenant": "status-tenant",
+      }),
     });
   });
 

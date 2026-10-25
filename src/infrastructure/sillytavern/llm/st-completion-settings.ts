@@ -33,10 +33,10 @@ export const ST_DEFAULT_MAX_CONTEXT = 4096;
 export interface StBackendsModel extends Model<"openai-completions"> {
   /** ST chat_completion_source 枚举值（'openai' | 'custom' | …，chat-completions.js switch 派发键） */
   readonly stSource: string;
-  /** Agent 连接（ADR 0010）：走 ST 同源代理的 reverse_proxy 路径时携带的 base URL（已规范化） */
-  readonly reverseProxy?: string;
-  /** Agent 连接（ADR 0010）：随请求体发给 ST 服务端的 API Key（ST 转发上游） */
-  readonly proxyPassword?: string;
+  /** Agent 连接：ST custom 代理路径的上游地址。 */
+  readonly customUrl?: string;
+  /** 已序列化的连接快照，后续工具调用沿用同一份请求头。 */
+  readonly customIncludeHeaders?: string;
 }
 
 /** 从 getContext() 读出的、构造 LLM 端口所需配置（读一次，快照式） */

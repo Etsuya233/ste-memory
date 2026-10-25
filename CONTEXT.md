@@ -209,7 +209,7 @@ _Avoid_: 消息预览、编排预览
 _Avoid_: 模拟消息、测试文本
 
 **Agent 连接**：
-为表格填写 Agent 与查询 Agent 准备的命名 LLM 连接配置（Base URL + API Key + 模型名），供各 Agent 选择使用。Agent 的默认行为是跟随 ST 当前连接；选中某 Agent 连接后，该 Agent 的生成请求改经该连接的 OpenAI 兼容端点，请求仍走 ST 同源代理（reverse_proxy 路径），密钥以明文存于插件本地设置（ADR 0010）。
+为表格填写 Agent 与查询 Agent 准备的命名 LLM 连接配置（Base URL + API Key + 模型名 + 独立请求头），供各 Agent 选择使用。Agent 的默认行为是跟随 ST 当前连接；选中某 Agent 连接后，该 Agent 的生成请求改经该连接的 OpenAI 兼容端点，请求仍走 ST 同源代理（custom 路径），连接测试与生成共用请求头，密钥和请求头值以明文存于插件本地设置（ADR 0010）。
 _Avoid_: 自定义 API、LLM 配置、API 连接（ST 主连接）
 
 **记忆空间绑定**：

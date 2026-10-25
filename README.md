@@ -34,6 +34,17 @@ pnpm test         # vitest run
 真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
 通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。
 
+## 聊天 API 连接
+
+在设置的「Agent 连接」中为表格填写 Agent、查询 Agent 选择独立连接。每个连接可配置
+自己的请求头，支持键值行新增、删除和值隐藏；「测试连接」使用当前编辑草稿，模型列表
+和实际生成共用请求头。修改地址、API Key 或请求头后，旧测试结果与模型列表清空。
+
+API Key 默认生成 Bearer 鉴权，自定义 `Authorization` 可覆盖它；无 Key 且未配置
+Authorization 时发送空鉴权值。`Content-Type` 固定为 `application/json`。请求头名称
+不区分大小写，不允许重复，值允许为空但不能包含换行。API Key 和请求头值明文保存在
+插件设置中；请求通过 ST 服务端的 Custom 代理转发。任务开始后沿用连接快照。
+
 ## 向量索引
 
 在设置中保存独立的 OpenAI 兼容 embedding 连接，然后从表格的「向量索引」配置字段分组。

@@ -637,7 +637,7 @@ describe("startSteMemory → Agent 连接分流（ADR 0010）", () => {
     });
     const port = runtime.createLlm();
     expect(port.model.id).toBe("model-a");
-    expect((port.model as StBackendsModel).reverseProxy).toBe("https://a.example.com/v1");
+    expect((port.model as StBackendsModel).customUrl).toBe("https://a.example.com/v1");
     expect(runtime.createQueryChatLlm().model.id).toBe("st-model");
   });
 
@@ -650,7 +650,9 @@ describe("startSteMemory → Agent 连接分流（ADR 0010）", () => {
     expect(runtime.createLlm().model.id).toBe("st-model");
     const port = runtime.createQueryChatLlm();
     expect(port.model.id).toBe("model-a");
-    expect((port.model as StBackendsModel).proxyPassword).toBe("sk-a");
+    expect((port.model as StBackendsModel).customIncludeHeaders).toBe(
+      JSON.stringify({ Authorization: "Bearer sk-a" }),
+    );
   });
 
   it("两个 Agent 各选不同连接：各自生效（URL 规范化在工厂完成）", async () => {
@@ -663,7 +665,7 @@ describe("startSteMemory → Agent 连接分流（ADR 0010）", () => {
     expect(runtime.createLlm().model.id).toBe("model-a");
     const queryPort = runtime.createQueryChatLlm();
     expect(queryPort.model.id).toBe("model-b");
-    expect((queryPort.model as StBackendsModel).reverseProxy).toBe("https://b.example.com/v1");
+    expect((queryPort.model as StBackendsModel).customUrl).toBe("https://b.example.com/v1");
   });
 });
 

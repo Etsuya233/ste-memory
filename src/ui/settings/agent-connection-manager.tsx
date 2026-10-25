@@ -18,6 +18,7 @@ import type { PluginSettings } from "../../features/settings/plugin-settings.ts"
 import {
   AGENT_CONNECTION_TARGETS,
   agentConnectionSelection,
+  connectionHeaderError,
   removeAgentConnection,
   setAgentConnection,
   upsertAgentConnection,
@@ -25,6 +26,11 @@ import {
   type AgentConnectionTarget,
 } from "../../features/settings/agent-connections.ts";
 import type { ConnectionTestResult } from "../../infrastructure/sillytavern/llm/st-backends-status.ts";
+import {
+  createConnectionDraft,
+  connectionFromDraft,
+  type AgentConnectionDraft,
+} from "./agent-connection-draft.ts";
 
 /** UI 层 id 工厂（新建连接时分配；浏览器环境，缺省随机） */
 function createUiId(): string {
@@ -45,12 +51,12 @@ export function AgentConnectionManager(props: {
   readonly onTestConnection: (connection: AgentConnection) => Promise<ConnectionTestResult>;
 }) {
   const { settings } = props;
-  const [editing, setEditing] = useState<AgentConnection | null>(null);
+  const [editing, setEditing] = useState<AgentConnectionDraft | null>(null);
   /** 最近一次成功「测试连接」拉到的模型列表（字典序，填充模型下拉） */
   const [models, setModels] = useState<readonly string[]>([]);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
-  const initialDraft = useRef<AgentConnection | null>(null);
+  const initialDraft = useRef<AgentConnectionDraft | null>(null);
   const { screenRef, rememberScroll } = useSettingsPageNavigation(
     editing
       ? settings.agentConnections.some((connection) => connection.id === editing.id)
@@ -81,11 +87,11 @@ export function AgentConnectionManager(props: {
     };
   }, [props.registerLeaveGuard]);
 
-  async function runTest(draft: AgentConnection): Promise<void> {
+  async function runTest(draft: AgentConnectionDraft): Promise<void> {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await props.onTestConnection(draft);
+      const result = await props.onTestConnection(connectionFromDraft(draft));
       if (result.ok) {
         setModels(result.models);
         setTestResult({ ok: true, text: `连接成功，拉取到 ${result.models.length} 个模型` });
@@ -99,9 +105,9 @@ export function AgentConnectionManager(props: {
     }
   }
 
-  function save(draft: AgentConnection): void {
+  function save(draft: AgentConnectionDraft): void {
     try {
-      props.onChange(upsertAgentConnection(settings, draft));
+      props.onChange(upsertAgentConnection(settings, connectionFromDraft(draft)));
       rememberScroll();
       setEditing(null);
       setTestResult(null);
@@ -128,7 +134,14 @@ export function AgentConnectionManager(props: {
   function startCreate(): void {
     rememberScroll();
     setModels([]);
-    initialDraft.current = { id: createUiId(), name: "", baseUrl: "", apiKey: "", model: "" };
+    initialDraft.current = {
+      id: createUiId(),
+      name: "",
+      baseUrl: "",
+      apiKey: "",
+      model: "",
+      headerRows: [],
+    };
     setEditing(initialDraft.current);
     setTestResult(null);
   }
@@ -136,8 +149,8 @@ export function AgentConnectionManager(props: {
   function startEdit(connection: AgentConnection): void {
     rememberScroll();
     setModels([]);
-    initialDraft.current = connection;
-    setEditing({ ...connection });
+    initialDraft.current = createConnectionDraft(connection, createUiId);
+    setEditing(initialDraft.current);
     setTestResult(null);
   }
 
@@ -206,6 +219,7 @@ export function AgentConnectionManager(props: {
       )}
       {editing && (
         <AgentConnectionForm
+          key={editing.id}
           chrome={props.onEditingChange !== undefined}
           title={
             settings.agentConnections.some((connection) => connection.id === editing.id)
@@ -222,7 +236,11 @@ export function AgentConnectionManager(props: {
           testing={testing}
           testResult={testResult}
           onDraftChange={(next) => {
-            if (next.baseUrl !== editing.baseUrl || next.apiKey !== editing.apiKey) {
+            if (
+              next.baseUrl !== editing.baseUrl ||
+              next.apiKey !== editing.apiKey ||
+              JSON.stringify(next.headerRows) !== JSON.stringify(editing.headerRows)
+            ) {
               setModels([]);
               setTestResult(null);
             }
@@ -337,20 +355,29 @@ export function AgentConnectionForm(props: {
   readonly chrome?: boolean;
   readonly title?: string;
   readonly onDelete?: () => void;
-  readonly draft: AgentConnection;
+  readonly draft: AgentConnectionDraft;
   readonly models: readonly string[];
   readonly testing: boolean;
   readonly testResult: { ok: boolean; text: string } | null;
-  readonly onDraftChange: (draft: AgentConnection) => void;
+  readonly onDraftChange: (draft: AgentConnectionDraft) => void;
   readonly onTest: () => void;
   readonly onSave: () => void;
   readonly onCancel: () => void;
 }): React.JSX.Element {
   const { draft, models } = props;
   const formId = useId();
+  const headerRows = draft.headerRows;
+  const [showHeaderValues, setShowHeaderValues] = useState(false);
+  const headerError = connectionHeaderError(headerRows.map(({ name, value }) => [name, value]));
+  function changeHeaders(rows: typeof headerRows): void {
+    props.onDraftChange({ ...draft, headerRows: rows });
+  }
   const canSave =
-    draft.name.trim() !== "" && draft.baseUrl.trim() !== "" && draft.model.trim() !== "";
-  const canTest = draft.baseUrl.trim() !== "";
+    draft.name.trim() !== "" &&
+    draft.baseUrl.trim() !== "" &&
+    draft.model.trim() !== "" &&
+    !headerError;
+  const canTest = draft.baseUrl.trim() !== "" && !headerError;
   return (
     <form
       id={formId}
@@ -442,6 +469,78 @@ export function AgentConnectionForm(props: {
             onChange={(event) => props.onDraftChange({ ...draft, apiKey: event.target.value })}
           />
         </div>
+        <div className="stm-connection-headers" data-stm-field="connection-headers">
+          <div className="stm-setting-label">自定义请求头</div>
+          <div className="stm-setting-hint">
+            仅用于当前连接；Authorization 可覆盖 API Key，Content-Type 固定为 application/json。
+          </div>
+          {headerRows.map((row, index) => (
+            <div className="stm-connection-header-row" key={row.id}>
+              <input
+                className="stm-input"
+                aria-label={`请求头名称 ${index + 1}`}
+                autoComplete="off"
+                placeholder="X-API-Key"
+                value={row.name}
+                onChange={(event) =>
+                  changeHeaders(
+                    headerRows.map((item) =>
+                      item.id === row.id ? { ...item, name: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+              <input
+                className="stm-input"
+                aria-label={`请求头值 ${index + 1}`}
+                autoComplete="new-password"
+                type={showHeaderValues ? "text" : "password"}
+                placeholder="值（可为空）"
+                value={row.value}
+                onChange={(event) =>
+                  changeHeaders(
+                    headerRows.map((item) =>
+                      item.id === row.id ? { ...item, value: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+              <button
+                type="button"
+                className="stm-button"
+                aria-label={`删除请求头 ${index + 1}`}
+                onClick={() => changeHeaders(headerRows.filter((item) => item.id !== row.id))}
+              >
+                删除
+              </button>
+            </div>
+          ))}
+          <div className="stm-setting-actions">
+            <button
+              type="button"
+              className="stm-button"
+              data-action="add-connection-header"
+              onClick={() =>
+                changeHeaders([...headerRows, { id: createUiId(), name: "", value: "" }])
+              }
+            >
+              新增请求头
+            </button>
+            <button
+              type="button"
+              className="stm-button"
+              aria-pressed={showHeaderValues}
+              onClick={() => setShowHeaderValues(!showHeaderValues)}
+            >
+              {showHeaderValues ? "隐藏值" : "显示值"}
+            </button>
+          </div>
+          {headerError && (
+            <div className="stm-connection-test-fail" role="alert">
+              {headerError}
+            </div>
+          )}
+        </div>
         <div className="stm-setting-row stm-connection-form-row">
           <label className="stm-setting-label">模型</label>
           <div className="stm-connection-model-row">
@@ -513,8 +612,8 @@ export function AgentConnectionForm(props: {
       <Disclosure icon="fa-circle-info" title="连接与密钥存储">
         <div className="stm-setting-hint">
           为表格填写 Agent / 查询 Agent 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走
-          ST 服务端转发，无 CORS。密钥以明文存于浏览器本地。未配置任何连接时 Agent 跟随 ST
-          当前连接。
+          ST 服务端转发，无 CORS。API Key 和请求头值以明文存于浏览器本地。未配置任何连接时 Agent
+          跟随 ST 当前连接。
         </div>
       </Disclosure>
     </form>

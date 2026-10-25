@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "./plugin-settings.ts";
+import { DEFAULT_SETTINGS, mergeAgentConnections } from "./plugin-settings.ts";
 import {
   buildStatusTestRequest,
+  connectionHeaderError,
+  connectionUpstreamHeaders,
   normalizeBaseUrl,
   removeAgentConnection,
   resolveAgentConnection,
@@ -176,19 +178,63 @@ describe("sortModelIds（模型列表字典序）", () => {
 });
 
 describe("buildStatusTestRequest（测试连接请求体）", () => {
-  it("reverse_proxy 用规范化 URL，proxy_password 带 key", () => {
+  it("连接测试使用当前连接的请求头，Authorization 按大小写不敏感覆盖", () => {
+    const body = buildStatusTestRequest(
+      connection({ customHeaders: { authorization: "Basic abc", "X-Tenant": "a", "X-Empty": "" } }),
+    );
+    expect(JSON.parse(body.custom_include_headers)).toEqual({
+      Authorization: "Basic abc",
+      "X-Tenant": "a",
+      "X-Empty": "",
+    });
+    expect(JSON.parse(buildStatusTestRequest(connection()).custom_include_headers)).toEqual({
+      Authorization: "Bearer sk-abc",
+    });
+  });
+
+  it("持久化读取保留各连接的独立请求头，并兼容旧连接", () => {
+    const connections = [
+      connection({ customHeaders: { "X-Tenant": "a" } }),
+      connection({ id: "c2", customHeaders: { "X-Tenant": "b" } }),
+      connection({ id: "old" }),
+    ];
+    expect(mergeAgentConnections(JSON.parse(JSON.stringify(connections)))).toEqual(connections);
+  });
+
+  it.each([
+    [
+      [
+        ["X-Tenant", "a"],
+        ["x-tenant", "b"],
+      ],
+      "重复",
+    ],
+    [[["X Bad", "a"]], "名称不合法"],
+    [[["Content-TYPE", "text/plain"]], "Content-Type"],
+    [[["X-Key", "a\r\nb"]], "换行"],
+  ] as const)("非法请求头在发送前报错：%j", (entries, message) => {
+    expect(connectionHeaderError(entries)).toContain(message);
+    const customHeaders = Object.fromEntries(entries);
+    expect(() => connectionUpstreamHeaders(connection({ customHeaders }))).toThrow(message);
+    expect(() => upsertAgentConnection(DEFAULT_SETTINGS, connection({ customHeaders }))).toThrow(
+      message,
+    );
+    expect(() => mergeAgentConnections([connection({ customHeaders })])).toThrow(message);
+  });
+
+  it("custom_url 使用规范化 URL，请求头携带连接 Key", () => {
     const body = buildStatusTestRequest(
       connection({ baseUrl: "https://api.deepseek.com/v1/chat/completions/", apiKey: "sk-1" }),
     );
     expect(body).toEqual({
-      chat_completion_source: "openai",
-      reverse_proxy: "https://api.deepseek.com/v1",
-      proxy_password: "sk-1",
+      chat_completion_source: "custom",
+      custom_url: "https://api.deepseek.com/v1",
+      custom_include_headers: JSON.stringify({ Authorization: "Bearer sk-1" }),
     });
   });
 
-  it("无 key 连接：proxy_password 为空串（ST 侧不产生 undefined 头）", () => {
+  it("无 Key 连接：显式空 Authorization 隔离宿主凭据", () => {
     const body = buildStatusTestRequest(connection({ apiKey: "" }));
-    expect(body.proxy_password).toBe("");
+    expect(JSON.parse(body.custom_include_headers)).toEqual({ Authorization: "" });
   });
 });

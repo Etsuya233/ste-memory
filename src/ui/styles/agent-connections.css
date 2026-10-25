@@ -132,3 +132,24 @@
     white-space: normal;
   }
 }
+.stm-connection-headers {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stm-connection-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 480px) {
+  .stm-connection-header-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .stm-connection-header-row > input:first-child {
+    grid-column: 1 / -1;
+  }
+}
