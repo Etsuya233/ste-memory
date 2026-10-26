@@ -1,3 +1,6 @@
+import { Dialog } from "../kit/dialog.tsx";
+import { FormField, Button, Input } from "../kit/controls.tsx";
+import { ActionRow, ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
@@ -530,25 +533,29 @@ export function TablePresetManager(props: {
                 if (!busy) void saveCurrentStructureAsPreset();
               }}
             >
-              <label className="stm-form-row">
-                <span className="stm-form-label">预设名称</span>
-                <input
-                  className="stm-input"
-                  data-stm-field="preset-save-name"
-                  value={newPresetName}
-                  onChange={(event) => setNewPresetName(event.target.value)}
-                  required
-                />
-              </label>
-              <label className="stm-form-row">
-                <span className="stm-form-label">说明</span>
-                <input
-                  className="stm-input"
-                  data-stm-field="preset-save-description"
-                  value={newPresetDescription}
-                  onChange={(event) => setNewPresetDescription(event.target.value)}
-                />
-              </label>
+              <FormField className="stm-form-row" label={<>预设名称</>}>
+                {(field) => (
+                  <Input
+                    {...field}
+
+                    data-stm-field="preset-save-name"
+                    value={newPresetName}
+                    onChange={(event) => setNewPresetName(event.target.value)}
+                    required
+                  />
+                )}
+              </FormField>
+              <FormField className="stm-form-row" label={<>说明</>}>
+                {(field) => (
+                  <Input
+                    {...field}
+
+                    data-stm-field="preset-save-description"
+                    value={newPresetDescription}
+                    onChange={(event) => setNewPresetDescription(event.target.value)}
+                  />
+                )}
+              </FormField>
               <Disclosure icon="fa-circle-info" title="保存范围" open>
                 <div className="stm-setting-hint">
                   {SAVE_PRESET_HINT} 自动配置保存为分组快照，不发送向量请求。
@@ -559,7 +566,7 @@ export function TablePresetManager(props: {
             <>
               {utilityPage === "apply" ? (
                 <>
-                  <div className="stm-grouped-list stm-preset-space-summary">
+                  <ListGroup className="stm-preset-space-summary">
                     <div>
                       <span>当前空间</span>
                       <strong data-stm-field="preset-space-name">
@@ -572,14 +579,15 @@ export function TablePresetManager(props: {
                         {space?.initializationSource ? initializationSourceLabel(space) : "未记录"}
                       </strong>
                     </div>
-                  </div>
+                  </ListGroup>
                   <div className="stm-section-label">选择应用的预设</div>
                 </>
               ) : (
                 <p className="stm-setting-hint">仅用于之后新建的记忆空间。</p>
               )}
-              <ul
-                className="stm-grouped-list stm-settings-item-list"
+              <ListGroup
+                as="ul"
+                className="stm-settings-item-list"
                 data-stm-section={utilityPage === "default" ? "preset-default" : "preset-apply"}
               >
                 {rows.map((row) => {
@@ -587,9 +595,20 @@ export function TablePresetManager(props: {
                     row.id === (utilityPage === "default" ? defaultDraft : applyTargetId);
                   return (
                     <li key={row.id}>
-                      <button
-                        type="button"
-                        className="stm-settings-item-row"
+                      <ActionRow
+                        title={row.name}
+                        description={
+                          <>
+                            {row.tableCount} 张表 · {row.fieldCount} 个字段
+                            {row.builtIn ? " · 内置" : ""}
+                          </>
+                        }
+                        trailing={
+                          <i
+                            className={`fa-solid ${chosen ? "fa-check" : "fa-circle"}`}
+                            aria-hidden="true"
+                          />
+                        }
                         data-action={
                           utilityPage === "default"
                             ? "choose-default-preset"
@@ -602,23 +621,11 @@ export function TablePresetManager(props: {
                             ? setDefaultDraft(row.id)
                             : setApplyTargetId(row.id)
                         }
-                      >
-                        <span className="stm-settings-item-main">
-                          <span className="stm-settings-item-title">{row.name}</span>
-                          <span className="stm-settings-item-summary">
-                            {row.tableCount} 张表 · {row.fieldCount} 个字段
-                            {row.builtIn ? " · 内置" : ""}
-                          </span>
-                        </span>
-                        <i
-                          className={`fa-solid ${chosen ? "fa-check" : "fa-circle"}`}
-                          aria-hidden="true"
-                        />
-                      </button>
+                      />
                     </li>
                   );
                 })}
-              </ul>
+              </ListGroup>
               {utilityPage === "apply" && (
                 <>
                   <p className="stm-setting-hint">将清空当前空间记录，按所选预设重建表格。</p>
@@ -673,46 +680,40 @@ export function TablePresetManager(props: {
           )}
           {!props.onBack && (
             <div className="stm-setting-actions">
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="new-table-preset"
                 disabled={busy}
                 onClick={createPreset}
               >
                 新建预设
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="import-table-preset"
                 disabled={busy}
                 onClick={() => importInput.current!.click()}
               >
                 导入
-              </button>
+              </Button>
             </div>
           )}
-          <ul className="stm-grouped-list stm-settings-item-list">
+          <ListGroup as="ul" className="stm-settings-item-list">
             {rows.map((row) => (
               <li key={row.id} className="stm-settings-item-with-action">
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
+                <NavigationRow
                   data-action="open-table-preset"
                   data-preset-id={row.id}
                   onClick={() => openPreset(row.id)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{row.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {row.tableCount} 张表 · {row.fieldCount} 个字段
-                      {row.builtIn ? " · 内置" : ""}
-                      {row.isDefault ? " · 新空间默认" : ""}
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
+                  title={row.name}
+                  description=<>
+                    {row.tableCount} 张表 · {row.fieldCount} 个字段
+                    {row.builtIn ? " · 内置" : ""}
+                    {row.isDefault ? " · 新空间默认" : ""}
+                  </>
+                />
                 <PanelBarAction
                   icon="fa-eye"
                   label={`预览完整结构 ${row.name}`}
@@ -722,52 +723,30 @@ export function TablePresetManager(props: {
                 />
               </li>
             ))}
-          </ul>
+          </ListGroup>
           <div className="stm-section-label">空间设置</div>
-          <div className="stm-grouped-list stm-settings-utility-list">
-            <button
-              type="button"
-              className="stm-settings-item-row"
+          <ListGroup className="stm-settings-utility-list">
+            <NavigationRow
               data-action="open-default-preset"
               onClick={() => openUtility("default")}
-            >
-              <span className="stm-settings-item-main">
-                <span className="stm-settings-item-title">新空间默认预设</span>
-                <span className="stm-settings-item-summary">
-                  {rows.find((row) => row.id === props.presets.defaultPresetId)!.name}
-                </span>
-              </span>
-              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="stm-settings-item-row"
+              title=<>新空间默认预设</>
+              description={rows.find((row) => row.id === props.presets.defaultPresetId)!.name}
+            />
+            <NavigationRow
               data-action="open-preset-apply"
               disabled={applyUnavailable !== undefined}
               onClick={() => openUtility("apply")}
-            >
-              <span className="stm-settings-item-main">
-                <span className="stm-settings-item-title">应用到当前空间</span>
-                <span className="stm-settings-item-summary">{applyUnavailable ?? space!.name}</span>
-              </span>
-              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="stm-settings-item-row"
+              title=<>应用到当前空间</>
+              description={applyUnavailable ?? space!.name}
+            />
+            <NavigationRow
               data-action="open-preset-capture"
               disabled={!active || busy}
               onClick={() => openUtility("capture")}
-            >
-              <span className="stm-settings-item-main">
-                <span className="stm-settings-item-title">保存当前表结构</span>
-                <span className="stm-settings-item-summary">
-                  {active ? "另存为新预设" : "当前对话没有活动的记忆空间"}
-                </span>
-              </span>
-              <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-            </button>
-          </div>
+              title=<>保存当前表结构</>
+              description={active ? "另存为新预设" : "当前对话没有活动的记忆空间"}
+            />
+          </ListGroup>
         </>
       )}
       <input
@@ -784,99 +763,85 @@ export function TablePresetManager(props: {
       />
       {/* 应用确认（一次确认；备份未完成不清空；重建失败可重试） */}
       {confirming && (
-        <div
-          className="stm-modal-overlay"
-          data-stm-section="preset-apply-confirm"
-          onClick={() => {
+        <Dialog
+          label={applyPresetConfirmTitle(space, confirming.preset.id)}
+          onClose={() => {
             if (!busy) setConfirming(undefined);
           }}
+          data-stm-section="preset-apply-confirm"
+          contentClassName="stm-modal"
         >
-          <div
-            className="stm-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={applyPresetConfirmTitle(space, confirming.preset.id)}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="stm-modal-title" data-stm-field="preset-confirm-title">
-              {applyPresetConfirmTitle(space, confirming.preset.id)}
-            </div>
-            <div className="stm-modal-body">
-              <pre className="stm-mono stm-modal-text" data-stm-field="preset-confirm-text">
-                {applyPresetConfirmText(confirming.spaceName, confirming.preset.name)}
-              </pre>
-              {confirming.backupIssue && (
-                <div className="stm-form-error" data-stm-field="preset-confirm-backup-issue">
-                  {confirming.backupIssue}
-                </div>
-              )}
-              {confirming.failure && (
-                <div className="stm-form-error" data-stm-field="preset-confirm-failure">
-                  {`操作失败：${confirming.failure}`}
-                </div>
-              )}
-            </div>
-            <div className="stm-modal-footer">
-              <button
-                type="button"
-                className="stm-button"
-                data-action="cancel-apply-preset"
-                disabled={busy}
-                onClick={() => setConfirming(undefined)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="stm-button"
-                data-action="backup-and-apply-preset"
-                disabled={busy}
-                onClick={() => void runApply(true)}
-              >
-                备份并应用
-              </button>
-              <button
-                type="button"
-                className="stm-button stm-button--danger"
-                data-action="apply-preset-directly"
-                disabled={busy}
-                onClick={() => void runApply(false)}
-              >
-                直接清空并应用
-              </button>
-            </div>
+          <div className="stm-modal-title" data-stm-field="preset-confirm-title">
+            {applyPresetConfirmTitle(space, confirming.preset.id)}
           </div>
-        </div>
+          <div className="stm-modal-body">
+            <pre className="stm-mono stm-modal-text" data-stm-field="preset-confirm-text">
+              {applyPresetConfirmText(confirming.spaceName, confirming.preset.name)}
+            </pre>
+            {confirming.backupIssue && (
+              <div className="stm-form-error" data-stm-field="preset-confirm-backup-issue">
+                {confirming.backupIssue}
+              </div>
+            )}
+            {confirming.failure && (
+              <div className="stm-form-error" data-stm-field="preset-confirm-failure">
+                {`操作失败：${confirming.failure}`}
+              </div>
+            )}
+          </div>
+          <div className="stm-modal-footer">
+            <Button
+              type="button"
+
+              data-action="cancel-apply-preset"
+              disabled={busy}
+              onClick={() => setConfirming(undefined)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+
+              data-action="backup-and-apply-preset"
+              disabled={busy}
+              onClick={() => void runApply(true)}
+            >
+              备份并应用
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              data-action="apply-preset-directly"
+              disabled={busy}
+              onClick={() => void runApply(false)}
+            >
+              直接清空并应用
+            </Button>
+          </div>
+        </Dialog>
       )}
       {previewPreset && (
-        <div
-          className="stm-modal-overlay"
+        <Dialog
+          label={`${previewPreset.name} 完整结构预览`}
+          onClose={() => setPreviewPresetId(null)}
           data-stm-section="preset-structure-preview"
-          onClick={() => setPreviewPresetId(null)}
+          contentClassName="stm-modal"
         >
-          <div
-            className="stm-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${previewPreset.name} 完整结构预览`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="stm-modal-title">完整结构预览 · {previewPreset.name}</div>
-            <div className="stm-modal-body">
-              <PresetStructurePreview preset={previewPreset} />
-            </div>
-            <div className="stm-modal-footer">
-              <button
-                type="button"
-                className="stm-button"
-                data-action="close-preset-structure-preview"
-                onClick={() => setPreviewPresetId(null)}
-              >
-                关闭
-              </button>
-            </div>
+          <div className="stm-modal-title">完整结构预览 · {previewPreset.name}</div>
+          <div className="stm-modal-body">
+            <PresetStructurePreview preset={previewPreset} />
           </div>
-        </div>
+          <div className="stm-modal-footer">
+            <Button
+              type="button"
+
+              data-action="close-preset-structure-preview"
+              onClick={() => setPreviewPresetId(null)}
+            >
+              关闭
+            </Button>
+          </div>
+        </Dialog>
       )}
     </div>
   );

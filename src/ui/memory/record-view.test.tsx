@@ -151,7 +151,6 @@ function fakeRuntime(): PanelRuntime {
     cleaning: {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
-      readStRegexEntries: () => [],
       readRecentMessages: () => [],
       readChatScopeMacros: () => [],
       writeChatScopeMacros: vi.fn(),

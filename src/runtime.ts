@@ -78,17 +78,13 @@ import { createFillTaskPromptContext } from "./features/fill-tasks/prompt-contex
 import type { FillSourceMessage } from "./features/fill-tasks/fill-task.ts";
 import type { SettingsStore } from "./features/settings/plugin-settings.ts";
 import { SettingsService } from "./features/settings/settings-service.ts";
-import { resolveSelectedCleaningRules } from "./features/cleaning/cleaning-rule-lists.ts";
+import { findSelectedCleaningRule } from "./features/cleaning/cleaning-rules.ts";
 import type { MemoryView } from "./features/macros/memory-views.ts";
 import { ChatSpaceManager, chatIdentityKey } from "./features/chat-binding/chat-space-manager.ts";
 import { TablePresetApplyService } from "./features/table-presets/table-preset-apply-service.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import { resolveDefaultTablePreset } from "./features/table-presets/preset-model.ts";
-import {
-  StChatAdapter,
-  type StContext,
-  type StRegexEntry,
-} from "./infrastructure/sillytavern/chat-adapter.ts";
+import { StChatAdapter, type StContext } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { StSettingsStore } from "./infrastructure/sillytavern/settings-store.ts";
 import {
   createAgentConnectionLlmPort,
@@ -154,11 +150,10 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
-  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目读取 + 聊天 Scope 宏 */
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写 + 聊天 Scope 宏 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
-    readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly writeSelection: (ruleId: string | undefined) => void;
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源，与填表任务同源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
@@ -461,11 +456,8 @@ export async function startSteMemory(
     now,
     logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),
     // 任务开始执行时冻结当前对话的清洗规则，后续批次共用该快照。
-    resolveCleaningRules: () =>
-      resolveSelectedCleaningRules(
-        settings.read().cleaningRuleLists,
-        adapter.cleaningListStore.read(),
-      ),
+    readCleaningRule: () =>
+      findSelectedCleaningRule(settings.read().cleaningRules, adapter.cleaningRuleStore.read()),
   });
 
   const mirror = new ChatMetadataMirrorSync({
@@ -756,6 +748,12 @@ export async function startSteMemory(
     reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
   });
 
+  function syncCurrentChat() {
+    // 启动、切对话及重新启用时清除旧清洗选择，不依赖用户打开设置页。
+    adapter.cleaningRuleStore.read();
+    return manager.syncToCurrentChat();
+  }
+
   let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
@@ -778,7 +776,7 @@ export async function startSteMemory(
             void saveSnapshot(snapshot).catch((error) => log.error("旧对话记忆保存失败", error));
           await memoryStore.unload(previous.space.id);
         }
-        await manager.syncToCurrentChat();
+        await syncCurrentChat();
         autoFill.chatReady();
       });
       switching = next.catch((error) => {
@@ -824,7 +822,7 @@ export async function startSteMemory(
 
   if (settings.read().enabled) {
     try {
-      await manager.syncToCurrentChat();
+      await syncCurrentChat();
     } catch (error) {
       manager.reportLoadError(error);
       log.error("记忆空间初始化失败", error);
@@ -858,7 +856,7 @@ export async function startSteMemory(
   const settingsService = new SettingsService({
     store: settings,
     refreshAutoFill: () => autoFill.kick(),
-    syncToCurrentChat: () => manager.syncToCurrentChat(),
+    syncToCurrentChat: () => syncCurrentChat(),
     refreshMemoryMacros: async () => {
       memoryRecall.invalidate("记忆宏或视图设置已修改");
       await macro.kick();
@@ -955,11 +953,10 @@ export async function startSteMemory(
     createQueryChatLlm,
     queryChat,
     version: options.version ?? "",
-    // 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目
+    // 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写
     cleaning: {
-      readSelection: () => adapter.cleaningListStore.read(),
-      writeSelection: (listId) => adapter.cleaningListStore.write(listId),
-      readStRegexEntries: () => adapter.stRegexEntries,
+      readSelection: () => adapter.cleaningRuleStore.read(),
+      writeSelection: (ruleId) => adapter.cleaningRuleStore.write(ruleId),
       readRecentMessages: (count) => adapter.recentMessages(count),
       readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
       writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),

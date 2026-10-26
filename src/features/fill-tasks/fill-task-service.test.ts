@@ -52,7 +52,7 @@ import {
 import type { FillSourceMessage } from "./fill-task.ts";
 import type { LogEntry, LogRepository } from "../logging/log.ts";
 import { DexieLogRepository } from "../../infrastructure/indexeddb/logs/log-repository.ts";
-import type { CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
+import type { CleaningRule } from "../cleaning/cleaning-rules.ts";
 
 const NOW = "2026-07-30T01:02:03.000Z";
 
@@ -199,7 +199,7 @@ async function createHarness(
     ) => Promise<FillTaskPromptContext | undefined>;
     readonly logs?: LogRepository;
     readonly logError?: (message: string, error: unknown) => void;
-    readonly resolveCleaningRules?: () => readonly CleaningRule[];
+    readonly readCleaningRule?: () => CleaningRule | undefined;
     /** 台账 markProcessed 注入失败；缺省使用真实 Dexie 台账。 */
     readonly failLedgerMarkProcessed?: boolean;
     readonly onSave?: () => Promise<void>;
@@ -336,7 +336,7 @@ async function createHarness(
     now: () => NOW,
     logs,
     createPromptContext: options.createPromptContext,
-    resolveCleaningRules: options.resolveCleaningRules,
+    readCleaningRule: options.readCleaningRule,
     logError: options.logError,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
@@ -1144,33 +1144,29 @@ function capturePrompts(onPrompt: (text: string) => void) {
 }
 
 describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
-  it("注入 resolveCleaningRules：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
+  it("注入 readCleaningRule：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
     const prompts: string[] = [];
     const harness = await createHarness({
       streamFn: capturePrompts((text) => prompts.push(text)),
-      resolveCleaningRules: () => [
-        {
-          id: "c1",
-          name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
-          enabled: true,
-        },
-      ],
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "**", post: "**" }],
+        enabled: true,
+      }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
     await waitForTerminal(harness, view.runId);
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("原始内容 带标记");
+    expect(prompt).toContain("原始内容 ");
     expect(prompt).not.toContain("**");
 
-    // 空规则列表 = 不清洗（缺省无端口由既有测试断言原文进提示词）
+    // 未选择规则 = 不清洗（缺省无端口由既有测试断言原文进提示词）
     const rawPrompts: string[] = [];
     const harness2 = await createHarness({
       streamFn: capturePrompts((text) => rawPrompts.push(text)),
-      resolveCleaningRules: () => [],
+      readCleaningRule: () => undefined,
     });
     const view2 = await harness2.service.submit({
       memorySpaceId: harness2.spaceId,
@@ -1179,6 +1175,36 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     });
     await waitForTerminal(harness2, view2.runId);
     expect(rawPrompts.join("\n")).toContain("**带标记**");
+  });
+
+  it("单份规则先排除再保留：思考区域的正文不进入 Agent 输入", async () => {
+    const prompts: string[] = [];
+    const harness = await createHarness({
+      source: {
+        chatMessageCount: () => 1,
+        chatId: () => "story",
+        messagesInRange: () => [
+          {
+            floor: 0,
+            name: "角色",
+            content: "<think><正文>草稿不应进入Agent</正文></think><正文>正式正文输入</正文>",
+          },
+        ],
+      },
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "正文",
+        enabled: true,
+        excludeTags: [{ pre: "<think>", post: "</think>" }],
+        keepTags: [{ pre: "<正文>", post: "</正文>" }],
+      }),
+    });
+    const task = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 0 });
+    const terminal = await waitForTerminal(harness, task.runId);
+    expect(terminal.status).toBe("succeeded");
+    expect(prompts.join("\n")).toContain("正式正文输入");
+    expect(prompts.join("\n")).not.toContain("草稿不应进入Agent");
   });
 
   it("任务开始时冻结规则：中途变更不影响后续块", async () => {
@@ -1195,21 +1221,17 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     const harness = await createHarness({
       source: markedSource,
       streamFn: capturePrompts((text) => prompts.push(text)),
-      resolveCleaningRules: () => {
+      readCleaningRule: () => {
         calls += 1;
         return calls === 1
-          ? [
-              {
-                id: "c1",
-                name: "去标记",
-                mode: "discard",
-                type: "regex",
-                pattern: "\\*\\*",
-                flags: "g",
-                enabled: true,
-              },
-            ]
-          : [];
+          ? {
+              id: "c1",
+              name: "去标记",
+              keepTags: [],
+              excludeTags: [{ pre: "**", post: "**" }],
+              enabled: true,
+            }
+          : undefined;
       },
     });
     const view = await harness.service.submit({
@@ -1220,9 +1242,9 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     });
     await waitForTerminal(harness, view.runId);
     expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("原始内容 带标记");
+    expect(prompts[0]).toContain("原始内容 ");
     expect(prompts[0]).not.toContain("**");
-    expect(prompts[1]).toContain("带标记");
+    expect(prompts[1]).toContain("消息  5");
     expect(prompts[1]).not.toContain("**");
   });
 });
@@ -2088,17 +2110,13 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     });
     const harness = await createHarness({
       streamFn,
-      resolveCleaningRules: () => [
-        {
-          id: "c1",
-          name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
-          enabled: true,
-        },
-      ],
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "**", post: "**" }],
+        enabled: true,
+      }),
     });
     const view = await harness.service.submitInit({
       memorySpaceId: harness.spaceId,
@@ -2108,7 +2126,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(terminal.status).toBe("succeeded");
 
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("设定 带标记 原文");
+    expect(prompt).toContain("设定  原文");
     expect(prompt).not.toContain("**");
     // 证据存原文（清洗只作用于 Agent 输入，不破坏证据）
     const evidenceRows = await harness.db.memoryEvidence.toArray();

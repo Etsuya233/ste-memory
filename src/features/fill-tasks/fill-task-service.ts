@@ -27,7 +27,7 @@ import {
   composeBlockMessagesText,
   composeBlockPrompt,
 } from "./fill-task-block.ts";
-import { applyCleaningRules, type CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
+import { applyCleaningRule, type CleaningRule } from "../cleaning/cleaning-rules.ts";
 import { EVIDENCE_INIT_SOURCE_TYPE } from "../../constants.ts";
 import {
   createFillAgentTurnCollector,
@@ -126,9 +126,9 @@ export interface FillTaskServiceOptions {
   readonly logs: LogRepository;
   /**
    * 填表任务内容清洗（ticket 22 / ADR 0011）：任务开始时冻结当前对话所选
-   * 清洗规则列表的规则；未选择/列表已删 → 空（不清洗）。缺省 = 不清洗。
+   * 单份清洗规则；未选择或所选规则已删除时不清洗。
    */
-  readonly resolveCleaningRules?: () => readonly CleaningRule[];
+  readonly readCleaningRule?: () => CleaningRule | undefined;
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -168,7 +168,7 @@ export class FillTaskService {
   readonly #createPromptContext:
     ((storyText: string) => Promise<FillTaskPromptContext | undefined>) | undefined;
   readonly #logs: LogRepository;
-  readonly #resolveCleaningRules: () => readonly CleaningRule[];
+  readonly #readCleaningRule: () => CleaningRule | undefined;
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -184,7 +184,7 @@ export class FillTaskService {
     this.#createLlm = options.createLlm;
     this.#createPromptContext = options.createPromptContext;
     this.#logs = options.logs;
-    this.#resolveCleaningRules = options.resolveCleaningRules ?? (() => []);
+    this.#readCleaningRule = options.readCleaningRule ?? (() => undefined);
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -237,7 +237,7 @@ export class FillTaskService {
               ? [{ floor: 0, name: "", content: task.initText }]
               : this.#source.messagesInRange(task.from, task.to),
           );
-          const rules = structuredClone(this.#resolveCleaningRules());
+          const rule = structuredClone(this.#readCleaningRule());
           const promptContext = await this.#createPromptContext?.(
             task.kind === "init" ? task.initText : buildMergedStoryText(input),
           );
@@ -254,7 +254,7 @@ export class FillTaskService {
             fillTaskStartLog(running),
             `填表任务 ${task.runId} 开始日志写入失败`,
           );
-          await this.#startTask(running, llm, promptContext, input, rules, automatic);
+          await this.#startTask(running, llm, promptContext, input, rule, automatic);
         } catch (error) {
           await this.#failTask(running, error);
         } finally {
@@ -567,7 +567,7 @@ export class FillTaskService {
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
     input: readonly FillSourceMessage[],
-    rules: readonly CleaningRule[],
+    rule: CleaningRule | undefined,
     automatic?: FillTaskSubmitInput["automatic"],
   ): Promise<void> {
     const controller = new AbortController();
@@ -582,7 +582,7 @@ export class FillTaskService {
       llm,
       promptContext === undefined ? undefined : structuredClone(promptContext),
       input,
-      rules,
+      rule,
       control,
       automatic,
     );
@@ -594,7 +594,7 @@ export class FillTaskService {
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
     input: readonly FillSourceMessage[],
-    rules: readonly CleaningRule[],
+    rule: CleaningRule | undefined,
     control: {
       controller: AbortController;
       phase: "running" | "saving";
@@ -631,7 +631,7 @@ export class FillTaskService {
               to,
               session,
               messages,
-              rules,
+              rule,
               control.controller.signal,
               async () => {
                 if (!(await this.#chatUnchanged(task))) {
@@ -780,7 +780,7 @@ export class FillTaskService {
     to: number,
     session: FillTaskSession,
     rawMessages: readonly FillSourceMessage[],
-    cleaningRules: readonly CleaningRule[],
+    cleaningRule: CleaningRule | undefined,
     signal: AbortSignal,
     commitBatch: () => Promise<void>,
   ): Promise<void> {
@@ -804,11 +804,11 @@ export class FillTaskService {
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
       if (rawMessages.length === 0) throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
       const messages =
-        cleaningRules.length === 0
+        cleaningRule === undefined
           ? rawMessages
           : rawMessages.map((message) => ({
               ...message,
-              content: applyCleaningRules(message.content, cleaningRules),
+              content: applyCleaningRule(message.content, cleaningRule),
             }));
       // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
       // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于

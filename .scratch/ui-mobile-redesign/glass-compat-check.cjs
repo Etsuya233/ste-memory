@@ -9,7 +9,7 @@ const {execFileSync}=require('node:child_process');
   await page.locator('.stm-bottom-bar').waitFor();
   await page.evaluate(()=>{const key='ste-memory.appearance.v1';localStorage.setItem(key,JSON.stringify({theme:'light',accent:'teal',font:'system',size:'normal',liquidGlass:true}));window.dispatchEvent(new Event('stm-appearance-change'))});
   await page.addStyleTag({content:'*{text-shadow:0px 0px 4px black}'});
-  for(const selector of ['.stm-header-title','.stm-record-summary-title','.stm-bar-action']) {
+  for(const selector of ['.stm-header-title','.stm-record-summary-title','.ui-icon-button']) {
    assert.equal(await page.locator(selector).first().evaluate(el=>getComputedStyle(el).textShadow),'none');
   }
   await page.addStyleTag({content:'.stm-page-content{background:repeating-linear-gradient(90deg,#000 0 8px,#fff 8px 16px)} .stm-page-content > *{visibility:hidden}'});
@@ -26,7 +26,7 @@ for name,start,end in [('top',${Math.floor(header.y+header.height)},${Math.ceil(
  print(name+' edge max luminance step: '+str(max(jumps)))
 `],{encoding:'utf8'});
   console.log(result.trim());
-  assert.match(await page.locator('.stm-panel-header--root .stm-bar-group').first().evaluate(el=>getComputedStyle(el).backdropFilter),/blur/);
+  assert.match(await page.locator('.stm-panel-header--root .ui-action-group').first().evaluate(el=>getComputedStyle(el).backdropFilter),/blur/);
   console.log('PASS Chrome: no inherited text shadows, smooth color fade, capsule blur retained');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

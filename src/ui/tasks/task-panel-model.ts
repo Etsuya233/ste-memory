@@ -17,7 +17,7 @@ import type {
 import { isFillTaskTerminal } from "../../features/fill-tasks/fill-task.ts";
 import { DEFAULT_FILL_TASK_BLOCK_SIZE } from "../../features/fill-tasks/fill-task-service.ts";
 import { formatDisplayTime } from "../shell/space-info.ts";
-import type { CleaningRuleList } from "../../features/cleaning/cleaning-rule-lists.ts";
+import type { CleaningRule } from "../../features/cleaning/cleaning-rules.ts";
 
 export interface FloorRange {
   readonly from: number;
@@ -329,10 +329,10 @@ export function buildTasksTabViewModel(input: {
   /** 最近任务列表（createdAt 倒序；运行中任务被过滤，活动任务区展示） */
   readonly historyTasks: readonly FillTaskView[];
   readonly pendingTasks?: readonly FillTaskView[];
-  /** 当前对话清洗配置（ticket 22 / ADR 0011）：所选列表 id + 全部列表 */
+  /** 当前对话清洗配置（ticket 22 / ADR 0011）：所选规则 id + 全部命名规则 */
   readonly cleaning: {
-    readonly selectedListId: string | undefined;
-    readonly lists: readonly CleaningRuleList[];
+    readonly selectedRuleId: string | undefined;
+    readonly rules: readonly CleaningRule[];
   };
 }): TasksTabViewModel {
   const ranges = unprocessedRanges(input.ledger, input.chatLength);
@@ -368,17 +368,18 @@ export function buildTasksTabViewModel(input: {
     coverage,
     history,
     pendingTasks: input.pendingTasks ?? [],
-    cleaningHint: resolveCleaningHint(input.cleaning.lists, input.cleaning.selectedListId),
+    cleaningHint: cleaningRuleHint(input.cleaning.rules, input.cleaning.selectedRuleId),
   };
 }
 
-/** 当前对话清洗配置提示：未选择 / 列表已删除（悬空）/ 生效中。 */
-function resolveCleaningHint(
-  lists: readonly CleaningRuleList[],
-  selectedListId: string | undefined,
+/** 当前对话清洗配置提示：未选择 / 规则已删除（悬空）/ 生效中。 */
+function cleaningRuleHint(
+  rules: readonly CleaningRule[],
+  selectedRuleId: string | undefined,
 ): string {
-  if (selectedListId === undefined) return "未启用清洗";
-  const list = lists.find((candidate) => candidate.id === selectedListId);
-  if (!list) return "所选清洗规则列表不存在，未清洗";
-  return `清洗：${list.name}`;
+  if (selectedRuleId === undefined) return "未启用清洗";
+  const rule = rules.find((candidate) => candidate.id === selectedRuleId);
+  if (!rule) return "所选清洗规则不存在，未清洗";
+  if (!rule.enabled) return `清洗规则已停用：${rule.name}`;
+  return `清洗：${rule.name}`;
 }

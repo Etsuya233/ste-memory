@@ -1,3 +1,4 @@
+import { Button, Textarea } from "../kit/controls.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
 import type { SqlConsole, SqlSchemaEntry } from "../../features/sql-console/sql-console.ts";
@@ -167,9 +168,9 @@ export function SqlPanel(props: {
                     <span key={index}>{index + 1}</span>
                   ))}
                 </div>
-                <textarea
+                <Textarea
                   ref={editor}
-                  className="stm-input stm-sql-textarea"
+                  className="stm-sql-textarea"
                   data-action="sql-input"
                   aria-label="SQL 输入"
                   rows={9}
@@ -223,17 +224,18 @@ export function SqlPanel(props: {
                   </span>
                 </div>
                 <div className="stm-sql-editor-actions">
-                  <button
-                    className="stm-button stm-sql-ghost-button"
+                  <Button
+                    className="stm-sql-ghost-button"
                     type="button"
                     onClick={clearEditor}
                     disabled={running || (sql === "" && result === null && error === null)}
                   >
                     <i className="fa-solid fa-eraser" aria-hidden="true" />
                     清空
-                  </button>
-                  <button
-                    className="stm-button stm-button--primary stm-sql-run-button"
+                  </Button>
+                  <Button
+                    variant="primary"
+                    className="stm-sql-run-button"
                     type="submit"
                     data-action="sql-execute"
                     disabled={!props.spaceId || running || sql.trim() === ""}
@@ -243,7 +245,7 @@ export function SqlPanel(props: {
                       aria-hidden="true"
                     />
                     {running ? "执行中…" : "执行 SQL"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>

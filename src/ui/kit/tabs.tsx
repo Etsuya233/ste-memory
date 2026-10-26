@@ -16,7 +16,7 @@ export function Tabs<Value extends string>(props: {
 }) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   return (
-    <div className={`stm-tabs ${props.className ?? ""}`} role="tablist" aria-label={props.label}>
+    <div className={`ui-tabs ${props.className ?? ""}`} role="tablist" aria-label={props.label}>
       {props.options.map((option, index) => (
         <button
           {...option.dataAttributes}

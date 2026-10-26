@@ -4,6 +4,7 @@ import {
   type PluginSettings,
   type SettingsStore,
 } from "../../features/settings/plugin-settings.ts";
+import { CLEANING_SCHEMA_VERSION } from "../../features/cleaning/cleaning-rules.ts";
 import type { StContext } from "./chat-adapter.ts";
 
 /**
@@ -26,7 +27,14 @@ export class StSettingsStore implements SettingsStore {
 
   read(): PluginSettings {
     const raw = this.#getContext().extensionSettings?.[SETTINGS_KEY];
-    return mergeSettings(raw);
+    const settings = mergeSettings(raw);
+    if (
+      raw !== undefined &&
+      (raw as { cleaningSchemaVersion?: unknown }).cleaningSchemaVersion !== CLEANING_SCHEMA_VERSION
+    ) {
+      this.write(settings);
+    }
+    return settings;
   }
 
   write(settings: PluginSettings): void {

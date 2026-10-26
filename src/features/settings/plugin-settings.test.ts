@@ -186,7 +186,8 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       ],
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
-      cleaningRuleLists: [],
+      cleaningSchemaVersion: 3,
+      cleaningRules: [],
       tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
       entryPlacement: "wand",
       memoryViews: [
@@ -264,45 +265,36 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({}).fillTaskConnectionId).toBeUndefined();
   });
 
-  it("清洗规则列表：缺省空数组，损坏项逐项丢弃（ticket 22）", () => {
-    expect(mergeSettings({}).cleaningRuleLists).toEqual([]);
-    const merged = mergeSettings({
-      cleaningRuleLists: [
-        {
-          id: "l1",
-          name: "清洗A",
-          rules: [
-            {
-              id: "r1",
-              name: "去粗体",
-              mode: "discard",
-              pattern: "\\*\\*",
-              flags: "g",
-              enabled: true,
-            },
-          ],
-        },
-        { id: "", name: "缺 id", rules: [] },
-        "junk",
-      ],
-    });
-    expect(merged.cleaningRuleLists).toEqual([
+  it("缺少版本号、v1 和 v2 列表直接丢弃，保留其他设置", () => {
+    for (const cleaningSchemaVersion of [undefined, 1, 2]) {
+      const result = mergeSettings({
+        cleaningSchemaVersion,
+        enabled: false,
+        macroLimit: 123,
+        cleaningRuleLists: [{ id: "old", name: "旧列表", rules: [] }],
+      });
+      expect(result).toMatchObject({
+        cleaningSchemaVersion: 3,
+        cleaningRules: [],
+        enabled: false,
+        macroLimit: 123,
+      });
+      expect(result).not.toHaveProperty("cleaningRuleLists");
+    }
+  });
+  it("当前版本直接保存命名清洗规则，不包含子规则数组", () => {
+    const cleaningRules = [
       {
-        id: "l1",
-        name: "清洗A",
-        rules: [
-          {
-            id: "r1",
-            name: "去粗体",
-            mode: "discard",
-            type: "regex",
-            pattern: "\\*\\*",
-            flags: "g",
-            enabled: true,
-          },
-        ],
+        id: "r1",
+        name: "正文",
+        enabled: true,
+        keepTags: [{ pre: "<正文>", post: "</正文>" }],
+        excludeTags: [],
       },
-    ]);
+    ];
+    expect(mergeSettings({ cleaningSchemaVersion: 3, cleaningRules }).cleaningRules).toEqual(
+      cleaningRules,
+    );
   });
 });
 

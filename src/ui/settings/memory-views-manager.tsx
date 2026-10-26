@@ -1,3 +1,4 @@
+import { Button, Input, Select } from "../kit/controls.tsx";
 /**
  * 全局宏管理器（原记忆视图管理器）：设置 Tab「记忆宏」组「全局宏」分区的列表 CRUD。
  *
@@ -302,15 +303,15 @@ export function MemoryViewsManager(props: {
       )}
       {props.views.length > 0 && !props.onCreateActionChange && (
         <div className="stm-setting-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="add-memory-view"
             disabled={!hasActiveSpace}
             onClick={addView}
           >
             + 新建全局宏
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -468,14 +469,14 @@ export function MemoryViewEditor(props: {
           data-stm-field="memory-view-preview"
         >
           <pre className="stm-mono stm-modal-text">{props.previewText || "（空）"}</pre>
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="copy-macro-preview"
             onClick={copyPreview}
           >
             复制输出
-          </button>
+          </Button>
         </Disclosure>
       )}
       {props.error !== undefined && (
@@ -488,9 +489,9 @@ export function MemoryViewEditor(props: {
           <div className="stm-setting-name">宏名</div>
           <div className="stm-setting-hint">中文可用；不含空白 / :: / | / {"}}"}</div>
         </div>
-        <input
+        <Input
           type="text"
-          className="stm-input"
+
           data-stm-field="memory-view-name"
           value={draft.name}
           placeholder="如：未完成伏笔"
@@ -515,8 +516,7 @@ export function MemoryViewEditor(props: {
         <div className="stm-setting-label">
           <div className="stm-setting-name">表格</div>
         </div>
-        <select
-          className="stm-input"
+        <Select
           data-stm-field="memory-view-table"
           value={draft.tableKey}
           disabled={props.unavailable}
@@ -536,7 +536,7 @@ export function MemoryViewEditor(props: {
               {table.key} · {table.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       {draft.tableKey !== "" && (
         <>
@@ -544,8 +544,7 @@ export function MemoryViewEditor(props: {
             <div className="stm-setting-label">
               <div className="stm-setting-name">筛选字段</div>
             </div>
-            <select
-              className="stm-input"
+            <Select
               data-stm-field="memory-view-condition-field"
               value={draft.conditionFieldKey}
               disabled={props.unavailable}
@@ -563,7 +562,7 @@ export function MemoryViewEditor(props: {
                   {field.name}（{field.key}）
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
 
           {draft.conditionFieldKey !== "" && (
@@ -674,9 +673,9 @@ export function MemoryViewEditor(props: {
               <div className="stm-setting-name">条数上限</div>
               <div className="stm-setting-hint">留空 = 最多 100 条（按更新时间倒序，最新在前）</div>
             </div>
-            <input
+            <Input
               type="number"
-              className="stm-input"
+
               min="1"
               max="100"
               data-stm-field="memory-view-limit"
@@ -690,22 +689,22 @@ export function MemoryViewEditor(props: {
       )}
       {!props.chrome && (
         <div className="stm-setting-actions">
-          <button
+          <Button
             type="submit"
-            className="stm-button"
+
             data-action="save-memory-view"
             disabled={props.unavailable}
           >
             保存
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="cancel-memory-view"
             onClick={cancel}
           >
             取消
-          </button>
+          </Button>
         </div>
       )}
     </form>

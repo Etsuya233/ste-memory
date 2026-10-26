@@ -1,3 +1,4 @@
+import { Input } from "../kit/controls.tsx";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
 import { useEffect, useState } from "react";
 import type { AutoFillService } from "../../features/fill-tasks/auto-fill-service.ts";
@@ -66,8 +67,7 @@ export function AutoFillFields(props: {
       {NUMERIC_FIELDS.map(([key, label, min]) => (
         <label className="stm-task-field" key={key}>
           <span>{label}</span>
-          <input
-            className="stm-input"
+          <Input
             type="number"
             min={min}
             step="1"

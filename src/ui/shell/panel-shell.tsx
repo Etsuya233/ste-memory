@@ -1,4 +1,4 @@
-import { Tabs } from "./tabs.tsx";
+import { Tabs } from "../kit/tabs.tsx";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
@@ -43,7 +43,6 @@ import {
 } from "./panel-window.ts";
 import type { PluginSettings, SettingsStore } from "../../features/settings/plugin-settings.ts";
 import type { EntryMountControllerPort } from "./entry-placement.ts";
-import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { FillTaskService } from "../../features/fill-tasks/fill-task-service.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import type { QueryChatService } from "../../features/query-chat/query-chat-service.ts";
@@ -151,8 +150,7 @@ export interface PanelRuntime {
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
-    readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly writeSelection: (ruleId: string | undefined) => void;
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
     readonly readChatScopeMacros: () => readonly MemoryView[];
@@ -649,7 +647,7 @@ export function PanelShell(props: {
       }}
       ref={panelRef}
       popover="manual"
-      className={state.open ? "stm-panel stm-panel--open" : "stm-panel"}
+      className={state.open ? "ui-theme stm-panel stm-panel--open" : "ui-theme stm-panel"}
       aria-hidden={!state.open}
     >
       {navOpen && !isWidePanel && (

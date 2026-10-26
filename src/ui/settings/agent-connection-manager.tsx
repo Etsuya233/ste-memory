@@ -1,3 +1,5 @@
+import { Button, Input, Select } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 /**
  * Agent 连接管理器（ADR 0010 / spec .scratch/agent-connections）：设置 Tab
  * 的「Agent 连接」区块。
@@ -184,36 +186,30 @@ export function AgentConnectionManager(props: {
               }
             />
           )}
-          <ul className="stm-grouped-list stm-settings-item-list" data-stm-field="connection-list">
+          <ListGroup as="ul" className="stm-settings-item-list" data-stm-field="connection-list">
             {settings.agentConnections.map((connection) => (
               <li key={connection.id} data-stm-field="connection-row">
-                <button
-                  type="button"
-                  className="stm-settings-item-row"
+                <NavigationRow
                   data-action="edit-connection"
                   onClick={() => startEdit(connection)}
-                >
-                  <span className="stm-settings-item-main">
-                    <span className="stm-settings-item-title">{connection.name}</span>
-                    <span className="stm-settings-item-summary">
-                      {connection.baseUrl} · {connection.model}
-                    </span>
-                  </span>
-                  <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
+                  title={connection.name}
+                  description=<>
+                    {connection.baseUrl} · {connection.model}
+                  </>
+                />
               </li>
             ))}
-          </ul>
+          </ListGroup>
           {settings.agentConnections.length === 0 && <div className="stm-empty">暂无独立连接</div>}
           {!props.onBack && (
-            <button
+            <Button
               type="button"
-              className="stm-button"
+
               data-action="create-connection"
               onClick={startCreate}
             >
               新建连接
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -323,8 +319,7 @@ function ConnectionSelector(props: {
       <label className="stm-setting-label" htmlFor={selectorId}>
         {target === "fillTask" ? "表格填写 Agent" : "查询 Agent"}
       </label>
-      <select
-        className="stm-input"
+      <Select
         id={selectorId}
         data-action="select-agent-connection"
         data-stm-target={target}
@@ -345,7 +340,7 @@ function ConnectionSelector(props: {
             {connection.name}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -433,8 +428,7 @@ export function AgentConnectionForm(props: {
       <fieldset className="stm-settings-fields" disabled={props.testing}>
         <div className="stm-setting-row stm-connection-form-row">
           <label className="stm-setting-label">名称</label>
-          <input
-            className="stm-input"
+          <Input
             autoComplete="off"
             data-stm-field="connection-name"
             aria-label="名称"
@@ -445,8 +439,7 @@ export function AgentConnectionForm(props: {
         </div>
         <div className="stm-setting-row stm-connection-form-row">
           <label className="stm-setting-label">Base URL</label>
-          <input
-            className="stm-input"
+          <Input
             type="url"
             autoComplete="off"
             data-stm-field="connection-base-url"
@@ -458,8 +451,7 @@ export function AgentConnectionForm(props: {
         </div>
         <div className="stm-setting-row stm-connection-form-row">
           <label className="stm-setting-label">API Key</label>
-          <input
-            className="stm-input"
+          <Input
             type="password"
             autoComplete="new-password"
             data-stm-field="connection-api-key"
@@ -476,8 +468,7 @@ export function AgentConnectionForm(props: {
           </div>
           {headerRows.map((row, index) => (
             <div className="stm-connection-header-row" key={row.id}>
-              <input
-                className="stm-input"
+              <Input
                 aria-label={`请求头名称 ${index + 1}`}
                 autoComplete="off"
                 placeholder="X-API-Key"
@@ -490,8 +481,7 @@ export function AgentConnectionForm(props: {
                   )
                 }
               />
-              <input
-                className="stm-input"
+              <Input
                 aria-label={`请求头值 ${index + 1}`}
                 autoComplete="new-password"
                 type={showHeaderValues ? "text" : "password"}
@@ -505,35 +495,35 @@ export function AgentConnectionForm(props: {
                   )
                 }
               />
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 aria-label={`删除请求头 ${index + 1}`}
                 onClick={() => changeHeaders(headerRows.filter((item) => item.id !== row.id))}
               >
                 删除
-              </button>
+              </Button>
             </div>
           ))}
           <div className="stm-setting-actions">
-            <button
+            <Button
               type="button"
-              className="stm-button"
+
               data-action="add-connection-header"
               onClick={() =>
                 changeHeaders([...headerRows, { id: createUiId(), name: "", value: "" }])
               }
             >
               新增请求头
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="stm-button"
+
               aria-pressed={showHeaderValues}
               onClick={() => setShowHeaderValues(!showHeaderValues)}
             >
               {showHeaderValues ? "隐藏值" : "显示值"}
-            </button>
+            </Button>
           </div>
           {headerError && (
             <div className="stm-connection-test-fail" role="alert">
@@ -544,8 +534,7 @@ export function AgentConnectionForm(props: {
         <div className="stm-setting-row stm-connection-form-row">
           <label className="stm-setting-label">模型</label>
           <div className="stm-connection-model-row">
-            <input
-              className="stm-input"
+            <Input
               autoComplete="off"
               data-stm-field="connection-model"
               aria-label="模型"
@@ -553,8 +542,7 @@ export function AgentConnectionForm(props: {
               placeholder="手写模型名"
               onChange={(event) => props.onDraftChange({ ...draft, model: event.target.value })}
             />
-            <select
-              className="stm-input"
+            <Select
               data-stm-field="connection-model-select"
               aria-label="已拉取模型"
               value={draft.model}
@@ -566,39 +554,34 @@ export function AgentConnectionForm(props: {
                   {model}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
       </fieldset>
       <div className="stm-setting-actions">
-        <button
+        <Button
           type="button"
-          className="stm-button"
+
           data-action="test-connection"
           disabled={props.testing || !canTest}
           onClick={props.onTest}
         >
           {props.testing ? "测试中…" : "测试连接"}
-        </button>
+        </Button>
         {!props.chrome && (
-          <button
-            className="stm-button"
-            data-action="save-connection"
-            disabled={!canSave}
-            type="submit"
-          >
+          <Button data-action="save-connection" disabled={!canSave} type="submit">
             保存
-          </button>
+          </Button>
         )}
         {!props.chrome && (
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="cancel-connection"
             onClick={props.onCancel}
           >
             取消
-          </button>
+          </Button>
         )}
       </div>
       {props.testResult && (

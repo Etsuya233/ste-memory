@@ -1,3 +1,4 @@
+import { Button } from "../kit/controls.tsx";
 import { useEffect, useState } from "react";
 import type { MemoryRecordId, MemorySpaceId, MemoryTableId } from "../../features/memory/index.ts";
 import type { VectorIndexService } from "../../features/vector-index/vector-index-service.ts";
@@ -112,22 +113,22 @@ export function VectorRecordStatus(props: {
         强制重算会产生一次额外的远端 embedding 请求，已发出的请求可能仍产生费用。
       </p>
       <div className="stm-vector-task-buttons">
-        <button
+        <Button
           type="button"
-          className="stm-button"
+
           disabled={busy || previews.length === 0}
           onClick={() => void submit()}
         >
           向量化记录
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="stm-button"
+
           disabled={busy || previews.length === 0}
           onClick={() => void submit(undefined, true)}
         >
           强制重算记录
-        </button>
+        </Button>
       </div>
       {previews.map((preview) => {
         const cached = vectors.find(

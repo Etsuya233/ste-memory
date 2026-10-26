@@ -1,3 +1,6 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { Button, Input } from "../kit/controls.tsx";
+import { ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 /**
@@ -916,9 +919,9 @@ export function RecordsTab(props: {
         </div>
         <div className="stm-record-selector-row">
           {searchOpen ? (
-            <input
+            <Input
               type="search"
-              className="stm-input stm-record-search"
+              className="stm-record-search"
               data-action="record-search"
               data-stm-field="record-search"
               aria-label="搜索记录"
@@ -935,11 +938,7 @@ export function RecordsTab(props: {
               {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
             </div>
           )}
-          <div
-            className="stm-bar-group stm-record-view-switch"
-            role="group"
-            aria-label="记录显示方式"
-          >
+          <ActionGroup className="stm-record-view-switch" role="group" aria-label="记录显示方式">
             <PanelBarAction
               icon="fa-list"
               label="列表"
@@ -959,8 +958,8 @@ export function RecordsTab(props: {
               data-action="records-grid-view"
               onClick={() => setViewMode("grid")}
             />
-          </div>
-          <div className="stm-bar-group">
+          </ActionGroup>
+          <ActionGroup>
             {searchOpen ? (
               <PanelBarAction
                 icon="fa-xmark"
@@ -975,29 +974,29 @@ export function RecordsTab(props: {
                 onClick={() => setSearchOpen(true)}
               />
             )}
-          </div>
+          </ActionGroup>
         </div>
         {viewMode === "grid" ? (
           <div className="stm-record-actions">
             {dirty ? (
-              <button
+              <Button
                 type="button"
-                className="stm-button"
+
                 data-action="discard-grid"
                 onClick={discardGrid}
               >
                 放弃修改
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button
               type="button"
-              className="stm-button stm-button--primary"
+              variant="primary"
               data-action="save-grid"
               disabled={savingGrid || !dirty}
               onClick={() => void saveGrid()}
             >
               {savingGrid ? "保存中…" : "保存修改"}
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -1137,9 +1136,9 @@ export function RecordsTab(props: {
             {gridRows.length === 0 ? (
               <div className="stm-empty">
                 <div className="stm-empty-title">{search ? "没有匹配记录" : "还没有记录"}</div>
-                <button
+                <Button
                   type="button"
-                  className="stm-button"
+
                   onClick={() => {
                     if (search) setSearchInput("");
                     else if (viewMode === "grid") addGridRow();
@@ -1147,7 +1146,7 @@ export function RecordsTab(props: {
                   }}
                 >
                   {search ? "清除搜索" : "新建记录"}
-                </button>
+                </Button>
               </div>
             ) : null}
             {viewMode === "list" ? (
@@ -1246,7 +1245,7 @@ export function RecordSummaryList(props: {
   readonly onOpenRecord: (recordId: MemoryRecordId) => void;
 }) {
   return (
-    <div className="stm-record-summary-list stm-grouped-list" aria-label="记录列表">
+    <ListGroup className="stm-record-summary-list" aria-label="记录列表">
       {props.records.map((record) => {
         const previewFields = props.fields
           .filter((field) => field.enabled)
@@ -1258,32 +1257,27 @@ export function RecordSummaryList(props: {
           .slice(0, 2);
         const vectorSummary = props.vectorSummaries.get(record.id);
         return (
-          <button
-            type="button"
+          <NavigationRow
             key={record.id}
+            title={record.displayText}
+            description={
+              previewFields.length > 0
+                ? previewFields.map(({ text }) => text).join(" · ")
+                : undefined
+            }
+            trailing={
+              vectorSummary ? (
+                <span className="stm-record-summary-status">{vectorSummary}</span>
+              ) : undefined
+            }
             className="stm-record-summary"
             data-action="open-record"
             data-record-id={record.id}
             onClick={() => props.onOpenRecord(record.id)}
-          >
-            <span className="stm-record-summary-title">{record.displayText}</span>
-            {previewFields.length > 0 ? (
-              <span className="stm-record-summary-values">
-                {previewFields.map(({ field, text }, index) => (
-                  <span key={field.id}>
-                    {index > 0 ? " · " : ""}
-                    {text}
-                  </span>
-                ))}
-              </span>
-            ) : null}
-            {vectorSummary ? (
-              <span className="stm-record-summary-status">{vectorSummary}</span>
-            ) : null}
-          </button>
+          />
         );
       })}
-    </div>
+    </ListGroup>
   );
 }
 
@@ -1335,7 +1329,7 @@ function RecordDetail(props: {
           {props.record.source.type === "manual" ? "无证据（手动记录）" : "无证据"}
         </div>
       ) : null}
-      <ul className="stm-record-fields">
+      <ListGroup as="ul" className="stm-record-fields">
         {props.fields.map((field) => {
           const value = props.record.payload[field.id];
           const chips = evidenceChipViewModels(props.record.fieldEvidence[field.id] ?? []);
@@ -1380,7 +1374,7 @@ function RecordDetail(props: {
             </li>
           );
         })}
-      </ul>
+      </ListGroup>
       {props.history.length > 0 ? (
         <Disclosure
           className="stm-record-history"

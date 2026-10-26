@@ -1,3 +1,4 @@
+import { FormField, Button, Input } from "../kit/controls.tsx";
 /**
  * 表格 / 字段定义编辑器组件（ticket 09）。
  *
@@ -73,8 +74,7 @@ export function TableEditorForm(props: TableEditorFormProps) {
           <span className="stm-form-label">
             Key <em className="stm-form-required-mark">*</em>
           </span>
-          <input
-            className="stm-input"
+          <Input
             type="text"
             data-stm-field="table-key"
             value={draft.key}
@@ -87,8 +87,7 @@ export function TableEditorForm(props: TableEditorFormProps) {
           <span className="stm-form-label">
             名称 <em className="stm-form-required-mark">*</em>
           </span>
-          <input
-            className="stm-input"
+          <Input
             type="text"
             data-stm-field="table-name"
             value={draft.name}
@@ -97,17 +96,19 @@ export function TableEditorForm(props: TableEditorFormProps) {
           />
           {errors.name ? <span className="stm-form-error">{errors.name}</span> : null}
         </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">描述</span>
-          <input
-            className="stm-input"
-            type="text"
-            data-stm-field="table-description"
-            value={draft.description}
-            placeholder="这张表记录什么"
-            onChange={(event) => set("description", event.target.value)}
-          />
-        </label>
+        <FormField className="stm-form-row" label={<>描述</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="text"
+              data-stm-field="table-description"
+              value={draft.description}
+              placeholder="这张表记录什么"
+              onChange={(event) => set("description", event.target.value)}
+            />
+          )}
+        </FormField>
         <label className="stm-form-row">
           <span className="stm-form-label">表格 Prompt</span>
           <textarea
@@ -122,21 +123,17 @@ export function TableEditorForm(props: TableEditorFormProps) {
       </fieldset>
       {!props.formId ? (
         <div className="stm-editor-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="editor-cancel"
             onClick={props.onCancel}
           >
             取消
-          </button>
-          <button
-            type="submit"
-            className="stm-button stm-button--primary"
-            data-action="editor-submit"
-          >
+          </Button>
+          <Button type="submit" variant="primary" data-action="editor-submit">
             {props.submitLabel}
-          </button>
+          </Button>
         </div>
       ) : null}
     </form>
@@ -210,8 +207,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
           <span className="stm-form-label">
             Key <em className="stm-form-required-mark">*</em>
           </span>
-          <input
-            className="stm-input"
+          <Input
             type="text"
             data-stm-field="field-key"
             value={draft.key}
@@ -224,8 +220,7 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
           <span className="stm-form-label">
             名称 <em className="stm-form-required-mark">*</em>
           </span>
-          <input
-            className="stm-input"
+          <Input
             type="text"
             data-stm-field="field-name"
             value={draft.name}
@@ -332,21 +327,17 @@ export function FieldEditorForm(props: FieldEditorFormProps) {
       </fieldset>
       {!props.formId ? (
         <div className="stm-editor-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="editor-cancel"
             onClick={props.onCancel}
           >
             取消
-          </button>
-          <button
-            type="submit"
-            className="stm-button stm-button--primary"
-            data-action="editor-submit"
-          >
+          </Button>
+          <Button type="submit" variant="primary" data-action="editor-submit">
             {props.submitLabel}
-          </button>
+          </Button>
         </div>
       ) : null}
     </form>

@@ -287,7 +287,7 @@
   width: 100%;
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-input-bg);
+  background: var(--ui-input-bg);
   border: 1px solid var(--stm-border);
   border-radius: var(--stm-radius);
   color: var(--stm-fg);
@@ -313,7 +313,7 @@
   min-height: var(--stm-control-h);
   margin: 4px 0;
   padding: 10px 12px;
-  background: var(--stm-input-bg);
+  background: var(--ui-input-bg);
   border: 1px solid var(--stm-border);
   border-radius: var(--stm-radius);
   color: var(--stm-fg);
@@ -377,7 +377,7 @@
   color: var(--stm-fg-3);
   pointer-events: none;
 }
-.stm-table-search .stm-input {
+.stm-table-search .ui-input {
   margin: 0;
   padding-inline-start: calc(var(--stm-space-4) * 2 + var(--stm-space-2));
 }
@@ -387,70 +387,6 @@
   margin: 0;
   padding: 0;
   list-style: none;
-}
-.stm-table-rail-row,
-.stm-table-config-list > button {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--stm-space-3);
-  min-height: calc(var(--stm-control-h) + var(--stm-space-5));
-  padding: var(--stm-row-padding-y) var(--stm-space-4);
-  border: 0;
-  background: transparent;
-  color: var(--stm-fg);
-  text-align: start;
-  font-family: var(--stm-font);
-  cursor: pointer;
-}
-.stm-table-rail-row + .stm-table-rail-row::before,
-.stm-field-row + .stm-field-row::before,
-.stm-table-config-list > button + button::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto var(--stm-space-4);
-  border-top: 1px solid var(--stm-border);
-}
-.stm-table-rail-main,
-.stm-table-config-list > button > span {
-  flex: 1;
-  min-width: 0;
-}
-.stm-table-rail-name,
-.stm-table-rail-meta,
-.stm-field-name,
-.stm-field-tag,
-.stm-table-config-list small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.stm-table-rail-name,
-.stm-field-name,
-.stm-table-config-list > button {
-  font-size: var(--stm-fs-md);
-  font-weight: var(--stm-weight-medium);
-  line-height: var(--stm-leading-normal);
-}
-.stm-table-rail-meta,
-.stm-field-tag,
-.stm-table-config-list small {
-  font-size: var(--stm-fs-sm);
-  font-weight: var(--stm-weight-regular);
-  line-height: var(--stm-leading-normal);
-  color: var(--stm-fg-2);
-  margin-top: var(--stm-space-1);
-}
-.stm-table-rail-row.is-off .stm-table-rail-name {
-  color: var(--stm-fg-2);
-}
-.stm-table-chevron,
-.stm-table-config-list > button > i {
-  flex: none;
-  color: var(--stm-fg-3);
-  font-size: var(--stm-fs-xs);
 }
 .stm-fields-panel {
   display: flex;
@@ -473,15 +409,7 @@
 .stm-field-main {
   flex: 1;
   min-width: 0;
-  min-height: calc(var(--stm-control-h) + 2 * var(--stm-row-padding-y));
   align-self: stretch;
-  padding: var(--stm-row-padding-y) var(--stm-space-4);
-  background: transparent;
-  border: 0;
-  color: var(--stm-fg);
-  text-align: start;
-  font-family: var(--stm-font);
-  cursor: pointer;
 }
 .stm-field-management-actions {
   margin-inline-start: auto;
@@ -504,15 +432,8 @@
   color: var(--stm-fg-2);
   text-align: center;
 }
-.stm-table-settings .stm-disclosure-body {
+.stm-table-settings .ui-disclosure-body {
   padding: 0;
-}
-/* 预设详情中的配置行只展示摘要，不提供点击反馈。 */
-.stm-table-settings .stm-settings-item-row--static,
-.stm-table-settings .stm-settings-item-row--static:active,
-.stm-table-settings .stm-settings-item-row--static:hover {
-  cursor: default;
-  background: transparent;
 }
 .stm-tables-workbench .stm-editor {
   margin: 0;
@@ -586,7 +507,7 @@
   place-items: center;
   border: 1px solid var(--stm-border);
   border-radius: var(--stm-radius);
-  background: var(--stm-input-bg);
+  background: var(--ui-input-bg);
 }
 .stm-check-box::after {
   content: "";
@@ -616,7 +537,7 @@
   border-radius: 0;
 }
 
-.stm-field-row > .stm-switch,
+.stm-field-row > .ui-switch,
 .stm-field-row > .stm-field-management-actions {
   margin-inline-end: var(--stm-space-4);
 }

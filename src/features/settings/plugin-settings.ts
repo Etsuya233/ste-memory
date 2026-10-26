@@ -23,7 +23,11 @@ import {
 } from "../agent-presets/preset-model.ts";
 import { connectionHeaderError, type AgentConnection } from "./agent-connections.ts";
 import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
-import { mergeCleaningRuleLists, type CleaningRuleList } from "../cleaning/cleaning-rule-lists.ts";
+import {
+  CLEANING_SCHEMA_VERSION,
+  mergeCleaningRules,
+  type CleaningRule,
+} from "../cleaning/cleaning-rules.ts";
 import { mergeMemoryViews, type MemoryView } from "../macros/memory-views.ts";
 import {
   DEFAULT_TABLE_PRESET_SETTINGS,
@@ -65,8 +69,10 @@ export interface PluginSettings {
   readonly fillTaskConnectionId?: string;
   /** 查询 Agent 的连接选择；undefined = 跟随 ST 当前连接 */
   readonly queryChatConnectionId?: string;
-  /** 清洗规则列表（ticket 22 / ADR 0011）：插件级命名列表，对话选择其一 */
-  readonly cleaningRuleLists: readonly CleaningRuleList[];
+  /** 清洗配置版本（ADR 0022）：旧版列表直接丢弃 */
+  readonly cleaningSchemaVersion: typeof CLEANING_SCHEMA_VERSION;
+  /** 全局命名规则，每份直接配置标签，对话选择其中一份。 */
+  readonly cleaningRules: readonly CleaningRule[];
   /** 记忆视图（ticket 02 / ADR 0025）：插件级命名视图，{{宏名::视图名}} 展开 */
   readonly memoryViews: readonly MemoryView[];
   /** 表格预设（spec table-presets）：用户预设库 + 新空间默认预设（全局，不随对话切换） */
@@ -89,7 +95,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   agentConnections: [],
   fillTaskConnectionId: undefined,
   queryChatConnectionId: undefined,
-  cleaningRuleLists: [],
+  cleaningSchemaVersion: CLEANING_SCHEMA_VERSION,
+  cleaningRules: [],
   memoryViews: [],
   tablePresets: DEFAULT_TABLE_PRESET_SETTINGS,
   entryPlacement: "top",
@@ -143,7 +150,11 @@ export function mergeSettings(raw: unknown): PluginSettings {
     // 悬空选择（指向已丢弃/不存在连接）回退跟随 ST 当前连接
     fillTaskConnectionId: mergeConnectionSelection(source.fillTaskConnectionId, agentConnections),
     queryChatConnectionId: mergeConnectionSelection(source.queryChatConnectionId, agentConnections),
-    cleaningRuleLists: mergeCleaningRuleLists(source.cleaningRuleLists),
+    cleaningSchemaVersion: CLEANING_SCHEMA_VERSION,
+    cleaningRules:
+      source.cleaningSchemaVersion === CLEANING_SCHEMA_VERSION
+        ? mergeCleaningRules(source.cleaningRules)
+        : [],
     memoryViews: mergeMemoryViews(source.memoryViews),
     tablePresets: mergeTablePresetSettings(source.tablePresets),
     entryPlacement: isEntryPlacement(source.entryPlacement)

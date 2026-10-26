@@ -2,6 +2,8 @@
 
 ## Status
 
+标签、正则与导入相关决策已被 [标签清洗 v2](./0021-tag-only-cleaning.md) 取代。
+
 Accepted（grilling 决策确认：Q1 保留=提取中间内容 / Q2 严格区分大小写 / Q3 仅 st-extension、apps 写死正则 / Q4 trim 首尾空白；R1 类型判别数据模型 / R2 新建默认标签 / R3 词汇与 ADR）
 
 ## Context

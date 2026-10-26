@@ -1,0 +1,292 @@
+/* Portable UI theme. Apply .ui-theme, data-style, data-tone once at the root.
+ * Supply --ui-bg / --ui-accent / --ui-accent-fg through Theme or themeAttributes.
+ * Component geometry and material vary here; feature pages own only their layout. */
+
+:root,
+.ui-theme {
+  /* Appearance samples share the actual palette and font stacks. */
+  --ui-palette-teal: #0d9488;
+  --ui-palette-blue: #2563eb;
+  --ui-palette-indigo: #6366f1;
+  --ui-palette-violet: #8b5cf6;
+  --ui-palette-rose: #e11d48;
+  --ui-palette-amber: #d97706;
+  --ui-palette-neutral: #71717a;
+  --ui-palette-dark-bg: #09090b;
+  --ui-palette-dark-fg: #fafafa;
+  --ui-palette-light-bg: #f2f2f7;
+  --ui-palette-light-fg: #18181b;
+  --ui-serif:
+    "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman",
+    serif;
+
+  /* 面板外的入口按钮与加载占位使用固定深色值 */
+  --ui-bg: var(--ui-palette-dark-bg);
+  --ui-surface: #151517;
+  --ui-surface-2: #202022;
+  --ui-surface-3: #323234;
+  --ui-raised: #0b0b0d;
+  --ui-float-bg: #202022;
+  --ui-border: #2a2a2d;
+
+  --ui-fg: var(--ui-palette-dark-fg);
+  --ui-fg-2: #a1a1aa;
+  --ui-fg-3: #71717a;
+
+  --ui-hover: rgb(255 255 255 / 6%);
+  --ui-pressed: rgb(255 255 255 / 10%);
+  --ui-input-bg: rgb(255 255 255 / 4%);
+  --ui-switch-track: #36363a;
+  --ui-scrim: rgb(0 0 0 / 55%);
+  --ui-shadow-pop: 0 10px 30px rgb(0 0 0 / 55%);
+
+  --ui-success: #4ade80;
+  --ui-warning: #fbbf24;
+  --ui-danger: #f87171;
+  --ui-danger-fill: #dc2626;
+
+  --ui-radius: 12px;
+  --ui-group-border: var(--ui-border);
+  --ui-group-shadow: none;
+  --ui-control-radius: 10px;
+  --ui-float-radius: 20px;
+  --ui-list-inset: 16px;
+  --ui-list-gap: 24px;
+  --ui-float-backdrop: none;
+  --ui-switch-radius: 999px;
+  --ui-radius-card: var(--ui-radius);
+  --ui-control-h: 44px;
+  --ui-press-scale: 1.035;
+  --ui-press-duration: 120ms;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-weight-regular: 400;
+  --ui-weight-medium: 500;
+  --ui-weight-semibold: 600;
+  --ui-leading-tight: 1.3;
+  --ui-leading-normal: 1.5;
+  --ui-leading-relaxed: 1.65;
+  --ui-page-padding: 16px;
+  --ui-row-padding-y: 12px;
+  --ui-bar-height: 60px;
+  --ui-glass-fade: 16px;
+  --ui-bar-shadow: none;
+  --ui-bar-backdrop: none;
+  --ui-nav-width: 248px;
+
+  --ui-font:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --ui-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+
+  /* 字号：全部走缩放因子，控件高度不受影响 */
+  --ui-font-scale: 1;
+  --ui-fs-xs: calc(12px * var(--ui-font-scale));
+  --ui-fs-sm: calc(13px * var(--ui-font-scale));
+  --ui-fs-md: calc(15px * var(--ui-font-scale));
+  --ui-fs-lg: calc(17px * var(--ui-font-scale));
+
+  /* 强调色（默认青绿）：面板外入口按钮的固定色；面板内由外观设置覆盖 */
+  --ui-accent: #0d9488;
+  --ui-accent-text: #5eead4;
+  --ui-accent-fg: #ffffff;
+  --ui-accent-tint: color-mix(in srgb, var(--ui-accent) 14%, transparent);
+  --ui-accent-soft: color-mix(in srgb, var(--ui-accent) 32%, transparent);
+  --ui-ring: color-mix(in srgb, var(--ui-accent) 30%, transparent);
+
+  /* 旧令牌兼容别名：名字保留、值指向新语义（横幅底纹随语义色走） */
+  --ui-ink: var(--ui-fg);
+  --ui-ink-secondary: var(--ui-fg-2);
+  --ui-ink-bg: var(--ui-surface);
+  --ui-font-mono: var(--ui-mono);
+  --ui-code-bg: rgb(255 255 255 / 6%);
+  --ui-accent-2: var(--ui-accent);
+  --ui-success-dim: color-mix(in srgb, var(--ui-success) 14%, transparent);
+  --ui-warning-dim: color-mix(in srgb, var(--ui-warning) 14%, transparent);
+  --ui-danger-dim: color-mix(in srgb, var(--ui-danger) 14%, transparent);
+}
+
+/* ---------- 面板基础：主题底色由 React 写入 --ui-bg ---------- */
+.ui-theme {
+  color-scheme: dark;
+  --ui-accent-text: color-mix(in srgb, var(--ui-accent) 58%, var(--ui-fg));
+  --ui-accent-tint: color-mix(in srgb, var(--ui-accent) 14%, transparent);
+  --ui-accent-soft: color-mix(in srgb, var(--ui-accent) 32%, transparent);
+  --ui-ring: color-mix(in srgb, var(--ui-accent) 30%, transparent);
+  --ui-success-dim: color-mix(in srgb, var(--ui-success) 14%, transparent);
+  --ui-warning-dim: color-mix(in srgb, var(--ui-warning) 14%, transparent);
+  --ui-danger-dim: color-mix(in srgb, var(--ui-danger) 14%, transparent);
+  --ui-bar-bg: var(--ui-bg);
+  --ui-bar-border: var(--ui-border);
+  --ui-fs-xs: calc(12px * var(--ui-font-scale));
+  --ui-fs-sm: calc(13px * var(--ui-font-scale));
+  --ui-fs-md: calc(15px * var(--ui-font-scale));
+  --ui-fs-lg: calc(17px * var(--ui-font-scale));
+
+  /* 旧令牌兼容别名在面板内重解析，避免继承到根上的深色文本色。 */
+  --ui-ink: var(--ui-fg);
+  --ui-ink-secondary: var(--ui-fg-2);
+  --ui-ink-bg: var(--ui-surface);
+  --ui-font-mono: var(--ui-mono);
+  --ui-accent-2: var(--ui-accent);
+}
+
+/* 深色主题底色：surface 逐级提亮，文本从白到灰。 */
+.ui-theme[data-tone="dark"] {
+  color-scheme: dark;
+  --ui-surface: color-mix(in srgb, var(--ui-bg) 95%, #fff);
+  --ui-surface-2: color-mix(in srgb, var(--ui-bg) 91%, #fff);
+  --ui-surface-3: color-mix(in srgb, var(--ui-bg) 84%, #fff);
+  --ui-raised: color-mix(in srgb, var(--ui-bg) 92%, #000);
+  --ui-float-bg: color-mix(in srgb, var(--ui-bg) 91%, #fff);
+  --ui-border: color-mix(in srgb, var(--ui-bg) 86%, #fff);
+
+  --ui-fg: #fafafa;
+  --ui-fg-2: #a1a1aa;
+  --ui-fg-3: #71717a;
+
+  --ui-hover: rgb(255 255 255 / 6%);
+  --ui-pressed: rgb(255 255 255 / 10%);
+  --ui-input-bg: rgb(255 255 255 / 4%);
+  --ui-switch-track: color-mix(in srgb, var(--ui-bg) 74%, #fff);
+  --ui-code-bg: rgb(255 255 255 / 6%);
+  --ui-scrim: rgb(0 0 0 / 55%);
+  --ui-shadow-pop: 0 10px 30px rgb(0 0 0 / 55%);
+
+  --ui-success: #4ade80;
+  --ui-warning: #fbbf24;
+  --ui-danger: #f87171;
+}
+
+/* 浅色主题底色（瓷白/沙丘/自定义浅色）：surface 向白靠，层级用轻微加深表达。 */
+.ui-theme[data-tone="light"] {
+  color-scheme: light;
+  --ui-surface: color-mix(in srgb, var(--ui-bg) 35%, #fff);
+  --ui-surface-2: color-mix(in srgb, var(--ui-bg) 95%, #000);
+  --ui-surface-3: color-mix(in srgb, var(--ui-bg) 88%, #000);
+  --ui-raised: #fff;
+  --ui-float-bg: #fff;
+  --ui-border: color-mix(in srgb, var(--ui-bg) 86%, #000);
+
+  --ui-fg: #18181b;
+  --ui-fg-2: #3f3f46;
+  --ui-fg-3: #52525b;
+
+  --ui-hover: rgb(0 0 0 / 5%);
+  --ui-pressed: rgb(0 0 0 / 8%);
+  --ui-input-bg: rgb(0 0 0 / 3.5%);
+  --ui-switch-track: color-mix(in srgb, var(--ui-bg) 80%, #000);
+  --ui-code-bg: rgb(0 0 0 / 5%);
+  --ui-scrim: rgb(0 0 0 / 35%);
+  --ui-shadow-pop: 0 10px 30px rgb(0 0 0 / 18%);
+
+  --ui-success: #16a34a;
+  --ui-warning: #b45309;
+  --ui-danger: #dc2626;
+}
+
+/* ---------- 字体与字号档 ---------- */
+.ui-theme[data-font="serif"] {
+  --ui-font: var(--ui-serif);
+}
+
+.ui-theme[data-size="compact"] {
+  --ui-font-scale: 0.94;
+}
+
+.ui-theme[data-size="large"] {
+  --ui-font-scale: 1.08;
+}
+
+/* ---------- 样式 1：Liquid Glass（默认） ---------- */
+.ui-theme[data-style="glass"] {
+  --ui-radius-card: 26px;
+  --ui-control-radius: 14px;
+  --ui-float-radius: 28px;
+  --ui-group-border: transparent;
+  --ui-list-inset: 20px;
+  --ui-list-gap: 30px;
+  --ui-row-padding-y: 16px;
+  --ui-float-backdrop: blur(24px) saturate(160%);
+  --ui-float-bg: color-mix(in srgb, var(--ui-surface) 82%, transparent);
+  --ui-bar-bg:
+    linear-gradient(125deg, rgb(255 255 255 / 12%), transparent 45%, rgb(255 255 255 / 4%)),
+    color-mix(in srgb, var(--ui-bg) 68%, transparent);
+  --ui-bar-border: color-mix(in srgb, var(--ui-fg) 16%, transparent);
+  --ui-bar-backdrop: blur(24px) saturate(180%);
+  --ui-bar-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 18%), inset 0 -1px 0 rgb(255 255 255 / 4%),
+    0 6px 24px rgb(0 0 0 / 12%);
+}
+
+.ui-theme[data-style="glass"][data-tone="light"] {
+  --ui-surface: #fff;
+  --ui-fg-2: #696971;
+  --ui-fg-3: #777780;
+  --ui-border: color-mix(in srgb, var(--ui-bg) 91%, #000);
+  --ui-float-bg: rgb(255 255 255 / 82%);
+  --ui-bar-bg:
+    linear-gradient(125deg, rgb(255 255 255 / 65%), transparent 50%, rgb(255 255 255 / 20%)),
+    color-mix(in srgb, var(--ui-bg) 62%, transparent);
+  --ui-bar-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%), inset 0 -1px 0 rgb(255 255 255 / 35%),
+    0 6px 24px rgb(0 0 0 / 6%);
+}
+
+/* ---------- 样式 2：Classic（原实色样式） ---------- */
+.ui-theme[data-style="classic"] {
+  --ui-bar-bg: var(--ui-bg);
+  --ui-bar-border: var(--ui-border);
+  --ui-bar-backdrop: none;
+  --ui-bar-shadow: none;
+}
+
+/* ---------- 样式 3：Material（MD3 填充色、层叠阴影、更圆润的容器） ---------- */
+.ui-theme[data-style="material"] {
+  --ui-bar-bg: var(--ui-surface);
+  --ui-bar-border: transparent;
+  --ui-bar-backdrop: none;
+  --ui-bar-shadow:
+    0 1px 2px rgb(0 0 0 / 18%), 0 2px 8px rgb(0 0 0 / 12%), 0 8px 24px rgb(0 0 0 / 10%);
+  --ui-radius: 18px;
+  --ui-radius-card: 24px;
+  --ui-control-radius: 8px;
+  --ui-float-radius: 20px;
+  --ui-group-border: transparent;
+  --ui-surface: color-mix(in srgb, var(--ui-bg) 92%, var(--ui-accent));
+  --ui-group-shadow: 0 1px 3px rgb(0 0 0 / 9%);
+  --ui-list-gap: 24px;
+  --ui-press-scale: 1.02;
+  --ui-page-padding: 18px;
+}
+
+.ui-theme[data-style="material"][data-tone="light"] {
+  --ui-bar-shadow:
+    0 1px 2px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 8%), 0 8px 24px rgb(0 0 0 / 6%);
+}
+
+.ui-theme {
+  font-family: var(--ui-font);
+  font-size: var(--ui-fs-md);
+  line-height: var(--ui-leading-normal);
+  color: var(--ui-fg);
+  background: var(--ui-bg);
+}
+.ui-theme,
+.ui-theme *,
+.ui-theme *::before,
+.ui-theme *::after {
+  box-sizing: border-box;
+  text-shadow: none;
+}
+.ui-theme :where(button, input, textarea, select) {
+  font-family: inherit;
+}
+.ui-theme :where(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}

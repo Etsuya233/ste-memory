@@ -1,3 +1,5 @@
+import { ActionGroup } from "../kit/actions.tsx";
+import { ListGroup, ListRow, ListSection, NavigationRow } from "../kit/list.tsx";
 import type { ReactNode } from "react";
 
 /** 表格详情左侧的字段工具栏与列表外壳，表格页与预设详情/编辑共用。 */
@@ -12,7 +14,7 @@ export function TableFieldsPanel(props: {
       <div className="stm-fields-toolbar">
         <div className="stm-fields-title">{props.status}</div>
         {props.actions ? (
-          <div className="stm-bar-group stm-fields-actions">{props.actions}</div>
+          <ActionGroup className="stm-fields-actions">{props.actions}</ActionGroup>
         ) : null}
       </div>
       {props.children ?? (
@@ -43,43 +45,33 @@ export function TableConfigSection(props: {
 }) {
   const label = props.label ?? "表格配置";
   return (
-    <section className="stm-table-settings" aria-label={label}>
-      <div className="stm-section-label">
-        {label}
-        {props.meta != null && props.meta !== "" ? ` · ${props.meta}` : ""}
-      </div>
-      <ul className="stm-grouped-list stm-settings-item-list">
+    <ListSection
+      className="stm-table-settings"
+      title={
+        <>
+          {label}
+          {props.meta != null && props.meta !== "" ? ` · ${props.meta}` : ""}
+        </>
+      }
+    >
+      <ListGroup as="ul" className="stm-settings-item-list">
         {props.items.map((item) => (
           <li key={item.key}>
             {item.onClick ? (
-              <button
-                type="button"
-                className="stm-settings-item-row"
+              <NavigationRow
+                title={item.title}
+                description={item.summary}
                 data-action={item.action}
                 data-table-id={item.tableId}
                 disabled={item.disabled}
                 onClick={item.onClick}
-              >
-                <TableConfigItemContent title={item.title} summary={item.summary} />
-                <i className="fa-solid fa-chevron-right" aria-hidden="true" />
-              </button>
+              />
             ) : (
-              <div className="stm-settings-item-row stm-settings-item-row--static">
-                <TableConfigItemContent title={item.title} summary={item.summary} />
-              </div>
+              <ListRow title={item.title} description={item.summary} />
             )}
           </li>
         ))}
-      </ul>
-    </section>
-  );
-}
-
-function TableConfigItemContent(props: { readonly title: string; readonly summary: ReactNode }) {
-  return (
-    <span className="stm-settings-item-main">
-      <span className="stm-settings-item-title">{props.title}</span>
-      <span className="stm-settings-item-summary">{props.summary}</span>
-    </span>
+      </ListGroup>
+    </ListSection>
   );
 }

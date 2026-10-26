@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "release:st": "node scripts/release-st.mjs"
+    "release:st": "node scripts/release-st.mjs",
+    "preview:ui": "node --experimental-strip-types scripts/preview-ui.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

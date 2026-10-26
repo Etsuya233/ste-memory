@@ -1,3 +1,4 @@
+import { Button } from "../kit/controls.tsx";
 /**
  * 对话宏管理器（原聊天 Scope 宏）：设置 Tab「记忆宏」组「对话宏」分区的列表 CRUD。
  *
@@ -316,15 +317,15 @@ export function ChatScopeMacrosManager(props: {
       )}
       {props.macros.length > 0 && !props.onCreateActionChange && (
         <div className="stm-setting-actions">
-          <button
+          <Button
             type="button"
-            className="stm-button"
+
             data-action="add-chat-scope-macro"
             disabled={!hasActiveSpace}
             onClick={beginCreate}
           >
             + 新建对话宏
-          </button>
+          </Button>
         </div>
       )}
     </div>

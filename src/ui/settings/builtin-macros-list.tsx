@@ -1,3 +1,4 @@
+import { ListGroup } from "../kit/list.tsx";
 /**
  * 内置宏列表（只读）：设置 Tab「记忆宏」组「内置宏」分区。
  *
@@ -104,7 +105,7 @@ export function BuiltinMacrosList(props: {
       {hasActiveSpace && tables !== undefined && defaultName !== "" && (
         <div className="stm-macro-group">
           <div className="stm-section-label">默认快照</div>
-          <div className="stm-grouped-list stm-macro-list">
+          <ListGroup className="stm-macro-list">
             <BuiltinMacroRow
               name={defaultName}
               summary="全部启用表分组摘要"
@@ -112,13 +113,13 @@ export function BuiltinMacrosList(props: {
               onPreview={() => openPreview(defaultName)}
               onCopy={() => copyToken(defaultName)}
             />
-          </div>
+          </ListGroup>
         </div>
       )}
       {hasActiveSpace && tables !== undefined && fullName !== "" && (
         <div className="stm-macro-group">
           <div className="stm-section-label">完整数据</div>
-          <div className="stm-grouped-list stm-macro-list">
+          <ListGroup className="stm-macro-list">
             <BuiltinMacroRow
               name={fullName}
               summary="全部启用表 · Markdown 表格"
@@ -139,7 +140,7 @@ export function BuiltinMacrosList(props: {
                 />
               );
             })}
-          </div>
+          </ListGroup>
         </div>
       )}
       {hasActiveSpace && tables === undefined && (
@@ -149,7 +150,7 @@ export function BuiltinMacrosList(props: {
       )}
       <div className="stm-macro-group">
         <div className="stm-section-label">Agent 预设宏</div>
-        <div className="stm-grouped-list stm-macro-list">
+        <ListGroup className="stm-macro-list">
           <BuiltinMacroRow
             name={`{{${AGENT_TABLES_DIGEST_MACRO}}}`}
             summary="Agent 提示词 · 全部启用表分组摘要"
@@ -164,7 +165,7 @@ export function BuiltinMacrosList(props: {
             onPreview={() => openPreview(`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`)}
             onCopy={() => copyToken(`{{${AGENT_SYSTEM_DEFAULT_PROMPT_MACRO}}}`)}
           />
-        </div>
+        </ListGroup>
       </div>
       <div className="stm-setting-hint">
         内置宏跟随当前空间，只读；同名优先级：对话宏 → 全局宏 → 内置宏。

@@ -1,3 +1,4 @@
+import { FormSection, FormField, Button, Input } from "../kit/controls.tsx";
 import { useEffect, useId, useRef, useState } from "react";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
@@ -151,76 +152,90 @@ export function EmbeddingConnectionEditor(props: {
         />
       )}
       <p className="stm-setting-hint">选中字段会发送到此服务</p>
-      <fieldset className="stm-settings-fields" disabled={saving}>
-        <legend>服务</legend>
-        <label className="stm-form-row">
-          <span className="stm-form-label">端点</span>
-          <input
-            className="stm-input"
-            type="url"
-            autoComplete="off"
-            value={draft.baseUrl}
-            placeholder="https://example.com/v1"
-            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">API Key</span>
-          <input
-            className="stm-input"
-            type="password"
-            autoComplete="new-password"
-            value={draft.apiKey}
-            onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">Embedding 模型</span>
-          <input
-            className="stm-input"
-            autoComplete="off"
-            value={draft.model}
-            placeholder="模型标识"
-            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-          />
-        </label>
-      </fieldset>
-      <fieldset className="stm-settings-fields" disabled={saving}>
-        <legend>请求限制</legend>
-        <label className="stm-form-row">
-          <span className="stm-form-label">输入字符上限</span>
-          <input
-            className="stm-input"
-            type="number"
-            min="1"
-            step="1"
-            value={draft.maxInputChars}
-            onChange={(event) => setDraft({ ...draft, maxInputChars: Number(event.target.value) })}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">向量维度（可选）</span>
-          <input
-            className="stm-input"
-            type="number"
-            min="1"
-            step="1"
-            value={dimensionsText}
-            onChange={(event) => setDimensionsText(event.target.value)}
-          />
-        </label>
-        <label className="stm-form-row">
-          <span className="stm-form-label">请求超时（秒）</span>
-          <input
-            className="stm-input"
-            type="number"
-            min="1"
-            step="1"
-            value={draft.timeoutSeconds}
-            onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) })}
-          />
-        </label>
-      </fieldset>
+      <FormSection title="服务" disabled={saving}>
+        <FormField className="stm-form-row" label={<>端点</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="url"
+              autoComplete="off"
+              value={draft.baseUrl}
+              placeholder="https://example.com/v1"
+              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField className="stm-form-row" label={<>API Key</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="password"
+              autoComplete="new-password"
+              value={draft.apiKey}
+              onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField className="stm-form-row" label={<>Embedding 模型</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              autoComplete="off"
+              value={draft.model}
+              placeholder="模型标识"
+              onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+      <FormSection title="请求限制" disabled={saving}>
+        <FormField className="stm-form-row" label={<>输入字符上限</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="number"
+              min="1"
+              step="1"
+              value={draft.maxInputChars}
+              onChange={(event) =>
+                setDraft({ ...draft, maxInputChars: Number(event.target.value) })
+              }
+            />
+          )}
+        </FormField>
+        <FormField className="stm-form-row" label={<>向量维度（可选）</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="number"
+              min="1"
+              step="1"
+              value={dimensionsText}
+              onChange={(event) => setDimensionsText(event.target.value)}
+            />
+          )}
+        </FormField>
+        <FormField className="stm-form-row" label={<>请求超时（秒）</>}>
+          {(field) => (
+            <Input
+              {...field}
+
+              type="number"
+              min="1"
+              step="1"
+              value={draft.timeoutSeconds}
+              onChange={(event) =>
+                setDraft({ ...draft, timeoutSeconds: Number(event.target.value) })
+              }
+            />
+          )}
+        </FormField>
+      </FormSection>
       {error && (
         <div className="stm-form-error" role="alert">
           {error}
@@ -228,18 +243,13 @@ export function EmbeddingConnectionEditor(props: {
       )}
       {!props.onClose && (
         <div className="stm-editor-actions">
-          <button type="submit" className="stm-button stm-button--primary" disabled={saving}>
+          <Button type="submit" variant="primary" disabled={saving}>
             保存连接
-          </button>
+          </Button>
           {props.connection && (
-            <button
-              type="button"
-              className="stm-button stm-button--danger"
-              disabled={saving}
-              onClick={remove}
-            >
+            <Button type="button" variant="danger" disabled={saving} onClick={remove}>
               移除连接
-            </button>
+            </Button>
           )}
         </div>
       )}
