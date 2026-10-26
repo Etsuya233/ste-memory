@@ -25,6 +25,15 @@ const TARGET_PRESET: ResolvedTablePreset = {
   name: "我的结构",
   description: "两表结构",
   builtIn: false,
+  macros: [
+    {
+      id: "preset-macro",
+      name: "人物摘要",
+      enabled: true,
+      expression: { language: "query", query: { table: "people", fields: ["name"] } },
+      output: { format: "text", maxChars: null },
+    },
+  ],
   tables: [
     {
       key: "people",
@@ -114,6 +123,7 @@ async function setup() {
   let tableSeq = 0;
   let fieldSeq = 0;
   const apply = new TablePresetApplyService({
+    validateStructure: async () => {},
     cancelActiveTask: async (id) => {
       const active = await taskRepository.findActive(id);
       if (active) await taskRepository.markInterrupted(active.runId);
@@ -138,6 +148,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const clearChatScopeMacros = vi.fn();
     const syncMirror = vi.fn(async () => undefined);
     const apply = new TablePresetApplyService({
+      validateStructure: async () => {},
       cancelActiveTask: async () => undefined,
       rebuild: { rebuild },
       defaultPreset: () => SYSTEM_TABLE_PRESET,
@@ -166,6 +177,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const { db, services } = await setup();
     const fresh = await services.spaces.create("新空间");
     const apply = new TablePresetApplyService({
+      validateStructure: async () => {},
       cancelActiveTask: async () => undefined,
       rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
       defaultPreset: () => TARGET_PRESET,
@@ -184,6 +196,8 @@ describe("TablePresetApplyService（应用预设）", () => {
     const tables = await db.memoryTables.where("memorySpaceId").equals(fresh.id).toArray();
     expect(tables.map((table) => table.key).sort()).toEqual(["people", "relations"]);
     const stored = await services.spaces.find(fresh.id);
+    expect(stored?.macros).toEqual([expect.objectContaining({ name: "人物摘要", enabled: true })]);
+    expect(stored?.macros![0]!.id).not.toBe("preset-macro");
     expect(stored?.initializationSource).toEqual({
       presetId: "preset-1",
       presetName: "我的结构",
@@ -437,6 +451,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const clearChatScopeMacros = vi.fn();
     const rebuild = new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db));
     const apply = new TablePresetApplyService({
+      validateStructure: async () => {},
       cancelActiveTask: async () => undefined,
       // 重建期间切走对话：重建提交后当前对话身份已不同
       rebuild: {
@@ -481,6 +496,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     await installDefaultPreset(db, space.id);
     const clearChatScopeMacros = vi.fn();
     const apply = new TablePresetApplyService({
+      validateStructure: async () => {},
       cancelActiveTask: async () => undefined,
       rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
       defaultPreset: () => SYSTEM_TABLE_PRESET,

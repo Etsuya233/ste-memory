@@ -1,3 +1,9 @@
+import { validateTablePresetContent } from "../../features/table-presets/preset-transfer.ts";
+import {
+  overwriteUserTablePreset,
+  renameUserTablePreset,
+  saveUserTablePreset,
+} from "../../features/table-presets/table-preset-library.ts";
 import type { MemorySpace } from "../../features/memory/index.ts";
 import {
   SYSTEM_TABLE_PRESET_NAME,
@@ -194,7 +200,8 @@ export const BUILTIN_PRESET_READONLY_HINT =
   "系统自带预设不可删除、重命名或覆盖；可复制为用户预设后修改。";
 
 /** 另存为预设的说明（spec 5.1：仅保存表结构与填写规则）。 */
-export const SAVE_PRESET_HINT = "仅保存表结构和填写规则，不包含记录；空间备份请使用导出备份。";
+export const SAVE_PRESET_HINT =
+  "仅保存表结构、填写规则、向量分组和对话宏，不包含记录；空间备份请使用导出备份。";
 
 /** 当前空间应用区的空态说明（无活动空间/插件停用/空间正在重建）。 */
 export function applyPresetUnavailableReason(input: {
@@ -204,4 +211,37 @@ export function applyPresetUnavailableReason(input: {
   if (!input.pluginEnabled) return "插件已停用，无法应用预设";
   if (!input.hasActiveSpace) return "当前对话没有活动的记忆空间";
   return undefined;
+}
+
+/** 保存编辑器的整份内容，使表结构和宏始终经过同一校验与写库路径。 */
+export function commitPresetDraft(
+  settings: TablePresetSettings,
+  draft: ResolvedTablePreset,
+  now: string,
+): TablePresetSettings {
+  const content = validateTablePresetContent({
+    name: draft.name,
+    description: draft.description,
+    prompt: draft.prompt,
+    tables: draft.tables,
+    macros: draft.macros,
+  });
+  if (settings.userPresets.some((preset) => preset.id === draft.id)) {
+    return overwriteUserTablePreset(
+      renameUserTablePreset(settings, draft.id, {
+        name: content.name,
+        description: content.description,
+        now,
+      }),
+      draft.id,
+      { structure: content, now },
+    );
+  }
+  return saveUserTablePreset(settings, {
+    id: draft.id,
+    name: content.name,
+    description: content.description,
+    structure: content,
+    now,
+  }).settings;
 }

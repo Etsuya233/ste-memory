@@ -206,7 +206,10 @@ describe("文件优先加载与显式保存", () => {
     const file = createChatMirrorFile(unit(), "s1", "old", "test");
     const store = { read: vi.fn().mockResolvedValue(file), write: vi.fn() };
     const persistence = new ChatSnapshotPersistence(store, () => "test");
-    expect(await persistence.load(target, "s1")).toEqual(unit());
+    expect(await persistence.load(target, "s1")).toEqual({
+      ...unit(),
+      space: { ...unit().space, macros: [] },
+    });
     await expect(persistence.load(target, "other")).rejects.toThrow("绑定不一致");
     store.read.mockResolvedValue({ version: 999 });
     await expect(persistence.load(target, "s1")).rejects.toThrow("损坏");

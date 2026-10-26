@@ -1,3 +1,4 @@
+import type { MemoryMacro } from "./domain/index.ts";
 import { memorySpaceName, type MemorySpace, type MemorySpaceId } from "./domain/index.ts";
 import type { MemorySpaceRepository } from "./ports/memory-space-repository.ts";
 
@@ -45,6 +46,13 @@ export class MemorySpaceService {
 
   async list(): Promise<MemorySpace[]> {
     return this.repository.list();
+  }
+
+  async setMacros(
+    id: MemorySpaceId,
+    macros: readonly MemoryMacro[],
+  ): Promise<MemorySpace | undefined> {
+    return this.repository.setMacros(id, macros, this.now());
   }
 
   async rename(id: MemorySpaceId, name: string): Promise<MemorySpace | undefined> {

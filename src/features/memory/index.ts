@@ -139,3 +139,14 @@ export type {
   MemoryTableId,
   MemoryTableKey,
 } from "./domain/index.ts";
+
+export type {
+  MemoryMacro,
+  MacroExpression,
+  MacroQuery,
+  MacroQueryInput,
+  MacroQueryValue,
+  MacroSemanticSource,
+} from "./domain/memory-macro.ts";
+
+export { compileMemoryQueryConditions } from "./query-sql-conditions.ts";

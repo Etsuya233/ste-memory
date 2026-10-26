@@ -1,3 +1,4 @@
+import { parseMemoryMacros, type MemoryMacro } from "../macros/macro-expression.ts";
 import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
 import { Value } from "typebox/value";
 import { tablePresetVectorIndexSchema } from "./preset-vector-schema.ts";
@@ -66,6 +67,7 @@ export interface TablePresetField {
 
 /** 预设结构（系统预设与用户预设共用形态）。 */
 export interface TablePresetStructure {
+  readonly macros?: readonly MemoryMacro[];
   /** 跨表填写规则；早期预设缺省为空。 */
   readonly prompt?: string;
   readonly tables: readonly TablePresetTable[];
@@ -115,6 +117,7 @@ export function listTablePresets(
       description: preset.description,
       prompt: preset.prompt,
       tables: preset.tables,
+      macros: preset.macros,
       builtIn: false,
     })),
   ];
@@ -141,6 +144,7 @@ export function resolveTablePreset(
     description: userPreset.description,
     prompt: userPreset.prompt,
     tables: userPreset.tables,
+    macros: userPreset.macros,
     builtIn: false,
   };
 }
@@ -228,6 +232,7 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
     if (table) tables.push(table);
   }
   return {
+    macros: raw.macros === undefined ? undefined : parseMemoryMacros(raw.macros),
     id: raw.id,
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     name: raw.name,

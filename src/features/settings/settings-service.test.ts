@@ -21,18 +21,36 @@ function harness() {
     refreshAgentMacros: vi.fn(refresh),
     refreshMirror: vi.fn(refresh),
     writeChatScopeMacros: vi.fn(),
+    validateMacros: vi.fn(async () => {}),
+    getChatContext: () => "test-chat",
     refreshVectorIndex: vi.fn(async () => {}),
   };
   return { service: new SettingsService(dependencies), dependencies, observed };
 }
 
 describe("SettingsService", () => {
-  it("拒绝覆盖自动召回保留宏，大小写与 ST 注册规则一致", async () => {
+  it("异步校验期间切换对话，旧草稿不能保存到新空间", async () => {
     const { service, dependencies } = harness();
-    const before = service.read().macroName;
-    await expect(service.setMacroName("{{MemoryRecall}}")).rejects.toThrow("保留宏名");
-    expect(service.read().macroName).toBe(before);
-    expect(dependencies.refreshMemoryMacros).not.toHaveBeenCalled();
+    let context = "chat-A";
+    dependencies.getChatContext = () => context;
+    let finish!: () => void;
+    dependencies.validateMacros.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const saving = service.setChatScopeMacros([]);
+    context = "chat-B";
+    finish();
+    await expect(saving).rejects.toThrow("对话已切换");
+    expect(dependencies.writeChatScopeMacros).not.toHaveBeenCalled();
+  });
+  it("旧召回宏名不再被专用功能保留", async () => {
+    const { service, dependencies } = harness();
+    await service.setMacroName("{{MemoryRecall}}");
+    expect(service.read().macroName).toBe("{{MemoryRecall}}");
+    expect(dependencies.refreshMemoryMacros).toHaveBeenCalledOnce();
   });
   it("保存独立向量连接后刷新索引，非法配置不落库", async () => {
     const { service, dependencies } = harness();
@@ -86,7 +104,7 @@ describe("SettingsService", () => {
     service.setEntryPlacement("wand");
     await service.setMacroName("{{memory}}");
     await service.setMacroLimit(4000);
-    await service.setMemoryViews([]);
+    await service.setMacros([]);
     expect(service.read()).toMatchObject({
       macroName: "{{memory}}",
       macroLimit: 4000,

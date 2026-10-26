@@ -107,6 +107,9 @@ export function createTestMemorySpace(): TestMemorySpace {
     async list() {
       return [];
     },
+    async setMacros() {
+      return undefined;
+    },
     async rename() {
       return undefined;
     },

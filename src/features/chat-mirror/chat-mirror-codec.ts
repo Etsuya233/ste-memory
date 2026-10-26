@@ -3,6 +3,7 @@ import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import {
   createBackupSeenIds,
   normalizeBackupData,
+  upgradeLegacyBackupUnits,
   validateSpaceBackupUnit,
 } from "../backup/backup-codec.ts";
 import { CHAT_MIRROR_FORMAT, CHAT_MIRROR_VERSION } from "./chat-mirror-file.ts";
@@ -63,16 +64,29 @@ function mirrorContent(unit: MemorySpaceBackup): MemorySpaceBackup {
 export function decodeChatMirrorFile(value: unknown): ChatMirrorFile | null {
   if (!isRecord(value)) return null;
   if (value.format !== CHAT_MIRROR_FORMAT) return null;
-  if (value.version !== CHAT_MIRROR_VERSION) return null;
-  if (!Value.Check(chatMirrorFileSchema, value)) return null;
-  const file = value as unknown as ChatMirrorFile;
-  if (file.spaceId !== file.data.space.id) return null;
   try {
-    validateSpaceBackupUnit(file.data, createBackupSeenIds(), "对话文件镜像");
+    const current =
+      value.version === 1
+        ? {
+            ...value,
+            version: CHAT_MIRROR_VERSION,
+            data: (upgradeLegacyBackupUnits({ spaces: [value.data] }) as { spaces: unknown[] })
+              .spaces[0],
+          }
+        : value;
+    if (current.version !== CHAT_MIRROR_VERSION) return null;
+    if (!Value.Check(chatMirrorFileSchema, current)) return null;
+    const file = current as unknown as ChatMirrorFile;
+    if (file.spaceId !== file.data.space.id) return null;
+    try {
+      validateSpaceBackupUnit(file.data, createBackupSeenIds(), "对话文件镜像");
+    } catch {
+      return null;
+    }
+    // 旧版镜像（表格预设之前）缺初始化来源与表格顺序键：恢复前归一化为当前形状
+    const data = normalizeBackupData({ spaces: [file.data] }).spaces[0]!;
+    return file.data === data ? file : { ...file, data };
   } catch {
     return null;
   }
-  // 旧版镜像（表格预设之前）缺初始化来源与表格顺序键：恢复前归一化为当前形状
-  const data = normalizeBackupData({ spaces: [file.data] }).spaces[0]!;
-  return file.data === data ? file : { ...file, data };
 }

@@ -9,6 +9,7 @@ import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.
 import {
   BUILTIN_PRESET_READONLY_HINT,
   SAVE_PRESET_HINT,
+  commitPresetDraft,
   applyPresetActionLabel,
   applyPresetConfirmText,
   applyPresetConfirmTitle,
@@ -202,4 +203,32 @@ describe("表格预设设置区模型（spec 6）", () => {
     expect(BUILTIN_PRESET_READONLY_HINT).toContain("不可删除、重命名或覆盖");
     expect(SAVE_PRESET_HINT).toContain("不包含记录");
   });
+});
+
+it("预设编辑实际提交链路在新建、编辑表、改名宏和删除宏时保存完整宏集合", () => {
+  const source = userPreset();
+  const macro = {
+    id: "preset-macro",
+    name: "人物宏",
+    enabled: true,
+    expression: { language: "query" as const, query: { table: "people", fields: ["name"] } },
+    output: { format: "json" as const, maxChars: null },
+  };
+  const draft = { ...source, builtIn: false, macros: [macro] };
+  let settings = commitPresetDraft(
+    { userPresets: [], defaultPresetId: "systemDefault" },
+    draft,
+    NOW,
+  );
+  expect(settings.userPresets[0]?.macros).toEqual([macro]);
+  const edited = {
+    ...draft,
+    tables: draft.tables.map((table) => ({ ...table, description: "编辑后的表说明" })),
+    macros: [{ ...macro, name: "改名宏" }],
+  };
+  settings = commitPresetDraft(settings, edited, NOW);
+  expect(settings.userPresets[0]?.tables[0]?.description).toBe("编辑后的表说明");
+  expect(settings.userPresets[0]?.macros).toEqual(edited.macros);
+  settings = commitPresetDraft(settings, { ...edited, macros: [] }, NOW);
+  expect(settings.userPresets[0]?.macros).toEqual([]);
 });

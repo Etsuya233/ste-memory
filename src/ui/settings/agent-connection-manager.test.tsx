@@ -44,7 +44,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     queryChatConnectionId: undefined,
     cleaningSchemaVersion: 3,
     cleaningRules: [],
-    memoryViews: [],
+    macros: [],
     tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
     entryPlacement: "top",
     ...overrides,

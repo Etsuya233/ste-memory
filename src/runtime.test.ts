@@ -1,3 +1,4 @@
+import { migrateMemoryView } from "./features/macros/macro-expression.ts";
 import { SYSTEM_TABLE_TEMPLATES } from "./features/memory/index.ts";
 import { describe, expect, it, vi } from "vitest";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"），
@@ -257,7 +258,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.manager.getStatus()).toBe(status);
   });
 
-  it("记忆宏：切对话（空间切换）后快照立即重建，不等指纹轮询", async () => {
+  it("记忆宏仅在生成时计算，切对话立即撤下本次文本", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext({
       extensionSettings: {},
@@ -284,6 +285,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       payload: { [nameField.id]: "张三" },
     });
     await runtime.macro.kick();
+    expect(runtime.macro.getSnapshot()).toBe("");
+    await runtime.macro.prepare("测试");
     expect(runtime.macro.getSnapshot()).toContain("张三");
 
     // 切到对话二（新空间）：CHAT_CHANGED → 状态发布 → 快照立即清空重建
@@ -445,10 +448,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       created: false,
       space: { id: "file-first", name: "文件中的旧版本" },
     });
-    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual(fileUnit.space);
-    expect(await new DexieMemorySpaceRepository(db).find(fileUnit.space.id)).toEqual(
-      fileUnit.space,
-    );
+    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual({ ...fileUnit.space, macros: [] });
+    expect(await new DexieMemorySpaceRepository(db).find(fileUnit.space.id)).toEqual({
+      ...fileUnit.space,
+      macros: [],
+    });
   });
 
   it("切换对话立即重试 A 已提交但未保存的数据，B 初始化不会串写", async () => {
@@ -651,7 +655,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 默认前缀 {{ste}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
     // systemDefaultPrompt（Agent 预设宏）；内置/视图/对话宏全部走 {{前缀::名字}} 分发
     const registeredKeys = [...registered.keys()].sort();
-    expect(registeredKeys).toEqual(["memoryRecall", "ste", "systemDefaultPrompt", "tablesDigest"]);
+    expect(registeredKeys).toEqual(["ste", "systemDefaultPrompt", "tablesDigest"]);
     expect(runtime.macro.getSnapshot()).toBe("");
     // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
     expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");
@@ -671,6 +675,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       payload: { [nameField.id]: "张三" },
     });
     await runtime.macro.kick();
+    expect(registered.get("ste")!({})).toBe("");
+    await runtime.macro.prepare("测试");
     const snapshot = registered.get("ste")!({});
     expect(snapshot).toContain("【人物】");
     expect(snapshot).toContain("张三");
@@ -687,18 +693,18 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 设置服务负责保存和联动；调用方不再安排宏刷新。
     await runtime.settingsService.setMacroName("{{myMemory}}");
     expect([...registered.keys()].sort()).toEqual(
-      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
 
     // 插件总开关关闭：注销（无注入）
     await runtime.settingsService.setPluginEnabled(false);
-    expect([...registered.keys()]).toEqual(["memoryRecall"]);
-    expect(registered.get("memoryRecall")!({})).toBe("");
+    expect([...registered.keys()]).toEqual([]);
+    expect(registered.has("memoryRecall")).toBe(false);
     expect(runtime.mirror.getStatus().kind).toBe("disabled");
 
     await runtime.settingsService.setPluginEnabled(true);
     expect([...registered.keys()].sort()).toEqual(
-      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
   });
 
@@ -716,6 +722,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     if (status?.kind !== "active") throw new Error("expect active");
 
     // 默认前缀 {{ste}} → 行名花括号形态；记忆宏家族 + Agent 预设宏两行
+    expect(runtime.macro.getRecentResults()).toEqual([]);
+    await runtime.macro.prepare("测试");
     const overview = runtime.macroOverview();
     const names = overview.map((row) => row.name);
     expect(names[0]).toBe("{{ste}}");
@@ -740,7 +748,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       limit: 50,
       projection: [] as readonly string[],
     };
-    await runtime.settingsService.setMemoryViews([view]);
+    await runtime.settingsService.setMacros([migrateMemoryView(view, "global-preview")]);
     const refreshed = runtime.macroOverview();
     expect(refreshed.some((row) => row.name === "{{ste::人物速览}}")).toBe(true);
   });

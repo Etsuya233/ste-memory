@@ -1,523 +1,616 @@
-import type { MemoryRecord, MemorySpaceId, MemoryTable, MemoryTableId } from "../memory/index.ts";
-import { createReadTimeDisplayTextResolver, type MemorySpaceReader } from "../memory/index.ts";
-import { buildMemorySpaceTableDigest } from "../agent/index.ts";
-import {
-  memoryChangesEqual,
-  type MemoryChangeFingerprint,
-  type MemoryChangeSource,
-} from "../memory/index.ts";
-import type { TimerPort } from "../../common/timers.ts";
-import { defaultTimers } from "../../common/timers.ts";
-import { PollingEvaluator } from "../../common/polling-evaluator.ts";
+import type { MemorySpaceBackup } from "../backup/backup-file.ts";
+import { createReadTimeDisplayTextResolver } from "../memory/index.ts";
+import type { MemoryMacro } from "./macro-expression.ts";
+import { migrateMemoryView } from "./macro-expression.ts";
 import type { MemoryView } from "./memory-views.ts";
-import { resolveMacroRegistrationName } from "./macro-name.ts";
+import type { MacroEvaluationBatch } from "./macro-evaluation.ts";
 import { assembleMemoryContextSnapshot } from "./memory-context-snapshot.ts";
-import { planMemoryViewQuery, resolveViewReferenceLabels } from "./memory-view-query.ts";
-import { renderMemoryFullSnapshot, renderMemoryViewSnapshot } from "./memory-view-render.ts";
+import { renderMemoryFullSnapshot, sanitizeMacroSyntax } from "./memory-view-render.ts";
+import { resolveMacroRegistrationName } from "./macro-name.ts";
+import { renderMacroResult } from "./macro-result-render.ts";
 
-/**
- * 记忆宏服务（插件纯逻辑 seam，ticket 15 / ADR 0004 + ticket 02 / ADR 0025 +
- * 双 Scope 宏系统复审）：`前缀::名字` 统一分发模型。
- *
- * - 注册：全局前缀由用户配置（设置面板，默认 {{ste}}），解析为 ST 注册名
- *   （裸标识符）后经 macros.register(name, { handler, unnamedArgs }) 注册；名字不
- *   合法/为空/插件停用 → 不注册（「不放置宏则无注入」）；名字变化 → 注销旧名再
- *   注册新名。注册带一个可选名字参数（{{前缀::名字}}，ST 位置参数语法，0/1 个）；
- *   两个以上参数由 ST 参数校验拒绝（文档说明）。
- * - 分发（handler 同步查表，无任何独立宏名注册）：
- *   - 无参 {{前缀}} → 默认快照（全部启用表分组摘要）；
- *   - {{前缀::名字}} → 优先级 对话级宏 > 全局视图 > 内置宏（full / 表 Key）；
- *     名字是字符串参数，表 Key 无需满足 ST 标识符规则（{{ste::角色}} 可用）。
- * - 快照：宏 handler 必须同步返回（ST 宏引擎同步约束，返回 Promise 会被字符串化），
- *   因此维护「组装好的记忆上下文文本」预计算快照——默认快照 + 每视图快照 +
- *   内置宏快照（full + 每启用表）；数据变更时重建。翻译失败（缺表/缺字段/筛选
- *   字段类型不支持）→ 对应名字快照 = 空串 + 日志（覆盖优先：空串不回落）；
- *   查询/渲染异常 → 单轮保旧值。
- * - 重建时机：轮询当前绑定空间的变更指纹（与镜像/Agent 预设宏同机制，DexieMemoryChangeSource），
- *   指纹变化（同步/填表/手动编辑/导入都会改变行数或最大 updatedAt）→ 重新组装；
- *   切对话（活动空间/chatMetadata 变化）同样在轮询里收敛；设置变化（前缀/上限/
- *   开关/视图 CRUD）由宿主 kick 立即评估。
- *
- * 组装规则见 memory-context-snapshot.ts（默认快照）与 memory-view-render.ts（视图/内置）。
- */
-
-/** 内置全量宏名（{{前缀::full}}）：所有启用表完整 Markdown */
 export const BUILTIN_FULL_ARG = "full";
-
-/** 宏数据端口：宿主 = Dexie repository（结构满足 Memory 端口契约的窄子集） */
-export interface MemoryMacroDataPorts {
-  listTables(memorySpaceId: MemorySpaceId): Promise<readonly MemoryTable[]>;
-  listRecords(
-    memorySpaceId: MemorySpaceId,
-    tableId: MemoryTableId,
-  ): Promise<readonly MemoryRecord[]>;
-}
-
-/** ST 宏执行上下文子集（宿主 = ST MacroExecutionContext；宏 handler 的入参） */
 export interface MemoryMacroExecutionContext {
-  /** 位置参数（{{前缀::名字}} → ["名字"]；无参 → []） */
   readonly unnamedArgs?: readonly string[];
 }
-
-/** 宏参数声明（ST MacroUnnamedArgDef 子集；记忆宏 = 一个可选名字参数） */
 export interface MemoryMacroArgSpec {
   readonly name: string;
   readonly optional?: boolean;
   readonly defaultValue?: string;
 }
-
-/** 记忆宏的可选名字参数声明（注册时传给 ST；{{前缀::名字}}） */
 export const MEMORY_MACRO_NAME_ARG: MemoryMacroArgSpec = {
   name: "name",
   optional: true,
   defaultValue: "",
 };
-
-/** 宏注册端口：宿主 = StChatAdapter（ST context.macros，薄层不测） */
 export interface MemoryMacroRegistrationPort {
-  /** 注册宏：name 为裸标识符（不含花括号）；同名覆盖是 ST 语义；args 缺省 = 无参数宏 */
   register(
     name: string,
     handler: (context: MemoryMacroExecutionContext) => string,
     args?: readonly MemoryMacroArgSpec[],
   ): void;
-  /** 注销宏：名字变化/不合法/插件停用时清理旧注册 */
   unregister(name: string): void;
 }
 
+export interface MacroExecutionResult {
+  readonly id: string;
+  readonly name: string;
+  readonly scope: "chat" | "global" | "builtin";
+  readonly status:
+    "not-run" | "disabled" | "running" | "success" | "empty" | "error" | "cancelled" | "stale";
+  readonly text: string;
+  readonly error: string | null;
+  readonly startedAt: string;
+  readonly elapsedMs: number;
+  readonly resultRows: number;
+  readonly outputRows: number;
+  readonly truncated: boolean;
+  readonly diagnostics: readonly unknown[];
+}
+
+export interface MacroMigrationConflict {
+  readonly name: string;
+  readonly source: string;
+  readonly existing: MemoryMacro;
+  readonly legacy: MemoryMacro;
+}
+
 export interface MemoryMacroServicePorts {
-  /** 当前活动记忆空间（宿主 = ChatSpaceManager 状态）；undefined = 无活动空间 */
-  getSpaceId(): MemorySpaceId | undefined;
-  readonly data: MemoryMacroDataPorts;
-  /** 记忆空间只读端口（视图翻译/查询/引用解析；与填表任务/Agent 预设宏共用 reader） */
-  readonly reader: MemorySpaceReader;
-  /** 设置读取（宿主 = settings.read() 子集）：每次评估重取，保证拿到最新值 */
+  readonly getContext: () => string;
+  readonly getChatMacros: () => readonly MemoryMacro[];
+  readonly saveChatMacros: (macros: readonly MemoryMacro[]) => Promise<void>;
+  readonly readLegacyChatMacros: () => readonly MemoryView[];
+  readonly writeLegacyChatMacros: (macros: readonly MemoryView[]) => void;
   readonly readSettings: () => {
     readonly enabled: boolean;
-    /** 全局前缀（{{ste}} 形态；解析为裸标识符后注册） */
     readonly macroName: string;
     readonly macroLimit: number;
-    readonly memoryViews: readonly MemoryView[];
+    readonly macros: readonly MemoryMacro[];
   };
+  readonly capture: () => Promise<MemorySpaceBackup | undefined>;
+  readonly createBatch: (
+    snapshot: MemorySpaceBackup,
+    context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
+  ) => Promise<MacroEvaluationBatch>;
   readonly registerMacro: MemoryMacroRegistrationPort;
-  /** 空间变更指纹（宿主 = DexieMemoryChangeSource，与镜像/Agent 预设宏同机制） */
-  readonly changes: MemoryChangeSource;
-  /** 聊天 Scope 宏（双 Scope 宏系统）：读取当前对话的聊天 Scope 宏定义 */
-  readonly readChatScopeMacros: () => readonly MemoryView[];
-  /** 可选日志（宿主 = ST console，消息带插件前缀由宿主包装） */
-  readonly log?: {
-    info(message: string): void;
-    warn(message: string): void;
-    error(message: string): void;
-  };
-  /** 指纹轮询间隔；缺省 2s（与镜像/Agent 预设宏同节奏） */
-  readonly pollIntervalMs?: number;
-  /** 定时器端口（测试注入 fake timers）；缺省 = globalThis */
-  readonly timers?: TimerPort;
+  readonly now?: () => string;
+  readonly timeoutMs?: number;
 }
 
-/** 解析后的端口（可选字段带默认值），运行时只读 */
-interface ResolvedMemoryMacroServicePorts extends MemoryMacroServicePorts {
-  readonly pollIntervalMs: number;
-  readonly timers: TimerPort;
-}
-
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
-
-/** 内置宏快照集合（{{前缀::full}} + 每个启用表 {{前缀::表Key}}） */
-interface BuiltinSnapshots {
-  readonly full: string;
-  readonly perTable: ReadonlyMap<string, string>;
-}
-
+/** Generation-scoped evaluation. Registration and invalidation never query memory. */
 export class MemoryMacroService {
-  readonly #ports: ResolvedMemoryMacroServicePorts;
-  /** 当前已注册的前缀名（裸标识符）；未注册 = undefined */
+  readonly #ports: MemoryMacroServicePorts;
+  readonly #listeners = new Set<() => void>();
   #registeredName: string | undefined;
-  /** 默认快照（{{前缀}} 无参展开；无活动空间/无数据 = 空串） */
-  #snapshot = "";
-  /** 每视图快照（{{前缀::视图名}}；名字 → 文本） */
-  #viewSnapshots = new Map<string, string>();
-  /** 聊天 Scope 宏快照（{{前缀::宏名}}；名字 → 文本；配置错误 = 空串不回落） */
-  #chatScopeSnapshots = new Map<string, string>();
-  /** 内置宏快照（{{前缀::full}} + {{前缀::表Key}}） */
-  #builtinSnapshots: BuiltinSnapshots = { full: "", perTable: new Map() };
-  /** 最近一次重建时的空间与指纹（相同即内容等价，跳过重建）；上限/视图/聊天 Scope 也参与判定 */
-  #lastSpaceId: MemorySpaceId | undefined;
-  #lastFingerprint: MemoryChangeFingerprint | undefined;
-  #lastLimit: number | undefined;
-  #lastViewsSignature: string | undefined;
-  #lastChatScopeSignature: string | undefined;
-  /** 排队评估 + 指纹轮询骨架（与 Agent 预设宏服务共用，ticket 17） */
-  readonly #evaluator: PollingEvaluator;
+  #results: readonly MacroExecutionResult[] = [];
+  #conflicts: readonly MacroMigrationConflict[] = [];
+  #migrationError: string | null = null;
+  #controller: AbortController | undefined;
+  #epoch = 0;
+  #readable = false;
+  #building = false;
+  #waitingMessage = false;
+  #group = false;
+  #groupPrepared = false;
+  #preparing = false;
+  #reuseBatch = false;
+  #publishedContext: string | undefined;
 
   constructor(ports: MemoryMacroServicePorts) {
-    const resolved: ResolvedMemoryMacroServicePorts = {
-      pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-      timers: defaultTimers,
-      ...ports,
-    };
-    this.#ports = resolved;
-    this.#evaluator = new PollingEvaluator({
-      evaluate: () => this.#evaluate(),
-      pollIntervalMs: resolved.pollIntervalMs,
-      timers: resolved.timers,
-    });
+    this.#ports = ports;
   }
 
-  /** 当前默认快照文本（{{前缀}} 无参展开的返回源；调试/验收可读） */
-  getSnapshot(): string {
-    return this.#snapshot;
+  subscribe = (listener: () => void): (() => void) => {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  };
+
+  getRecentResults = (): readonly MacroExecutionResult[] => this.#results;
+  getMigrationConflicts = (): readonly MacroMigrationConflict[] => this.#conflicts;
+  getMigrationError = (): string | null => this.#migrationError;
+
+  async start(): Promise<void> {
+    await this.kick();
   }
 
-  /** 当前全局视图快照（视图名 → 文本；调试/验收可读） */
-  getViewSnapshot(viewName: string): string | undefined {
-    return this.#viewSnapshots.get(viewName);
-  }
-
-  /** 当前聊天 Scope 宏快照（宏名 → 文本；调试/验收可读） */
-  getChatScopeSnapshot(name: string): string | undefined {
-    return this.#chatScopeSnapshots.get(name);
-  }
-
-  /**
-   * 内置宏快照名列表（{{前缀::名字}} 的名字部分：full + 每启用表 Key；
-   * 宏内容一览/验收可读；顺序 = full 在前）。
-   */
-  builtinSnapshotNames(): readonly string[] {
-    return [BUILTIN_FULL_ARG, ...this.#builtinSnapshots.perTable.keys()];
-  }
-
-  /** 内置宏快照只读口（宏内容一览）：名字 = full 或表 Key；未知名字 = undefined */
-  getBuiltinSnapshot(name: string): string | undefined {
-    if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
-    return this.#builtinSnapshots.perTable.get(name);
-  }
-
-  /** 启动（runtime 组合根调用）：立即注册宏 + 重建快照，并保持轮询刷新。
-   *  快照重建时机：指纹轮询（2s）+ 面板数据操作后的 kick（宿主侧补，
-   *  镜像同模式）——Dexie 核心无「任何写事务提交」事件（changes 属
-   *  Syncable 插件），轮询是服务侧唯一变更感知通道。 */
-  start(): Promise<void> {
-    return this.#evaluator.start();
-  }
-
-  /** 停止（测试）：取消定时器，不再轮询；注册保留（页面生命周期内同名覆盖无害）。 */
   stop(): void {
-    this.#evaluator.stop();
-  }
-
-  /** 设置变化后立即评估（幂等）：前缀/上限/开关/视图改动时宿主调用（与镜像 kick 同语义）。 */
-  kick(): Promise<void> {
-    return this.#evaluator.kick();
-  }
-
-  async #evaluate(): Promise<void> {
-    const settings = this.#ports.readSettings();
-    const name = resolveMacroRegistrationName(settings.macroName);
-    if (!settings.enabled || name === undefined) {
-      // 插件停用 / 前缀缺失或不合法：注销旧注册、清空快照、不轮询（无宏可展开）；
-      // 指纹/上限/视图状态一并重置——重新启用且数据未变时不能命中「指纹相同早退”而
-      // 让快照永久为空（重建判定必须重新武装）
-      this.#unregisterCurrent();
-      this.#snapshot = "";
-      this.#viewSnapshots = new Map();
-      this.#chatScopeSnapshots = new Map();
-      this.#builtinSnapshots = { full: "", perTable: new Map() };
-      this.#lastSpaceId = undefined;
-      this.#lastFingerprint = undefined;
-      this.#lastLimit = undefined;
-      this.#lastViewsSignature = undefined;
-      this.#evaluator.clearPollTimer();
-      return;
-    }
-    // 注册全局前缀宏（带一个可选名字参数）
-    if (name !== this.#registeredName) {
-      this.#unregisterCurrent();
-      this.#ports.registerMacro.register(name, (context) => this.#snapshotFor(context), [
-        MEMORY_MACRO_NAME_ARG,
-      ]);
-      this.#registeredName = name;
-    }
-    this.#evaluator.armPoll();
-    const spaceId = this.#ports.getSpaceId();
-    if (spaceId === undefined) {
-      // 无活动空间（未绑定/切对话间隙）：快照置空，下轮轮询自然恢复
-      if (this.#lastSpaceId !== undefined) {
-        this.#lastSpaceId = undefined;
-        this.#lastFingerprint = undefined;
-        this.#lastLimit = undefined;
-        this.#lastViewsSignature = undefined;
-        this.#snapshot = "";
-        this.#viewSnapshots = new Map();
-        this.#chatScopeSnapshots = new Map();
-        this.#builtinSnapshots = { full: "", perTable: new Map() };
-      }
-      return;
-    }
-    try {
-      const fingerprint = await this.#ports.changes.fingerprint(spaceId);
-      const viewsSignature = JSON.stringify(settings.memoryViews);
-      const chatScopeSignature = JSON.stringify(this.#ports.readChatScopeMacros());
-      if (
-        spaceId === this.#lastSpaceId &&
-        this.#lastFingerprint !== undefined &&
-        memoryChangesEqual(this.#lastFingerprint, fingerprint) &&
-        // 上限/视图/聊天 Scope 是设置项：只改了它们也必须重建（指纹不反映设置）
-        this.#lastLimit === settings.macroLimit &&
-        this.#lastViewsSignature === viewsSignature &&
-        this.#lastChatScopeSignature === chatScopeSignature
-      ) {
-        return;
-      }
-      await this.#rebuild(spaceId, fingerprint, settings);
-      this.#lastChatScopeSignature = chatScopeSignature;
-    } catch (error) {
-      // 单轮失败只记日志：下轮轮询自然重试（快照保持旧值，宏仍可展开）
-      this.#ports.log?.error(
-        `记忆宏快照重建失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  /**
-   * 宏 handler（同步）：无参 = 默认快照；一个参数 = 名字 → 按优先级分发
-   * 对话级宏 > 全局视图 > 内置（full / 表 Key）；空参数/未知名字 → 空串 + 日志
-   * （不阻断生成）。两个以上参数由 ST 参数校验拒绝（handler 只处理 0/1 个参数）。
-   */
-  #snapshotFor(context: MemoryMacroExecutionContext): string {
-    const args = context?.unnamedArgs ?? [];
-    if (args.length === 0) return this.#snapshot; // {{前缀}} = 默认快照
-    const name = args[0] ?? "";
-    if (name === "") {
-      this.#ports.log?.warn("记忆宏：空名字参数，展开为空串");
-      return "";
-    }
-    // 1. 对话级宏（当前对话，最高优先级）
-    const chatSnapshot = this.#chatScopeSnapshots.get(name);
-    if (chatSnapshot !== undefined) return chatSnapshot;
-    // 2. 全局视图
-    const viewSnapshot = this.#viewSnapshots.get(name);
-    if (viewSnapshot !== undefined) return viewSnapshot;
-    // 3. 内置宏：full（全量）→ 表 Key（单表）
-    if (name === BUILTIN_FULL_ARG) return this.#builtinSnapshots.full;
-    const tableSnapshot = this.#builtinSnapshots.perTable.get(name);
-    if (tableSnapshot !== undefined) return tableSnapshot;
-    this.#ports.log?.warn(`记忆宏：未知宏名「${name}」，展开为空串`);
-    return "";
-  }
-
-  /** 重建快照：默认快照 = listTables + listRecords + 读时重渲显示文本 +
-   *  assembleMemoryContextSnapshot；视图/聊天宏快照 = 翻译 → queryRecords（异步）→
-   *  渲染 → 缓存（digest 每轮构建一次共用）；内置宏 = 同一批数据渲染 Markdown。 */
-  async #rebuild(
-    spaceId: MemorySpaceId,
-    fingerprint: MemoryChangeFingerprint,
-    settings: {
-      readonly macroLimit: number;
-      readonly memoryViews: readonly MemoryView[];
-    },
-  ): Promise<void> {
-    const tables = await this.#ports.data.listTables(spaceId);
-    const recordsByTable = new Map<MemoryTableId, readonly MemoryRecord[]>();
-    await Promise.all(
-      tables.map(async (table) => {
-        if (!table.enabled) return;
-        recordsByTable.set(table.id, await this.#ports.data.listRecords(spaceId, table.id));
-      }),
-    );
-    // 组装期间切走了空间：放弃本轮（下轮轮询按新状态重建）
-    if (this.#ports.getSpaceId() !== spaceId) return;
-
-    // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
-    // 默认快照/视图快照/内置宏快照同语义。引用查找走本轮预载的全空间记录映射
-    // （引用必在同空间内），零额外查询；预载未命中（如目标表停用未加载）按未找到渲染空串。
-    const resolveDisplay = createReadTimeDisplayTextResolver({
-      getTable: async (tableId) => tables.find((candidate) => candidate.id === tableId),
-      getFields: (tableId) => this.#ports.reader.listFields(spaceId, tableId),
-      findRecord: async (tableId, recordId) =>
-        recordsByTable.get(tableId)?.find((candidate) => candidate.id === recordId),
-    });
-    const tableInputs = await Promise.all(
-      tables.map(async (table) => ({
-        name: table.name,
-        enabled: table.enabled,
-        records: await Promise.all(
-          (recordsByTable.get(table.id) ?? []).map(async (record) => ({
-            ...record,
-            displayText: await resolveDisplay(record),
-          })),
-        ),
-      })),
-    );
-    const snapshot = assembleMemoryContextSnapshot(tableInputs, settings.macroLimit);
-
-    const digest = await buildMemorySpaceTableDigest(this.#ports.reader, spaceId);
-
-    // 全局视图快照（{{前缀::视图名}}）
-    const viewSnapshots = new Map<string, string>();
-    for (const view of settings.memoryViews) {
-      try {
-        const plan = planMemoryViewQuery(view, digest);
-        if (plan === undefined) {
-          // 配置错误（缺表/缺字段/筛选字段类型不支持）：该视图快照 = 空串
-          this.#ports.log?.warn(
-            `记忆宏：视图「${view.name}」配置错误（表/字段不存在或已停用），展开为空串`,
-          );
-          viewSnapshots.set(view.name, "");
-          continue;
-        }
-        const page = await this.#ports.reader.queryRecords(spaceId, plan.query);
-        const referenceLabels =
-          view.projection.length > 0
-            ? await resolveViewReferenceLabels(
-                this.#ports.reader,
-                spaceId,
-                digest,
-                plan.table,
-                page.records,
-                view.projection,
-              )
-            : new Map();
-        const text = renderMemoryViewSnapshot({
-          view,
-          fields: plan.table.fields,
-          records: page.records,
-          referenceLabels,
-          limit: settings.macroLimit,
-        });
-        viewSnapshots.set(view.name, text);
-      } catch (error) {
-        // 单轮失败保旧值：重建判定（指纹/视图设置变化）后收敛——
-        // 确定性失败不因轮询重复刷日志（配置错误走翻译失败路径，见上）
-        const previous = this.#viewSnapshots.get(view.name);
-        if (previous !== undefined) viewSnapshots.set(view.name, previous);
-        this.#ports.log?.error(
-          `记忆宏视图「${view.name}」快照重建失败：${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    // 聊天 Scope 宏快照（{{前缀::宏名}}，优先于全局视图/内置宏）：
-    // 与全局视图同一翻译 → 查询 → 渲染管线；配置错误 = 空串（覆盖优先，不回落）
-    const chatScopeSnapshots = new Map<string, string>();
-    for (const macro of this.#ports.readChatScopeMacros()) {
-      const previous = this.#chatScopeSnapshots.get(macro.name);
-      try {
-        const plan = planMemoryViewQuery(macro, digest);
-        if (plan === undefined) {
-          this.#ports.log?.warn(
-            `记忆宏：聊天 Scope 宏「${macro.name}」配置错误（表/字段不存在或已停用），展开为空串`,
-          );
-          chatScopeSnapshots.set(macro.name, "");
-          continue;
-        }
-        const page = await this.#ports.reader.queryRecords(spaceId, plan.query);
-        const referenceLabels =
-          macro.projection.length > 0
-            ? await resolveViewReferenceLabels(
-                this.#ports.reader,
-                spaceId,
-                digest,
-                plan.table,
-                page.records,
-                macro.projection,
-              )
-            : new Map();
-        const text = renderMemoryViewSnapshot({
-          view: macro,
-          fields: plan.table.fields,
-          records: page.records,
-          referenceLabels,
-          limit: settings.macroLimit,
-        });
-        chatScopeSnapshots.set(macro.name, text);
-      } catch (error) {
-        // 单轮失败保旧值（与全局视图同语义）；下轮轮询重试
-        if (previous !== undefined) chatScopeSnapshots.set(macro.name, previous);
-        this.#ports.log?.error(
-          `记忆宏聊天 Scope「${macro.name}」快照重建失败：${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    // 内置宏快照（{{前缀::full}} + 每启用表 {{前缀::表Key}}）：表 Key 是字符串
-    // 参数，无需满足 ST 标识符规则（{{ste::角色}} 可用）；失败保旧值
-    const builtinSnapshots = await this.#buildBuiltinSnapshots(
-      spaceId,
-      tables,
-      settings.macroLimit,
-      resolveDisplay,
-      recordsByTable,
-    );
-
-    this.#snapshot = snapshot;
-    this.#viewSnapshots = viewSnapshots;
-    this.#chatScopeSnapshots = chatScopeSnapshots;
-    this.#builtinSnapshots = builtinSnapshots;
-    this.#lastSpaceId = spaceId;
-    this.#lastFingerprint = fingerprint;
-    this.#lastLimit = settings.macroLimit;
-    this.#lastViewsSignature = JSON.stringify(settings.memoryViews);
-  }
-
-  /** 内置宏快照：full = 所有启用表逐表 section；perTable = 每启用表单表渲染。 */
-  async #buildBuiltinSnapshots(
-    spaceId: MemorySpaceId,
-    tables: readonly MemoryTable[],
-    macroLimit: number,
-    resolveDisplay: ReturnType<typeof createReadTimeDisplayTextResolver>,
-    recordsByTable: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
-  ): Promise<BuiltinSnapshots> {
-    try {
-      const enabledTables = tables.filter((table) => table.enabled);
-      const tableInputs: {
-        readonly name: string;
-        readonly fields: readonly { readonly name: string; readonly id: string }[];
-        readonly records: readonly {
-          readonly payload: Map<string, MemoryRecord["payload"][string]>;
-          readonly displayText: string;
-        }[];
-      }[] = [];
-      const perTable = new Map<string, string>();
-      for (const table of enabledTables) {
-        const fields = await this.#ports.reader.listFields(spaceId, table.id);
-        const enabledFields = fields.filter((field) => field.enabled);
-        const records = recordsByTable.get(table.id) ?? [];
-        const recordsWithDisplay = await Promise.all(
-          records.map(async (record) => ({
-            payload: new Map(Object.entries(record.payload)),
-            displayText: await resolveDisplay(record),
-          })),
-        );
-        const input = {
-          name: table.name,
-          fields: enabledFields.map((field) => ({ name: field.name, id: field.id })),
-          records: recordsWithDisplay,
-        };
-        tableInputs.push(input);
-        perTable.set(table.key, renderMemoryFullSnapshot({ tables: [input], limit: macroLimit }));
-      }
-      return {
-        full: renderMemoryFullSnapshot({ tables: tableInputs, limit: macroLimit }),
-        perTable,
-      };
-    } catch (error) {
-      // 单轮失败保旧值（下轮轮询重试）
-      this.#ports.log?.error(
-        `记忆宏内置宏快照重建失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-      return this.#builtinSnapshots;
-    }
-  }
-
-  #unregisterCurrent(): void {
-    if (this.#registeredName === undefined) return;
-    this.#ports.registerMacro.unregister(this.#registeredName);
+    this.cancel("宏计算已停止");
+    if (this.#registeredName) this.#ports.registerMacro.unregister(this.#registeredName);
     this.#registeredName = undefined;
+  }
+
+  /** Settings changes affect registration and the next batch, never trigger evaluation. */
+  async kick(): Promise<void> {
+    const settings = this.#ports.readSettings();
+    const name = settings.enabled ? resolveMacroRegistrationName(settings.macroName) : undefined;
+    if (name !== this.#registeredName) {
+      if (this.#registeredName) this.#ports.registerMacro.unregister(this.#registeredName);
+      this.#registeredName = name;
+      if (name)
+        this.#ports.registerMacro.register(
+          name,
+          (context) => {
+            if (
+              !this.#readable ||
+              !this.#building ||
+              this.#publishedContext !== this.#ports.getContext() ||
+              !this.#ports.readSettings().enabled
+            )
+              return "";
+            const macroName = context.unnamedArgs?.[0] ?? "";
+            if (this.#migrationError && macroName !== "") return "";
+            return this.#results.find((result) => result.name === macroName)?.text ?? "";
+          },
+          [MEMORY_MACRO_NAME_ARG],
+        );
+    }
+    if (!settings.enabled) this.cancel("插件已停用");
+    this.markStale();
+  }
+
+  markStale(): void {
+    if (this.#building || !this.#results.length) return;
+    this.#results = this.#results.map((result) => ({ ...result, status: "stale" }));
+    this.#notify();
+  }
+
+  chatChanged(): void {
+    this.cancel("对话已切换");
+    this.#group = false;
+    this.#groupPrepared = false;
+    this.#results = [];
+    this.#conflicts = [];
+    this.#migrationError = null;
+    this.#notify();
+  }
+
+  cancel(reason = "宏计算已取消"): void {
+    this.#controller?.abort(new Error(reason));
+    this.#epoch++;
+    this.#readable = false;
+    this.#building = false;
+    this.#waitingMessage = false;
+    this.#preparing = false;
+    this.#reuseBatch = false;
+    if (this.#results.some((result) => result.status === "running")) {
+      this.#results = this.#results.map((result) =>
+        result.status === "running"
+          ? { ...result, status: "cancelled", text: "", error: reason }
+          : result,
+      );
+      this.#notify();
+    }
+  }
+
+  skip = (): void => {
+    this.#controller?.abort(new Error("已跳过本次宏计算"));
+  };
+
+  isPreparing = (): boolean => this.#preparing;
+
+  groupStarted(): void {
+    this.#group = true;
+    this.#groupPrepared = false;
+  }
+
+  groupEnded(): void {
+    this.#group = false;
+    this.#groupPrepared = false;
+    this.#building = false;
+    this.#readable = false;
+  }
+
+  started(
+    type: unknown,
+    options: { automatic_trigger?: boolean; continuation?: boolean },
+    dryRun: boolean,
+  ): void {
+    if (dryRun || type === "quiet" || type === "impersonate") return;
+    if (options.continuation || (this.#group && this.#groupPrepared)) {
+      this.#building = true;
+      this.#readable = this.#results.length > 0;
+      this.#reuseBatch = true;
+      return;
+    }
+    this.cancel("新的生成操作");
+    this.#building = true;
+    this.#waitingMessage = (type === undefined || type === "normal") && !options.automatic_trigger;
+  }
+
+  async afterCommands(
+    type: unknown,
+    options: { automatic_trigger?: boolean },
+    dryRun: boolean,
+    lastUserMessage: string | null,
+  ): Promise<void> {
+    if (dryRun || type === "quiet" || type === "impersonate") return;
+    if (this.#reuseBatch) return;
+    if (this.#group && this.#groupPrepared) return;
+    if (!this.#waitingMessage || options.automatic_trigger) await this.prepare(lastUserMessage);
+  }
+
+  async messageSent(message: { content: string; isUser: boolean } | undefined): Promise<void> {
+    if (!this.#waitingMessage || !message?.isUser) return;
+    this.#waitingMessage = false;
+    await this.prepare(message.content);
+  }
+
+  generationFinished(dryRun: boolean): void {
+    if (dryRun) return;
+    this.#building = false;
+    this.#readable = false;
+  }
+
+  async migrateLegacyChatMacros(): Promise<void> {
+    const context = this.#ports.getContext();
+    let legacyViews: readonly MemoryView[];
+    try {
+      legacyViews = this.#ports.readLegacyChatMacros();
+      this.#migrationError = null;
+    } catch (error) {
+      this.#migrationError = `旧对话宏无法迁移，原始数据已保留，命名宏暂停展开：${error instanceof Error ? error.message : String(error)}`;
+      this.#notify();
+      return;
+    }
+    if (!legacyViews.length) {
+      this.#conflicts = [];
+      this.#notify();
+      return;
+    }
+    const current = [...this.#ports.getChatMacros()];
+    const conflicts: MacroMigrationConflict[] = [];
+    const pending: MemoryView[] = [];
+    let changed = false;
+    for (const view of legacyViews) {
+      const legacy = migrateMemoryView(
+        view,
+        `legacy-chat:${encodeURIComponent(context)}:${encodeURIComponent(view.name)}`,
+      );
+      const existing = current.find((macro) => macro.name === view.name);
+      if (!existing) {
+        current.push(legacy);
+        changed = true;
+      } else {
+        const definition = (macro: MemoryMacro) => JSON.stringify({ ...macro, id: "" });
+        if (definition(existing) !== definition(legacy)) {
+          conflicts.push({ name: view.name, source: context, existing, legacy });
+          pending.push(view);
+        }
+      }
+    }
+    if (changed) await this.#ports.saveChatMacros(current);
+    if (context !== this.#ports.getContext()) return;
+    this.#ports.writeLegacyChatMacros(pending);
+    this.#conflicts = conflicts;
+    this.#notify();
+  }
+
+  async resolveMigrationConflict(
+    name: string,
+    resolution: { kind: "keep" | "overwrite" | "rename"; name?: string },
+  ): Promise<void> {
+    const context = this.#ports.getContext();
+    const conflict = this.#conflicts.find((item) => item.name === name);
+    if (!conflict) throw new Error("迁移冲突已不存在");
+    const macros = [...this.#ports.getChatMacros()];
+    if (resolution.kind === "overwrite") {
+      const index = macros.findIndex((macro) => macro.name === name);
+      if (index < 0) throw new Error("空间中的同名宏已改变，请重新打开对话");
+      macros[index] = conflict.legacy;
+    } else if (resolution.kind === "rename") {
+      const newName = resolution.name?.trim();
+      if (!newName || macros.some((macro) => macro.name === newName))
+        throw new Error("请输入尚未使用的宏名");
+      macros.push({
+        ...conflict.legacy,
+        id: `${conflict.legacy.id}:${encodeURIComponent(newName)}`,
+        name: newName,
+      });
+    }
+    if (resolution.kind !== "keep") await this.#ports.saveChatMacros(macros);
+    if (context !== this.#ports.getContext()) throw new Error("对话已切换");
+    this.#ports.writeLegacyChatMacros(
+      this.#ports.readLegacyChatMacros().filter((view) => view.name !== name),
+    );
+    this.#conflicts = this.#conflicts.filter((item) => item.name !== name);
+    this.#notify();
+  }
+
+  async testMacro(input: {
+    macro: MemoryMacro;
+    scope: "chat" | "global";
+    lastUserMessage: string | null;
+  }): Promise<MacroExecutionResult> {
+    const controller = new AbortController();
+    const started = performance.now();
+    const initial = this.#initial(input.macro, input.scope);
+    const deadline = started + (this.#ports.timeoutMs ?? 10_000);
+    const interrupted = new Promise<MacroExecutionResult>((resolve) => {
+      controller.signal.addEventListener(
+        "abort",
+        () =>
+          resolve({
+            ...initial,
+            status: "error",
+            error: "测试超过允许的计算时限",
+            elapsedMs: performance.now() - started,
+          }),
+        { once: true },
+      );
+    });
+    const timeout = setTimeout(() => controller.abort(), Math.max(0, deadline - performance.now()));
+    const work = async (): Promise<MacroExecutionResult> => {
+      let batch: MacroEvaluationBatch | undefined;
+      try {
+        const snapshot = await this.#ports.capture();
+        controller.signal.throwIfAborted();
+        if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+        batch = await this.#ports.createBatch(snapshot, {
+          lastUserMessage: input.lastUserMessage,
+          signal: controller.signal,
+          deadline,
+        });
+        const result = await batch.evaluate(input.macro.expression);
+        controller.signal.throwIfAborted();
+        const rendered = renderMacroResult(
+          input.macro,
+          result,
+          this.#ports.readSettings().macroLimit,
+        );
+        return {
+          ...initial,
+          ...rendered,
+          status: result.rows.length ? "success" : "empty",
+          resultRows: result.rows.length,
+          elapsedMs: performance.now() - started,
+          diagnostics: [
+            {
+              expression: input.macro.expression,
+              lastUserMessage: input.lastUserMessage,
+              scope: input.scope,
+            },
+            ...result.sources.map(({ rows, ...source }) => ({
+              ...source,
+              scoredRecords: rows.length,
+            })),
+          ],
+        };
+      } catch (error) {
+        return {
+          ...initial,
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+          elapsedMs: performance.now() - started,
+        };
+      } finally {
+        await batch?.close();
+      }
+    };
+    try {
+      return await Promise.race([work(), interrupted]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async prepare(lastUserMessage: string | null): Promise<void> {
+    if (!this.#ports.readSettings().enabled || (this.#group && this.#groupPrepared)) return;
+    const epoch = ++this.#epoch;
+    const context = this.#ports.getContext();
+    const settings = this.#ports.readSettings();
+    const controller = new AbortController();
+    this.#controller = controller;
+    this.#preparing = true;
+    this.#building = true;
+    this.#readable = false;
+    const deadline = performance.now() + (this.#ports.timeoutMs ?? 10_000);
+    const selected = new Map<string, { macro: MemoryMacro; scope: "chat" | "global" }>();
+    for (const macro of settings.macros) selected.set(macro.name, { macro, scope: "global" });
+    for (const macro of this.#ports.getChatMacros())
+      selected.set(macro.name, { macro, scope: "chat" });
+    const results = new Map<string, MacroExecutionResult>();
+    for (const { macro, scope } of selected.values()) {
+      const conflict =
+        this.#migrationError || this.#conflicts.some((item) => item.name === macro.name);
+      results.set(macro.name, {
+        ...this.#initial(macro, scope),
+        status: conflict ? "error" : macro.enabled ? "running" : "disabled",
+        error: this.#migrationError ?? (conflict ? "该名称存在旧对话宏迁移冲突，请先处理" : null),
+      });
+    }
+    this.#results = [...results.values()];
+    this.#notify();
+    const timer = setTimeout(
+      () => controller.abort(new Error("本次宏计算超过 10 秒")),
+      Math.max(0, deadline - performance.now()),
+    );
+    let release!: () => void;
+    const interrupted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    controller.signal.addEventListener("abort", release, { once: true });
+    let batch: MacroEvaluationBatch | undefined;
+    const work = async () => {
+      try {
+        const snapshot = await this.#ports.capture();
+        controller.signal.throwIfAborted();
+        if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+        const builtins = await this.#builtins(snapshot, settings.macroLimit);
+        for (const result of builtins)
+          if (!selected.has(result.name))
+            results.set(
+              result.name,
+              this.#migrationError && result.name !== ""
+                ? { ...result, status: "error", text: "", error: this.#migrationError }
+                : result,
+            );
+        batch = await this.#ports.createBatch(snapshot, {
+          lastUserMessage,
+          signal: controller.signal,
+          deadline,
+        });
+        await Promise.all(
+          [...selected.values()].map(async ({ macro }) => {
+            const initial = results.get(macro.name)!;
+            if (initial.status !== "running") return;
+            const started = performance.now();
+            try {
+              const result = await batch!.evaluate(macro.expression);
+              controller.signal.throwIfAborted();
+              const rendered = renderMacroResult(macro, result, settings.macroLimit);
+              results.set(macro.name, {
+                ...initial,
+                ...rendered,
+                status: result.rows.length ? "success" : "empty",
+                resultRows: result.rows.length,
+                elapsedMs: performance.now() - started,
+                diagnostics: [
+                  { expression: macro.expression, lastUserMessage, scope: initial.scope },
+                  ...result.sources.map(({ rows, ...source }) => ({
+                    ...source,
+                    scoredRecords: rows.length,
+                  })),
+                ],
+              });
+            } catch (error) {
+              results.set(macro.name, {
+                ...initial,
+                status: "error",
+                error: error instanceof Error ? error.message : String(error),
+                elapsedMs: performance.now() - started,
+              });
+            }
+          }),
+        );
+      } catch (error) {
+        for (const [name, result] of results)
+          if (result.status === "running")
+            results.set(name, {
+              ...result,
+              status: "error",
+              error: error instanceof Error ? error.message : String(error),
+            });
+      } finally {
+        await batch?.close();
+      }
+    };
+    try {
+      await Promise.race([work(), interrupted]);
+      if (epoch !== this.#epoch || context !== this.#ports.getContext()) return;
+      for (const [name, result] of results)
+        if (result.status === "running")
+          results.set(name, {
+            ...result,
+            status: "error",
+            error:
+              controller.signal.reason instanceof Error
+                ? controller.signal.reason.message
+                : "宏计算超时",
+          });
+      this.#results = [...results.values()];
+      this.#publishedContext = context;
+      this.#readable = true;
+      this.#groupPrepared = this.#group;
+      this.#notify();
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", release);
+      if (epoch === this.#epoch) this.#preparing = false;
+    }
+  }
+
+  getSnapshot(): string {
+    return this.#results.find((result) => result.name === "")?.text ?? "";
+  }
+  getViewSnapshot(name: string): string | undefined {
+    return this.#results.find((result) => result.name === name && result.scope === "global")?.text;
+  }
+  getChatScopeSnapshot(name: string): string | undefined {
+    return this.#results.find((result) => result.name === name && result.scope === "chat")?.text;
+  }
+  builtinSnapshotNames(): readonly string[] {
+    return this.#results
+      .filter((result) => result.scope === "builtin" && result.name !== "")
+      .map((result) => result.name);
+  }
+  getBuiltinSnapshot(name: string): string | undefined {
+    return this.#results.find((result) => result.name === name && result.scope === "builtin")?.text;
+  }
+
+  #initial(
+    macro: Pick<MemoryMacro, "id" | "name">,
+    scope: MacroExecutionResult["scope"],
+  ): MacroExecutionResult {
+    return {
+      id: macro.id,
+      name: macro.name,
+      scope,
+      status: "not-run",
+      text: "",
+      error: null,
+      startedAt: this.#ports.now?.() ?? new Date().toISOString(),
+      elapsedMs: 0,
+      resultRows: 0,
+      outputRows: 0,
+      truncated: false,
+      diagnostics: [],
+    };
+  }
+
+  async #builtins(
+    snapshot: MemorySpaceBackup,
+    limit: number,
+  ): Promise<readonly MacroExecutionResult[]> {
+    const display = createReadTimeDisplayTextResolver({
+      getTable: async (id) => snapshot.tables.find((table) => table.id === id),
+      getFields: async (id) => snapshot.fields.filter((field) => field.tableId === id),
+      findRecord: async (tableId, recordId) =>
+        snapshot.records.find((record) => record.tableId === tableId && record.id === recordId),
+    });
+    const records = await Promise.all(
+      snapshot.records.map(async (record) => ({ ...record, displayText: await display(record) })),
+    );
+    const tables = snapshot.tables.filter((table) => table.enabled);
+    const inputs = tables.map((table) => ({
+      name: table.name,
+      fields: snapshot.fields
+        .filter((field) => field.tableId === table.id && field.enabled)
+        .map((field) => ({ id: field.id, name: field.name })),
+      records: records
+        .filter((record) => record.tableId === table.id)
+        .map((record) => ({
+          payload: new Map(Object.entries(record.payload)),
+          displayText: record.displayText,
+        })),
+    }));
+    const texts = new Map<string, string>([
+      [
+        "",
+        sanitizeMacroSyntax(
+          assembleMemoryContextSnapshot(
+            tables.map((table) => ({
+              name: table.name,
+              enabled: true,
+              records: records.filter((record) => record.tableId === table.id),
+            })),
+            limit,
+          ),
+        ),
+      ],
+      [BUILTIN_FULL_ARG, renderMemoryFullSnapshot({ tables: inputs, limit })],
+    ]);
+    for (const [index, table] of tables.entries())
+      if (table.key !== BUILTIN_FULL_ARG)
+        texts.set(table.key, renderMemoryFullSnapshot({ tables: [inputs[index]!], limit }));
+    return [...texts].map(([name, text]) => ({
+      ...this.#initial({ id: `builtin:${name}`, name }, "builtin"),
+      status: text ? "success" : "empty",
+      text,
+    }));
+  }
+
+  #notify(): void {
+    this.#results = [...this.#results];
+    for (const listener of this.#listeners) listener();
   }
 }

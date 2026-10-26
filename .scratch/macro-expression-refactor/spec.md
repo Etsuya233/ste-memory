@@ -1,6 +1,6 @@
 # 表达式宏重构需求与向量召回实现思路
 
-状态：需求与设计草案，尚未实施。日期：2026-10-26。
+状态：已实现并完成本轮验收，实际覆盖与宿主限制见实现记录。日期：2026-10-26。
 
 主代理先与 Sol 6.1 Medium 质询，随后按用户反馈与 Astra Medium 复审。本稿取代同目录此前版本；原讨论作为决策历史保留。用户已经认可“向量提供相关度，Query／SQL 完整决定结果”的方向，并明确统一名称为“对话宏”、整块废弃 memoryRecall。具体字段形状、默认值及实现方案属于本次共同建议。
 
@@ -51,9 +51,7 @@ Query 采用可保存的 JSON 形态，表字段使用 Key，条件算子和类�
 ```json
 {
   "table": "episodes",
-  "conditions": [
-    { "field": "plot_summary", "op": "equals", "value": null }
-  ],
+  "conditions": [{ "field": "plot_summary", "op": "equals", "value": null }],
   "fields": ["summary", "content"],
   "orderBy": { "field": "$created_at", "direction": "asc" },
   "limit": 15
@@ -181,18 +179,18 @@ LIMIT 10;
 
 每次实际生成新建求值批次。ST 同步宏回调仅返回该批次已计算文本，不能返回 Promise，也不能临时发异步请求。同次生成中重复出现的宏读取相同文本；本次结束后结果仅供界面查看，不参与下次求值。
 
-| 操作 | 行为 |
-| --- | --- |
-| 新用户消息正常发送 | 保存正文后、主要提示词展开前计算 |
-| 重生成、生成新 swipe、续写 | 每次用户发起操作重新计算 |
-| 群聊一个回复批次 | 本批计算一次，成员共用；下批重新计算 |
-| 同次生成中的工具递归 | 复用本批结果 |
-| 群聊正常自动回复 | 按本批开始时最后用户消息计算；缺消息仅影响使用该参数的表达式 |
-| 切换已有 swipe、查看历史、打开最近结果 | 不计算 |
-| 独立 dry run、quiet、impersonate、插件 Agent | 不触发该 ST 记忆宏求值，宏为空 |
-| 显式测试／重新求值 | 独立执行同一查询语义，标明可能请求 embedding，不替换真实生成结果 |
+| 操作                                         | 行为                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| 新用户消息正常发送                           | 保存正文后、主要提示词展开前计算                                 |
+| 重生成、生成新 swipe、续写                   | 每次用户发起操作重新计算                                         |
+| 群聊一个回复批次                             | 本批计算一次，成员共用；下批重新计算                             |
+| 同次生成中的工具递归                         | 复用本批结果                                                     |
+| 群聊正常自动回复                             | 按本批开始时最后用户消息计算；缺消息仅影响使用该参数的表达式     |
+| 切换已有 swipe、查看历史、打开最近结果       | 不计算                                                           |
+| 独立 dry run、quiet、impersonate、插件 Agent | 不触发该 ST 记忆宏求值，宏为空                                   |
+| 显式测试／重新求值                           | 独立执行同一查询语义，标明可能请求 embedding，不替换真实生成结果 |
 
-独立 token 预估可能低估记忆宏内容。ST 同步宏回调缺少完整调用归属，并发 dry run 可能读取真实生成当前结果；真实生成优先，预估不得发起额外计算、覆盖结果或撤销批次。首版不承诺宿主没有提供的完全隔离。
+独立 token 预估可能低估记忆宏内容。ST 同步宏回调缺少完整调用归属，并发 dry run 或 quiet 可能读取真实生成当前结果。typed hooks 排除这些入口，无归属结束事件不得撤销尚在等待或尚未进入正常拦截器的批次；正常批次已经进入提示词构建后，宿主完成事件缺少类型及操作身份，无法保证任意并发交错的完全隔离。不得用最后调用类型或计数器猜测操作归属，也不能宣称这一宿主边界已经消除。
 
 ### 6.3 ST 接入与输入边界
 
@@ -200,7 +198,9 @@ LIMIT 10;
 
 ST 在 MESSAGE_SENT 前已展开本次新用户输入中的宏。本轮保障角色卡、提示词预设、世界书内容及其后提示词路径，不保障把宏直接输入本次新用户消息就能取到当次结果；该提前阶段为空，不回填上轮文本。普通生成拦截器晚于部分宏展开，不能仅靠它覆盖全部位置。
 
-这些接入判断有既有代码及源码依据，但新增普通宏统一计算、重生成和续写路径尚未真实验证。必须分别验收 Chat Completion、Text Completion、群聊及取消流程，不能把旧自动召回验证当作新链路已经完成。
+取消旧发送需要其进入本插件的生成门禁后退出。当前宿主按扩展加载顺序执行拦截器，提前中断会跳过后续插件，因此本插件以 `loading_order: -1000` 先执行；其他可能提前中断的扩展必须排在其后。宿主也会忽略生成中的角色选择，真实切换验收采用停止旧生成后、HTTP 响应尚在延迟期间切换对话，另以单元测试覆盖直接上下文变化的取消。
+
+接入判断以代码和宿主源码为依据，必须分别验收 Chat Completion、Text Completion、群聊及取消流程，不能把旧自动召回验证当作新链路已经完成。当前真实 ST 验证范围与尚存宿主边界见 [实现与验收记录](./implementation.md)。
 
 ## 7. 结果一致性、输出与失败
 
@@ -303,32 +303,32 @@ embedding 在 SQL 执行前由宿主异步完成，SQLite 只读取已准备的�
 
 ## 10. 验收标准
 
-| 编号 | 场景 | 通过条件 |
-| --- | --- | --- |
-| A01 | 表达式完整性 | 最终字段、条件、排序、阈值、条数均可从 Query／SQL 判断，无外部 Top K 接管 |
-| A02 | Query 与 SQL | 同一组相关度数据下的等价表达式返回一致记录及分数，空引用和字段类型正确 |
-| A03 | 完整评分源 | 第 101 条之后的相关记录可命中，源无提前 Top K，SQL LIMIT 仅按作者作用域生效 |
-| A04 | 两次选取 | 最新二十条子查询再按相关度取十条，与从全部记录取十条具有可验证差异 |
-| A05 | JOIN 与空源 | 空源是有效关系，INNER JOIN 为零行，LEFT JOIN 保留业务记录及 NULL 分数 |
-| A06 | 聚合与列 | 聚合无需记录身份；列顺序正确，重复列名报错，别名与 JSON 输出正确 |
-| A07 | 多组多源 | 单源每记录取最高组分且同分稳定，多源不混组，SQL UNION／JOIN 自行决定组合 |
-| A08 | 输入绑定 | 上下文和固定文本均可用，SQL 参数不拼接；空和超长输入有明确原因 |
-| A09 | 请求共享 | 同批同文本及 profile 仅一次 embedding，不同文本各自请求，跨生成重新请求 |
-| A10 | 无有效索引 | 无记录或无存储向量可免 profile；有存储向量而缺 profile 报错；profile 下有效数为零时空源且零 embedding，覆盖区分缺失／过期／异常 |
-| A11 | 权限与隔离 | 用户写入、多语句和内部表读取拒绝，宏临时源互不污染，手动 SQL 控制台不受修改 |
-| A12 | 对话宏 | 只显示对话／全局／内置，停用高层宏不暴露低层，共享空间共享定义但不共享结果 |
-| A13 | 预设与传输 | 表结构和对话宏原子生效，组 Key 正确，普通宏沿状态、语义宏新副本默认停用 |
-| A14 | 导出与恢复 | 不附加记录、来源实体映射或密钥，字面值不重写，备份镜像克隆宏完整 |
-| A15 | 无后台预计算 | 启动、切对话、编辑、保存、导入及补建不执行宏查询或查询 embedding |
-| A16 | 正常真实生成 | 本次主要提示词与 WI 使用本次结果，受控延迟期间主请求等待计算 |
-| A17 | 重生成及群聊 | 重生成／swipe／续写重算，群聊同批与工具递归不重复算 |
-| A18 | 本批输入 | 记录编辑不混入本批，指纹不匹配的新向量不配旧正文，引用显示也用同批记录 |
-| A19 | 取消与归属 | 超时、跳过、ST 停止、A→B→A、共享空间不同对话及迟到响应均正确 |
-| A20 | 输出预算 | 顺序与整行预算正确，省略可见，JSON 有效，输出宏语法不二次执行 |
-| A21 | 测试与预估 | 最近结果不计算，测试不污染真实结果，独立 dry run／quiet／impersonate 零请求 |
-| A22 | 迁移冲突 | 同名不同旧定义保留原数据并只阻止所属对话名称，不覆盖共享空间，处理可幂等恢复 |
-| A23 | 废弃旧召回 | 无 memoryRecall 专用注册、设置、独立开关、绑定及运行接线，旧 enabled／旧文件不触发请求，升级说明旧调用失效，新表达式召回和手动向量检索可用 |
-| A24 | 性能与清理 | 记录快照和全源评分耗时及内存峰值，评分可及时取消，失败清理临时表和会话 |
+| 编号 | 场景         | 通过条件                                                                                                                                   |
+| ---- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| A01  | 表达式完整性 | 最终字段、条件、排序、阈值、条数均可从 Query／SQL 判断，无外部 Top K 接管                                                                  |
+| A02  | Query 与 SQL | 同一组相关度数据下的等价表达式返回一致记录及分数，空引用和字段类型正确                                                                     |
+| A03  | 完整评分源   | 第 101 条之后的相关记录可命中，源无提前 Top K，SQL LIMIT 仅按作者作用域生效                                                                |
+| A04  | 两次选取     | 最新二十条子查询再按相关度取十条，与从全部记录取十条具有可验证差异                                                                         |
+| A05  | JOIN 与空源  | 空源是有效关系，INNER JOIN 为零行，LEFT JOIN 保留业务记录及 NULL 分数                                                                      |
+| A06  | 聚合与列     | 聚合无需记录身份；列顺序正确，重复列名报错，别名与 JSON 输出正确                                                                           |
+| A07  | 多组多源     | 单源每记录取最高组分且同分稳定，多源不混组，SQL UNION／JOIN 自行决定组合                                                                   |
+| A08  | 输入绑定     | 上下文和固定文本均可用，SQL 参数不拼接；空和超长输入有明确原因                                                                             |
+| A09  | 请求共享     | 同批同文本及 profile 仅一次 embedding，不同文本各自请求，跨生成重新请求                                                                    |
+| A10  | 无有效索引   | 无记录或无存储向量可免 profile；有存储向量而缺 profile 报错；profile 下有效数为零时空源且零 embedding，覆盖区分缺失／过期／异常            |
+| A11  | 权限与隔离   | 用户写入、多语句和内部表读取拒绝，宏临时源互不污染，手动 SQL 控制台不受修改                                                                |
+| A12  | 对话宏       | 只显示对话／全局／内置，停用高层宏不暴露低层，共享空间共享定义但不共享结果                                                                 |
+| A13  | 预设与传输   | 表结构和对话宏原子生效，组 Key 正确，普通宏沿状态、语义宏新副本默认停用                                                                    |
+| A14  | 导出与恢复   | 不附加记录、来源实体映射或密钥，字面值不重写，备份镜像克隆宏完整                                                                           |
+| A15  | 无后台预计算 | 启动、切对话、编辑、保存、导入及补建不执行宏查询或查询 embedding                                                                           |
+| A16  | 正常真实生成 | 本次主要提示词与 WI 使用本次结果，受控延迟期间主请求等待计算                                                                               |
+| A17  | 重生成及群聊 | 重生成／swipe／续写重算，群聊同批与工具递归不重复算                                                                                        |
+| A18  | 本批输入     | 记录编辑不混入本批，指纹不匹配的新向量不配旧正文，引用显示也用同批记录                                                                     |
+| A19  | 取消与归属   | 超时、跳过、ST 停止、A→B→A、共享空间不同对话及迟到响应均正确                                                                               |
+| A20  | 输出预算     | 顺序与整行预算正确，省略可见，JSON 有效，输出宏语法不二次执行                                                                              |
+| A21  | 测试与预估   | 最近结果不计算，测试不污染真实结果，独立 dry run／quiet／impersonate 零请求                                                                |
+| A22  | 迁移冲突     | 同名不同旧定义保留原数据并只阻止所属对话名称，不覆盖共享空间，处理可幂等恢复                                                               |
+| A23  | 废弃旧召回   | 无 memoryRecall 专用注册、设置、独立开关、绑定及运行接线，旧 enabled／旧文件不触发请求，升级说明旧调用失效，新表达式召回和手动向量检索可用 |
+| A24  | 性能与清理   | 记录快照和全源评分耗时及内存峰值，评分可及时取消，失败清理临时表和会话                                                                     |
 
 实际 ST 验收同时覆盖 Chat Completion 与 Text Completion，使用受控延迟、失败及请求计数确认等待、取消、重生成和并发预估。端口模拟测试只覆盖逻辑，不替代宿主验收。
 
@@ -336,8 +336,8 @@ embedding 在 SQL 执行前由宿主异步完成，SQLite 只读取已准备的�
 
 实施包含表达式及迁移、对话宏归属与传输、统一求值、语义源与 Query／SQL 接入、界面诊断及真实 ST 验证。本文给出大致路径，不限定类名、表数或额外调度抽象，不引入无必要的兜底代码和重复测试。
 
-本稿修改 [视图 ADR](../../docs/adr/0025-memory-views-and-memory-query.md) 的有限单表配置，调整 [宏注入 ADR](../../docs/adr/st/0004-macro-injection.md) 的后台预计算，补充 [预设 ADR](../../docs/adr/st/0017-table-presets.md) 的对话宏归属与传输，并整块废弃 [旧自动召回功能](../vector-macro-recall/spec.md)。旧文档保留历史实现事实，不能继续作为本轮兼容需求；拟议方向记录在 [ADR 0023](../../docs/adr/st/0023-expression-macros-and-generation-evaluation.md)。
+本稿修改 [视图 ADR](../../docs/adr/0025-memory-views-and-memory-query.md) 的有限单表配置，调整 [宏注入 ADR](../../docs/adr/st/0004-macro-injection.md) 的后台预计算，补充 [预设 ADR](../../docs/adr/st/0017-table-presets.md) 的对话宏归属与传输，并整块废弃 [旧自动召回功能](../vector-macro-recall/spec.md)。旧文档保留历史实现事实，不能继续作为本轮兼容需求；实施决策记录在 [ADR 0023](../../docs/adr/st/0023-expression-macros-and-generation-evaluation.md)。
 
-代码依据包括 [宏定义](../../src/features/macros/memory-views.ts)、[宏服务](../../src/features/macros/memory-macro-service.ts)、[Query 契约](../../src/features/memory/record-query-contract.ts)、[向量检索](../../src/features/vector-retrieval/vector-retrieval-service.ts)、[向量端口](../../src/features/vector-index/types.ts)、[旧召回](../../src/features/vector-retrieval/memory-recall-service.ts)、[SQLite 引擎](../../src/infrastructure/sqlite/engine.ts)、[Worker](../../src/infrastructure/sqlite/worker.ts)、[SQLite 端口](../../src/infrastructure/sqlite/types.ts)、[ST 事件桥](../../src/infrastructure/sillytavern/chat-adapter.ts)、[预设应用](../../src/features/table-presets/table-preset-apply-service.ts) 和 [既有 ST 调研](../../docs/research/st-macros-args-and-worldinfo.md)。
+代码依据包括 [宏定义](../../src/features/macros/memory-views.ts)、[宏服务](../../src/features/macros/memory-macro-service.ts)、[Query 契约](../../src/features/memory/record-query-contract.ts)、[向量检索](../../src/features/vector-retrieval/vector-retrieval-service.ts)、[向量端口](../../src/features/vector-index/types.ts)、[SQLite 引擎](../../src/infrastructure/sqlite/engine.ts)、[Worker](../../src/infrastructure/sqlite/worker.ts)、[SQLite 端口](../../src/infrastructure/sqlite/types.ts)、[ST 事件桥](../../src/infrastructure/sillytavern/chat-adapter.ts)、[预设应用](../../src/features/table-presets/table-preset-apply-service.ts) 和 [既有 ST 调研](../../docs/research/st-macros-args-and-worldinfo.md)。
 
-讨论历史与 Astra 复审取舍见 [discussion.md](./discussion.md)。本轮仅修改文档，以上表达式扩展、语义源接口和统一执行能力均尚未实现。
+讨论历史与 Astra 复审取舍见 [discussion.md](./discussion.md)。实现与验收进度、交叉 Review 发现及已知宿主边界见 [implementation.md](./implementation.md)。

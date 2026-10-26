@@ -1,3 +1,4 @@
+import { parseMemoryMacros, migrateMemoryViews } from "../macros/macro-expression.ts";
 import { Value } from "typebox/value";
 import { DomainError, upgradeVectorIndexKeys } from "../memory/index.ts";
 import { BACKUP_FORMAT, BACKUP_VERSION, memoryBackupFileSchema } from "./backup-file.ts";
@@ -49,7 +50,7 @@ export function createBackupFile(
     version: BACKUP_VERSION,
     exportedAt,
     appVersion,
-    data: snapshot,
+    data: normalizeBackupData(snapshot),
   };
 }
 
@@ -61,23 +62,28 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
   if (value.format !== BACKUP_FORMAT) {
     formatInvalid("不是本插件的备份文件");
   }
-  if (value.version !== BACKUP_VERSION) {
-    const versionText = typeof value.version === "number" ? `文件 v${String(value.version)}，` : "";
+  const current =
+    value.version === 1
+      ? { ...value, version: BACKUP_VERSION, data: upgradeLegacyBackupUnits(value.data) }
+      : value;
+  if (current.version !== BACKUP_VERSION) {
+    const versionText =
+      typeof current.version === "number" ? `文件 v${String(current.version)}，` : "";
     throw new DomainError({
       type: "memory_backup_version_unsupported",
-      param: { version: value.version },
+      param: { version: current.version },
       humanMsg: `备份文件版本不支持（${versionText}当前仅支持 v${BACKUP_VERSION}）`,
     });
   }
-  if (!Value.Check(memoryBackupFileSchema, value)) {
-    const details = [...Value.Errors(memoryBackupFileSchema, value)]
+  if (!Value.Check(memoryBackupFileSchema, current)) {
+    const details = [...Value.Errors(memoryBackupFileSchema, current)]
       .slice(0, 5)
       .map((error) => `${formatErrorPath(error.instancePath)}: ${error.message}`)
       .join("；");
     formatInvalid(details);
   }
-  validateBackupData((value as unknown as MemoryBackupFile).data);
-  const file = value as unknown as MemoryBackupFile;
+  validateBackupData((current as unknown as MemoryBackupFile).data);
+  const file = current as unknown as MemoryBackupFile;
   return { ...file, data: normalizeBackupData(file.data) };
 }
 
@@ -89,11 +95,12 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
  */
 export function normalizeBackupData(data: MemoryBackupData): MemoryBackupData {
   return {
-    spaces: data.spaces.map((unit) => ({
+    spaces: data.spaces.map(({ chatScopeMacros: legacyMacros, ...unit }) => ({
       ...unit,
       space: {
         ...unit.space,
         initializationSource: unit.space.initializationSource ?? null,
+        macros: unit.space.macros ?? legacyMacros ?? [],
       },
       tables: unit.tables.map((table, index) => ({
         ...table,
@@ -101,6 +108,27 @@ export function normalizeBackupData(data: MemoryBackupData): MemoryBackupData {
         vectorIndex: upgradeVectorIndexKeys(table.vectorIndex),
       })),
     })),
+  };
+}
+
+/** v1 的独立对话宏集合迁入空间，输入文件本身不修改。 */
+export function upgradeLegacyBackupUnits(raw: unknown): unknown {
+  if (!isRecord(raw) || !Array.isArray(raw.spaces)) return raw;
+  return {
+    ...raw,
+    spaces: raw.spaces.map((unit: unknown) => {
+      if (!isRecord(unit) || !isRecord(unit.space)) return unit;
+      const { chatScopeMacros, ...content } = unit;
+      return {
+        ...content,
+        space: {
+          ...unit.space,
+          macros:
+            unit.space.macros ??
+            migrateMemoryViews(chatScopeMacros ?? [], `legacy-backup:${String(unit.space.id)}`),
+        },
+      };
+    }),
   };
 }
 
@@ -146,6 +174,7 @@ export function validateSpaceBackupUnit(
   seen: BackupSeenIds,
   label = "备份文件",
 ): void {
+  parseMemoryMacros(unit.space.macros ?? []);
   const spaceId = unit.space.id;
   if (seen.space.has(spaceId)) formatInvalid(`记忆空间 id 重复：${spaceId}`, label);
   seen.space.add(spaceId);

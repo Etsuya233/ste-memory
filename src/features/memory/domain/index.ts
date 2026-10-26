@@ -60,3 +60,12 @@ export type {
   MemoryRevisionId,
   MemoryRevisionSource,
 } from "./memory-record.ts";
+
+export type {
+  MemoryMacro,
+  MacroExpression,
+  MacroQuery,
+  MacroQueryInput,
+  MacroQueryValue,
+  MacroSemanticSource,
+} from "./memory-macro.ts";

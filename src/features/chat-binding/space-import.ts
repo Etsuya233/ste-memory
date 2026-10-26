@@ -1,5 +1,6 @@
+import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemoryBackupRepository } from "../backup/index.ts";
-import type { MemoryView } from "../macros/memory-views.ts";
+import type { MemoryMacro } from "../macros/macro-expression.ts";
 import { parseBackupFile, type MemorySpaceBackup } from "../backup/index.ts";
 import type { SpaceContextStatus } from "./chat-space-manager.ts";
 import { BINDING_UNRECOGNIZED_MESSAGE } from "./chat-space-manager.ts";
@@ -30,7 +31,7 @@ export interface SpaceImportExecutionDeps {
    * 写回文件携带的对话级宏（spec 表格预设 6.3：单空间导出会带上导出时该对话的
    * 对话级宏，导入到当前对话时恢复）；文件缺省该键时不调用（保持当前对话的宏）。
    */
-  readonly writeChatScopeMacros?: (macros: readonly MemoryView[]) => void;
+  readonly writeChatScopeMacros?: (macros: readonly MemoryMacro[]) => void;
 }
 
 interface SpaceImportManager {
@@ -96,7 +97,13 @@ export async function executeSpaceImport(
   deps: SpaceImportExecutionDeps,
 ): Promise<void> {
   if (plan.action.kind === "restore") {
-    await deps.backup.restoreSpace(plan.action.unit);
+    await deps.backup.restoreSpace({
+      ...plan.action.unit,
+      space: {
+        ...plan.action.unit.space,
+        macros: restoredMemoryMacros(plan.action.unit.space.macros ?? []),
+      },
+    });
     // 绑定不变、空间仍在：重同步收敛
     await deps.manager.syncToCurrentChat();
   } else {

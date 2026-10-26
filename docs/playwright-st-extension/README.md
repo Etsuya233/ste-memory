@@ -53,7 +53,7 @@ node verify.mjs
    里 `$('#extensions_details').trigger('click')` —— ST 用 jQuery `.on('click', ...)` 绑事件，
    trigger 无视可见性直接触发。弹层等 `.extensions_info` → `.extension_block` 出现。
 3. **waitUntil 选择**：`networkidle` 在 ST 这种重页面会等很久甚至超时；`domcontentloaded`
-   + 业务条件轮询（console 日志 / selector）才是正解。
+   - 业务条件轮询（console 日志 / selector）才是正解。
 4. **curl 也中代理**：裸 curl 127.0.0.1 返回 502，必须 `--noproxy "*"` 才能拿到真实状态码。
 
 ## ST 侧可用事实（验证用）
@@ -226,3 +226,24 @@ dry run 真实路径：建书 → 条目内容放宏 → 分配给当前对话 �
   world-info.js newWorldInfoEntryTemplate；缺失字段在 load 时自动补齐）。
 - **dry run 扫描不写定时状态**：getWorldInfoPrompt(chat, maxContext, true)
   是插件 worldbook-text.ts 同款调用（ADR 0007），不会污染对话 sticky/cooldown。
+
+## 表达式宏验收（verify-expression-macros.mjs）
+
+表达式宏使用本节脚本验收；前文针对旧记忆视图及自动召回的 ticket 脚本保留为历史记录。
+
+先将待验收构建部署到独立确认的 ST 扩展目录，再运行脚本。脚本创建两个专用角色、对话和记忆空间，使用真实 embedding API 建索引和查询；主生成响应由浏览器路由提供确定性文本，提示词构建、宏等待和 ST 生成事件使用真实宿主流程。结束时删除专用数据并恢复运行前设置。
+
+参数可用命令行 `--url`、`--install`、`--chrome`、`--api-dir`、`--output`，也可用以下环境变量：
+
+- `ST_URL`：ST 地址，默认 `http://127.0.0.1:8000`。
+- `STE_ST_INSTALL`：当前运行的 ST 安装目录，用于校验运行目标。
+- `CHROME`：Chrome 或 Edge 可执行文件。
+- `STE_EMBEDDING_API_DIR`：包含 `baseUrl.txt`、`model.txt`、`apiKey.txt` 的授权资料目录。
+- `PLAYWRIGHT_MODULE_PATH`：可选，当前脚本无法解析 `playwright-core` 时指定其安装目录。
+- `STE_E2E_OUTPUT`：可选，截图和脱敏 JSON 报告目录；默认创建系统临时目录。
+
+运行 `node docs/playwright-st-extension/verify-expression-macros.mjs`。密钥仅在内存中读取、临时用于浏览器连接配置，报告不保存密钥和请求头。脚本覆盖 Query/SQL 等价、空评分源 LEFT JOIN、界面保存及测试入口、最近结果只读、正常发送的等待和提示词命中、同批查询向量共享、重新生成和续写、停止和切换对话的迟到响应、预设宏保存，以及旧 memoryRecall 专用功能移除。
+
+停止链路的专项诊断可加 `--stop-probe --synthetic`：只建立一条合成索引，通过真实 ST 生成、停止和下一发送记录事件顺序、dry run 参数、实际插件拦截器 registry 与 abort 调用。报告明确标记 `synthetic: true`，真实 embedding 调用数为零；这份诊断报告不替代完整验收。
+
+Text Completion 等待专项使用 `--tc-probe --synthetic`，给查询向量增加受控延迟，报告保存生成事件、请求时间及宏终态。完整真实轮保留产品 10 秒预算；只有诊断明确为该预算超时，验收脚本才允许重测一次 TC 成功链路，生产逻辑不重试。

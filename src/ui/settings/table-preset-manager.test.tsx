@@ -76,6 +76,7 @@ function render(
 ): string {
   return renderToString(
     <TablePresetManager
+      validatePreset={vi.fn(async () => {})}
       presetUpdate={{ preview: vi.fn(), apply: vi.fn(), retrySave: vi.fn() }}
       presets={overrides.presets ?? presets()}
       status={overrides.status ?? activeStatus()}

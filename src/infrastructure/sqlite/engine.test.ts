@@ -81,6 +81,132 @@ describe("real SQLite WASM memory engine", () => {
   afterEach(async () => {
     await client.close();
   });
+  it("evaluates isolated macro snapshots with trusted local sources and ordered columns", async () => {
+    const snapshot = fixture();
+    const sessionId = await client.openEvaluation({
+      ...snapshot,
+      records: [record("one", "旧正文")],
+    });
+    await client.putEntity("s", "record", record("one", "新正文"));
+    const input = {
+      sessionId,
+      sources: [{ name: "scores", rows: [{ recordId: "one", score: 0.7, groupKey: "facts" }] }],
+    };
+    expect(
+      await client.evaluateMacro({
+        ...input,
+        sql: 'SELECT r."姓名" AS name,s.score,:last_user_message AS message FROM "角色" r JOIN scores s ON s.record_id=r."$record_id"',
+        lastUserMessage: "hello'; SELECT 9",
+      }),
+    ).toEqual({
+      columns: ["name", "score", "message"],
+      rows: [["旧正文", 0.7, "hello'; SELECT 9"]],
+    });
+    await expect(
+      client.evaluateMacro({ sessionId, sources: [], sql: "SELECT * FROM scores" }),
+    ).rejects.toThrow();
+    await expect(
+      client.evaluateMacro({ ...input, sql: "SELECT * FROM __entities" }),
+    ).rejects.toThrow();
+    await expect(client.evaluateMacro({ ...input, sql: "DELETE FROM scores" })).rejects.toThrow();
+    await expect(client.evaluateMacro({ ...input, sql: "SELECT 1; SELECT 2" })).rejects.toThrow(
+      "一条",
+    );
+    await expect(client.evaluateMacro({ ...input, sql: "SELECT 1 AS a,2 AS a" })).rejects.toThrow(
+      "重复列",
+    );
+    expect(
+      await client.evaluateMacro({
+        sessionId,
+        sources: [],
+        sql: "SELECT :last_user_message AS message",
+      }),
+    ).toEqual({ columns: ["message"], rows: [[null]] });
+    await client.closeEvaluation(sessionId);
+  });
+  it("rejects the 10001st macro row and interrupts expensive SQL while keeping the session reusable", async () => {
+    const sessionId = await client.openEvaluation(fixture());
+    await expect(
+      client.evaluateMacro({
+        sessionId,
+        sources: [],
+        sql: "WITH RECURSIVE n(v) AS(VALUES(1) UNION ALL SELECT v+1 FROM n WHERE v<10001) SELECT v FROM n",
+      }),
+    ).rejects.toThrow("10000");
+    await expect(
+      client.evaluateMacro({
+        sessionId,
+        sources: [],
+        budgetMs: 1,
+        sql: "WITH RECURSIVE n(v) AS(VALUES(1) UNION ALL SELECT v+1 FROM n) SELECT sum(v) FROM n",
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await client.evaluateMacro({ sessionId, sources: [], sql: "SELECT 1 AS ok; -- comment" }))
+        .rows,
+    ).toEqual([[1]]);
+  });
+  it("uses SQLite ASCII identifier matching without exposing disabled Unicode tables or columns", async () => {
+    const data = fixture();
+    const sessionId = await client.openEvaluation({
+      ...data,
+      tables: [
+        { ...data.tables[0]!, key: "ä" },
+        { ...data.tables[0]!, id: "hidden", key: "Ä", enabled: false },
+      ],
+      fields: [
+        { ...data.fields[0]!, key: "ä" },
+        { ...data.fields[0]!, id: "hidden-field", key: "Ä", required: false, enabled: false },
+        { ...data.fields[0]!, id: "other-field", tableId: "hidden", key: "value" },
+      ],
+      records: [
+        { ...record("one", "公开"), payload: { f: "公开", "hidden-field": "secret" } },
+        { ...record("two", "secret"), tableId: "hidden", payload: { "other-field": "secret" } },
+      ],
+    } as unknown as MemorySpaceBackup);
+    expect(
+      (await client.evaluateMacro({ sessionId, sources: [], sql: 'SELECT "ä" FROM "ä"' })).rows,
+    ).toEqual([["公开"]]);
+    await expect(
+      client.evaluateMacro({ sessionId, sources: [], sql: 'SELECT "$display_text" FROM "Ä"' }),
+    ).rejects.toThrow();
+    await expect(
+      client.evaluateMacro({ sessionId, sources: [], sql: 'SELECT "Ä" FROM "ä"' }),
+    ).rejects.toThrow();
+    const other = await client.openEvaluation(fixture());
+    expect(
+      (
+        await client.evaluateMacro({
+          sessionId: other,
+          sources: [
+            { name: "ä", rows: [{ recordId: "a", score: 1, groupKey: "g" }] },
+            { name: "Ä", rows: [{ recordId: "b", score: 0, groupKey: "g" }] },
+          ],
+          sql: 'SELECT a.record_id AS a,b.record_id AS b FROM "ä" a JOIN "Ä" b',
+        })
+      ).rows,
+    ).toEqual([["a", "b"]]);
+  });
+  it.each(["json_each", "json_tree"])(
+    "does not authorize a disabled business table named %s as a JSON virtual table",
+    async (key) => {
+      const data = fixture();
+      for (const enabled of [false, true]) {
+        const sessionId = await client.openEvaluation({
+          ...data,
+          tables: [{ ...data.tables[0]!, key, enabled }],
+          records: [record("one", "secret")],
+        } as unknown as MemorySpaceBackup);
+        const result = client.evaluateMacro({
+          sessionId,
+          sources: [],
+          sql: `SELECT "$display_text" FROM "${key}"`,
+        });
+        if (enabled) expect((await result).rows).toEqual([["secret"]]);
+        else await expect(result).rejects.toThrow();
+      }
+    },
+  );
   it("executes unrestricted console DDL, DML, PRAGMA and multiple result sets in order", async () => {
     const result = await client.executeConsole(
       "s",

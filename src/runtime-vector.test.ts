@@ -517,7 +517,7 @@ describe("预设更新的运行时接线", () => {
   });
 });
 
-it("删除被召回绑定的分组会拒绝；解除绑定后关闭索引并删除分组会清理向量", async () => {
+it("废弃旧召回后删除分组不再被旧绑定阻止，并清理向量", async () => {
   const { runtime, db, spaceId, tableId, fieldId } = await setup({
     getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
     embed: async () => [1, 2],
@@ -557,23 +557,8 @@ it("删除被召回绑定的分组会拒绝；解除绑定后关闭索引并删�
         : table,
     ),
   };
-  runtime.memoryRecall.saveConfiguration({
-    ...runtime.memoryRecall.getState().configuration,
-    spaceId,
-    bindings: [
-      { scope: "chat", name: "测试视图", tableKey: "vector_test", groupIds: ["bound-group"] },
-    ],
-  });
   const plan = await runtime.presetUpdate.preview(spaceId, preset, status.binding.chatIdentity);
   const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
-  await expect(
-    runtime.presetUpdate.apply(plan, selected, status.binding.chatIdentity),
-  ).rejects.toThrow("仍引用将删除的分组");
-  expect((await runtime.tables.find(spaceId, tableId))!.vectorIndex!.enabled).toBe(true);
-  runtime.memoryRecall.saveConfiguration({
-    ...runtime.memoryRecall.getState().configuration,
-    bindings: [],
-  });
   expect(await runtime.presetUpdate.apply(plan, selected, status.binding.chatIdentity)).toEqual({
     issues: [],
   });

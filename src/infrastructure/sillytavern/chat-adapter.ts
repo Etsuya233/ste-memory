@@ -175,7 +175,7 @@ export const CHAT_METADATA_CLEANING_RULE_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
-/** ST 事件桥：切换空间上下文，并在正常发送构建提示词前等待自动召回。 */
+/** ST 事件桥：切换空间上下文，并在提示词构建前等待本次宏计算。 */
 export interface StEventBridge {
   /** CHAT_CHANGED：切换对话 → 重新同步空间上下文 */
   onChatChanged(): void | Promise<void>;
@@ -186,9 +186,14 @@ export interface StEventBridge {
     options: { automatic_trigger?: boolean; signal?: AbortSignal; continuation?: boolean },
     dryRun: boolean,
   ): void;
+  onGenerationAfterCommands?(
+    type: unknown,
+    options: { automatic_trigger?: boolean },
+    dryRun: boolean,
+  ): void | Promise<void>;
   onGenerationStopped?(): void;
   onGenerationFinished?(dryRun: boolean): void;
-  shouldAwaitRecall?(): boolean;
+  shouldAwaitMacros?(): boolean;
   onGroupStarted?(): void;
   onGroupEnded?(): void;
   onMessageChanged?(): void;
@@ -484,7 +489,7 @@ export class StChatAdapter {
     };
   }
 
-  /** 注册 ST 生命周期：正常发送等待召回，停止后的旧调用经拦截器退出。 */
+  /** 注册 ST 生命周期：生成等待宏计算，停止后的旧调用经拦截器退出。 */
   registerEventBridge(bridge: StEventBridge): void {
     const context = this.#getContext();
     const source = context.eventSource;
@@ -501,39 +506,10 @@ export class StChatAdapter {
     });
     source.on(types.MESSAGE_SENT, (floor) => {
       if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) return;
-      const result = bridge.onMessageEvent("message_sent", floor as number);
-      if (result && bridge.shouldAwaitRecall?.()) {
-        let drain!: () => void;
-        const drained = new Promise<void>((resolve) => {
-          drain = resolve;
-        });
-        const generation = {
-          awaitingMessage: true,
-          prompted: false,
-          cancelled: false,
-          drained,
-          drain,
-        };
-        this.#generation = generation;
-        this.#generationSignal?.addEventListener(
-          "abort",
-          () => {
-            if (this.#generation !== generation) return;
-            if (!generation.prompted) generation.cancelled = true;
-            bridge.onGenerationStopped?.();
-          },
-          { once: true },
-        );
-        void result.then(
-          () => {
-            generation.awaitingMessage = false;
-          },
-          () => {
-            generation.awaitingMessage = false;
-          },
-        );
-      }
-      return result;
+      return this.#trackMacroEvaluation(
+        bridge.onMessageEvent("message_sent", floor as number),
+        bridge,
+      );
     });
     if (types.GENERATION_STARTED)
       source.on(types.GENERATION_STARTED, async (type, options, dryRun) => {
@@ -569,15 +545,26 @@ export class StChatAdapter {
         );
       });
     if (types.GENERATION_AFTER_COMMANDS)
-      source.on(types.GENERATION_AFTER_COMMANDS, (_type, _options, dryRun) => {
-        if (dryRun !== true) this.#afterCommands = true;
+      source.on(types.GENERATION_AFTER_COMMANDS, (type, options, dryRun) => {
+        if (dryRun === true || type === "quiet" || type === "impersonate") return;
+        this.#afterCommands = true;
+        const result = bridge.onGenerationAfterCommands?.(
+          type,
+          options as { automatic_trigger?: boolean },
+          dryRun === true,
+        );
+        return dryRun === true ? result : this.#trackMacroEvaluation(result, bridge);
       });
     if (types.GENERATE_AFTER_DATA)
-      source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) =>
-        bridge.onGenerationFinished?.(dryRun === true),
-      );
+      source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) => {
+        if (dryRun === true) return bridge.onGenerationFinished?.(true);
+        if (this.#generation && !this.#generation.prompted) return;
+        return bridge.onGenerationFinished?.(false);
+      });
     if (types.GENERATION_ENDED)
       source.on(types.GENERATION_ENDED, () => {
+        // This global UI event also comes from quiet calls and has no operation identity.
+        if (this.#generation && !this.#generation.prompted && !this.#generation.cancelled) return;
         this.#sendEligible = false;
         this.#afterCommands = false;
         if (
@@ -608,6 +595,42 @@ export class StChatAdapter {
     if (types.MESSAGE_EDITED) source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
     if (types.MESSAGE_DELETED) source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
     source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
+  }
+
+  #trackMacroEvaluation(result: void | Promise<void>, bridge: StEventBridge): void | Promise<void> {
+    if (!result || !bridge.shouldAwaitMacros?.()) return result;
+    let drain!: () => void;
+    const drained = new Promise<void>((resolve) => {
+      drain = resolve;
+    });
+    const generation = { awaitingMessage: true, prompted: false, cancelled: false, drained, drain };
+    this.#generation = generation;
+    this.#generationSignal?.addEventListener(
+      "abort",
+      () => {
+        if (this.#generation !== generation) return;
+        if (!generation.prompted) generation.cancelled = true;
+        bridge.onGenerationStopped?.();
+      },
+      { once: true },
+    );
+    void result.then(
+      () => {
+        generation.awaitingMessage = false;
+      },
+      () => {
+        generation.awaitingMessage = false;
+      },
+    );
+    return result;
+  }
+
+  clearLegacyRecall(): void {
+    const context = this.#getContext();
+    if (context.chatMetadata && Object.hasOwn(context.chatMetadata, "steMemoryRecall")) {
+      delete context.chatMetadata.steMemoryRecall;
+      context.saveMetadataDebounced?.();
+    }
   }
 
   /** ST 的提示词拦截入口；取消中的旧发送必须在新 STARTED 放行前退出。 */

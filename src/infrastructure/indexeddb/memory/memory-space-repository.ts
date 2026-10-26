@@ -1,3 +1,4 @@
+import { parseMemoryMacros, type MemoryMacro } from "../../../features/macros/macro-expression.ts";
 import { Dexie } from "dexie";
 import type { MemorySpace, MemorySpaceId, MemoryTableId } from "../../../features/memory/index.ts";
 import type { MemorySpaceRepository } from "../../../features/memory/index.ts";
@@ -123,6 +124,18 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
       (left, right) =>
         right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
     );
+  }
+
+  async setMacros(
+    id: MemorySpaceId,
+    macros: readonly MemoryMacro[],
+    updatedAt: string,
+  ): Promise<MemorySpace | undefined> {
+    const count = await this.#db.memorySpaces.update(id, {
+      macros: parseMemoryMacros(macros),
+      updatedAt,
+    });
+    return count > 0 ? this.find(id) : undefined;
   }
 
   async rename(

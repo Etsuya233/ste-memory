@@ -22,6 +22,7 @@ function fixture() {
   };
   const preset: ResolvedTablePreset = {
     ...STORY_MEMORY_PRESET,
+    macros: [],
     tables: [structuredClone(STORY_MEMORY_PRESET.tables[0]!)],
   };
   const spaceId = "space" as MemorySpaceId;

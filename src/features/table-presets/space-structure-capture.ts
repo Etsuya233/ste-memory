@@ -1,3 +1,5 @@
+import type { MemoryMacro } from "../macros/macro-expression.ts";
+import type { MemorySpace } from "../memory/index.ts";
 import type { MemoryField, MemoryTable } from "../memory/index.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 import { capturePresetVectorIndex } from "./preset-vector-index.ts";
@@ -19,6 +21,7 @@ import type {
 
 /** 结构读取端口（宿主 = Memory 的表格/字段服务）。 */
 export interface SpaceStructureReader {
+  readonly findSpace?: (id: MemorySpaceId) => Promise<MemorySpace | undefined>;
   readonly listTables: (memorySpaceId: MemorySpaceId) => Promise<readonly MemoryTable[]>;
   readonly listFields: (
     memorySpaceId: MemorySpaceId,
@@ -30,6 +33,7 @@ export async function captureSpaceStructure(
   reader: SpaceStructureReader,
   memorySpaceId: MemorySpaceId,
   prompt?: string,
+  macros?: readonly MemoryMacro[],
 ): Promise<TablePresetStructure> {
   const tables = await reader.listTables(memorySpaceId);
   const tableKeyById = new Map<string, string>(tables.map((table) => [table.id, table.key]));
@@ -39,6 +43,7 @@ export async function captureSpaceStructure(
   }
 
   return {
+    macros: macros ?? (await reader.findSpace?.(memorySpaceId))?.macros,
     prompt,
     tables: tables.map((table) => {
       const fields = fieldsByTableId.get(table.id) ?? [];

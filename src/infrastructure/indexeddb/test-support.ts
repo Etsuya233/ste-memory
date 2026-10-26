@@ -63,6 +63,7 @@ export async function installDefaultPreset(
   now: () => string = () => NOW,
 ): Promise<void> {
   const apply = new TablePresetApplyService({
+    validateStructure: async () => {},
     cancelActiveTask: async () => undefined,
     rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
     defaultPreset: () => SYSTEM_TABLE_PRESET,

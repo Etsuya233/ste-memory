@@ -166,6 +166,16 @@ export class SteMemoryDatabase extends Dexie {
             table.vectorIndex = upgradeVectorIndexKeys(table.vectorIndex);
           });
       });
+    this.version(8)
+      .stores({})
+      .upgrade(async (transaction) => {
+        await transaction
+          .table("memorySpaces")
+          .toCollection()
+          .modify((space) => {
+            space.macros = [];
+          });
+      });
   }
 }
 

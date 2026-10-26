@@ -1,5 +1,9 @@
 import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import type {
+  MacroSqlEvaluationInput,
+  MacroSqlResult,
+} from "../../features/macros/macro-evaluation-port.ts";
 import type { MemoryField, MemoryRecord, MemoryTable } from "../../features/memory/index.ts";
 import type {
   SqlExecutionResult,
@@ -15,6 +19,8 @@ import type {
   SqliteView,
 } from "./types.ts";
 
+const sqliteIdentifierKey = (name: string): string =>
+  name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 const collections = {
@@ -36,9 +42,212 @@ interface SpaceDatabase {
 /** The same engine runs in a dedicated browser Worker and in real-WASM Node tests. */
 export class SqliteMemoryEngine implements SqliteMemoryClient {
   private readonly spaces = new Map<string, SpaceDatabase>();
+  private readonly evaluations = new Map<string, Database>();
+  private evaluationSequence = 0;
   private readonly sqlite: Sqlite3Static;
   constructor(sqlite: Sqlite3Static) {
     this.sqlite = sqlite;
+  }
+
+  async openEvaluation(snapshot: MemorySpaceBackup): Promise<string> {
+    const db = this.newDatabase();
+    try {
+      db.exec("BEGIN");
+      this.store(db, "space", snapshot.space);
+      for (const kind of Object.keys(collections) as (keyof typeof collections)[])
+        for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
+      this.rebuild(db);
+      db.exec("COMMIT");
+      const id = String(++this.evaluationSequence);
+      this.evaluations.set(id, db);
+      return id;
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  }
+
+  async closeEvaluation(sessionId: string): Promise<void> {
+    const db = this.evaluations.get(sessionId);
+    if (!db) throw new Error(`宏求值会话不存在：${sessionId}`);
+    db.close();
+    this.evaluations.delete(sessionId);
+  }
+
+  async evaluateMacro(input: MacroSqlEvaluationInput): Promise<MacroSqlResult> {
+    const db = this.evaluations.get(input.sessionId);
+    if (!db) throw new Error(`宏求值会话不存在：${input.sessionId}`);
+    const { capi, wasm } = this.sqlite;
+    const totalDeadline = performance.now() + (input.remainingMs ?? Infinity);
+    const businessNames = new Set(
+      this.entities(db, "table").map((table) => sqliteIdentifierKey(table.key)),
+    );
+    const allowed = new Map(
+      this.entities(db, "table")
+        .filter((t) => t.enabled)
+        .map((table) => [
+          sqliteIdentifierKey(table.key),
+          new Set([
+            "$record_id",
+            "$display_text",
+            "$created_at",
+            "$updated_at",
+            ...this.entities(db, "field")
+              .filter((f) => f.tableId === table.id && f.enabled)
+              .map((f) => sqliteIdentifierKey(f.key)),
+          ]),
+        ]),
+    );
+    const created: string[] = [];
+    let statement = 0;
+    let source = 0;
+    let statementPointer = 0;
+    let tailPointer = 0;
+    try {
+      const names = new Set(businessNames);
+      for (const relation of input.sources) {
+        const name = sqliteIdentifierKey(relation.name);
+        if (names.has(name) || name.startsWith("__") || name.startsWith("sqlite_"))
+          throw new Error(`语义源名称冲突或使用保留名称：${relation.name}`);
+        names.add(name);
+        db.exec(
+          `CREATE TEMP TABLE ${quote(relation.name)}(record_id TEXT NOT NULL,score REAL NOT NULL,group_key TEXT NOT NULL) STRICT`,
+        );
+        created.push(relation.name);
+        for (const row of relation.rows) {
+          if (performance.now() >= totalDeadline) throw new Error("宏求值超时");
+          this.rows(db, `INSERT INTO ${quote(relation.name)} VALUES(?,?,?)`, [
+            row.recordId,
+            row.score,
+            row.groupKey,
+          ]);
+        }
+        allowed.set(name, new Set(["record_id", "score", "group_key"]));
+      }
+      const readActions = new Set<number>([
+        capi.SQLITE_SELECT,
+        capi.SQLITE_READ,
+        capi.SQLITE_FUNCTION,
+        capi.SQLITE_RECURSIVE,
+      ]);
+      capi.sqlite3_set_authorizer(
+        db.pointer!,
+        (_arg, action, tableName, columnName) => {
+          if (!readActions.has(action)) return capi.SQLITE_DENY;
+          if (
+            action === capi.SQLITE_FUNCTION &&
+            ["load_extension", "readfile", "writefile"].includes(String(columnName))
+          )
+            return capi.SQLITE_DENY;
+          if (action === capi.SQLITE_READ) {
+            const table = sqliteIdentifierKey(String(tableName));
+            if (["json_each", "json_tree"].includes(table) && !businessNames.has(table))
+              return capi.SQLITE_OK;
+            const columns = allowed.get(table);
+            if (
+              !columns ||
+              (columnName !== "" && !columns.has(sqliteIdentifierKey(String(columnName))))
+            )
+              return capi.SQLITE_DENY;
+          }
+          return capi.SQLITE_OK;
+        },
+        0,
+      );
+      const deadline = Math.min(
+        totalDeadline,
+        performance.now() + Math.min(1000, input.budgetMs ?? 1000),
+      );
+      capi.sqlite3_progress_handler(
+        db.pointer!,
+        1000,
+        () => (performance.now() >= deadline ? 1 : 0),
+        0,
+      );
+      source = wasm.allocCString(input.sql, false);
+      statementPointer = wasm.allocPtr(1);
+      tailPointer = wasm.allocPtr(1);
+      let cursor = source;
+      while (wasm.heap8u()[cursor] !== 0) {
+        const code = capi.sqlite3_prepare_v3(
+          db.pointer!,
+          cursor,
+          -1,
+          0,
+          statementPointer,
+          tailPointer,
+        );
+        const next = wasm.peekPtr(statementPointer);
+        db.checkRc(code);
+        cursor = wasm.peekPtr(tailPointer);
+        if (!next) continue;
+        if (statement) {
+          capi.sqlite3_finalize(next);
+          throw new Error("宏 SQL 只允许一条语句");
+        }
+        statement = next;
+      }
+      if (!statement) throw new Error("宏 SQL 需要一条查询语句");
+      const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, i) =>
+        capi.sqlite3_column_name(statement, i),
+      );
+      if (columns.length === 0) throw new Error("宏 SQL 必须返回查询结果");
+      if (new Set(columns).size !== columns.length)
+        throw new Error("宏 SQL 返回重复列名，请使用不同别名");
+      let positional = 0;
+      for (let i = 1; i <= capi.sqlite3_bind_parameter_count(statement); i++) {
+        const name = capi.sqlite3_bind_parameter_name(statement, i);
+        if (name && name !== ":last_user_message") throw new Error(`宏 SQL 参数未声明：${name}`);
+        if (input.prepareOnly) {
+          if (!name && input.bind?.[positional++] === undefined)
+            throw new Error("宏 SQL 缺少绑定参数");
+          continue;
+        }
+        const value =
+          name === ":last_user_message"
+            ? (input.lastUserMessage ?? null)
+            : input.bind?.[positional++];
+        if (value === undefined) throw new Error("宏 SQL 缺少绑定参数");
+        if (typeof value === "string") {
+          const text = wasm.allocCString(value, false);
+          try {
+            db.checkRc(
+              capi.sqlite3_bind_text(
+                statement,
+                i,
+                text,
+                new TextEncoder().encode(value).byteLength,
+                capi.SQLITE_TRANSIENT,
+              ),
+            );
+          } finally {
+            wasm.dealloc(text);
+          }
+        } else
+          db.checkRc(
+            value === null
+              ? capi.sqlite3_bind_null(statement, i)
+              : capi.sqlite3_bind_double(statement, i, value),
+          );
+      }
+      if (input.prepareOnly) return { columns, rows: [] };
+      const rows: unknown[][] = [];
+      let step: number;
+      while ((step = capi.sqlite3_step(statement)) === capi.SQLITE_ROW) {
+        if (rows.length === 10000) throw new Error("宏查询结果超过 10000 行");
+        rows.push(columns.map((_, i) => capi.sqlite3_column_js(statement, i)));
+      }
+      if (step !== capi.SQLITE_DONE) db.checkRc(step);
+      return { columns, rows };
+    } finally {
+      if (statement) capi.sqlite3_finalize(statement);
+      if (source) wasm.dealloc(source);
+      if (statementPointer) wasm.dealloc(statementPointer);
+      if (tailPointer) wasm.dealloc(tailPointer);
+      capi.sqlite3_set_authorizer(db.pointer!, () => capi.SQLITE_OK, 0);
+      capi.sqlite3_progress_handler(db.pointer!, 0, 0, 0);
+      for (const name of created) db.exec(`DROP TABLE temp.${quote(name)}`);
+    }
   }
 
   /** Execute verbatim against the current browsing connection; no publication or snapshot saving. */
@@ -364,7 +573,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       );
     }
     for (const table of tables) {
-      if (table.key.startsWith("__") || table.key.toLowerCase().startsWith("sqlite_"))
+      if (table.key.startsWith("__") || sqliteIdentifierKey(table.key).startsWith("sqlite_"))
         throw new Error(`SQLite 保留表 Key：${table.key}`);
       const columns = fields.filter((field) => field.tableId === table.id);
       if (columns.some((field) => field.key.startsWith("$") || field.key.startsWith("__")))
@@ -551,7 +760,8 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     const deadline = performance.now() + budgetMs;
     const jsonVirtualTables = new Set(
       ["json_each", "json_tree"].filter(
-        (name) => !this.entities(db, "table").some((table) => table.key.toLowerCase() === name),
+        (name) =>
+          !this.entities(db, "table").some((table) => sqliteIdentifierKey(table.key) === name),
       ),
     );
     const readActions = new Set<number>([
@@ -614,6 +824,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     this.spaces.delete(spaceId);
   }
   async close(): Promise<void> {
+    for (const sessionId of this.evaluations.keys()) await this.closeEvaluation(sessionId);
     for (const spaceId of this.spaces.keys()) await this.removeSpace(spaceId);
   }
 }

@@ -1,3 +1,8 @@
+import {
+  memoryMacroSchema,
+  parseMemoryMacros,
+  copyMemoryMacros,
+} from "../macros/macro-expression.ts";
 import { tablePresetVectorIndexSchema } from "./preset-vector-schema.ts";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
@@ -12,7 +17,7 @@ import {
 import { saveUserTablePreset } from "./table-preset-library.ts";
 
 export const TABLE_PRESET_FORMAT = "ste-memory-table-preset";
-export const TABLE_PRESET_VERSION = 2;
+export const TABLE_PRESET_VERSION = 3;
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);
 const displayStrategySchema = Type.Union([
@@ -57,6 +62,7 @@ const fieldSchema = Type.Object(
 );
 const presetSchema = Type.Object(
   {
+    macros: Type.Optional(Type.Array(memoryMacroSchema)),
     name: Type.String(),
     description: Type.String(),
     prompt: Type.Optional(Type.String()),
@@ -101,6 +107,7 @@ export function serializeTablePresetExport(
       version: TABLE_PRESET_VERSION,
       exportedAt,
       preset: {
+        macros: preset.macros ?? [],
         name: preset.name,
         description: preset.description,
         prompt: preset.prompt ?? "",
@@ -127,14 +134,16 @@ export function parseTablePresetExport(text: string): ImportedTablePreset {
   ) {
     throw new Error("这不是表格预设文件，请选择导出的表格预设 JSON");
   }
-  if (!("version" in raw) || raw.version !== TABLE_PRESET_VERSION) {
+  const current =
+    "version" in raw && raw.version === 2 ? { ...raw, version: TABLE_PRESET_VERSION } : raw;
+  if (!("version" in current) || current.version !== TABLE_PRESET_VERSION) {
     throw new Error(`表格预设文件版本不支持，当前支持 v${TABLE_PRESET_VERSION}`);
   }
-  if (!Value.Check(fileSchema, raw)) {
-    const issue = [...Value.Errors(fileSchema, raw)][0]!;
+  if (!Value.Check(fileSchema, current)) {
+    const issue = [...Value.Errors(fileSchema, current)][0]!;
     throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
   }
-  return validateTablePresetContent(raw.preset);
+  return validateTablePresetContent(current.preset);
 }
 
 /** 编辑与导入共用同一套结构、引用和显示策略校验。 */
@@ -144,6 +153,7 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
     throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
   }
   const preset = raw;
+  parseMemoryMacros(preset.macros ?? []);
   if (!preset.name.trim() || preset.name.trim().length > 120)
     throw new Error("预设名称须为 1–120 个字符");
   // 引用和显示策略按实例化的真实规则校验，导入阶段失败不会写设置。
@@ -218,6 +228,10 @@ export function importTablePreset(
     ...input,
     name,
     description: imported.description,
-    structure: { prompt: imported.prompt, tables: imported.tables } satisfies TablePresetStructure,
+    structure: {
+      prompt: imported.prompt,
+      tables: imported.tables,
+      macros: copyMemoryMacros(imported.macros ?? [], () => crypto.randomUUID()),
+    } satisfies TablePresetStructure,
   });
 }

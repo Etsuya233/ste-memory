@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { createChatMirrorFile } from "../../features/chat-mirror/index.ts";
 import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
@@ -254,15 +255,15 @@ describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => 
     }).not.toThrow();
   });
 
-  it("损坏值（版本不符/非对象）= 空列表", () => {
+  it("损坏旧宏与未知版本报错，原数据保留", () => {
     const { context, adapter } = stableAdapter();
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = { version: 2, macros: [] };
-    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("原始数据已保留");
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = "junk";
-    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("原始数据已保留");
   });
 
-  it("损坏视图逐项丢弃，保留其余", () => {
+  it("损坏旧视图不能静默丢弃", () => {
     const { context, adapter } = stableAdapter();
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = {
       version: 1,
@@ -271,9 +272,10 @@ describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => 
         { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
       ],
     };
-    expect(adapter.chatScopeMacroStore.read()).toEqual([
-      { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
-    ]);
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("空白");
+    expect(context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY]).toMatchObject({
+      macros: [{ name: "非法 名" }, { name: "有效" }],
+    });
   });
 });
 
@@ -339,7 +341,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     expect(settled).toBe(true);
   });
 
-  function recallBridge() {
+  function macroBridge() {
     const fake = fakeEventSource();
     const eventTypes = {
       ...fake.eventTypes,
@@ -373,14 +375,14 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
       onGenerationStopped: vi.fn(() => {
         release();
       }),
-      shouldAwaitRecall: () => true,
+      shouldAwaitMacros: () => true,
     };
     adapter.registerEventBridge(bridge);
     return { adapter, bridge, handlers: fake.handlers, stopGeneration, release };
   }
 
   it("命令阶段的发送不召回；经过提示词构建后的normal递归保留同轮资格", async () => {
-    const { adapter, bridge, handlers, release } = recallBridge();
+    const { adapter, bridge, handlers, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("message_sent")!(2);
     expect(bridge.onMessageEvent).not.toHaveBeenCalled();
@@ -398,7 +400,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("停止等待后新STARTED等待旧拦截器退出，旧ENDED不会清新发送", async () => {
-    const { adapter, bridge, handlers, stopGeneration } = recallBridge();
+    const { adapter, bridge, handlers, stopGeneration } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);
@@ -419,9 +421,68 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
       false,
     );
   });
+  it("manifest使取消门禁先于提前终止的第三方拦截器，正常下游终止也释放旧身份", async () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../../../manifest.json", import.meta.url), "utf8"),
+    ) as { loading_order: number; display_name: string };
+    const { adapter, bridge, handlers, stopGeneration } = macroBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    const sending = handlers.get("message_sent")!(2);
+    stopGeneration();
+    const next = handlers.get("started")!("normal", {}, false);
+    await sending;
+    const laterInterceptor = vi.fn((abort: (immediately: boolean) => void) => abort(true));
+    const registry = [
+      { loading_order: 10, display_name: "ImageGeneration", intercept: vi.fn() },
+      { loading_order: 10, display_name: "LittleWhiteBox", intercept: laterInterceptor },
+      {
+        ...manifest,
+        intercept: (abort: (immediately: boolean) => void) =>
+          adapter.interceptGeneration(abort, "normal"),
+      },
+      { loading_order: 100, display_name: "Vector", intercept: vi.fn() },
+    ].sort(
+      (a, b) => a.loading_order - b.loading_order || a.display_name.localeCompare(b.display_name),
+    );
+    let immediate = false;
+    const abort = vi.fn((value: boolean) => {
+      immediate = value;
+    });
+    for (const extension of registry) {
+      extension.intercept(abort);
+      if (immediate) break;
+    }
+    expect(abort).toHaveBeenCalledWith(true);
+    expect(laterInterceptor).not.toHaveBeenCalled();
+    handlers.get("ended")!();
+    await next;
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "normal",
+      { continuation: false },
+      false,
+    );
+
+    handlers.get("after_commands")!("normal", {}, false);
+    await handlers.get("message_sent")!(3);
+    immediate = false;
+    for (const extension of registry) {
+      extension.intercept(abort);
+      if (immediate) break;
+    }
+    expect(laterInterceptor).toHaveBeenCalledOnce();
+    // ST's unblock path emits ENDED after a downstream interceptor aborts.
+    handlers.get("ended")!();
+    await handlers.get("started")!("regenerate", {}, false);
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "regenerate",
+      { continuation: false },
+      false,
+    );
+  });
 
   it("等待期间dryRun不停止或取消真实召回", async () => {
-    const { adapter, handlers, stopGeneration, release } = recallBridge();
+    const { adapter, handlers, stopGeneration, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);
@@ -434,8 +495,27 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     expect(abort).not.toHaveBeenCalled();
   });
 
+  it("quiet与impersonate的无归属结束事件不会撤销仍在等待的正常宏批次", async () => {
+    for (const excluded of ["quiet", "impersonate"]) {
+      const { adapter, bridge, handlers, release } = macroBridge();
+      await handlers.get("started")!("normal", {}, false);
+      handlers.get("after_commands")!("normal", {}, false);
+      const sending = handlers.get("message_sent")!(2);
+      await handlers.get("started")!(excluded, {}, false);
+      await handlers.get("after_commands")!(excluded, {}, false);
+      handlers.get("data")!({}, false);
+      handlers.get("ended")!();
+      expect(bridge.onGenerationFinished).not.toHaveBeenCalled();
+      release();
+      await sending;
+      const abort = vi.fn();
+      adapter.interceptGeneration(abort, "normal");
+      expect(abort).not.toHaveBeenCalled();
+    }
+  });
+
   it("真实发送开始后插入完整dryRun仍把MESSAGE_SENT交给召回等待", async () => {
-    const { adapter, bridge, handlers, stopGeneration, release } = recallBridge();
+    const { adapter, bridge, handlers, stopGeneration, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     await handlers.get("started")!("normal", {}, true);
@@ -453,7 +533,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("普通空输入生成结束后不接受孤立MESSAGE_SENT，dry结束不清真实发送资格", async () => {
-    const { bridge, handlers } = recallBridge();
+    const { bridge, handlers } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     handlers.get("ended")!();
@@ -463,7 +543,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("召回结束到拦截器之间切聊仍终止旧发送，STOP先发ENDED也保留归属", async () => {
-    const { adapter, handlers, release } = recallBridge();
+    const { adapter, handlers, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);

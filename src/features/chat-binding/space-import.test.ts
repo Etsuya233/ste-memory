@@ -97,29 +97,27 @@ describe("space-import（单空间导入编排，issue 26）", () => {
     expect(harness.restoreSpace).not.toHaveBeenCalled();
   });
 
-  it("文件携带对话级宏时写回当前对话；缺省不写（spec 表格预设 6.3）", async () => {
+  it("新文件的宏随空间恢复，不再写回独立聊天元数据", async () => {
     const macros = [
       {
-        name: "未完成伏笔",
-        tableKey: "plots",
-        condition: { fieldKey: "status", values: ["埋设中"] },
-        limit: 20,
-        projection: [],
+        id: "m1",
+        name: "纪要",
+        enabled: true,
+        expression: { language: "sql" as const, sql: "SELECT 1" },
+        output: { format: "markdown" as const, maxChars: null },
       },
     ];
-    const withMacros = planSpaceImport(
-      fileText(unit("A", { chatScopeMacros: macros })),
+    const source = unit("A");
+    const plan = planSpaceImport(
+      fileText({ ...source, space: { ...source.space, macros } }),
       activeStatus("A"),
     );
-    if (withMacros.kind !== "ready") throw new Error("expect ready");
-    const first = deps();
-    await executeSpaceImport(withMacros, first.deps);
-    expect(first.writeChatScopeMacros).toHaveBeenCalledWith(macros);
-
-    const withoutMacros = planSpaceImport(fileText(unit("A")), activeStatus("A"));
-    if (withoutMacros.kind !== "ready") throw new Error("expect ready");
-    const second = deps();
-    await executeSpaceImport(withoutMacros, second.deps);
-    expect(second.writeChatScopeMacros).not.toHaveBeenCalled();
+    if (plan.kind !== "ready") throw new Error("expect ready");
+    const harness = deps();
+    await executeSpaceImport(plan, harness.deps);
+    expect(harness.restoreSpace).toHaveBeenCalledWith(
+      expect.objectContaining({ space: expect.objectContaining({ macros }) }),
+    );
+    expect(harness.writeChatScopeMacros).not.toHaveBeenCalled();
   });
 });

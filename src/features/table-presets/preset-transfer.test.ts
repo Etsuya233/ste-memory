@@ -19,6 +19,7 @@ describe("表格预设导入导出", () => {
     const text = serializeTablePresetExport(STORY_MEMORY_PRESET, NOW);
     const parsed = parseTablePresetExport(text);
     expect(parsed).toEqual({
+      macros: STORY_MEMORY_PRESET.macros,
       name: STORY_MEMORY_PRESET.name,
       description: STORY_MEMORY_PRESET.description,
       prompt: STORY_MEMORY_PRESET.prompt,

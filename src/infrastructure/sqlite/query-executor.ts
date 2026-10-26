@@ -1,3 +1,4 @@
+import { compileMemoryQueryConditions } from "../../features/memory/index.ts";
 import type {
   MemoryRecord,
   QueryRecordsInput,
@@ -33,43 +34,7 @@ export async function querySqliteRecords(
     fieldId === "$display_text" && freshDisplay !== undefined
       ? `(SELECT text FROM fresh WHERE fresh.id=t.${quote("$record_id")})`
       : `t.${quote(fieldId.startsWith("$") ? fieldId : fieldById.get(fieldId)!.key)}`;
-  const predicates = (input.conditions ?? []).map((condition) => {
-    const actual = column(condition.fieldId),
-      field = fieldById.get(condition.fieldId);
-    switch (condition.operator) {
-      case "equals":
-        return `${actual} IS ${param(condition.value)}`;
-      case "not_equals":
-        return `${actual} IS NOT ${param(condition.value)}`;
-      case "in":
-      case "not_in": {
-        const alternatives = (condition.value as readonly unknown[])
-          .map((value) => `${actual} IS ${param(value)}`)
-          .join(" OR ");
-        return `${condition.operator === "not_in" ? "NOT " : ""}(${alternatives})`;
-      }
-      case "contains":
-      case "not_contains": {
-        const list =
-          field && ["short_text_list", "multi_select", "multi_reference"].includes(field.type);
-        if (!list)
-          return `COALESCE(instr(ste_lower(${actual}),ste_lower(${param(condition.value)}))>0,0)`;
-        const exists = `EXISTS(SELECT 1 FROM json_each(${actual}) member WHERE member.value IS ${param(condition.value)})`;
-        return condition.operator === "not_contains"
-          ? `(${actual} IS NOT NULL AND NOT ${exists})`
-          : exists;
-      }
-      default: {
-        const operators = {
-          greater_than: ">",
-          greater_than_or_equal: ">=",
-          less_than: "<",
-          less_than_or_equal: "<=",
-        };
-        return `${actual} ${operators[condition.operator]} ${param(condition.value)}`;
-      }
-    }
-  });
+  const predicates = compileMemoryQueryConditions(input.conditions, fieldById, column, param);
   const where = predicates.length ? ` WHERE ${predicates.join(" AND ")}` : "";
   const from = `FROM ${quote(table.key)} t JOIN __entities entity ON entity.kind='record' AND entity.id=t.${quote("$record_id")}`;
   const count = await client.exec({

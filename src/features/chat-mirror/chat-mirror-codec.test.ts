@@ -30,6 +30,7 @@ function sampleUnit(): MemorySpaceBackup {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      macros: [],
       initializationSource: null,
       createdAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "2026-07-28T00:00:00.000Z",
@@ -139,7 +140,7 @@ describe("createChatMirrorFile（组装信封）", () => {
   it("信封与 data 完整保留（含历史/证据）", () => {
     const file = createChatMirrorFile(sampleUnit(), "space-1", "2026-07-28T02:00:00.000Z", "0.1.0");
     expect(file.format).toBe("ste-memory-chat-mirror");
-    expect(file.version).toBe(1);
+    expect(file.version).toBe(2);
     expect(file.spaceId).toBe("space-1");
     expect(file.updatedAt).toBe("2026-07-28T02:00:00.000Z");
     expect(file.appVersion).toBe("0.1.0");
@@ -160,14 +161,23 @@ describe("createChatMirrorFile（组装信封）", () => {
     expect(file.data.evidence).toEqual(sampleUnit().evidence);
   });
 
-  it("镜像不带任务、楼层进度与对话级宏：恢复时不触碰本地对应内容（spec 6.3）", () => {
+  it("镜像不带任务与楼层进度，对话宏跟随空间保存", () => {
     const withRuntimeRows: MemorySpaceBackup = {
       ...sampleUnit(),
       fillTasks: [],
       floorLedger: [{ floor: 0, status: "processed", updatedAt: "2026-07-28T02:00:00.000Z" }],
-      chatScopeMacros: [
-        { name: "未完成", tableKey: "characters", condition: null, limit: null, projection: [] },
-      ],
+      space: {
+        ...sampleUnit().space,
+        macros: [
+          {
+            id: "m1",
+            name: "未完成",
+            enabled: true,
+            expression: { language: "query", query: { table: "characters" } },
+            output: { format: "text", maxChars: null },
+          },
+        ],
+      },
     };
     const file = createChatMirrorFile(
       withRuntimeRows,
@@ -178,6 +188,7 @@ describe("createChatMirrorFile（组装信封）", () => {
     expect("fillTasks" in file.data).toBe(false);
     expect("floorLedger" in file.data).toBe(false);
     expect("chatScopeMacros" in file.data).toBe(false);
+    expect(file.data.space.macros).toEqual(withRuntimeRows.space.macros);
     expect(file.data.space).toEqual(withRuntimeRows.space);
   });
 });
@@ -190,7 +201,7 @@ describe("decodeChatMirrorFile（忽略语义：无法识别 → null，绝不�
 
   it("未知版本 → null（降级安全，调用方原样保留不覆盖）", () => {
     const file = sampleMirror() as unknown as Record<string, unknown>;
-    expect(decodeChatMirrorFile({ ...file, version: 2 })).toBeNull();
+    expect(decodeChatMirrorFile({ ...file, version: 999 })).toBeNull();
     expect(decodeChatMirrorFile({ ...file, version: CHAT_MIRROR_VERSION + 1 })).toBeNull();
   });
 
@@ -230,6 +241,6 @@ describe("decodeChatMirrorFile（忽略语义：无法识别 → null，绝不�
 
   it("格式常量导出正确", () => {
     expect(CHAT_MIRROR_FORMAT).toBe("ste-memory-chat-mirror");
-    expect(CHAT_MIRROR_VERSION).toBe(1);
+    expect(CHAT_MIRROR_VERSION).toBe(2);
   });
 });

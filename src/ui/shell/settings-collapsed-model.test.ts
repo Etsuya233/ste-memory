@@ -84,15 +84,14 @@ describe("折叠头摘要", () => {
     const settings: PluginSettings = {
       ...DEFAULT_SETTINGS,
       macroName: "{{memoryContext}}",
-      memoryViews: [
+      macros: [
         {
-          name: "v1",
-          tableKey: "t",
-          conditionFieldKey: "",
-          conditionValues: [],
-          projection: [],
-          limit: undefined,
-        } as never,
+          id: "macro",
+          name: "未完成",
+          enabled: true,
+          expression: { language: "query", query: { table: "plots" } },
+          output: { format: "text", maxChars: null },
+        },
       ],
     };
     expect(macroSummary(settings, 2)).toBe("{{memoryContext}} · 1 个全局宏 · 2 个对话宏");

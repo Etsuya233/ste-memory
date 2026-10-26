@@ -1,3 +1,4 @@
+import { copyMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { Dialog } from "../kit/dialog.tsx";
 import { PresetSpaceUpdate } from "./preset-space-update.tsx";
 import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
@@ -16,7 +17,6 @@ import {
   copyTablePresetAsUserPreset,
   deleteUserTablePreset,
   overwriteUserTablePreset,
-  renameUserTablePreset,
   saveUserTablePreset,
   setDefaultTablePreset,
 } from "../../features/table-presets/table-preset-library.ts";
@@ -30,13 +30,13 @@ import {
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import {
   importTablePreset,
-  validateTablePresetContent,
   parseTablePresetExport,
   serializeTablePresetExport,
 } from "../../features/table-presets/preset-transfer.ts";
 import { createUiId, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
 import {
   SAVE_PRESET_HINT,
+  commitPresetDraft,
   applyPresetConfirmText,
   applyPresetConfirmTitle,
   applyPresetUnavailableReason,
@@ -63,6 +63,7 @@ export function TablePresetManager(props: {
   readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly presets: TablePresetSettings;
+  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<void>;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly status: SpaceContextStatus | undefined;
   readonly pluginEnabled: boolean;
@@ -206,6 +207,7 @@ export function TablePresetManager(props: {
         id: createUiId(),
         now: new Date().toISOString(),
       });
+      await props.validatePreset({ ...preset, builtIn: false });
       changePresets(settings);
       openEditor({ initial: { ...preset, builtIn: false }, isNew: false });
       reportSuccess(`已导入「${preset.name}」，默认选择保持不变`);
@@ -365,31 +367,7 @@ export function TablePresetManager(props: {
   /** 预设编辑即时落库：每次完成表格/字段/属性操作都写回预设库。 */
   function commitPreset(draft: ResolvedTablePreset): ResolvedTablePreset {
     if (!editor) return draft;
-    const now = new Date().toISOString();
-    const validated = validateTablePresetContent({
-      name: draft.name,
-      description: draft.description,
-      prompt: draft.prompt,
-      tables: draft.tables,
-    });
-    const exists = props.presets.userPresets.some((preset) => preset.id === draft.id);
-    const next = exists
-      ? overwriteUserTablePreset(
-          renameUserTablePreset(props.presets, draft.id, {
-            name: validated.name,
-            description: validated.description,
-            now,
-          }),
-          draft.id,
-          { structure: validated, now },
-        )
-      : saveUserTablePreset(props.presets, {
-          id: draft.id,
-          name: validated.name,
-          description: validated.description,
-          structure: validated,
-          now,
-        }).settings;
+    const next = commitPresetDraft(props.presets, draft, new Date().toISOString());
     changePresets(next);
     const saved = resolveTablePreset(next, SYSTEM_TABLE_PRESET, draft.id);
     setEditor({ isNew: false, initial: saved });
@@ -420,6 +398,7 @@ export function TablePresetManager(props: {
     return (
       <div ref={screenRef}>
         <TablePresetEditor
+          validatePreset={props.validatePreset}
           chrome={props.onEditingChange !== undefined}
           initial={editor.initial}
           isNew={editor.isNew}
@@ -471,6 +450,7 @@ export function TablePresetManager(props: {
             isNew: true,
             initial: {
               ...preset,
+              macros: copyMemoryMacros(preset.macros ?? [], createUiId),
               id: createUiId(),
               name: `${preset.name} 副本`,
               builtIn: false,

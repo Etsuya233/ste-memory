@@ -23,7 +23,7 @@ export type QueryRecordOperator =
 export interface QueryRecordsCondition {
   readonly fieldId: QueryRecordFieldId;
   readonly operator: QueryRecordOperator;
-  readonly value: MemoryFieldValue;
+  readonly value: MemoryFieldValue | readonly (string | number | boolean | null)[];
 }
 
 export interface QueryRecordsInput {

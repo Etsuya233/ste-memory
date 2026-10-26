@@ -87,9 +87,11 @@ function fakeRuntime(): PanelRuntime {
       chatMessageCount: vi.fn(() => 0),
     },
     settingsService: new SettingsService({
+      getChatContext: () => "test-chat",
       store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
       syncToCurrentChat: vi.fn(async () => {}),
       refreshMemoryMacros: vi.fn(async () => {}),
+      validateMacros: vi.fn(async () => {}),
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
       refreshVectorIndex: vi.fn(async () => {}),
@@ -130,6 +132,7 @@ function fakeRuntime(): PanelRuntime {
       retrySave: vi.fn(async () => ({ issues: [] })),
     },
     presetApply: {
+      validate: vi.fn(async () => {}),
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
@@ -148,6 +151,13 @@ function fakeRuntime(): PanelRuntime {
       clearAll: vi.fn(async () => {}),
     },
     macro: {
+      subscribe: () => () => undefined,
+      getRecentResults: () => [],
+      skip: vi.fn(),
+      testMacro: vi.fn(),
+      getMigrationError: () => null,
+      getMigrationConflicts: () => [],
+      resolveMigrationConflict: vi.fn(),
       kick: vi.fn(async () => {}),
     },
     agentMacro: {

@@ -9,6 +9,40 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
   builtIn: true,
   prompt:
     "依据正文、明确设定和已有记录填写，不补造事实；时间可按约定估算。明确表达的情绪可记录；人物说法、判断、传闻、猜测和误解须写明归属及不确定性，不当作客观事实。\n未提及且无失效证据的旧值保留，人物未出场也不清除其身份、关系、伤病或持有物。\n只改证据支持的部分：稳定信息保留，当前状态覆盖，重要经历与结果合并增补，同一事实不重复追加。\n旧情况明确结束、物品不再持有或旧值不适用时，才删除失效部分，其余有效内容保留。\n新记录的未知可选字段留空。旧信息是否仍有效无法确认时，在相关状态文本中注明最后已知时间与情况，不将旧状态写成实时状态。\n同一变化涉及多表时同步更新有据字段，如转交物品时更新持有者和近况。人物与关系经历保留持续影响，纪要保存过程，重要事件保存确定安排与重要进展。\n区分当前叙事、回忆和未来计划，按事件发生时间记录。填表批次只限定输入范围，可跨多轮并生成多条纪要。\n保留身份、因果、承诺、关键变化与结果，合并重复，不凑字数。期望篇幅无最低字数，重要内容可超出参考篇幅，但须符合硬上限；超限时提炼，纪要可按独立事件分条，原话保留完整语义。引用只指向已确认记录，不凭同名合并身份。\n\n统一使用 YYYY-MM-DD HH:mm:ss，值内不附“约”“计划”“实际”或时段文字；字段类型校验格式和日期，叙述文本可保留自然语言。\n\n有明确时间则采用；模糊时间结合前后事件、已有记录和世界状态估算，保持先后顺序。缺时分秒可取代表值：上午 09:00:00、下午 15:00:00、傍晚 18:00:00、晚上 21:00:00，有更准确线索时调整。日期未知时结合设定与已有时间建立统一故事日期基准，“第 N 天”“次日”据此换算，不随现实日期改变。\n\n无线索时新记录可留空，世界状态已有时间则保留；未来事件日期待定时留空，不估造日程。结束不得早于开始，只有发生时点且持续时间未知时可只填开始。获得明确时间后修正估算，并同步受影响的纪要、总结和重要事件。\n\n重要事件可填确定的计划或实际时间，性质写入事件说明、进展与结果，实际明确后更新字段；不凭估算推定举办、结束或结果。总结沿用来源时间，不重复估算；模糊程度影响理解时，在叙述字段保留“下午”“约”等原意。",
+  macros: [
+    {
+      id: "story-unsummary",
+      name: "未总结纪要",
+      enabled: true,
+      expression: {
+        language: "query",
+        query: {
+          table: "chronicle",
+          conditions: [{ field: "plot_summary", op: "equals", value: null }],
+          fields: ["summary", "details"],
+          orderBy: { field: "$created_at", direction: "asc" },
+          limit: 15,
+        },
+      },
+      output: { format: "text", maxChars: null },
+    },
+    {
+      id: "story-related",
+      name: "相关纪要",
+      enabled: false,
+      expression: {
+        language: "query",
+        query: {
+          table: "chronicle",
+          semantic: { groups: ["event_memory"], query: { context: "last_user_message" } },
+          fields: ["summary", "details", "$similarity"],
+          orderBy: { field: "$similarity", direction: "desc" },
+          limit: 10,
+        },
+      },
+      output: { format: "text", maxChars: null },
+    },
+  ],
   tables: [
     {
       key: "characters",

@@ -93,29 +93,44 @@ describe("buildSpaceExportUnit（issue 26 导出快照过滤）", () => {
 
     const result = buildSpaceExportUnit({ spaces: [withRuntimeRows] }, "A" as MemorySpaceId, true, [
       {
+        id: "macro-1",
         name: "未完成伏笔",
-        tableKey: "plots",
-        condition: { fieldKey: "status", values: ["埋设中"] },
-        limit: 20,
-        projection: [],
+        enabled: true,
+        expression: {
+          language: "query",
+          query: {
+            table: "plots",
+            conditions: [{ field: "status", op: "in", value: ["埋设中"] }],
+            limit: 20,
+          },
+        },
+        output: { format: "text", maxChars: null },
       },
     ]);
 
     expect(result?.fillTasks).toHaveLength(1);
     expect(result?.floorLedger).toEqual([{ floor: 0, status: "processed", updatedAt: "" }]);
-    expect(result?.chatScopeMacros).toEqual([
+    expect(result?.space.macros).toEqual([
       {
+        id: "macro-1",
         name: "未完成伏笔",
-        tableKey: "plots",
-        condition: { fieldKey: "status", values: ["埋设中"] },
-        limit: 20,
-        projection: [],
+        enabled: true,
+        expression: {
+          language: "query",
+          query: {
+            table: "plots",
+            conditions: [{ field: "status", op: "in", value: ["埋设中"] }],
+            limit: 20,
+          },
+        },
+        output: { format: "text", maxChars: null },
       },
     ]);
   });
 
-  it("未传对话级宏时导出宏为空数组（不涉及当前对话的宏设置）", () => {
+  it("未传宏覆盖参数时保留空间已有宏，不导出独立旧集合", () => {
     const result = buildSpaceExportUnit(snapshot, "A" as MemorySpaceId, true);
-    expect(result?.chatScopeMacros).toEqual([]);
+    expect(result?.space.macros).toEqual(snapshot.spaces[0]!.space.macros);
+    expect(result).not.toHaveProperty("chatScopeMacros");
   });
 });

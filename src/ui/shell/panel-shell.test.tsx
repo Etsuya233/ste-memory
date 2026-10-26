@@ -89,9 +89,11 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       chatMessageCount: vi.fn(() => 0),
     },
     settingsService: new SettingsService({
+      getChatContext: () => "test-chat",
       store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
       syncToCurrentChat: vi.fn(async () => {}),
       refreshMemoryMacros: vi.fn(async () => {}),
+      validateMacros: vi.fn(async () => {}),
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
       refreshVectorIndex: vi.fn(async () => {}),
@@ -132,6 +134,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       retrySave: vi.fn(async () => ({ issues: [] })),
     },
     presetApply: {
+      validate: vi.fn(async () => {}),
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
@@ -150,6 +153,13 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       clearAll: vi.fn(async () => {}),
     },
     macro: {
+      subscribe: () => () => undefined,
+      getRecentResults: () => [],
+      skip: vi.fn(),
+      testMacro: vi.fn(),
+      getMigrationError: () => null,
+      getMigrationConflicts: () => [],
+      resolveMigrationConflict: vi.fn(),
       kick: vi.fn(async () => {}),
     },
     agentMacro: {
@@ -355,7 +365,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain("428 / 2000 字");
     expect(html).toContain("有 1 个宏的输出已按上限截断");
     expect(html).toContain("使用说明");
-    expect(html).toContain("……（已截断）");
+    expect(html).toContain("按查询顺序装入完整记录或结果行");
   });
 
   it("设置 Tab：记忆宏组三作用域 + 宏设置摘要条（默认全局宏）", () => {
@@ -374,9 +384,9 @@ describe("PanelShell（面板骨架投影）", () => {
     // 宏名/上限摘要条进入独立设置页
     expect(expanded).toContain('data-action="open-macro-settings"');
     expect(expanded).toContain('data-stm-field="macro-status"');
-    expect(expanded).toContain("默认快照 0 / 2000 字");
+    expect(expanded).toContain("最近执行 0 / 2000 字");
     // 默认展示全局宏内容（全局宏管理器）；内置/对话宏/设置页未渲染
-    expect(expanded).toContain('data-stm-section="memory-views"');
+    expect(expanded).toContain('data-expression-macros="global"');
     expect(expanded).not.toContain('data-stm-section="builtin-macros"');
     expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
     expect(expanded).not.toContain('data-stm-section="macro-settings"');

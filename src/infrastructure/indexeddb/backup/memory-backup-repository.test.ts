@@ -467,6 +467,17 @@ describe("Dexie memory backup repository", () => {
       createdAt: NOW,
       updatedAt: NOW,
     });
+    const semanticMacro = {
+      id: "semantic-macro",
+      name: "相关人物",
+      enabled: true,
+      expression: {
+        language: "query" as const,
+        query: { table: "characters", semantic: { groups: ["memory"], query: { text: "线索" } } },
+      },
+      output: { format: "text" as const, maxChars: null },
+    };
+    await db.memorySpaces.update(space.id, { macros: [semanticMacro] });
     const repo = new DexieMemoryBackupRepository(db);
     const unit = (await repo.loadSnapshot()).spaces[0]!;
     let seq = 0;
@@ -483,6 +494,14 @@ describe("Dexie memory backup repository", () => {
     const clonedId = await repo.cloneSpace(space.id, ids());
     const importedId = await repo.cloneSpaceFromUnit(unit, ids());
     for (const spaceId of [clonedId, importedId]) {
+      const clonedMacros = (await db.memorySpaces.get(spaceId))!.macros!;
+      expect(clonedMacros[0]).toMatchObject({
+        name: semanticMacro.name,
+        enabled: false,
+        expression: semanticMacro.expression,
+      });
+      expect(clonedMacros[0]!.id).not.toBe(semanticMacro.id);
+
       expect(await tasks.findActive(spaceId)).toBeUndefined();
       expect(await tasks.listRecent(spaceId, 10)).toEqual([
         expect.objectContaining({

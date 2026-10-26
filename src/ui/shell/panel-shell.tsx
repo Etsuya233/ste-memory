@@ -4,7 +4,6 @@ import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
 import { presentAppearance } from "./appearance-model.ts";
-import { MemoryRecallPanel } from "../retrieval/memory-recall-panel.tsx";
 import { RetrievalTab } from "../retrieval/retrieval-tab.tsx";
 import { SqlPanel } from "../retrieval/sql-panel.tsx";
 import type { MemoryTableId, MemoryRecordId } from "../../features/memory/index.ts";
@@ -60,7 +59,7 @@ import type { VectorIndexService } from "../../features/vector-index/vector-inde
 import { QueryChatTab } from "../query-chat/query-chat-tab.tsx";
 import { LogTab } from "../logs/log-tab.tsx";
 import { SettingsTab } from "../settings/settings-tab.tsx";
-import type { MemoryView } from "../../features/macros/memory-views.ts";
+import type { MemoryMacro } from "../../features/macros/macro-expression.ts";
 import type { AgentPresetPreviewPorts } from "../../features/agent-presets/preset-preview-model.ts";
 import type { MacroOverviewRow } from "../../features/macros/macro-overview-model.ts";
 
@@ -71,7 +70,6 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
 export interface PanelRuntime {
   readonly presetUpdate: PresetSpaceUpdateService;
   readonly sqlConsole: SteMemoryRuntime["sqlConsole"];
-  readonly memoryRecall?: SteMemoryRuntime["memoryRecall"];
   readonly vector: VectorIndexService;
   readonly retrieval: Pick<
     VectorRetrievalService,
@@ -116,7 +114,17 @@ export interface PanelRuntime {
   /** 通用日志（独立数据库，ADR 0015）：日志 Tab 查询（按 Key/最近）+ 清空 */
   readonly logs: Pick<SteMemoryRuntime["logs"], "byKey" | "recent" | "clearAll">;
   /** 记忆宏（ticket 15）：宏名/上限/开关变化即时生效（kick 立即评估） */
-  readonly macro: Pick<SteMemoryRuntime["macro"], "kick">;
+  readonly macro: Pick<
+    SteMemoryRuntime["macro"],
+    | "kick"
+    | "subscribe"
+    | "skip"
+    | "getRecentResults"
+    | "testMacro"
+    | "getMigrationError"
+    | "getMigrationConflicts"
+    | "resolveMigrationConflict"
+  >;
   /** Agent 预设宏（ticket 17）：插件开关变化即时生效（kick 立即评估） */
   readonly agentMacro: Pick<SteMemoryRuntime["agentMacro"], "kick">;
   /**
@@ -145,7 +153,7 @@ export interface PanelRuntime {
   /** 表格预设应用（spec table-presets）：停止写入 + 当前空间应用预设（原子重建） */
   readonly presetApply: Pick<
     TablePresetApplyService,
-    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat"
+    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat" | "validate"
   >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
   readonly queryChat: Pick<QueryChatService, "run">;
@@ -155,8 +163,8 @@ export interface PanelRuntime {
     readonly writeSelection: (ruleId: string | undefined) => void;
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
-    readonly readChatScopeMacros: () => readonly MemoryView[];
-    readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
+    readonly readChatScopeMacros: () => readonly MemoryMacro[];
+    readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => void;
   };
   readonly settings: SettingsStore;
   readonly settingsService: SettingsService;
@@ -906,16 +914,6 @@ export function PanelShell(props: {
               onIndex={() => props.model.setTab("tables")}
               onSettings={() => props.model.setTab("settings")}
             />
-
-            {props.runtime.memoryRecall && (
-              <MemoryRecallPanel
-                service={props.runtime.memoryRecall}
-                onRecord={(tableId, recordId) => {
-                  setRecordFocus({ tableId, recordId });
-                  props.model.setTab("records");
-                }}
-              />
-            )}
           </div>
           <div
             id="stm-retrieval-sql"

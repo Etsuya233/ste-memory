@@ -1,5 +1,6 @@
+import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
-import type { MemoryView } from "../macros/memory-views.ts";
+import type { MemoryMacro } from "../macros/macro-expression.ts";
 import type { MemoryBackupRepository, MemoryBackupSnapshot } from "./backup-port.ts";
 import type { MemoryBackupData, MemorySpaceBackup } from "./backup-file.ts";
 import { parseBackupFile } from "./backup-codec.ts";
@@ -28,12 +29,18 @@ export function buildSpaceExportUnit(
   snapshot: MemoryBackupSnapshot,
   spaceId: MemorySpaceId,
   includeHistory: boolean,
-  chatScopeMacros: readonly MemoryView[] = [],
+  chatScopeMacros?: readonly MemoryMacro[],
 ): MemorySpaceBackup | null {
   const unit = snapshot.spaces.find((item) => item.space.id === spaceId);
   if (!unit) return null;
   const trimmed = includeHistory ? unit : { ...unit, history: [] };
-  return { ...trimmed, chatScopeMacros: [...chatScopeMacros] };
+  return {
+    ...trimmed,
+    space: {
+      ...trimmed.space,
+      ...(chatScopeMacros === undefined ? {} : { macros: [...chatScopeMacros] }),
+    },
+  };
 }
 
 /**
@@ -80,7 +87,12 @@ export async function executeFullBackupImport(
   plan: Extract<FullBackupImportPlan, { kind: "ready" }>,
   deps: FullBackupImportDeps,
 ): Promise<void> {
-  await deps.backup.restoreSnapshot(plan.data);
+  await deps.backup.restoreSnapshot({
+    spaces: plan.data.spaces.map((unit) => ({
+      ...unit,
+      space: { ...unit.space, macros: restoredMemoryMacros(unit.space.macros ?? []) },
+    })),
+  });
   deps.onDataChanged();
   deps.kickMacros();
   await deps.syncToCurrentChat();

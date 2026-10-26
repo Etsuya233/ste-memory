@@ -15,7 +15,7 @@ import { memorySpaceBackupSchema } from "../backup/backup-file.ts";
  */
 
 export const CHAT_MIRROR_FORMAT = "ste-memory-chat-mirror" as const;
-export const CHAT_MIRROR_VERSION = 1 as const;
+export const CHAT_MIRROR_VERSION = 2 as const;
 
 /** 对话文件镜像信封。 */
 export interface ChatMirrorFile {

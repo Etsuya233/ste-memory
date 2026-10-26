@@ -60,6 +60,10 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     return [...this.tables.values()].filter((table) => table.memorySpaceId === memorySpaceId);
   }
 
+  async setMacros() {
+    return undefined;
+  }
+
   async rename(
     id: MemorySpaceId,
     name: string,

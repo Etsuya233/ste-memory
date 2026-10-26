@@ -102,7 +102,7 @@ export function macroSummary(settings: PluginSettings, chatScopeMacroCount: numb
   const raw = settings.macroName.trim();
   const name =
     raw === "" ? "未配置" : resolveMacroRegistrationName(raw) === undefined ? "宏前缀无效" : raw;
-  const views = settings.memoryViews.length;
+  const views = settings.macros.length;
   return `${name} · ${views} 个全局宏 · ${chatScopeMacroCount} 个对话宏`;
 }
 

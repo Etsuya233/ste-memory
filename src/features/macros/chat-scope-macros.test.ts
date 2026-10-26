@@ -15,12 +15,10 @@ function view(overrides: Partial<MemoryView> = {}): MemoryView {
 }
 
 describe("mergeChatScopeMacros（聊天 Scope 宏合并）", () => {
-  it("非对象/版本不匹配：空列表", () => {
+  it("无旧存储为空，损坏及未知版本报错保留原始数据", () => {
     expect(mergeChatScopeMacros(undefined)).toEqual([]);
-    expect(mergeChatScopeMacros(null)).toEqual([]);
-    expect(mergeChatScopeMacros("oops")).toEqual([]);
-    expect(mergeChatScopeMacros({})).toEqual([]);
-    expect(mergeChatScopeMacros({ version: 2, macros: [] })).toEqual([]);
+    for (const raw of [null, "oops", {}, { version: 2, macros: [] }])
+      expect(() => mergeChatScopeMacros(raw)).toThrow("原始数据已保留");
   });
 
   it("合法数据原样合并", () => {
@@ -29,21 +27,26 @@ describe("mergeChatScopeMacros（聊天 Scope 宏合并）", () => {
     expect(merged).toEqual([view()]);
   });
 
-  it("损坏的视图逐项丢弃，保留其余", () => {
+  it("合法旧定义的省略字段在严格校验后补齐", () => {
+    expect(
+      mergeChatScopeMacros({ version: 1, macros: [{ name: "旧宏", tableKey: "notes" }] }),
+    ).toEqual([{ name: "旧宏", tableKey: "notes", condition: null, limit: null, projection: [] }]);
+  });
+
+  it("损坏的同级视图不能被迁移静默丢弃", () => {
     const store = {
       version: 1 as const,
       macros: [view({ name: "非法 名" }), view({ name: "有效" })],
     };
-    const merged = mergeChatScopeMacros(store);
-    expect(merged.map((v) => v.name)).toEqual(["有效"]);
+    expect(() => mergeChatScopeMacros(store)).toThrow();
+    expect(store.macros).toHaveLength(2);
   });
 
-  it("重复名称：后出现的丢弃", () => {
+  it("重复名称必须显式修复", () => {
     const store = {
       version: 1 as const,
       macros: [view({ name: "重复" }), view({ name: "重复" })],
     };
-    const merged = mergeChatScopeMacros(store);
-    expect(merged).toHaveLength(1);
+    expect(() => mergeChatScopeMacros(store)).toThrow("重复");
   });
 });
