@@ -13,6 +13,20 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "characters",
       name: "人物",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            name: "人物特征",
+            fieldKeys: ["name", "aliases", "role", "personality", "appearance"],
+          },
+          {
+            name: "人物经历与近况",
+            fieldKeys: ["name", "aliases", "role", "background", "current_status"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录值得持续记忆的独立人物，包括用户扮演的人物。创建前核对名称、别名与身份，同一人物一条。\n身份、性格和外貌维护稳定信息；经历保留持续影响，近况维护仍成立的身体、情绪与处境，完整过程写入纪要。",
@@ -123,6 +137,16 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "relationships",
       name: "人际关系",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            name: "关系记忆",
+            fieldKeys: ["character_a", "character_b", "summary", "key_facts"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "每对人物一条，双方须不同；创建前检查两种顺序，更新沿用原顺序。\n关系摘要只写当前定性与有持续影响的变化；经历优先保留关键转折、承诺和边界，不逐场复述动作、对白与过程。关系改变仍保留真实重要经历。",
@@ -190,6 +214,11 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "locations",
       name: "地点",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [{ name: "地点信息", fieldKeys: ["name", "position", "details"] }],
+      },
       description: "",
       prompt:
         "记录可辨识、可能重现或影响故事的地点。同一地点一条，同名异地须区分。\n补充位置、布局与设施，持久变化更新描述；临时活动、人物动向和短时天气写入纪要或世界状态。",
@@ -243,6 +272,16 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "items",
       name: "物品",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            name: "物品信息",
+            fieldKeys: ["name", "owner", "current_location", "status", "key_attributes"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录需持续追踪或有故事意义的物品，区分同类物品与同一实物。\n转交、放置、损坏、消耗或遗失时更新。无人持有或原引用失效时清空，近况保留必要的最后已知情况。",
@@ -326,6 +365,22 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "chronicle",
       name: "纪要",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            name: "事件记忆",
+            fieldKeys: [
+              "summary",
+              "details",
+              "key_dialogue",
+              "related_characters",
+              "related_locations",
+            ],
+          },
+        ],
+      },
       description: "",
       prompt:
         "围绕同一目标的连续场景合成一条，不按消息或几分钟的小动作拆条。明显时间跳跃、场景切换或独立转折再分条；同时关联的场景可合并并交代切换。创建前核对已有来源，避免重复。\n新进展新增纪要，已有记录仅纠错或补漏。回忆注明发生时间或回忆性质，未来计划不得写成既成事实。",
@@ -449,6 +504,16 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "important_events",
       name: "重要事件",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            name: "事件安排与进展",
+            fieldKeys: ["name", "details", "related_characters", "related_locations", "outcome"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录已发生、进行中或已确定的未来重要事件，如校运会、月考、毕业典礼、重要比赛。以对后续安排、人物选择或长期处境的影响判断重要性；普通购物、吃饭、闲聊通常不收录，日常中的重大转折可单独收录。同一次或同一届一条，不同月份或届次分开。\n同一事件持续更新，延期、取消或结束后保留。事件说明维护有效安排，进展与结果保留已宣布变更及实际成果，同步时间；不预测举办、参加者、名次或结果。",
@@ -652,6 +717,11 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "plot_summaries",
       name: "剧情总结",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [{ name: "剧情回顾", fieldKeys: ["summary", "details"] }],
+      },
       description: "",
       prompt:
         "每轮在新增纪要前查询此前已保存、所属总结为空的纪要：conditions 使用 field=plot_summary、op=equals、value=null，orderBy 使用 field=$created_at、direction=asc，paging 使用 page=1、pageSize=20；系统字段不放入 fields 投影。确认 total 至少 20 后，选最早 15 条生成一条总结，保留其余至少 5 条；相同创建时间沿用查询返回顺序。未满 20 条时跳过总结；本批新建纪要不计入门槛或来源，每批最多新建一条。\n先保存所选 15 条来源的记录 ID，再逐条阅读正文，依据这些纪要撰写。创建总结后，在同一提案中将全部 15 条来源的所属总结设为新总结的临时引用；核对恰好关联这 15 条，排除遗漏、重复及本批新增来源，再预览并提交。原始纪要保留。后续纪要另组总结，来源纠错或补漏时同步修订对应总结，无需等待自然剧情阶段结束。",

@@ -3,6 +3,7 @@ import type { MemoryFieldId, MemorySpaceId, MemoryTableId } from "../memory/inde
 import { instantiateTablePreset } from "./preset-instantiation.ts";
 import type { TablePresetStructure } from "./preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "./system-preset.ts";
+import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
 import { captureSpaceStructure } from "./space-structure-capture.ts";
 import { validateTablePresetContent } from "./preset-transfer.ts";
 import type { MemoryField, MemoryTable } from "../memory/index.ts";
@@ -22,6 +23,57 @@ function idFactory(prefix = "") {
 }
 
 describe("预设实例化（spec 4.2 / 10.2）", () => {
+  it("剧情记忆实例化启用 7 表 8 组自动索引，捕获时保留预设字段映射", async () => {
+    const { tables, fields } = instantiateTablePreset(
+      STORY_MEMORY_PRESET,
+      SPACE,
+      idFactory("story-"),
+      "now",
+    );
+    const indexedTables = tables.filter((table) => table.vectorIndex?.enabled);
+    expect(indexedTables.map((table) => table.key)).toEqual([
+      "characters",
+      "relationships",
+      "locations",
+      "items",
+      "chronicle",
+      "important_events",
+      "plot_summaries",
+    ]);
+    const groupIds: string[] = [];
+    for (const table of indexedTables) {
+      expect(table.vectorIndex).toMatchObject({
+        source: "preset",
+        updateMode: "automatic",
+        groups: [],
+      });
+      for (const group of table.vectorIndex!.presetGroups!) {
+        groupIds.push(group.id);
+        for (const fieldId of group.fieldIds) {
+          const field = fields.find((candidate) => candidate.id === fieldId)!;
+          expect(field.tableId).toBe(table.id);
+          expect(field.enabled).toBe(true);
+          expect(field.type).not.toBe("datetime");
+          expect(field.key).not.toBe("plot_summary");
+        }
+      }
+    }
+    expect(groupIds).toHaveLength(8);
+    expect(new Set(groupIds).size).toBe(8);
+    expect(tables.find((table) => table.key === "story_state")!.vectorIndex).toBeUndefined();
+
+    const captured = await captureSpaceStructure(
+      {
+        listTables: async () => tables,
+        listFields: async (_space, tableId) => fields.filter((field) => field.tableId === tableId),
+      },
+      SPACE,
+    );
+    expect(captured.tables.map((table) => table.vectorIndex)).toEqual(
+      STORY_MEMORY_PRESET.tables.map((table) => table.vectorIndex),
+    );
+  });
+
   it("含向量分组的预设校验和实例化只使用注入的身份工厂", () => {
     const preset = {
       name: SYSTEM_TABLE_PRESET.name,
