@@ -85,6 +85,7 @@ import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
 import { MacroSettingsPage, MacroSettingsSummary } from "./macro-settings-page.tsx";
 import { macroBudgetInfo, macroNameStatus } from "./macro-ui-model.ts";
 import { TablePresetManager } from "./table-preset-manager.tsx";
+import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
 import type { MemoryBackupRepository } from "../../features/backup/index.ts";
@@ -115,6 +116,7 @@ const MACRO_SCOPE_TABS: readonly { readonly key: MacroScopeTab; readonly label: 
 ];
 
 export function SettingsTab(props: {
+  readonly presetUpdate: PresetSpaceUpdateService;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settingsService: SettingsService;
   readonly tables: Pick<MemoryTableService, "list">;
@@ -835,6 +837,7 @@ export function SettingsTab(props: {
         {activeGroup === "table-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
+              presetUpdate={props.presetUpdate}
               onBack={() => toggleGroup(null)}
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}

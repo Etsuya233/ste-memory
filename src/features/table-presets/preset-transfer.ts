@@ -1,3 +1,4 @@
+import { tablePresetVectorIndexSchema } from "./preset-vector-schema.ts";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import { type MemorySpaceId, type MemoryTableId, type MemoryFieldId } from "../memory/index.ts";
@@ -11,7 +12,7 @@ import {
 import { saveUserTablePreset } from "./table-preset-library.ts";
 
 export const TABLE_PRESET_FORMAT = "ste-memory-table-preset";
-export const TABLE_PRESET_VERSION = 1;
+export const TABLE_PRESET_VERSION = 2;
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);
 const displayStrategySchema = Type.Union([
@@ -67,24 +68,7 @@ const presetSchema = Type.Object(
           description: Type.String(),
           prompt: Type.String(),
           enabled: Type.Boolean(),
-          vectorIndex: Type.Optional(
-            Type.Object(
-              {
-                enabled: Type.Boolean(),
-                updateMode: Type.Union([Type.Literal("manual"), Type.Literal("automatic")]),
-                groups: Type.Array(
-                  Type.Object(
-                    {
-                      name: Type.String(),
-                      fieldKeys: Type.Array(Type.String()),
-                    },
-                    { additionalProperties: false },
-                  ),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
+          vectorIndex: Type.Optional(tablePresetVectorIndexSchema),
           displayStrategy: displayStrategySchema,
           fields: Type.Array(fieldSchema),
         },
@@ -175,9 +159,13 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
       fieldKeys.add(field.key);
     }
     if (table.vectorIndex) {
+      const groupKeys = new Set<string>();
       if (table.vectorIndex.enabled && table.vectorIndex.groups.length === 0)
         throw new Error(`预设表「${table.key}」启用索引但没有向量分组`);
       for (const group of table.vectorIndex.groups) {
+        if (!group.key.trim() || group.key !== group.key.trim() || groupKeys.has(group.key))
+          throw new Error(`预设表「${table.key}」的向量分组 Key 为空或重复：${group.key}`);
+        groupKeys.add(group.key);
         if (
           !group.name.trim() ||
           group.fieldKeys.length === 0 ||

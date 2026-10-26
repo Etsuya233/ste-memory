@@ -18,10 +18,12 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
         updateMode: "automatic",
         groups: [
           {
+            key: "character_traits",
             name: "人物特征",
             fieldKeys: ["name", "aliases", "role", "personality", "appearance"],
           },
           {
+            key: "character_experience",
             name: "人物经历与近况",
             fieldKeys: ["name", "aliases", "role", "background", "current_status"],
           },
@@ -142,6 +144,7 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
         updateMode: "automatic",
         groups: [
           {
+            key: "relationship_memory",
             name: "关系记忆",
             fieldKeys: ["character_a", "character_b", "summary", "key_facts"],
           },
@@ -217,7 +220,9 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
       vectorIndex: {
         enabled: true,
         updateMode: "automatic",
-        groups: [{ name: "地点信息", fieldKeys: ["name", "position", "details"] }],
+        groups: [
+          { key: "location_info", name: "地点信息", fieldKeys: ["name", "position", "details"] },
+        ],
       },
       description: "",
       prompt:
@@ -277,6 +282,7 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
         updateMode: "automatic",
         groups: [
           {
+            key: "item_info",
             name: "物品信息",
             fieldKeys: ["name", "owner", "current_location", "status", "key_attributes"],
           },
@@ -370,6 +376,7 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
         updateMode: "automatic",
         groups: [
           {
+            key: "event_memory",
             name: "事件记忆",
             fieldKeys: [
               "summary",
@@ -509,6 +516,7 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
         updateMode: "automatic",
         groups: [
           {
+            key: "event_progress",
             name: "事件安排与进展",
             fieldKeys: ["name", "details", "related_characters", "related_locations", "outcome"],
           },
@@ -720,7 +728,7 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
       vectorIndex: {
         enabled: true,
         updateMode: "automatic",
-        groups: [{ name: "剧情回顾", fieldKeys: ["summary", "details"] }],
+        groups: [{ key: "story_recap", name: "剧情回顾", fieldKeys: ["summary", "details"] }],
       },
       description: "",
       prompt:

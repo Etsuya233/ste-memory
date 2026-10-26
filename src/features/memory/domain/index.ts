@@ -1,6 +1,7 @@
 export { DomainError } from "./domain-error.ts";
 export {
   effectiveVectorIndexGroups,
+  upgradeVectorIndexKeys,
   validateVectorIndexConfiguration,
   remapVectorIndexConfiguration,
 } from "./vector-index-configuration.ts";

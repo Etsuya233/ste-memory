@@ -1,5 +1,5 @@
 import { Value } from "typebox/value";
-import { DomainError } from "../memory/index.ts";
+import { DomainError, upgradeVectorIndexKeys } from "../memory/index.ts";
 import { BACKUP_FORMAT, BACKUP_VERSION, memoryBackupFileSchema } from "./backup-file.ts";
 import type { MemoryBackupData, MemoryBackupFile, MemorySpaceBackup } from "./backup-file.ts";
 
@@ -98,6 +98,7 @@ export function normalizeBackupData(data: MemoryBackupData): MemoryBackupData {
       tables: unit.tables.map((table, index) => ({
         ...table,
         position: table.position ?? index,
+        vectorIndex: upgradeVectorIndexKeys(table.vectorIndex),
       })),
     })),
   };

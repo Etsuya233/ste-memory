@@ -6,6 +6,10 @@
 
 我们正在开发 SillyTavern 插件。
 
+## Worktree
+
+新建 Git Worktree 时，统一放在主仓库根目录的 `.worktrees/<名称>/` 下；在已有 Worktree 中操作时，仍使用主仓库的该目录。
+
 ## Agent skills
 
 ### Issue tracker

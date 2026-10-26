@@ -1,3 +1,5 @@
+import { captureSpaceStructure } from "./features/table-presets/space-structure-capture.ts";
+import { presetUpdateChanges } from "./features/table-presets/preset-space-update.ts";
 import { describe, expect, it, vi } from "vitest";
 import {
   createTestDatabase,
@@ -43,10 +45,11 @@ async function setup(embedding: VectorEmbeddingPort) {
       MESSAGE_RECEIVED: "message_received",
     },
   };
+  const ports = createRuntimeTestPorts(() => context);
   const runtime = await startSteMemory(() => context, {
     createDb: () => db,
     createLogDb: () => createTestLogDatabase(),
-    ...createRuntimeTestPorts(() => context),
+    ...ports,
     settingsStore,
     embedding,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -73,7 +76,7 @@ async function setup(embedding: VectorEmbeddingPort) {
   });
   if (!field) throw new Error("字段创建失败");
   await runtime.fields.setDisplayStrategy(spaceId, table.id, { type: "field", fieldId: field.id });
-  return { runtime, db, spaceId, tableId: table.id, fieldId: field.id, context, handlers };
+  return { runtime, db, spaceId, tableId: table.id, fieldId: field.id, context, handlers, ports };
 }
 
 async function waitFor(assertion: () => Promise<void>): Promise<void> {
@@ -343,4 +346,237 @@ describe("runtime 向量检索接线", () => {
     });
     expect(pending).toHaveLength(4);
   });
+});
+
+describe("预设更新的运行时接线", () => {
+  it("按分组 Key 更新名称和 Prompt，保留记录及有效向量；输入变更后索引过期", async () => {
+    const embed = vi.fn(async () => [1, 2]);
+    const { runtime, db, spaceId, tableId, fieldId } = await setup({
+      getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+      embed,
+    });
+    await runtime.tables.update(spaceId, tableId, {
+      vectorIndex: {
+        enabled: true,
+        source: "custom",
+        updateMode: "manual",
+        groups: [
+          { id: "original-group", key: "basic_info", name: "基本信息", fieldIds: [fieldId] },
+        ],
+      },
+    });
+    const record = await runtime.records.create(spaceId, tableId, {
+      payload: { [fieldId]: "星港" },
+    });
+    await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
+    await waitFor(async () =>
+      expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1),
+    );
+    const originalVector = (await db.recordVectors.toArray())[0]!;
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+    const structure = await captureSpaceStructure(
+      {
+        listTables: (id) => runtime.tables.list(id),
+        listFields: (id, table) => runtime.fields.list(id, table),
+      },
+      spaceId,
+      status.space.prompt,
+    );
+    const preset = {
+      ...structure,
+      id: "updated",
+      name: "更新预设",
+      description: "",
+      builtIn: false,
+      tables: structure.tables.map((table) =>
+        table.key === "vector_test"
+          ? {
+              ...table,
+              prompt: "新的填写规则",
+              vectorIndex: {
+                ...table.vectorIndex!,
+                groups: table.vectorIndex!.groups.map((group) => ({
+                  ...group,
+                  name: "人物基本信息",
+                })),
+              },
+            }
+          : table,
+      ),
+    };
+    const plan = await runtime.presetUpdate.preview(spaceId, preset, status.binding.chatIdentity);
+    expect(
+      await runtime.presetUpdate.apply(
+        plan,
+        presetUpdateChanges(plan.nodes).map((change) => change.id),
+        status.binding.chatIdentity,
+      ),
+    ).toEqual({ issues: [] });
+    expect(await db.recordVectors.toArray()).toEqual([originalVector]);
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(await runtime.records.find(spaceId, tableId, record!.id)).toMatchObject({
+      revisionId: record!.revisionId,
+      payload: record!.payload,
+    });
+    expect(
+      (await runtime.tables.find(spaceId, tableId))!.vectorIndex!.presetGroups![0],
+    ).toMatchObject({ id: "original-group", key: "basic_info", name: "人物基本信息" });
+    const renamed = {
+      ...preset,
+      tables: preset.tables.map((table) =>
+        table.key === "vector_test"
+          ? { ...table, fields: table.fields.map((field) => ({ ...field, name: "新字段名称" })) }
+          : table,
+      ),
+    };
+    const second = await runtime.presetUpdate.preview(
+      spaceId,
+      renamed,
+      status.binding.chatIdentity,
+    );
+    await runtime.presetUpdate.apply(
+      second,
+      presetUpdateChanges(second.nodes).map((change) => change.id),
+      status.binding.chatIdentity,
+    );
+    expect((await runtime.vector.getTableSummary({ memorySpaceId: spaceId, tableId })).stale).toBe(
+      1,
+    );
+    expect(embed).toHaveBeenCalledTimes(1);
+  });
+
+  it("SQLite 导入失败保留原空间；提交后保存失败单独回报，重试保留之后的修改", async () => {
+    const { runtime, spaceId, tableId, fieldId, ports } = await setup({
+      getProfile: () => null,
+      embed: vi.fn(),
+    });
+    await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "现有内容" } });
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+    const structure = await captureSpaceStructure(
+      {
+        listTables: (id) => runtime.tables.list(id),
+        listFields: (id, table) => runtime.fields.list(id, table),
+      },
+      spaceId,
+      status.space.prompt,
+    );
+    const base = { ...structure, id: "updated", name: "更新预设", description: "", builtIn: false };
+    const invalid = {
+      ...base,
+      tables: base.tables.map((table) =>
+        table.key === "vector_test"
+          ? {
+              ...table,
+              name: "不能部分保存的改名",
+              fields: [
+                ...table.fields,
+                { ...table.fields[0]!, key: "new_required", name: "必填新字段" },
+              ],
+            }
+          : table,
+      ),
+    };
+    const failedPlan = await runtime.presetUpdate.preview(
+      spaceId,
+      invalid,
+      status.binding.chatIdentity,
+    );
+    await expect(
+      runtime.presetUpdate.apply(
+        failedPlan,
+        presetUpdateChanges(failedPlan.nodes).map((change) => change.id),
+        status.binding.chatIdentity,
+      ),
+    ).rejects.toThrow();
+    expect((await runtime.tables.find(spaceId, tableId))!.name).toBe("向量测试表");
+    expect(
+      (await runtime.fields.list(spaceId, tableId)).some((field) => field.key === "new_required"),
+    ).toBe(false);
+    const preset = {
+      ...base,
+      tables: base.tables.map((table) =>
+        table.key === "vector_test" ? { ...table, prompt: "已提交规则" } : table,
+      ),
+    };
+    const plan = await runtime.presetUpdate.preview(spaceId, preset, status.binding.chatIdentity);
+    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("测试保存失败"));
+    const outcome = await runtime.presetUpdate.apply(
+      plan,
+      presetUpdateChanges(plan.nodes).map((change) => change.id),
+      status.binding.chatIdentity,
+    );
+    expect(outcome.issues.join()).toContain("对话文件保存失败");
+    expect((await runtime.tables.find(spaceId, tableId))!.prompt).toBe("已提交规则");
+    await runtime.tables.update(spaceId, tableId, { prompt: "后续编辑" });
+    expect(await runtime.presetUpdate.retrySave(spaceId, status.binding.chatIdentity)).toEqual({
+      issues: [],
+    });
+    expect((await runtime.tables.find(spaceId, tableId))!.prompt).toBe("后续编辑");
+  });
+});
+
+it("删除被召回绑定的分组会拒绝；解除绑定后关闭索引并删除分组会清理向量", async () => {
+  const { runtime, db, spaceId, tableId, fieldId } = await setup({
+    getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+    embed: async () => [1, 2],
+  });
+  await runtime.tables.update(spaceId, tableId, {
+    vectorIndex: {
+      enabled: true,
+      source: "custom",
+      updateMode: "manual",
+      groups: [{ id: "bound-group", key: "basic", name: "基本信息", fieldIds: [fieldId] }],
+    },
+  });
+  await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "星港" } });
+  await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
+  await waitFor(async () =>
+    expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1),
+  );
+  const status = runtime.manager.getStatus();
+  if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+  const structure = await captureSpaceStructure(
+    {
+      listTables: (id) => runtime.tables.list(id),
+      listFields: (id, table) => runtime.fields.list(id, table),
+    },
+    spaceId,
+    status.space.prompt,
+  );
+  const preset = {
+    ...structure,
+    id: "delete-group",
+    name: "移除分组",
+    description: "",
+    builtIn: false,
+    tables: structure.tables.map((table) =>
+      table.key === "vector_test"
+        ? { ...table, vectorIndex: { enabled: false, updateMode: "manual" as const, groups: [] } }
+        : table,
+    ),
+  };
+  runtime.memoryRecall.saveConfiguration({
+    ...runtime.memoryRecall.getState().configuration,
+    spaceId,
+    bindings: [
+      { scope: "chat", name: "测试视图", tableKey: "vector_test", groupIds: ["bound-group"] },
+    ],
+  });
+  const plan = await runtime.presetUpdate.preview(spaceId, preset, status.binding.chatIdentity);
+  const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
+  await expect(
+    runtime.presetUpdate.apply(plan, selected, status.binding.chatIdentity),
+  ).rejects.toThrow("仍引用将删除的分组");
+  expect((await runtime.tables.find(spaceId, tableId))!.vectorIndex!.enabled).toBe(true);
+  runtime.memoryRecall.saveConfiguration({
+    ...runtime.memoryRecall.getState().configuration,
+    bindings: [],
+  });
+  expect(await runtime.presetUpdate.apply(plan, selected, status.binding.chatIdentity)).toEqual({
+    issues: [],
+  });
+  expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(0);
+  expect((await runtime.tables.find(spaceId, tableId))!.vectorIndex!.presetGroups).toEqual([]);
 });

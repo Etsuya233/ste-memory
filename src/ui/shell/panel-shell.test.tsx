@@ -126,6 +126,11 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       markFloorStatuses: vi.fn(async () => undefined),
     },
     spaceMaintenance: { clearRecords: vi.fn(async () => false) },
+    presetUpdate: {
+      preview: vi.fn(),
+      apply: vi.fn(async () => ({ issues: [] })),
+      retrySave: vi.fn(async () => ({ issues: [] })),
+    },
     presetApply: {
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),

@@ -14,6 +14,7 @@ export function capturePresetVectorIndex(
   if (!configuration) return undefined;
   const fieldKeyById = new Map(fields.map((field) => [field.id, field.key]));
   const groups = effectiveVectorIndexGroups(configuration, fields).map((group) => ({
+    key: group.key,
     name: group.name,
     fieldKeys: group.fieldIds.map((fieldId) => {
       const field = fields.find((candidate) => candidate.id === fieldId);
@@ -46,6 +47,7 @@ export function importPresetVectorIndexGroups(
   if (problems.length > 0) throw new Error(`预设向量配置无法导入：${problems.join("；")}`);
   return config.groups.map((group) => ({
     id: createGroupId(),
+    key: group.key,
     name: group.name,
     fieldIds: group.fieldKeys.map(
       (key) => byKey.get(key as MemoryField["key"])!.id as MemoryFieldId,

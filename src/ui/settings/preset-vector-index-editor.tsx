@@ -21,6 +21,7 @@ export function PresetVectorIndexEditor(props: {
   const enabledFields = props.table.fields.filter((field) => field.enabled);
   const groups = config.groups.map((group, index) => ({
     id: `group-${index}`,
+    key: group.key,
     name: group.name,
     fieldIds: group.fieldKeys,
   }));
@@ -31,11 +32,15 @@ export function PresetVectorIndexEditor(props: {
   }));
 
   function updateGroups(
-    next: readonly { id: string; name: string; fieldIds: readonly string[] }[],
+    next: readonly { id: string; key: string; name: string; fieldIds: readonly string[] }[],
   ) {
     props.onChange({
       ...config,
-      groups: next.map((group) => ({ name: group.name, fieldKeys: [...group.fieldIds] })),
+      groups: next.map((group) => ({
+        key: group.key,
+        name: group.name,
+        fieldKeys: [...group.fieldIds],
+      })),
     });
   }
 

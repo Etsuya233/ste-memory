@@ -50,7 +50,7 @@ function fixture() {
         enabled: true,
         source: "custom",
         updateMode,
-        groups: [{ id: "group", name: "内容", fieldIds: [`field-${suffix}`] }],
+        groups: [{ key: "group", id: "group", name: "内容", fieldIds: [`field-${suffix}`] }],
       },
     } as unknown as MemoryTable;
     const record = {

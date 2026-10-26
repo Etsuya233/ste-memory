@@ -173,6 +173,15 @@ export class ChatSpaceManager {
     return this.#status;
   }
 
+  /** Refresh committed space metadata without reimporting a possibly older chat file. */
+  async refreshSpace(id: MemorySpaceId): Promise<void> {
+    const status = this.#status;
+    if (status?.kind !== "active" || status.space.id !== id) return;
+    const space = await this.#ports.spaces.find(id);
+    if (!space) throw new Error("当前记忆空间已被删除");
+    if (this.#status === status) this.#publish({ ...status, space });
+  }
+
   /** Detach the old space synchronously before asynchronous teardown/loading begins. */
   clearCurrent(): void {
     this.#status = undefined;

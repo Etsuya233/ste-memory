@@ -86,7 +86,7 @@ describe("预设实例化（spec 4.2 / 10.2）", () => {
               vectorIndex: {
                 enabled: true,
                 updateMode: "manual" as const,
-                groups: [{ name: "人物", fieldKeys: [table.fields[0]!.key] }],
+                groups: [{ key: "人物", name: "人物", fieldKeys: [table.fields[0]!.key] }],
               },
             }
           : table,

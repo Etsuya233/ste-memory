@@ -1,4 +1,9 @@
 import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
+import {
+  buildPresetUpdate,
+  previewPresetUpdate,
+  type PresetSpaceUpdateService,
+} from "./features/table-presets/preset-space-update.ts";
 import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import {
   MemoryRecallService,
@@ -14,6 +19,7 @@ import {
   MemorySpaceService,
   MemoryTableService,
   createReadTimeDisplayTextResolver,
+  effectiveVectorIndexGroups,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -127,6 +133,7 @@ export interface SteMemoryRuntime {
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
   readonly presetApply: TablePresetApplyService;
+  readonly presetUpdate: PresetSpaceUpdateService;
   /** 通用日志（独立数据库，ADR 0015）：本地审计日志（填表行流）；不同步不备份不随空间删除 */
   readonly logs: LogRepository;
   /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
@@ -878,6 +885,186 @@ export async function startSteMemory(
       return vectorSync.refreshSettings();
     },
   });
+  const assertUpdateTarget = (spaceId: MemorySpaceId, chatIdentity: string) => {
+    presetApply.assertCurrentChat(chatIdentity);
+    const status = manager.getStatus();
+    if (!settings.read().enabled || status?.kind !== "active" || status.space.id !== spaceId)
+      throw new Error("当前空间绑定或插件状态已变化，请重新比较");
+  };
+  const finishPresetUpdate = async (spaceId: MemorySpaceId, initialIssues: string[] = []) => {
+    const issues = [...initialIssues];
+    try {
+      await manager.refreshSpace(spaceId);
+    } catch (error) {
+      issues.push(`空间状态刷新失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    retrieval.invalidate(spaceId, "空间已更新，请重新搜索");
+    recallRetrieval.invalidate(spaceId, "空间已更新");
+    if (currentSpaceId() === spaceId) memoryRecall.invalidate("空间已更新");
+    try {
+      await macro.kick();
+    } catch (error) {
+      issues.push(`宏刷新失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await vector.reconcile({ memorySpaceId: spaceId });
+      const latest = await memoryStore.snapshot(spaceId);
+      if (!latest) throw new Error("记忆空间不存在");
+      const groupIds = new Map(
+        latest.tables.map((table) => [
+          table.id,
+          new Set(
+            effectiveVectorIndexGroups(
+              table.vectorIndex,
+              latest.fields.filter((field) => field.tableId === table.id),
+            ).map((group) => group.id),
+          ),
+        ]),
+      );
+      const recordIds = new Set(latest.records.map((record) => record.id));
+      for (const item of await vectorRepository.listVectors({ memorySpaceId: spaceId })) {
+        if (!recordIds.has(item.recordId) || !groupIds.get(item.tableId)?.has(item.groupId))
+          await vectorRepository.deleteVector(item.id);
+      }
+      for (const suppression of await vectorRepository.listSuppressions()) {
+        if (suppression.memorySpaceId !== spaceId) continue;
+        const [, tableId, recordId, groupId] = suppression.id.split("\u0000");
+        if (
+          !recordIds.has(recordId as MemoryRecordId) ||
+          !groupIds.get(tableId as MemoryTableId)?.has(groupId!)
+        )
+          await vectorRepository.deleteSuppression(suppression.id);
+      }
+    } catch (error) {
+      issues.push(`索引处理失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { issues };
+  };
+  const presetUpdate: PresetSpaceUpdateService = {
+    async preview(spaceId, preset, chatIdentity) {
+      assertUpdateTarget(spaceId, chatIdentity);
+      const unit = await memoryStore.snapshot(spaceId);
+      if (!unit) throw new Error("记忆空间不存在");
+      assertUpdateTarget(spaceId, chatIdentity);
+      return previewPresetUpdate(unit, preset);
+    },
+    async apply(plan, selectedIds, chatIdentity) {
+      assertUpdateTarget(plan.spaceId, chatIdentity);
+      const previewUnit = await memoryStore.snapshot(plan.spaceId);
+      if (!previewUnit) throw new Error("记忆空间不存在");
+      buildPresetUpdate(
+        previewUnit,
+        plan,
+        selectedIds,
+        {
+          table: () => createId("table") as MemoryTableId,
+          field: () => createId("field") as MemoryFieldId,
+          group: () => createId("vector-group"),
+        },
+        now(),
+      );
+      await tasks.cancelAll(plan.spaceId);
+      await memoryStore.whenIdle(plan.spaceId);
+      const issues: string[] = [];
+      await memoryStore.exclusive(plan.spaceId, async () => {
+        assertUpdateTarget(plan.spaceId, chatIdentity);
+        const unit = await memoryStore.snapshot(plan.spaceId);
+        if (!unit) throw new Error("记忆空间不存在");
+        let next = buildPresetUpdate(
+          unit,
+          plan,
+          selectedIds,
+          {
+            table: () => createId("table") as MemoryTableId,
+            field: () => createId("field") as MemoryFieldId,
+            group: () => createId("vector-group"),
+          },
+          now(),
+        );
+        const recall = memoryRecall.getState().configuration;
+        if (recall.spaceId === plan.spaceId) {
+          for (const binding of recall.bindings) {
+            const oldTable = unit.tables.find((table) => table.key === binding.tableKey);
+            const table = next.tables.find((table) => table.key === binding.tableKey);
+            const oldGroups = oldTable
+              ? effectiveVectorIndexGroups(
+                  oldTable.vectorIndex,
+                  unit.fields.filter((field) => field.tableId === oldTable.id),
+                )
+              : [];
+            const groups = table
+              ? effectiveVectorIndexGroups(
+                  table.vectorIndex,
+                  next.fields.filter((field) => field.tableId === table.id),
+                )
+              : [];
+            if (
+              binding.groupIds.some(
+                (id) =>
+                  oldGroups.some((group) => group.id === id) &&
+                  !groups.some((group) => group.id === id),
+              )
+            )
+              throw new Error(`自动召回「${binding.name}」仍引用将删除的分组，请先调整绑定`);
+          }
+        }
+        const display = createReadTimeDisplayTextResolver({
+          getTable: async (id) => next.tables.find((table) => table.id === id),
+          getFields: async (id) => next.fields.filter((field) => field.tableId === id),
+          findRecord: async (tableId, recordId) =>
+            next.records.find((record) => record.tableId === tableId && record.id === recordId),
+        });
+        next = {
+          ...next,
+          records: await Promise.all(
+            next.records.map(async (record) => ({ ...record, displayText: await display(record) })),
+          ),
+        };
+        assertUpdateTarget(plan.spaceId, chatIdentity);
+        // importSpace builds and commits a separate SQLite database before publishing it.
+        // It retains the old database if validation or publication fails; it does not clear vectors/tasks.
+        await sqlite.importSpace(next);
+        try {
+          await memoryStore.cache(next);
+        } catch (error) {
+          issues.push(
+            `本地缓存保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        try {
+          await saveSnapshot(next);
+        } catch (error) {
+          issues.push(
+            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      });
+      return finishPresetUpdate(plan.spaceId, issues);
+    },
+    async retrySave(spaceId, chatIdentity) {
+      assertUpdateTarget(spaceId, chatIdentity);
+      const issues: string[] = [];
+      await memoryStore.exclusive(spaceId, async () => {
+        const latest = await memoryStore.snapshot(spaceId);
+        if (!latest) throw new Error("记忆空间不存在");
+        try {
+          await memoryStore.cache(latest);
+        } catch (error) {
+          issues.push(
+            `本地缓存保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        try {
+          await saveSnapshot(latest);
+        } catch (error) {
+          issues.push(
+            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      });
+      return finishPresetUpdate(spaceId, issues);
+    },
+  };
   return {
     manager,
     adapter,
@@ -914,6 +1101,7 @@ export async function startSteMemory(
     autoFill,
     spaceMaintenance,
     presetApply,
+    presetUpdate,
     logs,
     macro,
     agentMacro,

@@ -125,7 +125,14 @@ describe("Dexie memory backup repository", () => {
         source: "automatic",
         updateMode: "manual",
         groups: [],
-        presetGroups: [{ id: "original-group", name: "人物", fieldIds: [name.id, identity.id] }],
+        presetGroups: [
+          {
+            key: "original-group",
+            id: "original-group",
+            name: "人物",
+            fieldIds: [name.id, identity.id],
+          },
+        ],
       },
     });
     const repo = new DexieMemoryBackupRepository(db);

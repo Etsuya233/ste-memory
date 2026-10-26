@@ -1,4 +1,5 @@
 import { Tabs } from "../kit/tabs.tsx";
+import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
 import { PanelBar, PanelBarAction } from "./panel-bar.tsx";
 import { useAppearance } from "./appearance-settings.tsx";
@@ -68,6 +69,7 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  * 结构满足该端口，组合根直接传入。
  */
 export interface PanelRuntime {
+  readonly presetUpdate: PresetSpaceUpdateService;
   readonly sqlConsole: SteMemoryRuntime["sqlConsole"];
   readonly memoryRecall?: SteMemoryRuntime["memoryRecall"];
   readonly vector: VectorIndexService;
@@ -965,6 +967,7 @@ export function PanelShell(props: {
               macro={props.runtime.macro}
               spaceMaintenance={props.runtime.spaceMaintenance}
               presetApply={props.runtime.presetApply}
+              presetUpdate={props.runtime.presetUpdate}
               cleaning={props.runtime.cleaning}
               presetPreview={props.runtime.presetPreview}
               macroOverview={props.runtime.macroOverview}

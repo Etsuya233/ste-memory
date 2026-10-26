@@ -105,6 +105,7 @@ const memoryTableSchema = Type.Object({
       groups: Type.Array(
         Type.Object({
           id: Type.String(),
+          key: Type.Optional(Type.String()),
           name: Type.String(),
           fieldIds: Type.Array(Type.String()),
         }),
@@ -113,6 +114,7 @@ const memoryTableSchema = Type.Object({
         Type.Array(
           Type.Object({
             id: Type.String(),
+            key: Type.Optional(Type.String()),
             name: Type.String(),
             fieldIds: Type.Array(Type.String()),
           }),
