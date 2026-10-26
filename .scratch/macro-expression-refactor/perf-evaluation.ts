@@ -1,5 +1,6 @@
 import { createInProcessSqliteMemoryClient } from "../../src/infrastructure/sqlite/node-client.ts";
 import { createMacroEvaluationBatch } from "../../src/features/macros/macro-evaluation.ts";
+import { QueryVectorCache } from "../../src/features/semantic-query/query-vector-cache.ts";
 import type { MemorySpaceBackup } from "../../src/features/backup/backup-file.ts";
 import type { RecordVector } from "../../src/features/vector-index/index.ts";
 const stamp = "2026-10-24T00:00:00.000Z";
@@ -126,23 +127,30 @@ const port = {
     }
   },
   closeEvaluation: (id: string) => sql.closeEvaluation(id),
+  evaluateSemanticSql: (input: Parameters<typeof sql.evaluateSemanticSql>[0]) =>
+    sql.evaluateSemanticSql(input),
 };
 const queryVector = Array.from({ length: dimensions }, (_, j) => ((j % 17) - 8) / 8);
+const embedding = {
+  getProfile: () => ({ model: "model", version: "v1", dimensions, maxInputChars: 4000 }),
+  embed: async () => queryVector,
+};
+const controller = new AbortController();
+const cache = new QueryVectorCache();
+const revision = cache.revisionFor(embedding.getProfile());
 const batch = await createMacroEvaluationBatch({
   sql: port,
   vectors: { listVectors: async () => vectors },
-  embedding: {
-    getProfile: () => ({
-      model: "model",
-      version: "v1",
-      dimensions,
-      maxInputChars: 4000,
-    }),
-    embed: async () => queryVector,
-  },
+  embedding,
+  queryVectors: cache.createExecution({
+    embedding,
+    revision,
+    signal: controller.signal,
+    isCurrent: () => true,
+  }),
   snapshot,
   lastUserMessage: "本轮问题",
-  signal: new AbortController().signal,
+  signal: controller.signal,
   deadline: started + 60000,
 });
 const snapshotMs = performance.now() - started;

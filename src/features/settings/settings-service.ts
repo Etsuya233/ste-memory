@@ -1,4 +1,8 @@
-import { validateMemoryMacro, type MemoryMacro } from "../macros/macro-expression.ts";
+import {
+  hasSemanticSource,
+  validateMemoryMacro,
+  type MemoryMacro,
+} from "../macros/macro-expression.ts";
 import type { EntryPlacement, PluginSettings, SettingsStore } from "./plugin-settings.ts";
 import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
 
@@ -11,7 +15,11 @@ interface SettingsDependencies {
   readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void> | void;
   readonly refreshVectorIndex: () => Promise<void>;
   readonly refreshAutoFill?: () => void;
-  readonly validateMacros: (macros: readonly MemoryMacro[]) => Promise<void>;
+  readonly validateMacros: (
+    macros: readonly MemoryMacro[],
+    previous: readonly MemoryMacro[],
+  ) => Promise<readonly MemoryMacro[]>;
+  readonly getChatScopeMacros: () => readonly MemoryMacro[];
   readonly getChatContext: () => string;
 }
 
@@ -77,17 +85,15 @@ export class SettingsService {
     if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
       throw new Error("宏名称重复");
     const previous = this.read().macros;
-    await this.dependencies.validateMacros(
-      macros.filter(
-        (macro) =>
-          !previous.some(
-            (item) =>
-              item.id === macro.id &&
-              JSON.stringify(item.expression) === JSON.stringify(macro.expression),
-          ),
-      ),
-    );
-    this.save({ ...this.read(), macros });
+    const classified = await this.dependencies.validateMacros(macros, previous);
+    const normalized = classified.map((macro) => ({
+      ...macro,
+      enabled:
+        !previous.some((item) => item.id === macro.id) && hasSemanticSource(macro)
+          ? false
+          : macro.enabled,
+    }));
+    this.save({ ...this.read(), macros: normalized });
     await this.dependencies.refreshMemoryMacros();
   }
 
@@ -96,10 +102,18 @@ export class SettingsService {
     for (const macro of macros) validateMemoryMacro(macro);
     if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
       throw new Error("宏名称重复");
-    await this.dependencies.validateMacros(macros);
+    const previous = this.dependencies.getChatScopeMacros();
+    const classified = await this.dependencies.validateMacros(macros, previous);
+    const normalized = classified.map((macro) => ({
+      ...macro,
+      enabled:
+        !previous.some((item) => item.id === macro.id) && hasSemanticSource(macro)
+          ? false
+          : macro.enabled,
+    }));
     if (context !== this.dependencies.getChatContext())
       throw new Error("对话已切换，未保存原对话的宏草稿");
-    await this.dependencies.writeChatScopeMacros(macros);
+    await this.dependencies.writeChatScopeMacros(normalized);
     await this.dependencies.refreshMemoryMacros();
   }
 

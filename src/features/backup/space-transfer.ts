@@ -60,6 +60,7 @@ export type FullBackupImportPlan =
 
 export interface FullBackupImportDeps {
   readonly backup: Pick<MemoryBackupRepository, "restoreSnapshot">;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   readonly syncToCurrentChat: () => Promise<unknown>;
   /** 记忆宏快照重建（导入即整库数据变更，不等轮询） */
   readonly kickMacros: () => void;
@@ -87,10 +88,16 @@ export async function executeFullBackupImport(
   plan: Extract<FullBackupImportPlan, { kind: "ready" }>,
   deps: FullBackupImportDeps,
 ): Promise<void> {
+  const normalized = await Promise.all(
+    plan.data.spaces.map((unit) => deps.normalizeImportedSpace(unit)),
+  );
   await deps.backup.restoreSnapshot({
-    spaces: plan.data.spaces.map((unit) => ({
+    spaces: normalized.map((unit) => ({
       ...unit,
       space: { ...unit.space, macros: restoredMemoryMacros(unit.space.macros ?? []) },
+      ...(unit.chatScopeMacros === undefined
+        ? {}
+        : { chatScopeMacros: restoredMemoryMacros(unit.chatScopeMacros) }),
     })),
   });
   deps.onDataChanged();

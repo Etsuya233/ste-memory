@@ -88,7 +88,7 @@ import { TablePresetManager } from "./table-preset-manager.tsx";
 import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
-import type { MemoryBackupRepository } from "../../features/backup/index.ts";
+import type { MemoryBackupRepository, MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { ChatSpaceManager } from "../../features/chat-binding/chat-space-manager.ts";
 import type { ChatMetadataMirrorSync } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
@@ -119,6 +119,7 @@ export function SettingsTab(props: {
   readonly presetUpdate: PresetSpaceUpdateService;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settingsService: SettingsService;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   readonly tables: Pick<MemoryTableService, "list">;
   readonly fields: Pick<MemoryFieldService, "list">;
   readonly manager: Pick<ChatSpaceManager, "getStatus" | "syncToCurrentChat" | "importSpace">;
@@ -252,6 +253,7 @@ export function SettingsTab(props: {
     if (!window.confirm(plan.confirmMessage)) return;
     try {
       await executeFullBackupImport(plan, {
+        normalizeImportedSpace: props.normalizeImportedSpace,
         backup: props.backup,
         syncToCurrentChat: () => props.manager.syncToCurrentChat(),
         kickMacros: () => void props.macro.kick().catch(reportError),
@@ -308,15 +310,16 @@ export function SettingsTab(props: {
     try {
       reportInfo("正在导入…");
       await executeSpaceImport(plan, {
+        normalizeImportedSpace: props.normalizeImportedSpace,
         backup: props.backup,
         manager: props.manager,
         kickMacros: () => void props.macro.kick().catch(reportError),
         kickMirror: () => void props.mirror.kick().catch(reportError),
         onDataChanged: props.onDataChanged,
         // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
-        writeChatScopeMacros: (macros) => {
-          void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
-          setChatScopeMacros(macros);
+        writeChatScopeMacros: async (macros) => {
+          await props.settingsService.setChatScopeMacros(macros);
+          setChatScopeMacros(props.cleaning.readChatScopeMacros());
         },
       });
       reportSuccess(`已导入记忆空间「${plan.spaceName}」`);
@@ -814,7 +817,7 @@ export function SettingsTab(props: {
                           name = `${copied.name}_${suffix++}`;
                         const macros = [...chatScopeMacros, { ...copied, name }];
                         await props.settingsService.setChatScopeMacros(macros);
-                        setChatScopeMacros(macros);
+                        setChatScopeMacros(props.cleaning.readChatScopeMacros());
                         setMacroScopeTab("chat");
                       }}
                       onChange={async (macros) => {
@@ -847,7 +850,7 @@ export function SettingsTab(props: {
                       macros={chatScopeMacros}
                       onChange={async (macros) => {
                         await props.settingsService.setChatScopeMacros(macros);
-                        setChatScopeMacros(macros);
+                        setChatScopeMacros(props.cleaning.readChatScopeMacros());
                       }}
                     />
                   )}

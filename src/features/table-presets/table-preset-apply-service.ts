@@ -1,3 +1,4 @@
+import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { SpaceStructureRebuild } from "../space-maintenance/space-structure-rebuild.ts";
 import {
@@ -33,7 +34,9 @@ export interface TablePresetApplyPorts {
   readonly clearChatScopeMacros: () => void;
   readonly createIds: PresetInstantiationIds;
   readonly now: () => string;
-  readonly validateStructure: (structure: InstantiatedSpaceStructure) => Promise<void>;
+  readonly validateStructure: (
+    structure: InstantiatedSpaceStructure,
+  ) => Promise<InstantiatedSpaceStructure>;
 }
 
 /** 应用预设成功后的同步动作（调用方注入现有服务；失败不影响已提交的重建）。 */
@@ -55,14 +58,22 @@ export class TablePresetApplyService {
     this.#ports = ports;
   }
 
-  async validate(preset: ResolvedTablePreset): Promise<void> {
+  async validate(preset: ResolvedTablePreset): Promise<ResolvedTablePreset> {
     const structure = instantiateTablePreset(
       preset,
       "preset-validation" as MemorySpaceId,
       this.#ports.createIds,
       this.#ports.now(),
     );
-    await this.#ports.validateStructure(structure);
+    const normalized = await this.#ports.validateStructure(structure);
+    return {
+      ...preset,
+      macros: normalized.macros.map((macro, index) => ({
+        ...macro,
+        id: preset.macros![index]!.id,
+        enabled: preset.macros![index]!.enabled,
+      })),
+    };
   }
 
   /**
@@ -135,14 +146,20 @@ export class TablePresetApplyService {
     preset: ResolvedTablePreset,
   ): Promise<boolean> {
     const now = this.#ports.now();
-    const structure = instantiateTablePreset(preset, memorySpaceId, this.#ports.createIds, now);
-    await this.#ports.validateStructure(structure);
+    const structure = await this.#ports.validateStructure(
+      instantiateTablePreset(preset, memorySpaceId, this.#ports.createIds, now),
+    );
     return this.#ports.rebuild.rebuild({
       memorySpaceId,
       prompt: preset.prompt ?? "",
       tables: structure.tables,
       fields: structure.fields,
-      macros: structure.macros,
+      macros: restoredMemoryMacros(
+        structure.macros.map((macro, index) => ({
+          ...macro,
+          enabled: preset.macros![index]!.enabled,
+        })),
+      ),
       initializationSource: { presetId: preset.id, presetName: preset.name, appliedAt: now },
     });
   }

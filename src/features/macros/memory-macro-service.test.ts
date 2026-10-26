@@ -4,6 +4,7 @@ import type { MemorySpaceId } from "../memory/index.ts";
 import type { MemoryMacro } from "./macro-expression.ts";
 import type { MemoryView } from "./memory-views.ts";
 import { MemoryMacroService, type MemoryMacroExecutionContext } from "./memory-macro-service.ts";
+import type { MacroEvaluationStatistics } from "./macro-evaluation.ts";
 import { renderMacroResult } from "./macro-result-render.ts";
 
 const definition = (name = "记忆"): MemoryMacro => ({
@@ -42,6 +43,10 @@ function harness(timeoutMs = 1000) {
   const evaluate = vi.fn(async () => ({ columns: ["内容"], rows: [["本次记忆"]], sources: [] }));
   const capture = vi.fn(async () => structuredClone(snapshot));
   const close = vi.fn(async () => {});
+  const statistics = vi.fn((): MacroEvaluationStatistics => ({
+    queryVectorScope: "batch",
+    queryVectors: { requests: 0, executionHits: 0, sharedHits: 0 },
+  }));
   const service = new MemoryMacroService({
     getContext: () => context,
     getChatMacros: () => local,
@@ -54,7 +59,12 @@ function harness(timeoutMs = 1000) {
     },
     readSettings: () => settings,
     capture,
-    createBatch: async () => ({ evaluate, close, validate: async () => {} }),
+    createBatch: async () => ({
+      evaluate,
+      close,
+      validate: async () => false,
+      statistics,
+    }),
     registerMacro: {
       register: (_name, next) => {
         handler = next;
@@ -71,6 +81,7 @@ function harness(timeoutMs = 1000) {
     evaluate,
     capture,
     close,
+    statistics,
     setLocal: (value: readonly MemoryMacro[]) => {
       local = value;
     },
@@ -88,6 +99,47 @@ function harness(timeoutMs = 1000) {
 }
 
 describe("生成时统一求值", () => {
+  it("保留超限前实际请求与准备轮数诊断，测试结果不覆盖真实结果", async () => {
+    const h = harness();
+    h.statistics.mockReturnValue({
+      queryVectorScope: "batch",
+      queryVectors: { requests: 4, executionHits: 1, sharedHits: 0 },
+      sqlPasses: 5,
+      preparedSources: 4,
+      queryTexts: 4,
+      sqlMs: 12,
+    });
+    h.evaluate.mockRejectedValue(new Error("不同查询文本超过 4 种"));
+    await h.service.start();
+    h.service.started("regenerate", {}, false);
+    await h.service.afterCommands("regenerate", {}, false, "查询");
+    const recent = h.service.getRecentResults();
+    expect(recent.find((row) => row.name === "记忆")?.diagnostics).toEqual([
+      { execution: h.statistics() },
+    ]);
+    const tested = await h.service.testMacro({
+      macro: definition(),
+      scope: "global",
+      lastUserMessage: "查询",
+    });
+    expect(tested.error).toContain("超过 4 种");
+    expect(tested.diagnostics).toEqual([{ execution: h.statistics() }]);
+    expect(h.service.getRecentResults()).toBe(recent);
+    h.service.stop();
+  });
+
+  it("会话关闭失败显式报告且不阻塞主生成", async () => {
+    const h = harness();
+    h.close.mockRejectedValueOnce(new Error("close RPC failed"));
+    await h.service.start();
+    h.service.started("regenerate", {}, false);
+    await expect(h.service.afterCommands("regenerate", {}, false, "查询")).resolves.toBeUndefined();
+    expect(h.expand()).toBe("");
+    expect(h.service.getRecentResults().find((row) => row.name === "记忆")?.error).toContain(
+      "close RPC failed",
+    );
+    h.service.stop();
+  });
   it("注册保存与失效不查询，仅本次生成展开可见", async () => {
     const h = harness();
     await h.service.start();

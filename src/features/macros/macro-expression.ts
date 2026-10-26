@@ -79,6 +79,7 @@ export const memoryMacroSchema = Type.Object(
           language: Type.Literal("sql"),
           sources: Type.Optional(Type.Array(sourceSchema)),
           sql: text,
+          usesSemantic: Type.Optional(Type.Boolean()),
         },
         { additionalProperties: false },
       ),
@@ -142,7 +143,7 @@ export function parseMemoryMacros(raw: unknown): readonly MemoryMacro[] {
 export function hasSemanticSource(macro: MemoryMacro): boolean {
   return macro.expression.language === "query"
     ? macro.expression.query.semantic !== undefined
-    : (macro.expression.sources?.length ?? 0) > 0;
+    : macro.expression.usesSemantic === true || (macro.expression.sources?.length ?? 0) > 0;
 }
 
 export function copyMemoryMacros(

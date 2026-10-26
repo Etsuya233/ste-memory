@@ -1,5 +1,6 @@
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type { MacroSqlEvaluationPort } from "../../features/macros/macro-evaluation-port.ts";
+import type { SemanticSqlEvaluationPort } from "../../features/semantic-query/semantic-sql-port.ts";
 import type { SqlExecutionResult, SqlSchemaEntry } from "../../features/sql-console/sql-console.ts";
 import type {
   MemoryEvidence,
@@ -33,7 +34,7 @@ export interface SqliteExecution {
   /** Restrict raw Agent SQL to the enabled digest, excluding internal system tables. */
   allowedTables?: Readonly<Record<string, readonly string[]>>;
 }
-export interface SqliteMemoryClient extends MacroSqlEvaluationPort {
+export interface SqliteMemoryClient extends MacroSqlEvaluationPort, SemanticSqlEvaluationPort {
   executeConsole(spaceId: string, sql: string): Promise<SqlExecutionResult>;
   consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;

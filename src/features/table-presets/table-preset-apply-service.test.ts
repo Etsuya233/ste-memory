@@ -123,7 +123,7 @@ async function setup() {
   let tableSeq = 0;
   let fieldSeq = 0;
   const apply = new TablePresetApplyService({
-    validateStructure: async () => {},
+    validateStructure: async (structure) => structure,
     cancelActiveTask: async (id) => {
       const active = await taskRepository.findActive(id);
       if (active) await taskRepository.markInterrupted(active.runId);
@@ -143,12 +143,68 @@ async function setup() {
 }
 
 describe("TablePresetApplyService（应用预设）", () => {
+  it("预设验证回填分类并保留原身份与启用态，应用时关闭新语义副本", async () => {
+    const preset: ResolvedTablePreset = {
+      ...TARGET_PRESET,
+      macros: [
+        {
+          ...TARGET_PRESET.macros![0]!,
+          expression: {
+            language: "sql",
+            sql: "SELECT * FROM semantic_scores('people', '[]', 'q')",
+            usesSemantic: false,
+          },
+        },
+      ],
+    };
+    const rebuild = vi.fn(async () => true);
+    const apply = new TablePresetApplyService({
+      validateStructure: async (structure) => ({
+        ...structure,
+        macros: structure.macros.map((macro) => ({
+          ...macro,
+          expression: { ...macro.expression, usesSemantic: true },
+        })),
+      }),
+      cancelActiveTask: async () => {},
+      rebuild: { rebuild },
+      defaultPreset: () => preset,
+      currentChatIdentity: () => "chat",
+      clearChatScopeMacros: () => {},
+      createIds: {
+        table: () => crypto.randomUUID() as MemoryTableId,
+        field: () => crypto.randomUUID() as MemoryFieldId,
+        group: () => crypto.randomUUID(),
+      },
+      now: () => NOW,
+    });
+    const normalized = await apply.validate(preset);
+    expect(normalized.macros![0]).toMatchObject({
+      id: "preset-macro",
+      enabled: true,
+      expression: { usesSemantic: true },
+    });
+    await apply.installDefaultStructure("space" as MemorySpaceId);
+    expect(rebuild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        macros: [
+          expect.objectContaining({
+            enabled: false,
+            expression: { ...preset.macros![0]!.expression, usesSemantic: true },
+          }),
+        ],
+      }),
+    );
+    expect(preset.macros![0]!.enabled).toBe(true);
+    expect(preset.macros![0]!.expression).toMatchObject({ usesSemantic: false });
+  });
+
   it("确认后切换对话：在任何重建和宏清理之前拒绝操作", async () => {
     const rebuild = vi.fn(async () => true);
     const clearChatScopeMacros = vi.fn();
     const syncMirror = vi.fn(async () => undefined);
     const apply = new TablePresetApplyService({
-      validateStructure: async () => {},
+      validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
       rebuild: { rebuild },
       defaultPreset: () => SYSTEM_TABLE_PRESET,
@@ -177,7 +233,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const { db, services } = await setup();
     const fresh = await services.spaces.create("新空间");
     const apply = new TablePresetApplyService({
-      validateStructure: async () => {},
+      validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
       rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
       defaultPreset: () => TARGET_PRESET,
@@ -451,7 +507,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const clearChatScopeMacros = vi.fn();
     const rebuild = new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db));
     const apply = new TablePresetApplyService({
-      validateStructure: async () => {},
+      validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
       // 重建期间切走对话：重建提交后当前对话身份已不同
       rebuild: {
@@ -496,7 +552,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     await installDefaultPreset(db, space.id);
     const clearChatScopeMacros = vi.fn();
     const apply = new TablePresetApplyService({
-      validateStructure: async () => {},
+      validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
       rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
       defaultPreset: () => SYSTEM_TABLE_PRESET,

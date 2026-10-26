@@ -92,7 +92,7 @@ describe("表达式宏界面", () => {
     expect(port.testMacro).not.toHaveBeenCalled();
     expect(readTables).not.toHaveBeenCalled();
   });
-  it("SQL 源声明与正文同页编辑，测试输入显式填写且不自动执行", () => {
+  it("旧 sources 与 SQL 只读展示，元数据和显式转换入口可用", () => {
     const onTest = vi.fn(async () => actual);
     const sqlMacro: MemoryMacro = {
       ...macro,
@@ -130,8 +130,11 @@ describe("表达式宏界面", () => {
         />,
       ),
     );
-    expect(html).toContain("语义源 sources JSON");
-    expect(html).toContain("SQL 正文");
+    expect(html).toContain("原 sources JSON（只读）");
+    expect(html).toContain("原 SQL（只读）");
+    expect(html).toContain("转为内联 SQL 草稿");
+    expect(html.match(/readonly=""/gi)).toHaveLength(2);
+    expect(html).not.toContain(">SQL 正文</label>");
     expect(html).toContain("ORDER BY score DESC LIMIT 10");
     expect(html).toContain("last_user_message 测试文本");
     expect(html).toContain("显式测试结果");
@@ -140,6 +143,45 @@ describe("表达式宏界面", () => {
     expect(html).toContain("$similarity");
     expect(html).not.toContain("Top K");
     expect(onTest).not.toHaveBeenCalled();
+  });
+  it("新 SQL 只编辑正文，展示原生函数、绑定和缓存说明", () => {
+    const html = renderToString(
+      <ExpressionMacroEditor
+        initial={{
+          ...macro,
+          expression: {
+            language: "sql",
+            sql: "SELECT * FROM semantic_scores('events', json_array('event_memory'), :last_user_message)",
+          },
+        }}
+        names={[macro.name]}
+        tables={[]}
+        scope="chat"
+        onSave={() => undefined}
+        onCancel={() => undefined}
+      />,
+    );
+    expect(html).toContain("SQL 正文");
+    expect(html).toContain("semantic_scores(table_key, groups_json, query_text)");
+    expect(html).toContain("最多缓存 5 分钟");
+    expect(html).toContain("每次执行仍按当前快照重新评分和查询");
+    expect(html).not.toContain("sources JSON");
+    expect(html).not.toContain("转为内联 SQL 草稿");
+  });
+  it("空 sources 的 SQL 使用普通编辑入口", () => {
+    const html = renderToString(
+      <ExpressionMacroEditor
+        initial={{ ...macro, expression: { language: "sql", sources: [], sql: "SELECT 1 AS n" } }}
+        names={[macro.name]}
+        tables={[]}
+        scope="chat"
+        onSave={() => undefined}
+        onCancel={() => undefined}
+      />,
+    );
+    expect(html).toContain("SQL 正文");
+    expect(html).not.toContain("data-legacy-sql-expression");
+    expect(html).not.toContain("只读）");
   });
   it("迁移冲突保留来源与两份定义，提供保留、覆盖、改名入口", () => {
     const port = service();
@@ -174,7 +216,7 @@ describe("表达式宏界面", () => {
   it("预设只读展示宏表达式和新副本语义默认停用说明", () => {
     const html = renderToString(
       <PresetMacrosEditor
-        validate={vi.fn(async () => {})}
+        validate={vi.fn(async (macros: readonly MemoryMacro[]) => macros)}
         macros={[macro]}
         tables={[]}
         readonly

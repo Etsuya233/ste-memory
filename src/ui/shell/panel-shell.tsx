@@ -69,6 +69,7 @@ import type { MacroOverviewRow } from "../../features/macros/macro-overview-mode
  */
 export interface PanelRuntime {
   readonly presetUpdate: PresetSpaceUpdateService;
+  readonly normalizeImportedSpace: SteMemoryRuntime["normalizeImportedSpace"];
   readonly sqlConsole: SteMemoryRuntime["sqlConsole"];
   readonly vector: VectorIndexService;
   readonly retrieval: Pick<
@@ -957,6 +958,7 @@ export function PanelShell(props: {
             <SettingsTab
               registerLeaveGuard={registerLeaveGuard}
               settingsService={props.runtime.settingsService}
+              normalizeImportedSpace={props.runtime.normalizeImportedSpace}
               tables={props.runtime.tables}
               fields={props.runtime.fields}
               manager={props.runtime.manager}

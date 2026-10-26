@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { MemoryMacro } from "../../features/macros/macro-expression.ts";
+import { hasSemanticSource, type MemoryMacro } from "../../features/macros/macro-expression.ts";
 import type { TablePresetTable } from "../../features/table-presets/preset-model.ts";
 import { Button } from "../kit/controls.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
@@ -9,7 +9,7 @@ export function PresetMacrosEditor(props: {
   readonly tables: readonly TablePresetTable[];
   readonly readonly: boolean;
   readonly onChange: (macros: readonly MemoryMacro[]) => void;
-  readonly validate: (macros: readonly MemoryMacro[]) => Promise<void>;
+  readonly validate: (macros: readonly MemoryMacro[]) => Promise<readonly MemoryMacro[]>;
   readonly onDirtyChange: (dirty: boolean) => void;
 }) {
   const [editing, setEditing] = useState<MemoryMacro | null>(null);
@@ -37,8 +37,15 @@ export function PresetMacrosEditor(props: {
             onCancel={close}
             onSave={async (macro) => {
               const macros = [...props.macros.filter((item) => item.id !== macro.id), macro];
-              await props.validate(macros);
-              props.onChange(macros);
+              const normalized = await props.validate(macros);
+              const created = !props.macros.some((item) => item.id === macro.id);
+              props.onChange(
+                normalized.map((item) =>
+                  created && item.id === macro.id && hasSemanticSource(item)
+                    ? { ...item, enabled: false }
+                    : item,
+                ),
+              );
               close();
             }}
           />
@@ -50,6 +57,9 @@ export function PresetMacrosEditor(props: {
               <span>
                 {macro.name} · {macro.expression.language.toUpperCase()} ·{" "}
                 {macro.enabled ? "启用" : "停用"}
+                {macro.expression.language === "sql" && (macro.expression.sources?.length ?? 0) > 0
+                  ? " · 旧版命名评分源"
+                  : ""}
               </span>
               <Button disabled={props.readonly} onClick={() => setEditing(macro)}>
                 编辑宏

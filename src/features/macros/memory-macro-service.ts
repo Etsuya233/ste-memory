@@ -325,6 +325,7 @@ export class MemoryMacroService {
     const started = performance.now();
     const initial = this.#initial(input.macro, input.scope);
     const deadline = started + (this.#ports.timeoutMs ?? 10_000);
+    let batch: MacroEvaluationBatch | undefined;
     const interrupted = new Promise<MacroExecutionResult>((resolve) => {
       controller.signal.addEventListener(
         "abort",
@@ -334,13 +335,13 @@ export class MemoryMacroService {
             status: "error",
             error: "测试超过允许的计算时限",
             elapsedMs: performance.now() - started,
+            diagnostics: batch ? [{ execution: batch.statistics(input.macro.expression) }] : [],
           }),
         { once: true },
       );
     });
     const timeout = setTimeout(() => controller.abort(), Math.max(0, deadline - performance.now()));
     const work = async (): Promise<MacroExecutionResult> => {
-      let batch: MacroEvaluationBatch | undefined;
       try {
         const snapshot = await this.#ports.capture();
         controller.signal.throwIfAborted();
@@ -364,6 +365,7 @@ export class MemoryMacroService {
           resultRows: result.rows.length,
           elapsedMs: performance.now() - started,
           diagnostics: [
+            { execution: { ...batch.statistics(input.macro.expression), ...result.execution } },
             {
               expression: input.macro.expression,
               lastUserMessage: input.lastUserMessage,
@@ -381,6 +383,7 @@ export class MemoryMacroService {
           status: "error",
           error: error instanceof Error ? error.message : String(error),
           elapsedMs: performance.now() - started,
+          diagnostics: batch ? [{ execution: batch.statistics(input.macro.expression) }] : [],
         };
       } finally {
         await batch?.close();
@@ -388,6 +391,14 @@ export class MemoryMacroService {
     };
     try {
       return await Promise.race([work(), interrupted]);
+    } catch (error) {
+      return {
+        ...initial,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        elapsedMs: performance.now() - started,
+        diagnostics: batch ? [{ execution: batch.statistics(input.macro.expression) }] : [],
+      };
     } finally {
       clearTimeout(timeout);
     }
@@ -465,6 +476,7 @@ export class MemoryMacroService {
                 resultRows: result.rows.length,
                 elapsedMs: performance.now() - started,
                 diagnostics: [
+                  { execution: { ...batch!.statistics(macro.expression), ...result.execution } },
                   { expression: macro.expression, lastUserMessage, scope: initial.scope },
                   ...result.sources.map(({ rows, ...source }) => ({
                     ...source,
@@ -478,6 +490,7 @@ export class MemoryMacroService {
                 status: "error",
                 error: error instanceof Error ? error.message : String(error),
                 elapsedMs: performance.now() - started,
+                diagnostics: [{ execution: batch!.statistics(macro.expression) }],
               });
             }
           }),
@@ -491,7 +504,21 @@ export class MemoryMacroService {
               error: error instanceof Error ? error.message : String(error),
             });
       } finally {
-        await batch?.close();
+        try {
+          await batch?.close();
+        } catch (error) {
+          for (const [name, result] of results) {
+            if (result.scope === "builtin") continue;
+            const definition = selected.get(name)!.macro;
+            results.set(name, {
+              ...result,
+              status: "error",
+              text: "",
+              error: `宏求值会话关闭失败：${error instanceof Error ? error.message : String(error)}`,
+              diagnostics: batch ? [{ execution: batch.statistics(definition.expression) }] : [],
+            });
+          }
+        }
       }
     };
     try {
@@ -506,6 +533,10 @@ export class MemoryMacroService {
               controller.signal.reason instanceof Error
                 ? controller.signal.reason.message
                 : "宏计算超时",
+            diagnostics:
+              batch && selected.has(name)
+                ? [{ execution: batch.statistics(selected.get(name)!.macro.expression) }]
+                : [],
           });
       this.#results = [...results.values()];
       this.#publishedContext = context;

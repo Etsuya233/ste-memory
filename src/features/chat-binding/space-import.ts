@@ -20,6 +20,7 @@ import { resolveImportAction, type ImportAction } from "./import-action.ts";
 /** 导入执行依赖（宿主 = runtime 服务；面板只传运行时端口） */
 export interface SpaceImportExecutionDeps {
   readonly backup: Pick<MemoryBackupRepository, "restoreSpace">;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   readonly manager: Pick<SpaceImportManager, "importSpace" | "syncToCurrentChat">;
   /** 记忆宏快照重建（导入即整库数据变更，不等轮询） */
   readonly kickMacros: () => void;
@@ -31,7 +32,7 @@ export interface SpaceImportExecutionDeps {
    * 写回文件携带的对话级宏（spec 表格预设 6.3：单空间导出会带上导出时该对话的
    * 对话级宏，导入到当前对话时恢复）；文件缺省该键时不调用（保持当前对话的宏）。
    */
-  readonly writeChatScopeMacros?: (macros: readonly MemoryMacro[]) => void;
+  readonly writeChatScopeMacros?: (macros: readonly MemoryMacro[]) => void | Promise<void>;
 }
 
 interface SpaceImportManager {
@@ -96,23 +97,25 @@ export async function executeSpaceImport(
   plan: Extract<SpaceImportPlan, { kind: "ready" }>,
   deps: SpaceImportExecutionDeps,
 ): Promise<void> {
+  const normalized = await deps.normalizeImportedSpace(plan.action.unit);
+  const unit: MemorySpaceBackup = {
+    ...normalized,
+    space: { ...normalized.space, macros: restoredMemoryMacros(normalized.space.macros ?? []) },
+    ...(normalized.chatScopeMacros === undefined
+      ? {}
+      : { chatScopeMacros: restoredMemoryMacros(normalized.chatScopeMacros) }),
+  };
   if (plan.action.kind === "restore") {
-    await deps.backup.restoreSpace({
-      ...plan.action.unit,
-      space: {
-        ...plan.action.unit.space,
-        macros: restoredMemoryMacros(plan.action.unit.space.macros ?? []),
-      },
-    });
+    await deps.backup.restoreSpace(unit);
     // 绑定不变、空间仍在：重同步收敛
     await deps.manager.syncToCurrentChat();
   } else {
     // clone-and-rebind / create-and-bind 共用：克隆新空间 + 重建/建立绑定
-    await deps.manager.importSpace(plan.action.unit);
+    await deps.manager.importSpace(unit);
   }
   // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
-  if (plan.action.unit.chatScopeMacros !== undefined) {
-    deps.writeChatScopeMacros?.(plan.action.unit.chatScopeMacros);
+  if (unit.chatScopeMacros !== undefined) {
+    await deps.writeChatScopeMacros?.(unit.chatScopeMacros);
   }
   deps.onDataChanged();
   deps.kickMacros();

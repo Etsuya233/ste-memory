@@ -227,9 +227,21 @@ dry run 真实路径：建书 → 条目内容放宏 → 分配给当前对话 �
 - **dry run 扫描不写定时状态**：getWorldInfoPrompt(chat, maxContext, true)
   是插件 worldbook-text.ts 同款调用（ADR 0007），不会污染对话 sticky/cooldown。
 
-## 表达式宏验收（verify-expression-macros.mjs）
+## 原生语义 SQL 与缓存验收（verify-semantic-sql-cache.mjs）
 
-表达式宏使用本节脚本验收；前文针对旧记忆视图及自动召回的 ticket 脚本保留为历史记录。
+当前版本使用此脚本，默认合成向量，外部 embedding 请求为零。设置 `ST_URL`、`STE_ST_INSTALL`、`CHROME`；无法解析 playwright-core 时设置 `PLAYWRIGHT_MODULE_PATH`。先备份并部署待测构建，再运行：
+
+```powershell
+node docs/playwright-st-extension/verify-semantic-sql-cache.mjs
+```
+
+脚本在真实 ST 中验证 Query／原生 SQL／旧评分源共享、L2 命中与新记录快照、显式测试隔离、UNION 与双游标、旧格式转换失败保留、预设分类、取消迟到和凭据配置 revision。主模型响应受控模拟，测试创建独立数据并在结束后清理、恢复设置；原构建由部署者恢复并核验 SHA256。
+
+真实模式还需 `STE_EMBEDDING_API_DIR`，其中包含 baseUrl.txt、model.txt、apiKey.txt；同一验收批次共用已存在的持久预算文件，初值为 `{"limit":3,"posts":0}`。通过 `--real --budget-file <预算文件路径>` 运行。计数在每次外部 POST 前落盘，索引、失败和取消都计数，不重试、不跟随重定向。该批次内不得重置预算或换文件重复请求。真实模式只使用一条索引、一次冷查询和一次新文本取消，其余检查使用成功缓存。
+
+## 前一轮表达式宏验收（verify-expression-macros.mjs，历史）
+
+此脚本对应命名评分源首轮重构，其逐次请求计数早于跨生成缓存；当前版本使用上一节的原生 SQL／缓存脚本。前文旧记忆视图及自动召回 ticket 脚本同样保留为历史记录。
 
 先将待验收构建部署到独立确认的 ST 扩展目录，再运行脚本。脚本创建两个专用角色、对话和记忆空间，使用真实 embedding API 建索引和查询；主生成响应由浏览器路由提供确定性文本，提示词构建、宏等待和 ST 生成事件使用真实宿主流程。结束时删除专用数据并恢复运行前设置。
 

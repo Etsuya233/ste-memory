@@ -38,6 +38,8 @@ export type MacroExpression =
       readonly language: "sql";
       readonly sources?: readonly MacroSemanticSource[];
       readonly sql: string;
+      /** 由 prepare-only 读取依赖分类；导入及保存时重新编译。 */
+      readonly usesSemantic?: boolean;
     };
 export interface MemoryMacro {
   readonly id: string;

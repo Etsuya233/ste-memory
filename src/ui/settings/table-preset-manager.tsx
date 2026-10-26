@@ -1,4 +1,4 @@
-import { copyMemoryMacros } from "../../features/macros/macro-expression.ts";
+import { copyMemoryMacros, restoredMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { Dialog } from "../kit/dialog.tsx";
 import { PresetSpaceUpdate } from "./preset-space-update.tsx";
 import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
@@ -63,7 +63,7 @@ export function TablePresetManager(props: {
   readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly presets: TablePresetSettings;
-  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<void>;
+  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<ResolvedTablePreset>;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly status: SpaceContextStatus | undefined;
   readonly pluginEnabled: boolean;
@@ -207,9 +207,23 @@ export function TablePresetManager(props: {
         id: createUiId(),
         now: new Date().toISOString(),
       });
-      await props.validatePreset({ ...preset, builtIn: false });
-      changePresets(settings);
-      openEditor({ initial: { ...preset, builtIn: false }, isNew: false });
+      // 导入复制保持宏顺序；分类前还原文件启停值，避免信任文件内的旧分类元数据。
+      const classified = await props.validatePreset({
+        ...preset,
+        builtIn: false,
+        macros: (preset.macros ?? []).map((macro, index) => ({
+          ...macro,
+          enabled: imported.macros![index]!.enabled,
+        })),
+      });
+      const normalized = { ...classified, macros: restoredMemoryMacros(classified.macros ?? []) };
+      changePresets(
+        overwriteUserTablePreset(settings, preset.id, {
+          structure: normalized,
+          now: preset.updatedAt,
+        }),
+      );
+      openEditor({ initial: normalized, isNew: false });
       reportSuccess(`已导入「${preset.name}」，默认选择保持不变`);
     } catch (error) {
       reportError(error);

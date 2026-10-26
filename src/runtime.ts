@@ -66,6 +66,7 @@ import type { Table } from "dexie";
 import type { LogRepository } from "./features/logging/log.ts";
 import { MemoryMacroService } from "./features/macros/memory-macro-service.ts";
 import { createMacroEvaluationBatch } from "./features/macros/macro-evaluation.ts";
+import { QueryVectorCache } from "./features/semantic-query/query-vector-cache.ts";
 import type { MemoryMacro } from "./features/macros/macro-expression.ts";
 import {
   AgentMacroService,
@@ -116,6 +117,7 @@ export interface SteMemoryRuntime {
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
   readonly settingsService: SettingsService;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
@@ -489,7 +491,7 @@ export async function startSteMemory(
   persistence.onStatusChange(() => mirror.reportSaveStatus(persistence.getStatus()));
   const presetApply = new TablePresetApplyService({
     validateStructure: async (structure) => {
-      if (!structure.macros.length) return;
+      if (!structure.macros.length) return structure;
       const at = now();
       const snapshot: MemorySpaceBackup = {
         space: {
@@ -512,7 +514,15 @@ export async function startSteMemory(
         deadline: performance.now() + 10_000,
       });
       try {
-        await Promise.all(structure.macros.map((macro) => batch.validate(macro.expression)));
+        const macros = await Promise.all(
+          structure.macros.map(async (macro) => {
+            const usesSemantic = await batch.validate(macro.expression);
+            return macro.expression.language === "sql"
+              ? { ...macro, expression: { ...macro.expression, usesSemantic } }
+              : macro;
+          }),
+        );
+        return { ...structure, macros };
       } finally {
         await batch.close();
       }
@@ -575,13 +585,28 @@ export async function startSteMemory(
     spaces,
     installer: { installDefaultStructure: (id) => presetApply.installDefaultStructure(id) },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
-    // 分支对话分离：cloneSpace 克隆空间 + ID 工厂
-    backup,
+    // 新空间副本重新编译宏依赖，避免导入元数据伪装成普通 SQL。
+    backup: {
+      cloneSpace: async (id, ids) => {
+        const snapshot = await backup.loadSnapshot();
+        const unit = snapshot.spaces.find((item) => item.space.id === id);
+        if (!unit) throw new Error(`源空间不存在：${id}`);
+        const committed = await memoryStore.snapshot(id);
+        if (!committed) throw new Error(`源空间尚未就绪：${id}`);
+        return backup.cloneSpaceFromUnit(
+          await normalizeImportedSpace({ ...unit, ...committed }),
+          ids,
+        );
+      },
+      cloneSpaceFromUnit: async (unit, ids) =>
+        backup.cloneSpaceFromUnit(await normalizeImportedSpace(unit), ids),
+    },
     createId,
   });
 
   const embedding =
     options.embedding ?? new OpenAiEmbeddingPort(() => settings.read().embeddingConnection);
+  const queryVectorCache = new QueryVectorCache();
   const vectorRepository = new DexieVectorIndexRepository(db);
   const vector = new VectorIndexService(
     tableRepository,
@@ -674,29 +699,35 @@ export async function startSteMemory(
     const connection = settings.read().embeddingConnection;
     const captured = connection ? structuredClone(connection) : undefined;
     const batchEmbedding = options.embedding ?? new OpenAiEmbeddingPort(() => captured);
+    const revision = queryVectorCache.revisionFor({
+      connection: captured,
+      profile: batchEmbedding.getProfile(),
+    });
+    const queryVectors = queryVectorCache.createExecution({
+      embedding: batchEmbedding,
+      revision,
+      signal: context.signal,
+      isCurrent: () =>
+        queryVectorCache.revisionFor({
+          connection: settings.read().embeddingConnection,
+          profile: embedding.getProfile(),
+        }) === revision,
+    });
     return createMacroEvaluationBatch({
       sql: sqlite,
       vectors: vectorRepository,
       embedding: batchEmbedding,
+      queryVectors,
+      onCleanupError: (error) => log.error("语义查询会话关闭失败", error),
       snapshot,
       ...context,
     });
   };
-  const validateMacros = async (macros: readonly MemoryMacro[]) => {
-    const existing = [...settings.read().macros, ...chatMacros];
-    const changed = macros.filter(
-      (macro) =>
-        !existing.some(
-          (item) =>
-            item.id === macro.id &&
-            JSON.stringify(item.expression) === JSON.stringify(macro.expression),
-        ),
-    );
-    if (!changed.length) return;
-    const id = currentSpaceId();
-    if (!id) return;
-    const snapshot = await memoryStore.snapshot(id);
-    if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+  const classifyMacros = async (
+    snapshot: MemorySpaceBackup,
+    macros: readonly MemoryMacro[],
+  ): Promise<readonly MemoryMacro[]> => {
+    if (!macros.length) return macros;
     const signal = AbortSignal.timeout(10_000);
     const batch = await createMacroBatch(snapshot, {
       lastUserMessage: null,
@@ -704,11 +735,73 @@ export async function startSteMemory(
       deadline: performance.now() + 10_000,
     });
     try {
-      await Promise.all(changed.map((macro) => batch.validate(macro.expression)));
+      return await Promise.all(
+        macros.map(async (macro) => {
+          const usesSemantic = await batch.validate(macro.expression);
+          return macro.expression.language === "sql"
+            ? { ...macro, expression: { ...macro.expression, usesSemantic } }
+            : macro;
+        }),
+      );
     } finally {
       await batch.close();
     }
   };
+  const validateMacros = async (
+    macros: readonly MemoryMacro[],
+    previous: readonly MemoryMacro[],
+  ): Promise<readonly MemoryMacro[]> => {
+    if (!macros.length) return macros;
+    const normalized = new Map<string, MemoryMacro>();
+    const pending: MemoryMacro[] = [];
+    for (const macro of macros) {
+      const before = previous.find((item) => item.id === macro.id);
+      if (
+        macro.expression.language === "query" &&
+        before?.expression.language === "query" &&
+        JSON.stringify(macro.expression) === JSON.stringify(before.expression)
+      ) {
+        normalized.set(macro.id, macro);
+      } else if (
+        macro.expression.language === "sql" &&
+        before?.expression.language === "sql" &&
+        macro.expression.sql === before.expression.sql &&
+        JSON.stringify(macro.expression.sources ?? []) ===
+          JSON.stringify(before.expression.sources ?? []) &&
+        (typeof before.expression.usesSemantic === "boolean" ||
+          (before.expression.sources?.length ?? 0) > 0)
+      ) {
+        normalized.set(macro.id, {
+          ...macro,
+          expression: {
+            ...macro.expression,
+            usesSemantic:
+              (before.expression.sources?.length ?? 0) > 0 ||
+              before.expression.usesSemantic === true,
+          },
+        });
+      } else pending.push(macro);
+    }
+    if (!pending.length) return macros.map((macro) => normalized.get(macro.id)!);
+    const id = currentSpaceId();
+    if (!id) {
+      if (pending.some((macro) => macro.expression.language === "sql"))
+        throw new Error("请先打开已绑定记忆空间的对话，再保存 SQL 宏");
+      for (const macro of pending) normalized.set(macro.id, macro);
+      return macros.map((macro) => normalized.get(macro.id)!);
+    }
+    const snapshot = await memoryStore.snapshot(id);
+    if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+    for (const macro of await classifyMacros(snapshot, pending)) normalized.set(macro.id, macro);
+    return macros.map((macro) => normalized.get(macro.id)!);
+  };
+  const normalizeImportedSpace = async (unit: MemorySpaceBackup): Promise<MemorySpaceBackup> => ({
+    ...unit,
+    space: { ...unit.space, macros: await classifyMacros(unit, unit.space.macros ?? []) },
+    ...(unit.chatScopeMacros === undefined
+      ? {}
+      : { chatScopeMacros: await classifyMacros(unit, unit.chatScopeMacros) }),
+  });
   const writeChatMacros = async (macros: readonly MemoryMacro[]) => {
     const id = currentSpaceId();
     const context = retrievalContext();
@@ -897,6 +990,7 @@ export async function startSteMemory(
     syncToCurrentChat: () => syncCurrentChat(),
     refreshMemoryMacros: () => macro.kick(),
     validateMacros,
+    getChatScopeMacros: () => chatMacros,
     getChatContext: retrievalContext,
     refreshAgentMacros: () => agentMacro.kick(),
     refreshMirror: () => mirror.kick(),
@@ -1068,6 +1162,7 @@ export async function startSteMemory(
     backupRepo: backup,
     settings,
     settingsService,
+    normalizeImportedSpace,
     mirror,
     tasks,
     vector,

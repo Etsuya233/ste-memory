@@ -3,7 +3,7 @@ import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { MemoryField, MemoryTable } from "../../features/memory/index.ts";
 import { effectiveVectorIndexGroups } from "../../features/memory/index.ts";
-import { hasSemanticSource, type MemoryMacro } from "../../features/macros/macro-expression.ts";
+import type { MemoryMacro } from "../../features/macros/macro-expression.ts";
 import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
 import { Button, Input, Switch } from "../kit/controls.tsx";
 import { copyText, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
@@ -181,7 +181,7 @@ export function ExpressionMacrosManager(props: {
         {props.scope === "chat"
           ? "对话宏随当前记忆空间保存；共享空间的对话共用定义。"
           : "全局宏在当前对话的空间执行；语义宏启用后适用于所有对话。"}
-        每次实际生成统一计算。停用高优先级同名宏后仍占位。
+        每次实际生成重新评分并执行查询，成功查询向量可短期复用。停用高优先级同名宏后仍占位。
       </p>
       {results.some((result) => result.status === "running") && (
         <Button onClick={props.service.skip}>跳过本次计算</Button>
@@ -232,12 +232,19 @@ export function ExpressionMacrosManager(props: {
                 ).catch(reportError)
               }
             />
-            <span>{macro.expression.language.toUpperCase()}</span>
+            <span>
+              {macro.expression.language.toUpperCase()}
+              {macro.expression.language === "sql" && (macro.expression.sources?.length ?? 0) > 0
+                ? " · 旧格式"
+                : ""}
+            </span>
           </div>
           <span className="stm-mono">{macroToken(props.prefix, macro.name)}</span>
-          {hasSemanticSource(macro) && (
+          {(macro.expression.language === "sql" ||
+            macro.expression.query.semantic !== undefined) && (
             <p className="stm-setting-hint">
-              启用后每次实际生成可能请求 embedding，即使提示词未引用该宏。
+              含语义查询时，实际生成可能请求
+              embedding；相同输入可命中成功缓存。即使提示词未引用该宏也会执行。
               {props.scope === "global" ? "此全局宏适用于所有活动对话。" : ""}
             </p>
           )}

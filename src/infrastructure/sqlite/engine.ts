@@ -1,4 +1,10 @@
 import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
+import { SemanticScoresModule } from "./semantic-scores-module.ts";
+import type {
+  PreparedSemanticSqlSource,
+  SemanticSqlEvaluationInput,
+  SemanticSqlEvaluationResult,
+} from "../../features/semantic-query/semantic-sql-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type {
   MacroSqlEvaluationInput,
@@ -42,7 +48,10 @@ interface SpaceDatabase {
 /** The same engine runs in a dedicated browser Worker and in real-WASM Node tests. */
 export class SqliteMemoryEngine implements SqliteMemoryClient {
   private readonly spaces = new Map<string, SpaceDatabase>();
-  private readonly evaluations = new Map<string, Database>();
+  private readonly evaluations = new Map<
+    string,
+    { db: Database; semantic: SemanticScoresModule }
+  >();
   private evaluationSequence = 0;
   private readonly sqlite: Sqlite3Static;
   constructor(sqlite: Sqlite3Static) {
@@ -50,6 +59,8 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
 
   async openEvaluation(snapshot: MemorySpaceBackup): Promise<string> {
+    if (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === "semantic_scores"))
+      throw new Error("业务表 Key 与语义函数保留名称冲突：semantic_scores");
     const db = this.newDatabase();
     try {
       db.exec("BEGIN");
@@ -59,7 +70,8 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       this.rebuild(db);
       db.exec("COMMIT");
       const id = String(++this.evaluationSequence);
-      this.evaluations.set(id, db);
+      const semantic = new SemanticScoresModule(this.sqlite, db, snapshot);
+      this.evaluations.set(id, { db, semantic });
       return id;
     } catch (error) {
       db.close();
@@ -70,13 +82,32 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   async closeEvaluation(sessionId: string): Promise<void> {
     const db = this.evaluations.get(sessionId);
     if (!db) throw new Error(`宏求值会话不存在：${sessionId}`);
-    db.close();
+    db.db.close();
     this.evaluations.delete(sessionId);
   }
 
   async evaluateMacro(input: MacroSqlEvaluationInput): Promise<MacroSqlResult> {
-    const db = this.evaluations.get(input.sessionId);
-    if (!db) throw new Error(`宏求值会话不存在：${input.sessionId}`);
+    const result = await this.executeEvaluation(input);
+    if (result.status !== "complete") throw new Error("内联语义函数须通过语义 SQL 执行端口运行");
+    return { columns: result.columns, rows: result.rows };
+  }
+
+  async evaluateSemanticSql(
+    input: SemanticSqlEvaluationInput,
+  ): Promise<SemanticSqlEvaluationResult> {
+    return this.executeEvaluation({ ...input, sources: [] }, input.sources);
+  }
+
+  private async executeEvaluation(
+    input: MacroSqlEvaluationInput,
+    inlineSources?: readonly PreparedSemanticSqlSource[],
+  ): Promise<SemanticSqlEvaluationResult> {
+    const evaluation = this.evaluations.get(input.sessionId);
+    if (!evaluation) throw new Error(`宏求值会话不存在：${input.sessionId}`);
+    const { db, semantic } = evaluation;
+    const started = performance.now();
+    let usesSemantic = false;
+    let timedResult: { elapsedMs: number } | undefined;
     const { capi, wasm } = this.sqlite;
     const totalDeadline = performance.now() + (input.remainingMs ?? Infinity);
     const businessNames = new Set(
@@ -98,6 +129,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           ]),
         ]),
     );
+    allowed.set("semantic_scores", new Set(["record_id", "score", "group_key"]));
     const created: string[] = [];
     let statement = 0;
     let source = 0;
@@ -124,15 +156,22 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         }
         allowed.set(name, new Set(["record_id", "score", "group_key"]));
       }
+      // Legacy source insertion belongs to the total budget; inline retries charge all SQL work.
+      const sqlStarted = inlineSources === undefined ? performance.now() : started;
+      const deadline = Math.min(totalDeadline, sqlStarted + Math.min(1000, input.budgetMs ?? 1000));
+      semantic.begin(inlineSources ?? [], deadline);
       const readActions = new Set<number>([
         capi.SQLITE_SELECT,
         capi.SQLITE_READ,
         capi.SQLITE_FUNCTION,
         capi.SQLITE_RECURSIVE,
       ]);
+      const legacySemanticTable = created.some(
+        (name) => sqliteIdentifierKey(name) === "semantic_scores",
+      );
       capi.sqlite3_set_authorizer(
         db.pointer!,
-        (_arg, action, tableName, columnName) => {
+        (_arg, action, tableName, columnName, databaseName) => {
           if (!readActions.has(action)) return capi.SQLITE_DENY;
           if (
             action === capi.SQLITE_FUNCTION &&
@@ -141,6 +180,12 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
             return capi.SQLITE_DENY;
           if (action === capi.SQLITE_READ) {
             const table = sqliteIdentifierKey(String(tableName));
+            // COUNT(*) can omit the schema name; the native planner disambiguates that case.
+            if (
+              table === "semantic_scores" &&
+              !(legacySemanticTable && (databaseName === "temp" || !databaseName))
+            )
+              usesSemantic = true;
             if (["json_each", "json_tree"].includes(table) && !businessNames.has(table))
               return capi.SQLITE_OK;
             const columns = allowed.get(table);
@@ -153,10 +198,6 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           return capi.SQLITE_OK;
         },
         0,
-      );
-      const deadline = Math.min(
-        totalDeadline,
-        performance.now() + Math.min(1000, input.budgetMs ?? 1000),
       );
       capi.sqlite3_progress_handler(
         db.pointer!,
@@ -188,6 +229,12 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         statement = next;
       }
       if (!statement) throw new Error("宏 SQL 需要一条查询语句");
+      usesSemantic ||= semantic.planned;
+      if (usesSemantic && input.sources.length)
+        throw new Error("非空旧 sources 与内联 semantic_scores 不能混用");
+      if (usesSemantic && inlineSources === undefined)
+        throw new Error("内联语义函数须通过语义 SQL 执行端口运行");
+      if (performance.now() >= deadline) throw new Error("语义 SQL 超出执行预算");
       const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, i) =>
         capi.sqlite3_column_name(statement, i),
       );
@@ -230,15 +277,38 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
               : capi.sqlite3_bind_double(statement, i, value),
           );
       }
-      if (input.prepareOnly) return { columns, rows: [] };
+      if (input.prepareOnly) {
+        const result = {
+          status: "complete" as const,
+          columns,
+          rows: [],
+          usesSemantic,
+          elapsedMs: 0,
+        };
+        timedResult = result;
+        return result;
+      }
       const rows: unknown[][] = [];
       let step: number;
       while ((step = capi.sqlite3_step(statement)) === capi.SQLITE_ROW) {
         if (rows.length === 10000) throw new Error("宏查询结果超过 10000 行");
         rows.push(columns.map((_, i) => capi.sqlite3_column_js(statement, i)));
       }
+      if (semantic.error) throw semantic.error;
+      if (semantic.pending && step === capi.SQLITE_ABORT) {
+        const result = {
+          status: "needs-semantic-source" as const,
+          request: semantic.pending,
+          elapsedMs: 0,
+        };
+        timedResult = result;
+        return result;
+      }
       if (step !== capi.SQLITE_DONE) db.checkRc(step);
-      return { columns, rows };
+      if (performance.now() >= deadline) throw new Error("语义 SQL 超出执行预算");
+      const result = { status: "complete" as const, columns, rows, usesSemantic, elapsedMs: 0 };
+      timedResult = result;
+      return result;
     } finally {
       if (statement) capi.sqlite3_finalize(statement);
       if (source) wasm.dealloc(source);
@@ -247,6 +317,8 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       capi.sqlite3_set_authorizer(db.pointer!, () => capi.SQLITE_OK, 0);
       capi.sqlite3_progress_handler(db.pointer!, 0, 0, 0);
       for (const name of created) db.exec(`DROP TABLE temp.${quote(name)}`);
+      semantic.end();
+      if (timedResult) timedResult.elapsedMs = performance.now() - started;
     }
   }
 

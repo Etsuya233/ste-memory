@@ -1,3 +1,5 @@
+import type { MemorySpaceBackup } from "../../features/backup/index.ts";
+import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { SettingsService } from "../../features/settings/settings-service.ts";
 /**
  * 面板组件冒烟测试（react-dom/server renderToString，无 jsdom——沿用
@@ -5,7 +7,7 @@ import { SettingsService } from "../../features/settings/settings-service.ts";
  * 类名 / aria 属性 / 占位文案与脚本选择器一致）。异步加载（useEffect）
  * 在 SSR 不执行，表格列表的完整渲染由真机验收脚本覆盖。
  */
-import type { MemorySpaceId } from "../../features/memory/index.ts";
+import type { MemoryMacro, MemorySpaceId } from "../../features/memory/index.ts";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
@@ -88,12 +90,14 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getMessageAt: vi.fn(() => undefined),
       chatMessageCount: vi.fn(() => 0),
     },
+    normalizeImportedSpace: vi.fn(async (unit: MemorySpaceBackup) => unit),
     settingsService: new SettingsService({
       getChatContext: () => "test-chat",
       store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
       syncToCurrentChat: vi.fn(async () => {}),
       refreshMemoryMacros: vi.fn(async () => {}),
-      validateMacros: vi.fn(async () => {}),
+      validateMacros: vi.fn(async (macros: readonly MemoryMacro[]) => macros),
+      getChatScopeMacros: () => [],
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
       refreshVectorIndex: vi.fn(async () => {}),
@@ -134,7 +138,7 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       retrySave: vi.fn(async () => ({ issues: [] })),
     },
     presetApply: {
-      validate: vi.fn(async () => {}),
+      validate: vi.fn(async (preset: ResolvedTablePreset) => preset),
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),

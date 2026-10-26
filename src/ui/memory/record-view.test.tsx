@@ -1,3 +1,5 @@
+import type { MemorySpaceBackup } from "../../features/backup/index.ts";
+import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { SettingsService } from "../../features/settings/settings-service.ts";
 /**
  * 记录视图冒烟测试（react-dom/server renderToString，无 jsdom——沿用 spec 测试
@@ -5,7 +7,7 @@ import { SettingsService } from "../../features/settings/settings-service.ts";
  * 投影契约与关键 data-action 入口存在性；完整列表/详情/表单渲染由真机验收脚本
  * （docs/playwright-st-extension/verify-record-crud.mjs）覆盖。
  */
-import type { MemorySpaceId } from "../../features/memory/index.ts";
+import type { MemoryMacro, MemorySpaceId } from "../../features/memory/index.ts";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
@@ -86,12 +88,14 @@ function fakeRuntime(): PanelRuntime {
       getMessageAt: vi.fn(() => undefined),
       chatMessageCount: vi.fn(() => 0),
     },
+    normalizeImportedSpace: vi.fn(async (unit: MemorySpaceBackup) => unit),
     settingsService: new SettingsService({
       getChatContext: () => "test-chat",
       store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
       syncToCurrentChat: vi.fn(async () => {}),
       refreshMemoryMacros: vi.fn(async () => {}),
-      validateMacros: vi.fn(async () => {}),
+      validateMacros: vi.fn(async (macros: readonly MemoryMacro[]) => macros),
+      getChatScopeMacros: () => [],
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
       refreshVectorIndex: vi.fn(async () => {}),
@@ -132,7 +136,7 @@ function fakeRuntime(): PanelRuntime {
       retrySave: vi.fn(async () => ({ issues: [] })),
     },
     presetApply: {
-      validate: vi.fn(async () => {}),
+      validate: vi.fn(async (preset: ResolvedTablePreset) => preset),
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),

@@ -96,12 +96,13 @@ Authorization 时发送空鉴权值。`Content-Type` 固定为 `application/json
 停用的高优先级宏仍遮蔽低层定义。用 `{{ste::宏名}}` 自行放入角色卡、提示词预设或世界书内容。
 
 Query 的条件、fields、orderBy 和 limit 决定最终结果；增加 semantic 后可使用
-`$similarity` 筛选、投影及排序。SQL 在同一表达式内声明命名语义源，然后 JOIN 评分关系，
+`$similarity` 筛选、投影及排序。SQL 直接 JOIN `semantic_scores(表Key, 组Key的JSON数组, 查询文本)`，
 由 SELECT、WHERE、ORDER BY 和 LIMIT 完整决定返回内容。评分源不提前取 Top K，
 支持空评分源的 LEFT JOIN，也支持聚合和跨表查询。
 
 宏在真实生成时统一计算，保存配置、编辑记录和切对话不预先查询。重生成与续写重新计算，
-同次生成和群聊批次共享结果；同批相同文本与 embedding profile 共用一次查询向量。
+同次生成和群聊批次共享结果；同批相同文本与连接配置共用一次查询向量。
+成功查询向量保留 5 分钟短期缓存，记录评分和 SQL 输出仍按新快照计算；Agent 工具留待后续接入。
 测试按钮独立执行，最近结果只读；界面展示实际表达式、来源覆盖、耗时、输出和错误，可跳过未完成计算。
 新副本中的语义宏默认停用，启用后每次适用生成都会计算，即使提示词中没有放置它。
 

@@ -1,7 +1,7 @@
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { MemoryBackupSnapshot, MemorySpaceBackup } from "./index.ts";
-import { describe, expect, it } from "vitest";
-import { buildSpaceExportUnit } from "./space-transfer.ts";
+import { describe, expect, it, vi } from "vitest";
+import { buildSpaceExportUnit, executeFullBackupImport } from "./space-transfer.ts";
 
 function unit(spaceId: string, withHistory: boolean): MemorySpaceBackup {
   return {
@@ -132,5 +132,72 @@ describe("buildSpaceExportUnit（issue 26 导出快照过滤）", () => {
     const result = buildSpaceExportUnit(snapshot, "A" as MemorySpaceId, true);
     expect(result?.space.macros).toEqual(snapshot.spaces[0]!.space.macros);
     expect(result).not.toHaveProperty("chatScopeMacros");
+  });
+});
+
+describe("executeFullBackupImport", () => {
+  it("所有空间完成编译后原子恢复，并依据可信分类关闭空间及旧对话语义宏", async () => {
+    const original = unit("A", false);
+    const macro = {
+      id: "semantic",
+      name: "语义",
+      enabled: true,
+      expression: { language: "sql" as const, sql: "SELECT 1", usesSemantic: false },
+      output: { format: "json" as const, maxChars: null },
+    };
+    const source = {
+      ...original,
+      space: { ...original.space, macros: [macro] },
+      chatScopeMacros: [macro],
+    };
+    const restoreSnapshot = vi.fn(async (_snapshot: MemoryBackupSnapshot) => {});
+    const normalizeImportedSpace = vi.fn(async (input: MemorySpaceBackup) => ({
+      ...input,
+      space: {
+        ...input.space,
+        macros: [{ ...macro, expression: { ...macro.expression, usesSemantic: true } }],
+      },
+      chatScopeMacros: [{ ...macro, expression: { ...macro.expression, usesSemantic: true } }],
+    }));
+    await executeFullBackupImport(
+      { kind: "ready", data: { spaces: [source] }, spaceCount: 1, confirmMessage: "" },
+      {
+        backup: { restoreSnapshot },
+        normalizeImportedSpace,
+        syncToCurrentChat: async () => {},
+        kickMacros: () => {},
+        onDataChanged: () => {},
+      },
+    );
+    expect(normalizeImportedSpace).toHaveBeenCalledWith(source);
+    const restored = restoreSnapshot.mock.calls[0]!;
+    expect(restored[0].spaces[0]!.space.macros![0]!.enabled).toBe(false);
+    expect(restored[0].spaces[0]!.chatScopeMacros![0]!.enabled).toBe(false);
+    expect(macro.enabled).toBe(true);
+  });
+
+  it("任一空间编译失败保留原库，不能先恢复其他空间", async () => {
+    const restoreSnapshot = vi.fn(async (_snapshot: MemoryBackupSnapshot) => {});
+    await expect(
+      executeFullBackupImport(
+        {
+          kind: "ready",
+          data: { spaces: [unit("A", false), unit("B", false)] },
+          spaceCount: 2,
+          confirmMessage: "",
+        },
+        {
+          backup: { restoreSnapshot },
+          normalizeImportedSpace: async (input) => {
+            if (input.space.id === "B") throw new Error("表不存在");
+            return input;
+          },
+          syncToCurrentChat: async () => {},
+          kickMacros: () => {},
+          onDataChanged: () => {},
+        },
+      ),
+    ).rejects.toThrow("表不存在");
+    expect(restoreSnapshot).not.toHaveBeenCalled();
   });
 });

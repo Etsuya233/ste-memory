@@ -1,9 +1,6 @@
 import { useState } from "react";
-import {
-  validateMemoryMacro,
-  type MacroExpression,
-  type MemoryMacro,
-} from "../../features/macros/macro-expression.ts";
+import type { MemoryMacro } from "../../features/macros/macro-expression.ts";
+import { macroFromEditorDraft } from "./expression-macro-editor-model.ts";
 import { Button, FormField, Input, Select, Switch, Textarea } from "../kit/controls.tsx";
 import { Disclosure } from "../shell/disclosure.tsx";
 import type { MacroExecutionResult as MacroExecutionView } from "../../features/macros/memory-macro-service.ts";
@@ -45,13 +42,13 @@ export function ExpressionMacroEditor(props: {
       2,
     ),
   );
-  const [sources, setSources] = useState(
-    JSON.stringify(
-      props.initial.expression.language === "sql" ? (props.initial.expression.sources ?? []) : [],
-      null,
-      2,
-    ),
-  );
+  const [convertedLegacy, setConvertedLegacy] = useState(false);
+  const legacyExpression =
+    props.initial.expression.language === "sql" &&
+    (props.initial.expression.sources?.length ?? 0) > 0
+      ? props.initial.expression
+      : null;
+  const lockedLegacy = legacyExpression !== null && !convertedLegacy;
   const [sql, setSql] = useState(
     props.initial.expression.language === "sql" ? props.initial.expression.sql : "",
   );
@@ -62,22 +59,13 @@ export function ExpressionMacroEditor(props: {
   const [testResult, setTestResult] = useState<MacroExecutionView>();
   const [busy, setBusy] = useState(false);
   function readDraft(): MemoryMacro {
-    const expression: MacroExpression =
-      language === "query"
-        ? { language, query: JSON.parse(query) }
-        : { language, sources: JSON.parse(sources), sql };
-    const macro: MemoryMacro = {
-      ...props.initial,
-      name: name.trim(),
-      enabled,
-      expression,
-      output: { format, maxChars: maxChars === "" ? null : Number(maxChars) },
-    };
-    validateMemoryMacro(macro);
-    if (props.names.includes(macro.name) && macro.name !== props.initial.name)
-      throw new Error("宏名已存在");
-    return macro;
+    return macroFromEditorDraft(
+      props.initial,
+      { name, enabled, language, query, sql, convertedLegacy, format, maxChars },
+      props.names,
+    );
   }
+
   async function save() {
     setBusy(true);
     try {
@@ -121,7 +109,7 @@ export function ExpressionMacroEditor(props: {
       </p>
       {
         <p role="note">
-          表达式含语义源时，启用后每次实际生成都可能请求 embedding；
+          表达式含语义查询时，启用后实际生成可能请求 embedding；成功缓存可复用查询向量。
           {props.scope === "global"
             ? "此全局宏适用于所有活动对话。"
             : "即使提示词未引用该宏也会执行。"}
@@ -132,6 +120,7 @@ export function ExpressionMacroEditor(props: {
           <Select
             {...field}
             value={language}
+            disabled={lockedLegacy}
             onChange={(event) => {
               const language = event.target.value as "query" | "sql";
               setLanguage(language);
@@ -143,46 +132,108 @@ export function ExpressionMacroEditor(props: {
           </Select>
         )}
       </FormField>
-      {language === "query" ? (
-        <FormField label="Query JSON">
-          {(field) => (
-            <Textarea
-              {...field}
-              rows={16}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          )}
-        </FormField>
-      ) : (
-        <>
-          <FormField label="语义源 sources JSON">
+      {legacyExpression && (
+        <section data-legacy-sql-expression>
+          <p role="note">
+            此宏使用旧版命名评分源，表达式保留原值。可以改名、启停及调整输出；转换后请手工将 SQL
+            改为内联 semantic_scores 调用。保存校验失败会保留旧定义。
+          </p>
+          <FormField label="原 sources JSON（只读）">
             {(field) => (
               <Textarea
                 {...field}
                 rows={8}
-                value={sources}
-                onChange={(event) => setSources(event.target.value)}
+                readOnly
+                value={JSON.stringify(legacyExpression.sources, null, 2)}
               />
             )}
           </FormField>
-          <FormField label="SQL 正文">
+          <FormField label="原 SQL（只读）">
+            {(field) => <Textarea {...field} rows={8} readOnly value={legacyExpression.sql} />}
+          </FormField>
+          {lockedLegacy ? (
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setConvertedLegacy(true);
+                setLanguage("sql");
+                setSql(legacyExpression.sql);
+                setError("");
+              }}
+            >
+              转为内联 SQL 草稿
+            </Button>
+          ) : (
+            <>
+              <p>当前是转换草稿；sources 将在保存时移除，原 SQL 尚未自动改写。</p>
+              <Button
+                disabled={busy}
+                onClick={() => {
+                  setConvertedLegacy(false);
+                  setLanguage("sql");
+                  setSql(legacyExpression.sql);
+                  setError("");
+                }}
+              >
+                还原旧表达式
+              </Button>
+            </>
+          )}
+        </section>
+      )}
+      {!lockedLegacy &&
+        (language === "query" ? (
+          <FormField label="Query JSON">
             {(field) => (
               <Textarea
                 {...field}
-                rows={12}
-                value={sql}
-                onChange={(event) => setSql(event.target.value)}
+                rows={16}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
               />
             )}
           </FormField>
-        </>
+        ) : (
+          <>
+            <FormField label="SQL 正文">
+              {(field) => (
+                <Textarea
+                  {...field}
+                  rows={12}
+                  value={sql}
+                  onChange={(event) => setSql(event.target.value)}
+                />
+              )}
+            </FormField>
+          </>
+        ))}
+      {language === "sql" && (
+        <Disclosure title="内联语义查询与缓存" icon="fa-code">
+          <p>
+            <span className="stm-mono">semantic_scores(table_key, groups_json, query_text)</span>{" "}
+            返回 record_id、score、group_key。三个参数均必填，groups_json 是向量组 Key 的 JSON
+            数组。SQL 决定筛选、排序和最终条数。
+          </p>
+          <pre>{`SELECT e."summary", s.score, s.group_key
+FROM "chronicle" AS e
+JOIN semantic_scores(
+  'chronicle', '["event_memory"]', :last_user_message
+) AS s ON s.record_id = e."$record_id"
+WHERE s.score >= 0.3
+ORDER BY s.score DESC
+LIMIT 10;`}</pre>
+          <p className="stm-setting-hint">
+            示例需按实际表、字段与向量组 Key
+            修改。同批相同连接与文本共享查询请求；成功查询向量可在当前插件实例中复用，最多缓存 5
+            分钟。每次执行仍按当前快照重新评分和查询，SQL
+            结果与宏文本不会跨批缓存。保存仅校验，不请求 embedding。
+          </p>
+        </Disclosure>
       )}
       <Disclosure title="表、字段与向量组 Key" icon="fa-table">
         <p className="stm-setting-hint">
           Query 通过 table、conditions、fields、orderBy、limit 决定结果。semantic 声明 groups 与
-          query；$similarity 可用于字段、条件和排序。SQL 源通过 name、table、groups、query
-          声明，提供 record_id、score、group_key。输入可用{" "}
+          query；$similarity 可用于字段、条件和排序。Query 输入可用{" "}
           {JSON.stringify({ context: "last_user_message" })} 或{" "}
           {JSON.stringify({ text: "固定查询" })}。
         </p>
@@ -295,6 +346,7 @@ export function MacroExecutionResult(props: {
             {props.result.outputRows} 行 · {props.result.truncated ? "已省略" : "完整输出"}
           </p>
           <pre>{props.result.text}</pre>
+          <p className="stm-setting-hint">查询、索引覆盖与缓存诊断</p>
           <pre>{JSON.stringify(props.result.diagnostics, null, 2)}</pre>
         </>
       )}

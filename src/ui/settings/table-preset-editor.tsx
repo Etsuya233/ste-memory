@@ -47,7 +47,7 @@ function presetContent(preset: ResolvedTablePreset): string {
 export function TablePresetEditor(props: {
   readonly chrome?: boolean;
   readonly initial: ResolvedTablePreset;
-  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<void>;
+  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<ResolvedTablePreset>;
   readonly isNew: boolean;
   readonly presetActions?: (draft: ResolvedTablePreset) => SettingsMenuAction[];
   /** 每次完成操作立即写回预设库；返回规范化后的预设，不再有顶层“保存预设”。 */
@@ -876,7 +876,9 @@ export function TablePresetEditor(props: {
             ) : null}
           </TableFieldsPanel>
           <PresetMacrosEditor
-            validate={(macros) => props.validatePreset({ ...draft, macros })}
+            validate={async (macros) =>
+              (await props.validatePreset({ ...draft, macros })).macros ?? []
+            }
             macros={draft.macros ?? []}
             tables={draft.tables}
             readonly={readonly}

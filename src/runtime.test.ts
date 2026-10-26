@@ -30,7 +30,7 @@ import { createChatMirrorFile } from "./features/chat-mirror/index.ts";
 import { CHAT_METADATA_CHAT_SCOPE_MACROS_KEY } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import type { MemorySpaceBackup } from "./features/backup/index.ts";
-import type { MemorySpaceId } from "./features/memory/index.ts";
+import type { MemoryMacro, MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
 import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
 
@@ -635,6 +635,131 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.manager.getStatus()?.kind).toBe("space-missing");
     const spaceRepository = new DexieMemorySpaceRepository(db);
     expect(await spaceRepository.list()).toHaveLength(0);
+  });
+
+  it("旧语义宏依赖失效后允许改名停用，表达式变化和新副本仍重新编译", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const legacy = {
+      id: "legacy-broken",
+      name: "旧语义",
+      enabled: true,
+      expression: {
+        language: "sql",
+        sql: "SELECT * FROM old_scores",
+        sources: [
+          {
+            name: "old_scores",
+            table: "deleted_table",
+            groups: ["deleted_group"],
+            query: { text: "线索" },
+          },
+        ],
+      },
+      output: { format: "json", maxChars: null },
+    } satisfies MemoryMacro;
+    let stored: PluginSettings = { ...structuredClone(DEFAULT_SETTINGS), macros: [legacy] };
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore: {
+        read: () => stored,
+        write: (next) => {
+          stored = next;
+        },
+      },
+    });
+    const changed: MemoryMacro = {
+      ...legacy,
+      name: "已失效停用",
+      enabled: false,
+      expression: { ...legacy.expression, usesSemantic: false },
+      output: { format: "markdown", maxChars: 200 },
+    };
+    await runtime.settingsService.setMacros([changed]);
+    expect(runtime.settings.read().macros).toEqual([
+      {
+        ...changed,
+        expression: { ...legacy.expression, usesSemantic: true },
+      },
+    ]);
+    await expect(
+      runtime.settingsService.setMacros([
+        {
+          ...changed,
+          expression: { ...legacy.expression, sql: "SELECT record_id FROM old_scores" },
+        },
+      ]),
+    ).rejects.toThrow("不存在");
+    await expect(
+      runtime.settingsService.setMacros([
+        {
+          ...changed,
+          id: "new-copy",
+        },
+      ]),
+    ).rejects.toThrow("不存在");
+    expect(runtime.settings.read().macros[0]!.name).toBe("已失效停用");
+    expect(runtime.settings.read().macros[0]!.enabled).toBe(false);
+    await expect(runtime.settingsService.setChatScopeMacros([changed])).rejects.toThrow("不存在");
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+    const unit = (await runtime.backup.loadSnapshot()).spaces.find(
+      (unit) => unit.space.id === status.space.id,
+    )!;
+    await expect(
+      runtime.normalizeImportedSpace({
+        ...unit,
+        space: { ...unit.space, macros: [changed] },
+      }),
+    ).rejects.toThrow("不存在");
+  });
+
+  it("无当前空间时已有SQL分类支持元数据编辑，新SQL仍须打开空间验证", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({ chatId: undefined });
+    const macro = {
+      id: "known-inline",
+      name: "已分类",
+      enabled: true,
+      expression: {
+        language: "sql",
+        sql: "SELECT * FROM semantic_scores('missing', '[\"missing\"]', '线索')",
+        usesSemantic: true,
+      },
+      output: { format: "json", maxChars: null },
+    } satisfies MemoryMacro;
+    let stored: PluginSettings = { ...structuredClone(DEFAULT_SETTINGS), macros: [macro] };
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore: {
+        read: () => stored,
+        write: (next) => {
+          stored = next;
+        },
+      },
+    });
+    const changed: MemoryMacro = {
+      ...macro,
+      enabled: false,
+      name: "暂停",
+      expression: { ...macro.expression, usesSemantic: false },
+    };
+    await runtime.settingsService.setMacros([changed]);
+    expect(runtime.settings.read().macros[0]).toMatchObject({
+      name: "暂停",
+      enabled: false,
+      expression: { usesSemantic: true },
+    });
+    await expect(
+      runtime.settingsService.setMacros([{ ...changed, id: "new-inline" }]),
+    ).rejects.toThrow("请先打开");
+    await expect(
+      runtime.settingsService.setMacros([
+        { ...changed, expression: { language: "sql", sql: "SELECT 1", usesSemantic: true } },
+      ]),
+    ).rejects.toThrow("请先打开");
   });
 
   it("记忆宏接线（ticket 15）：默认宏名注册；数据变更后快照含最新记忆；改名/停用注销", async () => {
