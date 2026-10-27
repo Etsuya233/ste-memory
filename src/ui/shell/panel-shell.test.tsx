@@ -294,7 +294,7 @@ describe("PanelShell（面板骨架投影）", () => {
     const model = new PanelModel();
     model.open();
     const html = renderShell(model);
-    expect(html).toContain('class="ui-theme stm-panel stm-panel--open"');
+    expect(html).toContain('class="ui-theme stm-panel stm-panel--open stm-luma"');
     expect(html).toContain('aria-hidden="false"');
   });
 

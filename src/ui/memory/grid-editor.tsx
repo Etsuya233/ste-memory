@@ -1,4 +1,7 @@
-import { Input, Select, Switch, Textarea } from "../kit/controls.tsx";
+import { Input } from "../primitives/input.tsx";
+import { NativeSelect as Select } from "../primitives/native-select.tsx";
+import { Switch } from "../primitives/switch.tsx";
+import { Textarea } from "../primitives/textarea.tsx";
 /**
  * 记录网格（表格填写视图，ticket 11 改造 + ticket 21 UX）：行 = 记录，列 = 字段。
  *
@@ -266,6 +269,18 @@ function GridRow(props: {
                 title={gridDisplayValueText(field, value, props.referenceLabels)}
                 data-stm-field={dataField}
                 aria-label={field.name}
+                role={field.enabled ? "button" : undefined}
+                tabIndex={field.enabled ? 0 : undefined}
+                onKeyDown={
+                  field.enabled
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          props.onEditRow(row.key, field.id);
+                        }
+                      }
+                    : undefined
+                }
                 onClick={field.enabled ? () => props.onEditRow(row.key, field.id) : undefined}
               >
                 {gridDisplayValueText(field, value, props.referenceLabels)}
@@ -405,15 +420,27 @@ export function renderFieldInput(
   referenceRecords: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
   updateValue: (fieldId: string, value: RecordFormValue) => void,
   autoFocus: boolean,
+  layout: "grid" | "form" = "grid",
 ): ReactNode {
   const value = draft.values[field.id];
   const dataField = recordValueFieldKey(field);
+  // Pass size overrides through cn: the embedded-host Tailwind utilities are important.
+  const gridControl =
+    layout === "grid"
+      ? "ste:h-full ste:min-h-0 ste:rounded-none ste:border-0 ste:bg-transparent ste:p-0"
+      : undefined;
+  const selectWrapper = layout === "grid" ? "ste:w-full ste:h-full" : "ste:w-full";
   switch (field.type) {
     case "short_text":
     case "long_text":
       // 短/长文本统一 textarea 铺满单元格（ticket 21）
       return (
         <Textarea
+          className={
+            layout === "grid"
+              ? `${gridControl} ste:field-sizing-fixed`
+              : "ste:min-h-25 ste:resize-y"
+          }
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -424,6 +451,11 @@ export function renderFieldInput(
     case "short_text_list":
       return (
         <Textarea
+          className={
+            layout === "grid"
+              ? `${gridControl} ste:field-sizing-fixed`
+              : "ste:min-h-25 ste:resize-y"
+          }
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -438,6 +470,7 @@ export function renderFieldInput(
     case "decimal":
       return (
         <Input
+          className={gridControl}
           type="number"
           step={field.type === "decimal" ? "any" : "1"}
 
@@ -455,12 +488,13 @@ export function renderFieldInput(
           aria-label={field.name}
           autoFocus={autoFocus}
           checked={value === true}
-          onChange={(event) => updateValue(field.id, event.target.checked)}
+          onCheckedChange={(checked) => updateValue(field.id, checked)}
         />
       );
     case "date":
       return (
         <Input
+          className={gridControl}
           type="date"
 
           data-stm-field={dataField}
@@ -473,6 +507,7 @@ export function renderFieldInput(
     case "datetime":
       return (
         <Input
+          className={gridControl}
           type="datetime-local"
 
           data-stm-field={dataField}
@@ -485,6 +520,8 @@ export function renderFieldInput(
     case "single_select":
       return (
         <Select
+          className={selectWrapper}
+          selectClassName={gridControl}
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -503,9 +540,10 @@ export function renderFieldInput(
       // 原生多选（ticket 21）：size 压缩到 3 行适配默认行高，桌面为行内列表框、iOS 全屏选择器
       return (
         <Select
+          className={selectWrapper}
+          selectClassName={gridControl}
           multiple
-          size={Math.min(Math.max(field.options.length, 1), 3)}
-          className="ui-input--multiselect"
+          htmlSize={Math.min(Math.max(field.options.length, 1), 3)}
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -530,6 +568,8 @@ export function renderFieldInput(
         : [];
       return (
         <Select
+          className={selectWrapper}
+          selectClassName={gridControl}
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}
@@ -551,9 +591,10 @@ export function renderFieldInput(
         : [];
       return (
         <Select
+          className={selectWrapper}
+          selectClassName={gridControl}
           multiple
-          size={Math.min(Math.max(options.length, 1), 3)}
-          className="ui-input--multiselect"
+          htmlSize={Math.min(Math.max(options.length, 1), 3)}
           data-stm-field={dataField}
           aria-label={field.name}
           autoFocus={autoFocus}

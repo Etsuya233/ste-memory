@@ -36,6 +36,12 @@ describe("esbuild 构建链", () => {
         };
         expect(existsSync(path.join(outdir, manifest.js))).toBe(true);
         expect(existsSync(path.join(outdir, manifest.css))).toBe(true);
+        const css = readFileSync(path.join(outdir, manifest.css), "utf8");
+        expect(css).toContain(".stm-luma");
+        expect(css).toContain(".ste\\:rounded-4xl");
+        expect(css).toContain("data:font/woff2;base64,");
+        expect(css).not.toMatch(/@(?:import|theme|source|custom-variant)\b/);
+        expect(css).not.toMatch(/https?:\/\/fonts\.(?:googleapis|gstatic)\.com/);
         // The cancellation gate must run before interceptors that can abort(true).
         expect(manifest.loading_order).toBe(-1000);
         expect(manifest.generate_interceptor).toBe("steMemoryGenerationInterceptor");

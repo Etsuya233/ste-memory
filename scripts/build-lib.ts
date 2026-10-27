@@ -1,3 +1,4 @@
+import { compileLumaStyles } from "./luma-styles.ts";
 import { build, type BuildOptions } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -40,7 +41,12 @@ export const STYLE_SOURCES: readonly string[] = [
 
 /** 聚合样式源（保持源文件顺序；文件缺失时构建直接失败，不静默产出半份样式）。 */
 export function aggregateStyles(): string {
-  return STYLE_SOURCES.map((file) => readFileSync(file, "utf8").trimEnd()).join("\n\n") + "\n";
+  return (
+    STYLE_SOURCES.map((file) => readFileSync(file, "utf8").trimEnd()).join("\n\n") +
+    "\n\n" +
+    compileLumaStyles() +
+    "\n"
+  );
 }
 
 /** 把静态资产（manifest/聚合样式）写进产物目录，返回落盘路径 */

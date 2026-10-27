@@ -1,5 +1,3 @@
-import { ActionGroup } from "../kit/actions.tsx";
-import { ActionMenu } from "../kit/action-menu.tsx";
 import { DEFAULT_RECORD_LIST_ORDER } from "../../features/memory/index.ts";
 import {
   loadRecordSort,
@@ -7,10 +5,25 @@ import {
   recordSortOptions,
   saveRecordSort,
 } from "./record-sort-model.ts";
-import { Button, Input } from "../kit/controls.tsx";
-import { ListGroup, NavigationRow } from "../kit/list.tsx";
+import { Button } from "../primitives/button.tsx";
+import {
+  Tooltip,
+  TooltipProvider,
+  TooltipTrigger,
+  TooltipContent,
+} from "../primitives/tooltip.tsx";
+import { RecordToolbar } from "./record-toolbar.tsx";
+import { Card, CardContent } from "../primitives/card.tsx";
+import { Badge } from "../primitives/badge.tsx";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "../primitives/accordion.tsx";
+import { RecordSummaryList } from "./record-summary-list.tsx";
+export { RecordSummaryList } from "./record-summary-list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
-import { Disclosure } from "../shell/disclosure.tsx";
 /**
  * 记录视图（ticket 11）：按表查看/搜索/分页的记录列表、记录详情（字段值 + 字段证据
  * 楼层 chip）、手动创建/编辑/删除。纯逻辑 seam（record-list-model / record-form-model
@@ -36,7 +49,11 @@ import type { PluginSettings } from "../../features/settings/plugin-settings.ts"
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import type { StChatMessage } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { PanelRuntime } from "../shell/panel-shell.tsx";
-import { PanelBar, PanelBarAction, PanelBottomBar } from "../shell/panel-bar.tsx";
+import {
+  RecordPageBar as PanelBar,
+  RecordPageAction as PanelBarAction,
+  RecordBottomBar as PanelBottomBar,
+} from "./record-page-bar.tsx";
 import {
   activeStatus,
   Placeholder,
@@ -933,142 +950,35 @@ export function RecordsTab(props: {
           }
         />
       ) : null}
-      <div className="stm-record-toolbar" hidden={detailRecordId !== null || editor !== null}>
-        <div className="stm-record-tables" role="tablist" aria-label="选择表格">
-          {tables.map((table) => {
-            const selected = table.id === selectedTableId;
-            return (
-              <button
-                key={table.id}
-                type="button"
-                role="tab"
-                className={`stm-record-chip${selected ? " stm-record-chip--active" : ""}${!table.enabled ? " stm-record-chip--disabled" : ""}`}
-                data-action="select-table"
-                data-table-id={table.id}
-                aria-selected={selected}
-                title={!table.enabled ? `${table.name}（已停用）` : table.name}
-                onClick={() => selectTable(table.id)}
-              >
-                {table.name}
-              </button>
-            );
-          })}
-        </div>
-        <div className="stm-record-selector-row">
-          {searchOpen ? (
-            <Input
-              type="search"
-              className="stm-record-search"
-              data-action="record-search"
-              data-stm-field="record-search"
-              aria-label="搜索记录"
-              placeholder="搜索记录…"
-              autoFocus
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setSearchOpen(false);
-              }}
-            />
-          ) : (
-            <div className="stm-record-table-meta">
-              {recordPage?.total ?? 0} 条记录{search ? ` · “${search}”` : ""}
-            </div>
-          )}
-          <ActionGroup>
-            <ActionMenu
-              label={`排序：${sortLabel} · ${recordOrder.direction === "asc" ? "升序" : "降序"}`}
-              actions={sortOptions.map((option) => ({
-                id: option.fieldId,
-                dataAction: "record-sort-option",
-                label: option.label,
-                ariaLabel:
-                  option.fieldId === recordOrder.fieldId
-                    ? `${option.label} · ${recordOrder.direction === "asc" ? "升序" : "降序"}`
-                    : option.label,
-                trailing:
-                  option.fieldId === recordOrder.fieldId ? (
-                    <i
-                      className={`fa-solid ${recordOrder.direction === "asc" ? "fa-arrow-up-short-wide" : "fa-arrow-down-wide-short"}`}
-                      aria-hidden="true"
-                    />
-                  ) : undefined,
-                checked: option.fieldId === recordOrder.fieldId,
-                disabled: loading || !selectedTableId,
-                onSelect: () => changeRecordSort(option.fieldId),
-              }))}
-              renderTrigger={(triggerProps) => (
-                <PanelBarAction
-                  {...triggerProps}
-                  icon="fa-sort"
-                  label={triggerProps["aria-label"]!}
-                  data-action="record-sort-toggle"
-                />
-              )}
-            />
-          </ActionGroup>
-          <ActionGroup className="stm-record-view-switch" role="group" aria-label="记录显示方式">
-            <PanelBarAction
-              icon="fa-list"
-              label="列表"
-              aria-pressed={viewMode === "list"}
-              data-action="records-list-view"
-              onClick={() => {
-                if (confirmDiscardIfDirty()) {
-                  discardGrid();
-                  setViewMode("list");
-                }
-              }}
-            />
-            <PanelBarAction
-              icon="fa-table-cells"
-              label="批量编辑"
-              aria-pressed={viewMode === "grid"}
-              data-action="records-grid-view"
-              onClick={() => setViewMode("grid")}
-            />
-          </ActionGroup>
-          <ActionGroup>
-            {searchOpen ? (
-              <PanelBarAction
-                icon="fa-xmark"
-                label="关闭搜索"
-                onClick={() => setSearchOpen(false)}
-              />
-            ) : (
-              <PanelBarAction
-                icon="fa-magnifying-glass"
-                data-action="record-search-toggle"
-                label="搜索记录"
-                onClick={() => setSearchOpen(true)}
-              />
-            )}
-          </ActionGroup>
-        </div>
-        {viewMode === "grid" ? (
-          <div className="stm-record-actions">
-            {dirty ? (
-              <Button
-                type="button"
-
-                data-action="discard-grid"
-                onClick={discardGrid}
-              >
-                放弃修改
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="primary"
-              data-action="save-grid"
-              disabled={savingGrid || !dirty}
-              onClick={() => void saveGrid()}
-            >
-              {savingGrid ? "保存中…" : "保存修改"}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      <RecordToolbar
+        tables={tables}
+        selectedTableId={selectedTableId}
+        onSelectTable={selectTable}
+        total={recordPage?.total ?? 0}
+        search={search}
+        searchInput={searchInput}
+        searchOpen={searchOpen}
+        onSearchInput={setSearchInput}
+        onSearchOpen={setSearchOpen}
+        sortOptions={sortOptions}
+        order={recordOrder}
+        sortLabel={sortLabel}
+        onSort={changeRecordSort}
+        loading={loading}
+        viewMode={viewMode}
+        onViewMode={(mode) => {
+          if (mode === "list") {
+            if (!confirmDiscardIfDirty()) return;
+            discardGrid();
+          }
+          setViewMode(mode);
+        }}
+        dirty={dirty}
+        saving={savingGrid}
+        onDiscard={discardGrid}
+        onSave={() => void saveGrid()}
+        hidden={detailRecordId !== null || editor !== null}
+      />
       {editor ? (
         <form
           id={editorFormId}
@@ -1148,6 +1058,7 @@ export function RecordsTab(props: {
                           : current,
                       ),
                     false,
+                    "form",
                   )
                 ) : (
                   <span className="stm-record-field-value">
@@ -1306,50 +1217,6 @@ export function RecordsTab(props: {
   );
 }
 
-export function RecordSummaryList(props: {
-  readonly records: readonly MemoryRecord[];
-  readonly fields: readonly MemoryField[];
-  readonly referenceLabels: ReadonlyMap<string, string>;
-  readonly vectorSummaries: ReadonlyMap<MemoryRecordId, string>;
-  readonly onOpenRecord: (recordId: MemoryRecordId) => void;
-}) {
-  return (
-    <ListGroup className="stm-record-summary-list" aria-label="记录列表">
-      {props.records.map((record) => {
-        const previewFields = props.fields
-          .filter((field) => field.enabled)
-          .map((field) => ({
-            field,
-            text: recordFieldValueText(field, record.payload[field.id], props.referenceLabels),
-          }))
-          .filter(({ text }) => text !== "—" && text.trim() !== record.displayText.trim())
-          .slice(0, 2);
-        const vectorSummary = props.vectorSummaries.get(record.id);
-        return (
-          <NavigationRow
-            key={record.id}
-            title={record.displayText}
-            description={
-              previewFields.length > 0
-                ? previewFields.map(({ text }) => text).join(" · ")
-                : undefined
-            }
-            trailing={
-              vectorSummary ? (
-                <span className="stm-record-summary-status">{vectorSummary}</span>
-              ) : undefined
-            }
-            className="stm-record-summary"
-            data-action="open-record"
-            data-record-id={record.id}
-            onClick={() => props.onOpenRecord(record.id)}
-          />
-        );
-      })}
-    </ListGroup>
-  );
-}
-
 // ---- 记录详情（字段值 + 字段证据 + 来源/修订徽标） ----
 
 function RecordDetail(props: {
@@ -1380,7 +1247,8 @@ function RecordDetail(props: {
       ) : null}
       <div className="stm-record-display-large">{props.displayText}</div>
       <div className="stm-record-meta">
-        <span
+        <Badge
+          variant="secondary"
           className={`stm-source-badge ${
             props.record.source.type === "manual"
               ? "stm-source-badge--manual"
@@ -1388,7 +1256,7 @@ function RecordDetail(props: {
           }`}
         >
           {recordSourceLabel(props.record.source)}
-        </span>
+        </Badge>
         <span className="stm-record-meta-time">
           更新于 {formatDisplayTime(props.record.updatedAt)}
         </span>
@@ -1398,74 +1266,80 @@ function RecordDetail(props: {
           {props.record.source.type === "manual" ? "无证据（手动记录）" : "无证据"}
         </div>
       ) : null}
-      <ListGroup as="ul" className="stm-record-fields">
-        {props.fields.map((field) => {
-          const value = props.record.payload[field.id];
-          const chips = evidenceChipViewModels(props.record.fieldEvidence[field.id] ?? []);
-          return (
-            <li key={field.id} className="stm-record-field">
-              <div className="stm-record-field-head">
-                <span className="stm-record-field-name">
-                  {field.name}
-                  {field.required ? (
-                    <span className="stm-field-required" title="必填">
-                      *
+      <Card className="stm-record-fields-card">
+        <CardContent className="ste:p-0">
+          <ul className="stm-record-fields">
+            {props.fields.map((field) => {
+              const value = props.record.payload[field.id];
+              const chips = evidenceChipViewModels(props.record.fieldEvidence[field.id] ?? []);
+              return (
+                <li key={field.id} className="stm-record-field">
+                  <div className="stm-record-field-head">
+                    <span className="stm-record-field-name">
+                      {field.name}
+                      {field.required ? (
+                        <span className="stm-field-required" title="必填">
+                          *
+                        </span>
+                      ) : null}
                     </span>
+                    {!field.enabled ? <span className="stm-field-disabled">已停用</span> : null}
+                  </div>
+                  <div className="stm-record-field-value">
+                    {recordFieldValueText(field, value, props.referenceLabels)}
+                  </div>
+                  {chips.length > 0 ? (
+                    <div className="stm-evidence-row">
+                      {chips.map((chip, index) =>
+                        chip.kind === "floor" ? (
+                          <FloorChip
+                            key={index}
+                            floor={chip.floor}
+                            onJump={props.onJumpFloor}
+                            getMessageAt={props.getMessageAt}
+                          />
+                        ) : (
+                          <span
+                            key={index}
+                            className="stm-evidence-chip stm-evidence-chip--generic"
+                            title={chip.sourceType}
+                          >
+                            {chip.sourceType}
+                          </span>
+                        ),
+                      )}
+                    </div>
                   ) : null}
-                </span>
-                {!field.enabled ? <span className="stm-field-disabled">已停用</span> : null}
-              </div>
-              <div className="stm-record-field-value">
-                {recordFieldValueText(field, value, props.referenceLabels)}
-              </div>
-              {chips.length > 0 ? (
-                <div className="stm-evidence-row">
-                  {chips.map((chip, index) =>
-                    chip.kind === "floor" ? (
-                      <FloorChip
-                        key={index}
-                        floor={chip.floor}
-                        onJump={props.onJumpFloor}
-                        getMessageAt={props.getMessageAt}
-                      />
-                    ) : (
-                      <span
-                        key={index}
-                        className="stm-evidence-chip stm-evidence-chip--generic"
-                        title={chip.sourceType}
-                      >
-                        {chip.sourceType}
-                      </span>
-                    ),
-                  )}
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ListGroup>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
       {props.history.length > 0 ? (
-        <Disclosure
-          className="stm-record-history"
-          icon="fa-clock-rotate-left"
-          title="修订历史"
-          meta={props.history.length}
-        >
-          {props.history.map((entry) => (
-            <div key={entry.id} className="stm-record-history-entry">
-              <span className="stm-record-meta-time">
-                {formatDisplayTime(entry.archivedAt)} ·{" "}
-                {entry.revisionSource === "user" ? "手动修订" : "Agent 修订"}
-              </span>
-              {props.fields.map((field) => (
-                <div key={field.id}>
-                  <span className="stm-record-summary-label">{field.name}</span>
-                  {recordFieldValueText(field, entry.payload[field.id], props.referenceLabels)}
+        <Accordion className="stm-record-history">
+          <AccordionItem value="history">
+            <AccordionTrigger>
+              修订历史 <Badge variant="secondary">{props.history.length}</Badge>
+            </AccordionTrigger>
+            <AccordionContent>
+              {props.history.map((entry) => (
+                <div key={entry.id} className="stm-record-history-entry">
+                  <span className="stm-record-meta-time">
+                    {formatDisplayTime(entry.archivedAt)} ·{" "}
+                    {entry.revisionSource === "user" ? "手动修订" : "Agent 修订"}
+                  </span>
+                  {props.fields.map((field) => (
+                    <div key={field.id}>
+                      <span className="stm-record-summary-label">{field.name}</span>
+                      {recordFieldValueText(field, entry.payload[field.id], props.referenceLabels)}
+                    </div>
+                  ))}
                 </div>
               ))}
-            </div>
-          ))}
-        </Disclosure>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       ) : null}
       <VectorRecordStatus
         vector={props.vector}
@@ -1487,6 +1361,13 @@ function FloorChip(props: {
   const [popover, setPopover] = useState<ChatMessageExcerpt | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  useEffect(
+    () => () => {
+      if (longPressTimer.current !== undefined) clearTimeout(longPressTimer.current);
+    },
+    [],
+  );
+
   function showExcerpt(): void {
     const message = props.getMessageAt(props.floor);
     setPopover(message ? buildMessageExcerpt(message) : null);
@@ -1501,41 +1382,48 @@ function FloorChip(props: {
   }
 
   return (
-    <span className="stm-evidence-chip-wrap">
-      <button
-        type="button"
-        className="stm-evidence-chip stm-evidence-chip--floor"
-        data-action="evidence-floor-jump"
-        data-floor={props.floor}
-        aria-label={`跳转到消息楼层 ${props.floor}`}
-        onClick={() => {
-          const hint = floorJumpHint(props.onJump(props.floor));
-          if (hint) reportWarning(hint);
-        }}
-        onPointerEnter={showExcerpt}
-        onPointerLeave={clearExcerpt}
-        onPointerDown={() => {
-          longPressTimer.current = setTimeout(showExcerpt, 500);
-        }}
-        onPointerUp={() => {
-          if (longPressTimer.current !== undefined) clearTimeout(longPressTimer.current);
-          longPressTimer.current = undefined;
-        }}
-        onPointerCancel={clearExcerpt}
+    <TooltipProvider delay={200}>
+      <Tooltip
+        open={popover !== null}
+        onOpenChange={(open) => (open ? showExcerpt() : clearExcerpt())}
       >
-        <span className="stm-evidence-chip-floor">#{props.floor}</span>
-      </button>
-      {popover ? (
-        <div className="stm-evidence-popover" role="tooltip">
-          <div className="stm-evidence-popover-head">
-            <span className="stm-evidence-popover-floor">楼层 #{popover.floor}</span>
-            <span className="stm-evidence-popover-name">
-              {popover.isUser ? "用户" : popover.name || "角色"}
-            </span>
-          </div>
-          <div className="stm-evidence-popover-content">{popover.content}</div>
-        </div>
-      ) : null}
-    </span>
+        <TooltipTrigger
+          render={<Button variant="secondary" size="sm" />}
+          type="button"
+          className="stm-evidence-chip stm-evidence-chip--floor"
+          data-action="evidence-floor-jump"
+          data-floor={props.floor}
+          aria-label={`跳转到消息楼层 ${props.floor}`}
+          onClick={() => {
+            const hint = floorJumpHint(props.onJump(props.floor));
+            if (hint) reportWarning(hint);
+          }}
+          onPointerDown={() => {
+            longPressTimer.current = setTimeout(showExcerpt, 500);
+          }}
+          onPointerUp={() => {
+            if (longPressTimer.current !== undefined) clearTimeout(longPressTimer.current);
+            longPressTimer.current = undefined;
+          }}
+          onPointerCancel={clearExcerpt}
+        >
+          <span className="stm-evidence-chip-floor">#{props.floor}</span>
+        </TooltipTrigger>
+        {popover ? (
+          <TooltipContent
+            className="stm-evidence-popover ste:flex-col ste:items-stretch ste:w-[260px] ste:max-w-[70vw]"
+            align="start"
+          >
+            <div className="stm-evidence-popover-head">
+              <span className="stm-evidence-popover-floor">楼层 #{popover.floor}</span>
+              <span className="stm-evidence-popover-name">
+                {popover.isUser ? "用户" : popover.name || "角色"}
+              </span>
+            </div>
+            <div className="stm-evidence-popover-content">{popover.content}</div>
+          </TooltipContent>
+        ) : null}
+      </Tooltip>
+    </TooltipProvider>
   );
 }
