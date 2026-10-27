@@ -45,10 +45,10 @@ export function createSemanticQueryExecutor(input: {
       session = await input.createSession(snapshot, {
         signal,
         deadline,
-        lastUserMessage: request.lastUserMessage ?? null,
+        lastUserMessage: null,
       });
       const result = await session.evaluate(request.sql, {
-        params: request.params ?? (request.lastUserMessage === undefined ? {} : undefined),
+        params: request.params ?? {},
         maxRows: request.maxRows,
         progress,
       });

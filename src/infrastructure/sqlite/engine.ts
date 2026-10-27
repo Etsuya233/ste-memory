@@ -359,11 +359,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
 
   /** Execute ordinary statements once, pausing at semantic reads for asynchronous preparation. */
-  async executeConsole(
-    spaceId: string,
-    sql: string,
-    lastUserMessage?: string | null,
-  ): Promise<SqliteConsoleResult> {
+  async executeConsole(spaceId: string, sql: string): Promise<SqliteConsoleResult> {
     const db = this.database(spaceId);
     let semantic = this.consoleModules.get(db);
     if (!semantic) {
@@ -405,26 +401,6 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
               remainingSql: wasm.cstrToJs(cursor)!,
             };
             break;
-          }
-          const contextParameter = capi.sqlite3_bind_parameter_index(
-            statement,
-            ":last_user_message",
-          );
-          if (contextParameter && lastUserMessage !== undefined && lastUserMessage !== null) {
-            const text = wasm.allocCString(lastUserMessage, false);
-            try {
-              db.checkRc(
-                capi.sqlite3_bind_text(
-                  statement,
-                  contextParameter,
-                  text,
-                  new TextEncoder().encode(lastUserMessage).byteLength,
-                  capi.SQLITE_TRANSIENT,
-                ),
-              );
-            } finally {
-              wasm.dealloc(text);
-            }
           }
           const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, index) =>
             capi.sqlite3_column_name(statement, index),

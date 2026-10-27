@@ -175,7 +175,7 @@ export function SqlPanel(props: {
             >
               <p className="stm-sql-card-meta">
                 支持 semantic_scores('表Key', json_array('组Key'),
-                :last_user_message)，自动使用当前对话最后一条用户消息，也可填入查询文本。右侧向量组可生成示例。
+                '查询文本')。右侧向量组可生成示例。
               </p>
               <div className="stm-sql-editor-body">
                 <div className="stm-sql-gutter" ref={gutter} aria-hidden="true">

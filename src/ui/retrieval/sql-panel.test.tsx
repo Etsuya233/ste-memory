@@ -197,7 +197,8 @@ it("console accepts ordinary and semantic SQL through one editor and offers vect
   );
   expect(html).not.toContain("SQL 执行模式");
   expect(html).toContain("semantic_scores");
-  expect(html).toContain(":last_user_message");
+  expect(html).not.toContain(":last_user_message");
+  expect(html).not.toContain("自动使用当前对话");
   const schema = renderToString(
     <SqlSchema
       entries={[

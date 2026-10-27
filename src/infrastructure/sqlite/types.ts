@@ -39,11 +39,7 @@ export interface SqliteConsoleResult extends SqlExecutionResult {
   readonly semanticStatement?: { readonly sql: string; readonly remainingSql: string };
 }
 export interface SqliteMemoryClient extends MacroSqlEvaluationPort, SemanticSqlEvaluationPort {
-  executeConsole(
-    spaceId: string,
-    sql: string,
-    lastUserMessage?: string | null,
-  ): Promise<SqliteConsoleResult>;
+  executeConsole(spaceId: string, sql: string): Promise<SqliteConsoleResult>;
   consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;
   exportSpace(spaceId: string, view?: SqliteView): Promise<MemorySpaceBackup>;

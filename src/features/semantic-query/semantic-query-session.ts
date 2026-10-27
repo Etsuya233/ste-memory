@@ -174,8 +174,6 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
 }
 
 export interface SemanticQueryRequest {
-  /** Explicit caller context; Agent tools omit this and bind their own params. */
-  readonly lastUserMessage?: string | null;
   readonly sql: string;
   readonly params?: SemanticSqlParams;
   readonly signal?: AbortSignal;

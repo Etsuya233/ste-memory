@@ -1195,16 +1195,6 @@ export async function startSteMemory(
       async execute(spaceId, sql, signal) {
         if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
         const started = performance.now();
-        let lastUserMessage: string | null = null;
-        if (currentSpaceId() === spaceId) {
-          for (let floor = adapter.chatMessageCount() - 1; floor >= 0; floor--) {
-            const message = adapter.getMessageAt(floor);
-            if (message?.isUser) {
-              lastUserMessage = message.content;
-              break;
-            }
-          }
-        }
         const results: SqlResultSet[] = [];
         let changes = 0;
         let transactionOpen: boolean;
@@ -1213,7 +1203,7 @@ export async function startSteMemory(
         try {
           do {
             signal?.throwIfAborted();
-            const chunk = await sqlite.executeConsole(spaceId, remainingSql, lastUserMessage);
+            const chunk = await sqlite.executeConsole(spaceId, remainingSql);
             signal?.throwIfAborted();
             results.push(...chunk.results);
             changes += chunk.changes;
@@ -1222,7 +1212,6 @@ export async function startSteMemory(
             const result = await semanticQuery(spaceId, {
               sql: chunk.semanticStatement.sql,
               signal,
-              lastUserMessage,
             });
             results.push({
               columns: result.columns,

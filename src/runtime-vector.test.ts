@@ -613,13 +613,11 @@ it("manual SQL automatically prepares semantic statements, shares cached vectors
   expect(
     (await runtime.sqlConsole.execute(spaceId, "SELECT :last_user_message AS message")).results[0]!
       .rows,
-  ).toEqual([["最后保存的用户消息"]]);
-  const implicit = await runtime.sqlConsole.execute(
-    spaceId,
-    sql.replace("'星港线索'", ":last_user_message"),
-  );
-  expect(implicit.results[0]!.rows).toHaveLength(1);
-  expect(embedding.embed).toHaveBeenLastCalledWith("最后保存的用户消息", expect.any(AbortSignal));
+  ).toEqual([[null]]);
+  await expect(
+    runtime.sqlConsole.execute(spaceId, sql.replace("'星港线索'", ":last_user_message")),
+  ).rejects.toThrow("缺少绑定参数");
+  expect(embedding.embed).toHaveBeenCalledTimes(1);
   const mixed = await runtime.sqlConsole.execute(
     spaceId,
     `INSERT INTO console_only VALUES('before'); ${sql}; INSERT INTO console_only VALUES('after'); SELECT value FROM console_only;`,
