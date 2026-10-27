@@ -677,13 +677,22 @@ describe("StChatAdapter.getMessageAt（楼层消息读取，ticket 11）", () =>
       content: "你好",
       name: "User",
       isUser: true,
+      options: { needCleaning: false },
     });
     expect(adapter.getMessageAt(1)).toEqual({
       floor: 1,
       content: "你好呀，今天过得怎么样？",
       name: "爱丽丝",
       isUser: false,
+      options: { needCleaning: true },
     });
+  });
+
+  it("系统消息标记为不清洗", () => {
+    const { adapter } = stableAdapter({
+      chat: [{ mes: "系统提示", name: "System", is_system: true }],
+    });
+    expect(adapter.getMessageAt(0)?.options).toEqual({ needCleaning: false });
   });
 
   it("楼层越界 / 负楼层 / 非整数 → undefined", () => {
@@ -723,7 +732,7 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
     expect(stableAdapter({ chatId: "" }).adapter.chatId()).toBeUndefined();
   });
 
-  it("messagesInRange：闭区间楼层升序映射（floor/content/name），越界楼层跳过，缺正文跳过", () => {
+  it("messagesInRange：闭区间楼层升序映射（floor/content/name/清洗标记），越界楼层跳过，缺正文跳过", () => {
     const { adapter } = stableAdapter({
       chat: [
         { mes: "消息 0", name: "User", is_user: true },
@@ -733,13 +742,25 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
       ],
     });
     expect(adapter.messagesInRange(0, 3)).toEqual([
-      { floor: 0, content: "消息 0", name: "User", isUser: true },
-      { floor: 1, content: "[reg] 原始 **标记**", name: "爱丽丝", isUser: false },
-      { floor: 3, content: "消息 3", name: "", isUser: false },
+      {
+        floor: 0,
+        content: "消息 0",
+        name: "User",
+        isUser: true,
+        options: { needCleaning: false },
+      },
+      {
+        floor: 1,
+        content: "[reg] 原始 **标记**",
+        name: "爱丽丝",
+        isUser: false,
+        options: { needCleaning: true },
+      },
+      { floor: 3, content: "消息 3", name: "", isUser: false, options: { needCleaning: true } },
     ]);
     // 越界楼层（chat 只有 4 条）：跳过缺失楼层
     expect(adapter.messagesInRange(2, 5)).toEqual([
-      { floor: 3, content: "消息 3", name: "", isUser: false },
+      { floor: 3, content: "消息 3", name: "", isUser: false, options: { needCleaning: true } },
     ]);
     expect(stableAdapter({ chat: undefined }).adapter.messagesInRange(0, 1)).toEqual([]);
   });

@@ -234,7 +234,14 @@ export class FillTaskService {
           const llm = this.#createLlm();
           const input = structuredClone(
             task.kind === "init"
-              ? [{ floor: 0, name: "", content: task.initText }]
+              ? [
+                  {
+                    floor: 0,
+                    name: "",
+                    content: task.initText,
+                    options: { needCleaning: false },
+                  },
+                ]
               : this.#source.messagesInRange(task.from, task.to),
           );
           const rule = structuredClone(this.#readCleaningRule());
@@ -803,13 +810,18 @@ export class FillTaskService {
       // 输入源：楼层任务 = 任务开始时冻结的对话消息；初始化任务 = 合成单条消息
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
       if (rawMessages.length === 0) throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      // 清洗只作用于来源层标记为 AI 输出的消息；用户消息、系统消息与初始化文本保持原文。
       const messages =
         cleaningRule === undefined
           ? rawMessages
-          : rawMessages.map((message) => ({
-              ...message,
-              content: applyCleaningRule(message.content, cleaningRule),
-            }));
+          : rawMessages.map((message) =>
+              message.options?.needCleaning === true
+                ? {
+                    ...message,
+                    content: applyCleaningRule(message.content, cleaningRule),
+                  }
+                : message,
+            );
       // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
       // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于
       // Agent 输入，证据永远存原文；重复初始化每次生成新证据，同源唯一不冲突）。

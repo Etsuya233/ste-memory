@@ -215,6 +215,10 @@ export interface StChatMessage {
   readonly name: string;
   /** 是否用户消息（ST is_user） */
   readonly isUser: boolean;
+  /** 填表输入的处理标记：只有 AI 输出允许清洗。 */
+  readonly options: {
+    readonly needCleaning: boolean;
+  };
 }
 
 /**
@@ -667,7 +671,7 @@ export class StChatAdapter {
    * 按同步楼层读取 ST 消息子集（证据 chip 的原文摘录数据源）。
    * 楼层越界 / 消息对象缺失 / 正文非字符串 → undefined（由 UI 决定提示）。
    * ST 1.18 消息对象形状（public/scripts 已核实）：{ mes: string, name: string,
-   * is_user: boolean, ... }——此处只做字段映射，不校验其余属性。
+   * is_user: boolean, is_system: boolean, ... }——此处只做字段映射，不校验其余属性。
    */
   getMessageAt(floor: number): StChatMessage | undefined {
     const chat = this.#getContext().chat;
@@ -683,6 +687,10 @@ export class StChatAdapter {
       content: record.mes,
       name: typeof record.name === "string" ? record.name : "",
       isUser: record.is_user === true,
+      // 清洗只针对 AI 输出；用户消息与系统消息保持原文。
+      options: {
+        needCleaning: record.is_user !== true && record.is_system !== true,
+      },
     };
   }
 

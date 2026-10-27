@@ -66,6 +66,7 @@ function defaultMessagesInRange(from: number, to: number): readonly FillSourceMe
       floor,
       content: floor === 1 ? "[reg] 原始内容 **带标记**" : `消息 ${floor + 1}`,
       name: floor % 2 === 0 ? "爱丽丝" : "鲍勃",
+      options: { needCleaning: true },
     });
   }
   return messages;
@@ -1177,6 +1178,48 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     expect(rawPrompts.join("\n")).toContain("**带标记**");
   });
 
+  it("只清洗 AI 输出：用户消息、系统消息与缺省 options 的消息保持原文", async () => {
+    const prompts: string[] = [];
+    const harness = await createHarness({
+      source: {
+        chatMessageCount: () => 3,
+        chatId: () => "story",
+        messagesInRange: () => [
+          { floor: 0, name: "User", content: "用户 <drop>保留</drop>消息" },
+          {
+            floor: 1,
+            name: "爱丽丝",
+            content: "AI <drop>去掉</drop>消息",
+            options: { needCleaning: true },
+          },
+          {
+            floor: 2,
+            name: "System",
+            content: "系统 <drop>保留</drop>提示",
+            options: { needCleaning: false },
+          },
+        ],
+      },
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "<drop>", post: "</drop>" }],
+        enabled: true,
+      }),
+    });
+    const task = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 2 });
+    const terminal = await waitForTerminal(harness, task.runId);
+    expect(terminal.status).toBe("succeeded");
+
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain("用户 <drop>保留</drop>消息");
+    expect(prompt).toContain("系统 <drop>保留</drop>提示");
+    expect(prompt).toContain("AI 消息");
+    expect(prompt).not.toContain("去掉");
+  });
+
   it("单份规则先排除再保留：思考区域的正文不进入 Agent 输入", async () => {
     const prompts: string[] = [];
     const harness = await createHarness({
@@ -1188,6 +1231,7 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
             floor: 0,
             name: "角色",
             content: "<think><正文>草稿不应进入Agent</正文></think><正文>正式正文输入</正文>",
+            options: { needCleaning: true },
           },
         ],
       },
@@ -2079,7 +2123,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     ]);
   });
 
-  it("清洗规则应用于初始化文本：喂给 Agent 的文本已清洗，证据存原文", async () => {
+  it("初始化文本不套清洗规则：喂给 Agent 的文本与证据都保留原文", async () => {
     const prompts: string[] = [];
     // 捕获提示词的同时提交提案（空提案不落证据，无法验证证据原文）
     const streamFn = scriptedStreamFn((context) => {
@@ -2126,9 +2170,9 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(terminal.status).toBe("succeeded");
 
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("设定  原文");
-    expect(prompt).not.toContain("**");
-    // 证据存原文（清洗只作用于 Agent 输入，不破坏证据）
+    expect(prompt).toContain("设定 **带标记** 原文");
+    expect(prompt).not.toContain("设定  原文");
+    // 证据存原文
     const evidenceRows = await harness.db.memoryEvidence.toArray();
     expect(evidenceRows[0]).toMatchObject({ content: "设定 **带标记** 原文" });
   });
