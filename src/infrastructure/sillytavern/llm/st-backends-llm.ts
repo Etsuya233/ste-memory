@@ -166,12 +166,19 @@ export class StBackendsLlmAdapter {
         this.#options.config,
         includeReasoning,
       );
-      const response = await this.#options.fetchImpl(ST_GENERATE_ENDPOINT, {
-        method: "POST",
-        headers: await this.#requestHeaders(),
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await this.#options.fetchImpl(ST_GENERATE_ENDPOINT, {
+          method: "POST",
+          headers: await this.#requestHeaders(),
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof TypeError)
+          throw new Error(`Network error: ${error.message}`, { cause: error });
+        throw error;
+      }
 
       if (!response.ok) {
         // 会话/CSRF 失效：令牌可能已轮换，清缓存下次重取
@@ -230,7 +237,7 @@ export class StBackendsLlmAdapter {
         return;
       }
       // 流结束但既无 finish_reason 也无 [DONE]：断流
-      throw new Error("响应流意外中断（未收到完成标记）");
+      throw new Error("响应流意外中断（未收到完成标记，Stream ended without finish_reason）");
     } catch (error) {
       const aborted = options?.signal?.aborted === true;
       output.stopReason = aborted || timedOut ? "aborted" : "error";
@@ -289,6 +296,12 @@ export class StBackendsLlmAdapter {
   async #httpErrorMessage(response: Response): Promise<string> {
     const raw = await safeText(response);
     const detail = parseErrorDetail(raw);
+    // 保留可读原因及标准错误标识，供 Pi 的 isRetryableAssistantError 分类。
+    if (response.status === 408) return `请求超时（408 Request Timeout）${suffix(detail.message)}`;
+    if (detail.quota)
+      return `模型额度不足（${response.status} insufficient_quota）${suffix(detail.message)}`;
+    if (response.status >= 500 && ![500, 502, 503, 504, 524].includes(response.status))
+      return `服务端请求失败（${response.status} Server error）${suffix(detail.message ?? raw)}`;
     // Agent 连接的 401/403 引导检查独立连接的上游鉴权（ST 原样透传
     // 状态码），不是 ST 会话/CSRF 问题——引导语必须指向上游密钥/端点，不能误导
     if (this.#options.label) {

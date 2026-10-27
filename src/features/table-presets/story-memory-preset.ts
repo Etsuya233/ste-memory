@@ -9,10 +9,60 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
   builtIn: true,
   prompt:
     "依据正文、明确设定和已有记录填写，不补造事实；时间可按约定估算。明确表达的情绪可记录；人物说法、判断、传闻、猜测和误解须写明归属及不确定性，不当作客观事实。\n未提及且无失效证据的旧值保留，人物未出场也不清除其身份、关系、伤病或持有物。\n只改证据支持的部分：稳定信息保留，当前状态覆盖，重要经历与结果合并增补，同一事实不重复追加。\n旧情况明确结束、物品不再持有或旧值不适用时，才删除失效部分，其余有效内容保留。\n新记录的未知可选字段留空。旧信息是否仍有效无法确认时，在相关状态文本中注明最后已知时间与情况，不将旧状态写成实时状态。\n同一变化涉及多表时同步更新有据字段，如转交物品时更新持有者和近况。人物与关系经历保留持续影响，纪要保存过程，重要事件保存确定安排与重要进展。\n区分当前叙事、回忆和未来计划，按事件发生时间记录。填表批次只限定输入范围，可跨多轮并生成多条纪要。\n保留身份、因果、承诺、关键变化与结果，合并重复，不凑字数。期望篇幅无最低字数，重要内容可超出参考篇幅，但须符合硬上限；超限时提炼，纪要可按独立事件分条，原话保留完整语义。引用只指向已确认记录，不凭同名合并身份。\n\n统一使用 YYYY-MM-DD HH:mm:ss，值内不附“约”“计划”“实际”或时段文字；字段类型校验格式和日期，叙述文本可保留自然语言。\n\n有明确时间则采用；模糊时间结合前后事件、已有记录和世界状态估算，保持先后顺序。缺时分秒可取代表值：上午 09:00:00、下午 15:00:00、傍晚 18:00:00、晚上 21:00:00，有更准确线索时调整。日期未知时结合设定与已有时间建立统一故事日期基准，“第 N 天”“次日”据此换算，不随现实日期改变。\n\n无线索时新记录可留空，世界状态已有时间则保留；未来事件日期待定时留空，不估造日程。结束不得早于开始，只有发生时点且持续时间未知时可只填开始。获得明确时间后修正估算，并同步受影响的纪要、总结和重要事件。\n\n重要事件可填确定的计划或实际时间，性质写入事件说明、进展与结果，实际明确后更新字段；不凭估算推定举办、结束或结果。总结沿用来源时间，不重复估算；模糊程度影响理解时，在叙述字段保留“下午”“约”等原意。",
+  macros: [
+    {
+      id: "story-unsummary",
+      name: "未总结纪要",
+      enabled: true,
+      expression: {
+        language: "query",
+        query: {
+          table: "chronicle",
+          conditions: [{ field: "plot_summary", op: "equals", value: null }],
+          fields: ["summary", "details"],
+          orderBy: { field: "$created_at", direction: "asc" },
+          limit: 15,
+        },
+      },
+      output: { format: "text", maxChars: null },
+    },
+    {
+      id: "story-related",
+      name: "相关纪要",
+      enabled: false,
+      expression: {
+        language: "query",
+        query: {
+          table: "chronicle",
+          semantic: { groups: ["event_memory"], query: { context: "last_user_message" } },
+          fields: ["summary", "details", "$similarity"],
+          orderBy: { field: "$similarity", direction: "desc" },
+          limit: 10,
+        },
+      },
+      output: { format: "text", maxChars: null },
+    },
+  ],
   tables: [
     {
       key: "characters",
       name: "人物",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            key: "character_traits",
+            name: "人物特征",
+            fieldKeys: ["name", "aliases", "role", "personality", "appearance"],
+          },
+          {
+            key: "character_experience",
+            name: "人物经历与近况",
+            fieldKeys: ["name", "aliases", "role", "background", "current_status"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录值得持续记忆的独立人物，包括用户扮演的人物。创建前核对名称、别名与身份，同一人物一条。\n身份、性格和外貌维护稳定信息；经历保留持续影响，近况维护仍成立的身体、情绪与处境，完整过程写入纪要。",
@@ -123,6 +173,17 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "relationships",
       name: "人际关系",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            key: "relationship_memory",
+            name: "关系记忆",
+            fieldKeys: ["character_a", "character_b", "summary", "key_facts"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "每对人物一条，双方须不同；创建前检查两种顺序，更新沿用原顺序。\n关系摘要只写当前定性与有持续影响的变化；经历优先保留关键转折、承诺和边界，不逐场复述动作、对白与过程。关系改变仍保留真实重要经历。",
@@ -190,6 +251,13 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "locations",
       name: "地点",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          { key: "location_info", name: "地点信息", fieldKeys: ["name", "position", "details"] },
+        ],
+      },
       description: "",
       prompt:
         "记录可辨识、可能重现或影响故事的地点。同一地点一条，同名异地须区分。\n补充位置、布局与设施，持久变化更新描述；临时活动、人物动向和短时天气写入纪要或世界状态。",
@@ -243,6 +311,17 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "items",
       name: "物品",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            key: "item_info",
+            name: "物品信息",
+            fieldKeys: ["name", "owner", "current_location", "status", "key_attributes"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录需持续追踪或有故事意义的物品，区分同类物品与同一实物。\n转交、放置、损坏、消耗或遗失时更新。无人持有或原引用失效时清空，近况保留必要的最后已知情况。",
@@ -326,6 +405,23 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "chronicle",
       name: "纪要",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            key: "event_memory",
+            name: "事件记忆",
+            fieldKeys: [
+              "summary",
+              "details",
+              "key_dialogue",
+              "related_characters",
+              "related_locations",
+            ],
+          },
+        ],
+      },
       description: "",
       prompt:
         "围绕同一目标的连续场景合成一条，不按消息或几分钟的小动作拆条。明显时间跳跃、场景切换或独立转折再分条；同时关联的场景可合并并交代切换。创建前核对已有来源，避免重复。\n新进展新增纪要，已有记录仅纠错或补漏。回忆注明发生时间或回忆性质，未来计划不得写成既成事实。",
@@ -449,6 +545,17 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "important_events",
       name: "重要事件",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [
+          {
+            key: "event_progress",
+            name: "事件安排与进展",
+            fieldKeys: ["name", "details", "related_characters", "related_locations", "outcome"],
+          },
+        ],
+      },
       description: "",
       prompt:
         "记录已发生、进行中或已确定的未来重要事件，如校运会、月考、毕业典礼、重要比赛。以对后续安排、人物选择或长期处境的影响判断重要性；普通购物、吃饭、闲聊通常不收录，日常中的重大转折可单独收录。同一次或同一届一条，不同月份或届次分开。\n同一事件持续更新，延期、取消或结束后保留。事件说明维护有效安排，进展与结果保留已宣布变更及实际成果，同步时间；不预测举办、参加者、名次或结果。",
@@ -652,6 +759,11 @@ export const STORY_MEMORY_PRESET: ResolvedTablePreset = {
     {
       key: "plot_summaries",
       name: "剧情总结",
+      vectorIndex: {
+        enabled: true,
+        updateMode: "automatic",
+        groups: [{ key: "story_recap", name: "剧情回顾", fieldKeys: ["summary", "details"] }],
+      },
       description: "",
       prompt:
         "每轮在新增纪要前查询此前已保存、所属总结为空的纪要：conditions 使用 field=plot_summary、op=equals、value=null，orderBy 使用 field=$created_at、direction=asc，paging 使用 page=1、pageSize=20；系统字段不放入 fields 投影。确认 total 至少 20 后，选最早 15 条生成一条总结，保留其余至少 5 条；相同创建时间沿用查询返回顺序。未满 20 条时跳过总结；本批新建纪要不计入门槛或来源，每批最多新建一条。\n先保存所选 15 条来源的记录 ID，再逐条阅读正文，依据这些纪要撰写。创建总结后，在同一提案中将全部 15 条来源的所属总结设为新总结的临时引用；核对恰好关联这 15 条，排除遗漏、重复及本批新增来源，再预览并提交。原始纪要保留。后续纪要另组总结，来源纠错或补漏时同步修订对应总结，无需等待自然剧情阶段结束。",

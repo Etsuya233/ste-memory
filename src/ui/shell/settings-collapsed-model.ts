@@ -102,7 +102,7 @@ export function macroSummary(settings: PluginSettings, chatScopeMacroCount: numb
   const raw = settings.macroName.trim();
   const name =
     raw === "" ? "未配置" : resolveMacroRegistrationName(raw) === undefined ? "宏前缀无效" : raw;
-  const views = settings.memoryViews.length;
+  const views = settings.macros.length;
   return `${name} · ${views} 个全局宏 · ${chatScopeMacroCount} 个对话宏`;
 }
 
@@ -134,14 +134,14 @@ export function agentPresetsSummary(settings: PluginSettings): string {
 
 export function cleaningSummary(
   settings: PluginSettings,
-  selectedListId: string | undefined,
+  selectedRuleId: string | undefined,
 ): string {
-  const total = settings.cleaningRuleLists.length;
+  const total = settings.cleaningRules.length;
   if (total === 0) return "未配置";
-  if (selectedListId === undefined) return `${total}列表 · 未选择`;
-  const found = settings.cleaningRuleLists.find((l) => l.id === selectedListId);
+  if (selectedRuleId === undefined) return `${total}条规则 · 未选择`;
+  const found = settings.cleaningRules.find((l) => l.id === selectedRuleId);
   const name = found ? found.name : "未选择";
-  return `${total}列表 · 当前:${name}`;
+  return `${total}条规则 · 当前:${name}`;
 }
 
 export function mirrorSummary(settings: PluginSettings, mirrorStatus: ChatMirrorStatus): string {

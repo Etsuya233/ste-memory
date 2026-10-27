@@ -519,6 +519,36 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await store.unload(id());
   });
 
+  it("persists macro writes in the committed snapshot and replaces macros with structure", async () => {
+    const macros = [
+      {
+        id: "m1",
+        name: "人物",
+        enabled: true,
+        expression: { language: "query" as const, query: { table: "characters" } },
+        output: { format: "text" as const, maxChars: null },
+      },
+    ];
+    const committed = vi.fn(async () => {});
+    store.onCommitted = committed;
+    await store.repositories().spaces.setMacros(id(), macros, stamp);
+    expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
+    expect((await db.memorySpaces.get(id()))!.macros).toEqual(macros);
+    expect(committed).toHaveBeenCalledWith(
+      expect.objectContaining({ space: expect.objectContaining({ macros }) }),
+    );
+    await store.repositories().spaces.clearRecords(id());
+    expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
+    await store.structureRebuild().rebuild({
+      memorySpaceId: id(),
+      tables: unit.tables,
+      fields: unit.fields,
+      macros: [],
+      initializationSource: { presetId: "preset", presetName: "预设", appliedAt: stamp },
+    });
+    expect((await store.snapshot(id()))!.space.macros).toEqual([]);
+  });
+
   it("structure rebuild retains the exclusive writer through its save callback", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => {

@@ -1,5 +1,6 @@
+import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
-import type { MemoryView } from "../macros/memory-views.ts";
+import type { MemoryMacro } from "../macros/macro-expression.ts";
 import type { MemoryBackupRepository, MemoryBackupSnapshot } from "./backup-port.ts";
 import type { MemoryBackupData, MemorySpaceBackup } from "./backup-file.ts";
 import { parseBackupFile } from "./backup-codec.ts";
@@ -28,12 +29,18 @@ export function buildSpaceExportUnit(
   snapshot: MemoryBackupSnapshot,
   spaceId: MemorySpaceId,
   includeHistory: boolean,
-  chatScopeMacros: readonly MemoryView[] = [],
+  chatScopeMacros?: readonly MemoryMacro[],
 ): MemorySpaceBackup | null {
   const unit = snapshot.spaces.find((item) => item.space.id === spaceId);
   if (!unit) return null;
   const trimmed = includeHistory ? unit : { ...unit, history: [] };
-  return { ...trimmed, chatScopeMacros: [...chatScopeMacros] };
+  return {
+    ...trimmed,
+    space: {
+      ...trimmed.space,
+      ...(chatScopeMacros === undefined ? {} : { macros: [...chatScopeMacros] }),
+    },
+  };
 }
 
 /**
@@ -53,6 +60,7 @@ export type FullBackupImportPlan =
 
 export interface FullBackupImportDeps {
   readonly backup: Pick<MemoryBackupRepository, "restoreSnapshot">;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   readonly syncToCurrentChat: () => Promise<unknown>;
   /** 记忆宏快照重建（导入即整库数据变更，不等轮询） */
   readonly kickMacros: () => void;
@@ -80,7 +88,18 @@ export async function executeFullBackupImport(
   plan: Extract<FullBackupImportPlan, { kind: "ready" }>,
   deps: FullBackupImportDeps,
 ): Promise<void> {
-  await deps.backup.restoreSnapshot(plan.data);
+  const normalized = await Promise.all(
+    plan.data.spaces.map((unit) => deps.normalizeImportedSpace(unit)),
+  );
+  await deps.backup.restoreSnapshot({
+    spaces: normalized.map((unit) => ({
+      ...unit,
+      space: { ...unit.space, macros: restoredMemoryMacros(unit.space.macros ?? []) },
+      ...(unit.chatScopeMacros === undefined
+        ? {}
+        : { chatScopeMacros: restoredMemoryMacros(unit.chatScopeMacros) }),
+    })),
+  });
   deps.onDataChanged();
   deps.kickMacros();
   await deps.syncToCurrentChat();

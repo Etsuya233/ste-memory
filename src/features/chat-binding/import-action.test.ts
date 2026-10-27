@@ -25,7 +25,7 @@ function unit(spaceId: string): MemorySpaceBackup {
 function file(spaces: MemorySpaceBackup[]): MemoryBackupFile {
   return {
     format: "ste-memory-backup",
-    version: 1,
+    version: 2,
     exportedAt: "2026-08-30T00:00:00.000Z",
     appVersion: "0.1.0",
     data: { spaces },

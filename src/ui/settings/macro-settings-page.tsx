@@ -29,7 +29,7 @@ export function MacroSettingsSummary(props: {
   const meta =
     status.kind === "valid"
       ? [
-          `默认快照 ${props.budget?.defaultCharacters ?? 0} / ${props.macroLimit} 字`,
+          `最近执行 ${props.budget?.defaultCharacters ?? 0} / ${props.macroLimit} 字`,
           truncated > 0 ? `${truncated} 个宏已截断` : "",
           props.hasActiveSpace ? "" : "无活动空间",
         ]
@@ -161,7 +161,7 @@ export function MacroSettingsFields(props: {
         <div className="stm-setting-label">
           <div className="stm-setting-name">输出字符上限</div>
           <div className="stm-setting-hint">
-            每个宏单独生效；超出从尾部截断并附「……（已截断）」标记
+            每个宏单独生效；按查询顺序装入完整记录或结果行，超出时标明省略；JSON 保持完整
           </div>
         </div>
         <Input
@@ -245,7 +245,7 @@ function MacroBudgetCard(props: {
     return (
       <div className="stm-macro-budget" data-stm-field="macro-budget">
         <div className="stm-macro-budget-head">
-          <span>快照输出</span>
+          <span>最近执行输出</span>
         </div>
         <div className="stm-setting-hint">配置有效宏前缀后显示输出体积与截断状态。</div>
       </div>
@@ -255,10 +255,12 @@ function MacroBudgetCard(props: {
     return (
       <div className="stm-macro-budget" data-stm-field="macro-budget">
         <div className="stm-macro-budget-head">
-          <span>快照输出</span>
+          <span>最近执行输出</span>
           <span>无活动空间</span>
         </div>
-        <div className="stm-setting-hint">打开或切换一个对话后显示当前空间的快照体积。</div>
+        <div className="stm-setting-hint">
+          实际生成或显式测试后可查看执行结果；打开页面不会运行查询。
+        </div>
       </div>
     );
   }
@@ -271,7 +273,7 @@ function MacroBudgetCard(props: {
   return (
     <div className="stm-macro-budget" data-stm-field="macro-budget">
       <div className="stm-macro-budget-head">
-        <span>默认快照输出</span>
+        <span>最近真实执行输出</span>
         <span data-stm-field="macro-budget-value">
           {characters} / {props.limit} 字
         </span>
@@ -285,7 +287,7 @@ function MacroBudgetCard(props: {
       </div>
       <div className="stm-setting-hint" data-stm-field="macro-budget-hint">
         {props.limit <= 0
-          ? "上限为 0：宏输出只剩截断标记。"
+          ? "上限为 0：非空结果会报告预算不足。"
           : truncatedCount > 0
             ? `有 ${truncatedCount} 个宏的输出已按上限截断。`
             : macroCount === 0
@@ -304,8 +306,8 @@ function MacroSettingsHelp(props: { readonly status: MacroNameStatus }) {
     <Disclosure icon="fa-circle-info" title="使用说明" data-stm-field="macro-help">
       <div className="stm-macro-help">
         <div className="stm-setting-hint">
-          把宏放进提示词预设（角色卡 / 系统提示 / 作者注释）或世界书条目内容。
-          世界书条目可在关键词命中时触发，也可设为常驻。
+          实际生成前统一计算；刷新、编辑和打开最近结果不会执行查询。把宏放进提示词预设（角色卡 /
+          系统提示 / 作者注释）或世界书条目内容。 世界书条目可在关键词命中时触发，也可设为常驻。
         </div>
         <div className="stm-macro-help-row">
           <span className="stm-mono">{defaultToken}</span>
@@ -325,7 +327,7 @@ function MacroSettingsHelp(props: { readonly status: MacroNameStatus }) {
         </div>
         <div className="stm-setting-hint">
           优先级：对话宏 &gt; 全局宏 &gt; 内置宏。全局宏按当前对话的空间求值；
-          表或字段缺失时展开为空，不阻断生成。字符上限对每个宏单独生效，尾部截断。
+          停用或错误的高优先级定义仍占位。表或字段缺失时展开为空，不阻断生成。字符上限按完整行控制预算。
         </div>
       </div>
     </Disclosure>

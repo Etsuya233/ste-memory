@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { FormField, Input, Switch } from "./controls.tsx";
+import { FormField, FormRow, Input, Select, Switch } from "./controls.tsx";
 import { ListGroup, ListRow, NavigationRow } from "./list.tsx";
 import { Theme } from "./theme.tsx";
 
@@ -74,5 +74,45 @@ describe("portable UI kit", () => {
     expect(html).toContain(`id="${id}-description"`);
     expect(html).toContain("名称不能为空");
     expect(html).not.toContain("自定义名称");
+  });
+});
+
+describe("FormRow", () => {
+  it("standalone input keeps label association, native attributes and error description", () => {
+    const html = renderToStaticMarkup(
+      <FormRow label="名称" hint="填写名称" error="名称不能为空" data-field="name">
+        {(field) => <Input {...field} required disabled autoComplete="off" />}
+      </FormRow>,
+    );
+    const id = /<label[^>]*for="([^"]+)"/.exec(html)![1];
+    expect(html).toContain(`id="${id}"`);
+    expect(html).toContain(`aria-describedby="${id}-description"`);
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('required=""');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('data-field="name"');
+    expect(html).toContain("名称不能为空");
+    expect(html).not.toContain("填写名称");
+  });
+  it("list composition assigns a unique input/select to each label", () => {
+    const html = renderToStaticMarkup(
+      <ListGroup>
+        <FormRow label="名称">{(field) => <Input {...field} defaultValue="正文" />}</FormRow>
+        <FormRow label="连接" hint="选择连接">
+          {(field) => (
+            <Select {...field}>
+              <option>当前连接</option>
+            </Select>
+          )}
+        </FormRow>
+      </ListGroup>,
+    );
+    const ids = [...html.matchAll(/<label[^>]*for="([^"]+)"/g)].map((match) => match[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(html).toContain(`<input id="${ids[0]}"`);
+    expect(html).toContain(`<select id="${ids[1]}"`);
+    expect(html).toContain(`aria-describedby="${ids[1]}-description"`);
+    expect(html).not.toContain("aria-invalid");
   });
 });

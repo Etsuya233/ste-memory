@@ -92,6 +92,7 @@ export type {
 export {
   DomainError,
   effectiveVectorIndexGroups,
+  upgradeVectorIndexKeys,
   validateVectorIndexConfiguration,
   remapVectorIndexConfiguration,
   derivedDisplayTemplate,
@@ -140,3 +141,15 @@ export type {
   MemoryTableId,
   MemoryTableKey,
 } from "./domain/index.ts";
+
+export type {
+  MemoryMacro,
+  MacroExpression,
+  MacroQuery,
+  MacroSemanticOptions,
+  MacroQueryInput,
+  MacroQueryValue,
+  MacroSemanticSource,
+} from "./domain/memory-macro.ts";
+
+export { compileMemoryQueryConditions } from "./query-sql-conditions.ts";

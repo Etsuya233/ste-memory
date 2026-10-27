@@ -159,6 +159,9 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
 
   it("完整合法数据：原样保留", () => {
     const settings: PluginSettings = {
+      macroSchemaVersion: 1,
+      macros: [],
+      rerank: { enabled: false, candidateLimit: 50 },
       fillAgentTimeoutSeconds: 900,
       autoFill: DEFAULT_SETTINGS.autoFill,
       enabled: false,
@@ -186,39 +189,31 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       ],
       fillTaskConnectionId: "c1",
       queryChatConnectionId: undefined,
-      cleaningRuleLists: [],
+      cleaningSchemaVersion: 3,
+      cleaningRules: [],
       tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
       entryPlacement: "wand",
-      memoryViews: [
-        {
-          name: "未完成伏笔",
-          tableKey: "plots",
-          condition: { fieldKey: "status", values: ["埋设中"] },
-          limit: 50,
-          projection: ["name", "status"],
-        },
-      ],
     };
     expect(mergeSettings(settings)).toEqual(settings);
   });
 
-  it("记忆视图：缺省空数组，损坏项逐项丢弃（ticket 02）", () => {
-    expect(mergeSettings({}).memoryViews).toEqual([]);
-    const merged = mergeSettings({
-      memoryViews: [
-        {
-          name: "未完成伏笔",
-          tableKey: "plots",
-          condition: { fieldKey: "status", values: ["埋设中", "已触发"] },
-          limit: 50,
-          projection: ["name", "status"],
-        },
-        { name: "非法 名", tableKey: "plots", condition: null, limit: null, projection: [] },
-        "garbage",
-      ],
+  it("旧视图迁移保留有效配置，损坏配置报错并保留原数据", () => {
+    const view = {
+      name: "未完成伏笔",
+      tableKey: "plots",
+      condition: null,
+      limit: null,
+      projection: [],
+    };
+    const raw = { memoryViews: [view] };
+    expect(mergeSettings(raw).macros[0]).toMatchObject({
+      name: view.name,
+      expression: { query: { table: "plots", limit: 100 } },
     });
-    expect(merged.memoryViews.map((v) => v.name)).toEqual(["未完成伏笔"]);
-    expect(mergeSettings({ memoryViews: "oops" }).memoryViews).toEqual([]);
+    expect(mergeSettings(raw).macros[0]!.id).toBe(mergeSettings(raw).macros[0]!.id);
+    expect(() => mergeSettings({ memoryViews: [view, "garbage"] })).toThrow("旧宏定义损坏");
+    expect(raw.memoryViews).toEqual([view]);
+    expect(mergeSettings(raw)).not.toHaveProperty("memoryViews");
   });
 
   it("表格预设：缺省系统默认、损坏预设逐项丢弃、默认选择悬空回退系统默认（spec table-presets）", () => {
@@ -264,45 +259,36 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(mergeSettings({}).fillTaskConnectionId).toBeUndefined();
   });
 
-  it("清洗规则列表：缺省空数组，损坏项逐项丢弃（ticket 22）", () => {
-    expect(mergeSettings({}).cleaningRuleLists).toEqual([]);
-    const merged = mergeSettings({
-      cleaningRuleLists: [
-        {
-          id: "l1",
-          name: "清洗A",
-          rules: [
-            {
-              id: "r1",
-              name: "去粗体",
-              mode: "discard",
-              pattern: "\\*\\*",
-              flags: "g",
-              enabled: true,
-            },
-          ],
-        },
-        { id: "", name: "缺 id", rules: [] },
-        "junk",
-      ],
-    });
-    expect(merged.cleaningRuleLists).toEqual([
+  it("缺少版本号、v1 和 v2 列表直接丢弃，保留其他设置", () => {
+    for (const cleaningSchemaVersion of [undefined, 1, 2]) {
+      const result = mergeSettings({
+        cleaningSchemaVersion,
+        enabled: false,
+        macroLimit: 123,
+        cleaningRuleLists: [{ id: "old", name: "旧列表", rules: [] }],
+      });
+      expect(result).toMatchObject({
+        cleaningSchemaVersion: 3,
+        cleaningRules: [],
+        enabled: false,
+        macroLimit: 123,
+      });
+      expect(result).not.toHaveProperty("cleaningRuleLists");
+    }
+  });
+  it("当前版本直接保存命名清洗规则，不包含子规则数组", () => {
+    const cleaningRules = [
       {
-        id: "l1",
-        name: "清洗A",
-        rules: [
-          {
-            id: "r1",
-            name: "去粗体",
-            mode: "discard",
-            type: "regex",
-            pattern: "\\*\\*",
-            flags: "g",
-            enabled: true,
-          },
-        ],
+        id: "r1",
+        name: "正文",
+        enabled: true,
+        keepTags: [{ pre: "<正文>", post: "</正文>" }],
+        excludeTags: [],
       },
-    ]);
+    ];
+    expect(mergeSettings({ cleaningSchemaVersion: 3, cleaningRules }).cleaningRules).toEqual(
+      cleaningRules,
+    );
   });
 });
 

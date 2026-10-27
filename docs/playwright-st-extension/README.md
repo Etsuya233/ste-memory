@@ -53,7 +53,7 @@ node verify.mjs
    里 `$('#extensions_details').trigger('click')` —— ST 用 jQuery `.on('click', ...)` 绑事件，
    trigger 无视可见性直接触发。弹层等 `.extensions_info` → `.extension_block` 出现。
 3. **waitUntil 选择**：`networkidle` 在 ST 这种重页面会等很久甚至超时；`domcontentloaded`
-   + 业务条件轮询（console 日志 / selector）才是正解。
+   - 业务条件轮询（console 日志 / selector）才是正解。
 4. **curl 也中代理**：裸 curl 127.0.0.1 返回 502，必须 `--noproxy "*"` 才能拿到真实状态码。
 
 ## ST 侧可用事实（验证用）
@@ -226,3 +226,49 @@ dry run 真实路径：建书 → 条目内容放宏 → 分配给当前对话 �
   world-info.js newWorldInfoEntryTemplate；缺失字段在 load 时自动补齐）。
 - **dry run 扫描不写定时状态**：getWorldInfoPrompt(chat, maxContext, true)
   是插件 worldbook-text.ts 同款调用（ADR 0007），不会污染对话 sticky/cooldown。
+
+## 原生语义 SQL 与缓存验收（verify-semantic-sql-cache.mjs）
+
+当前版本使用此脚本，默认合成向量，外部 embedding 请求为零。设置 `ST_URL`、`STE_ST_INSTALL`、`CHROME`；无法解析 playwright-core 时设置 `PLAYWRIGHT_MODULE_PATH`。先备份并部署待测构建，再运行：
+
+```powershell
+node docs/playwright-st-extension/verify-semantic-sql-cache.mjs
+```
+
+脚本在真实 ST 中验证 Query／原生 SQL／旧评分源共享、L2 命中与新记录快照、显式测试隔离、UNION 与双游标、旧格式转换失败保留、预设分类、取消迟到和凭据配置 revision。主模型响应受控模拟，测试创建独立数据并在结束后清理、恢复设置；原构建由部署者恢复并核验 SHA256。
+
+真实模式还需 `STE_EMBEDDING_API_DIR`，其中包含 baseUrl.txt、model.txt、apiKey.txt；同一验收批次共用已存在的持久预算文件，初值为 `{"limit":3,"posts":0}`。通过 `--real --budget-file <预算文件路径>` 运行。计数在每次外部 POST 前落盘，索引、失败和取消都计数，不重试、不跟随重定向。该批次内不得重置预算或换文件重复请求。真实模式只使用一条索引、一次冷查询和一次新文本取消，其余检查使用成功缓存。
+
+## 前一轮表达式宏验收（verify-expression-macros.mjs，历史）
+
+此脚本对应命名评分源首轮重构，其逐次请求计数早于跨生成缓存；当前版本使用上一节的原生 SQL／缓存脚本。前文旧记忆视图及自动召回 ticket 脚本同样保留为历史记录。
+
+先将待验收构建部署到独立确认的 ST 扩展目录，再运行脚本。脚本创建两个专用角色、对话和记忆空间，使用真实 embedding API 建索引和查询；主生成响应由浏览器路由提供确定性文本，提示词构建、宏等待和 ST 生成事件使用真实宿主流程。结束时删除专用数据并恢复运行前设置。
+
+参数可用命令行 `--url`、`--install`、`--chrome`、`--api-dir`、`--output`，也可用以下环境变量：
+
+- `ST_URL`：ST 地址，默认 `http://127.0.0.1:8000`。
+- `STE_ST_INSTALL`：当前运行的 ST 安装目录，用于校验运行目标。
+- `CHROME`：Chrome 或 Edge 可执行文件。
+- `STE_EMBEDDING_API_DIR`：包含 `baseUrl.txt`、`model.txt`、`apiKey.txt` 的授权资料目录。
+- `PLAYWRIGHT_MODULE_PATH`：可选，当前脚本无法解析 `playwright-core` 时指定其安装目录。
+- `STE_E2E_OUTPUT`：可选，截图和脱敏 JSON 报告目录；默认创建系统临时目录。
+
+运行 `node docs/playwright-st-extension/verify-expression-macros.mjs`。密钥仅在内存中读取、临时用于浏览器连接配置，报告不保存密钥和请求头。脚本覆盖 Query/SQL 等价、空评分源 LEFT JOIN、界面保存及测试入口、最近结果只读、正常发送的等待和提示词命中、同批查询向量共享、重新生成和续写、停止和切换对话的迟到响应、预设宏保存，以及旧 memoryRecall 专用功能移除。
+
+停止链路的专项诊断可加 `--stop-probe --synthetic`：只建立一条合成索引，通过真实 ST 生成、停止和下一发送记录事件顺序、dry run 参数、实际插件拦截器 registry 与 abort 调用。报告明确标记 `synthetic: true`，真实 embedding 调用数为零；这份诊断报告不替代完整验收。
+
+Text Completion 等待专项使用 `--tc-probe --synthetic`，给查询向量增加受控延迟，报告保存生成事件、请求时间及宏终态。完整真实轮保留产品 10 秒预算；只有诊断明确为该预算超时，验收脚本才允许重测一次 TC 成功链路，生产逻辑不重试。
+
+### 可选 rerank 的真实注入验收
+
+在已连接待测 `dist/` 的独立确认 ST 环境运行：
+
+```powershell
+node docs/playwright-st-extension/verify-expression-macros.mjs --synthetic --rerank-probe --install <ST安装目录> --chrome <浏览器路径> --api-dir <embedding连接目录> --output <报告目录>
+```
+
+依赖和环境变量沿用表达式宏验收。`--rerank-probe` 使用浏览器路由提供确定性 embedding 和 rerank，
+外部模型调用为零；模型目录只用于装配连接，不输出密钥。它创建专用角色、对话和记录，让重排第一名
+刻意不同于向量第一名，检查实际主生成请求中的 Query/SQL 宏文本、同批一次重排及关闭后的向量顺序，
+并打开重排设置页截图。结束时清理测试数据并恢复运行前设置。

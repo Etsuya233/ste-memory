@@ -1,3 +1,4 @@
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import type { MemorySpaceId } from "../memory/index.ts";
 import {
@@ -12,12 +13,13 @@ import type { LlmPort } from "./llm-port.ts";
 import type { MemorySpaceReader } from "../memory/index.ts";
 import { composeQueryAgentSystemPrompt } from "./prompt-composer.ts";
 import { createQueryRecordsTool } from "./tools/query/query-records-tool.ts";
-import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
+import { createQueryAgentSqlTool, optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
 
 /** 单次 run 的总超时：5 分钟（参考值，11.5 可按需调整）。 */
 export const DEFAULT_QUERY_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface QueryAgentOptions {
+  readonly semanticQuery?: SemanticQueryExecutor;
   readonly llm: LlmPort;
   /** 记忆空间只读端口（表/字段列表 + 记录查询），由宿主装配。 */
   readonly reader: MemorySpaceReader;
@@ -45,11 +47,13 @@ export type QueryAgentRunHooks = RunHooks;
  * - 总超时 timeoutMs（默认 5 分钟），超时/取消经 agent.abort() 按 streamFn 契约收尾。
  */
 export class QueryAgent {
+  readonly #semanticQuery: SemanticQueryExecutor | undefined;
   readonly #llm: LlmPort;
   readonly #reader: MemorySpaceReader;
   readonly #timeoutMs: number;
 
   constructor(options: QueryAgentOptions) {
+    this.#semanticQuery = options.semanticQuery;
     this.#llm = options.llm;
     this.#reader = options.reader;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_QUERY_AGENT_TIMEOUT_MS;
@@ -67,15 +71,25 @@ export class QueryAgent {
     }
 
     const digest = await buildMemorySpaceTableDigest(this.#reader, input.memorySpaceId);
+    const sqlTools = this.#semanticQuery
+      ? [
+          await createQueryAgentSqlTool({
+            reader: this.#reader,
+            digest,
+            query: this.#semanticQuery,
+          }),
+        ]
+      : optionalQuerySqlTools(this.#reader, digest);
     // 每请求一个 Agent 实例；query_records 只读且相互独立，工具默认并行执行。
     const agent = new Agent({
       initialState: {
-        systemPrompt: composeQueryAgentSystemPrompt(digest, this.#reader.querySql !== undefined),
+        systemPrompt: composeQueryAgentSystemPrompt(
+          digest,
+          sqlTools.length > 0,
+          this.#semanticQuery !== undefined,
+        ),
         model: this.#llm.model,
-        tools: [
-          createQueryRecordsTool({ reader: this.#reader, digest }),
-          ...optionalQuerySqlTools(this.#reader, digest),
-        ],
+        tools: [createQueryRecordsTool({ reader: this.#reader, digest }), ...sqlTools],
       },
       streamFn: this.#llm.streamFn,
       getApiKey: this.#llm.getApiKey,

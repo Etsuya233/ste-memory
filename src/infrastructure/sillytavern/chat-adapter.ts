@@ -23,10 +23,10 @@ import type { ChatFileTarget, ChatSnapshotFileStore } from "../../features/chat-
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
 import {
-  formatCleaningListSelection,
-  parseCleaningListSelection,
-  type CleaningListStore,
-} from "../../features/cleaning/cleaning-rule-lists.ts";
+  formatCleaningRuleSelection,
+  readCleaningRuleSelection,
+  type CleaningRuleStore,
+} from "../../features/cleaning/cleaning-rules.ts";
 import { resolveFloorJump } from "./floor-jump.ts";
 import {
   mergeChatScopeMacros,
@@ -103,13 +103,6 @@ export interface StContext {
   getChatCompletionModel?: (settings: Record<string, unknown>) => string;
   /** 防抖持久化 extension_settings（script.js saveSettingsDebounced） */
   saveSettingsDebounced?: () => void;
-  /** 当前预设管理器（st-context.js 暴露 getPresetManager：正则预设条目读取源，
-   * readPresetExtensionField 读当前预设的扩展字段） */
-  getPresetManager?: () =>
-    | {
-        readonly readPresetExtensionField?: (input: { readonly path: string }) => unknown;
-      }
-    | undefined;
   eventSource?: {
     readonly on: (event: string, handler: (...args: unknown[]) => void) => void;
   };
@@ -171,26 +164,18 @@ export interface StContext {
  * 与 ST 既有 metadata 键（system_prompt / scenario / worldinfo / quickReply 等）
  * 无冲突；命名空间化的值对象 { version, spaceId } 便于未来演进。
  */
-/** ST 正则条目来源（ticket 22 / ADR 0011）：全局 / 当前角色卡 / 当前预设 / 导入文件 */
-export type StRegexEntrySource = "global" | "scoped" | "preset" | "file";
-
-/** 一条 ST 正则条目及其来源（导入对话框按来源标注）。 */
-export interface StRegexEntry {
-  readonly source: StRegexEntrySource;
-  readonly script: unknown;
-}
-
 export const CHAT_METADATA_BINDING_KEY = "steMemory";
 /** 记忆镜像在 chatMetadata 里的键（ticket 16 / ADR 0023）：独立键，不动绑定键——
  * 旧版本插件忽略新键（降级安全），绑定读取路径（三态 + unrecognized 防御）零改动。 */
 export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
-/** 清洗规则列表选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
+/** 清洗规则选择在 chatMetadata 里的键（ticket 22 / ADR 0011）：独立键，
  * 随对话文件走（重命名不丢），旧版本插件忽略新键（镜像键同款降级安全）。 */
-export const CHAT_METADATA_CLEANING_LIST_KEY = "steMemoryCleaningList";
+// 沿用历史存储键以便读取并删除旧选择，v3 载荷改用 ruleId。
+export const CHAT_METADATA_CLEANING_RULE_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
 
-/** ST 事件桥：切换空间上下文，并在正常发送构建提示词前等待自动召回。 */
+/** ST 事件桥：切换空间上下文，并在提示词构建前等待本次宏计算。 */
 export interface StEventBridge {
   /** CHAT_CHANGED：切换对话 → 重新同步空间上下文 */
   onChatChanged(): void | Promise<void>;
@@ -201,9 +186,14 @@ export interface StEventBridge {
     options: { automatic_trigger?: boolean; signal?: AbortSignal; continuation?: boolean },
     dryRun: boolean,
   ): void;
+  onGenerationAfterCommands?(
+    type: unknown,
+    options: { automatic_trigger?: boolean },
+    dryRun: boolean,
+  ): void | Promise<void>;
   onGenerationStopped?(): void;
   onGenerationFinished?(dryRun: boolean): void;
-  shouldAwaitRecall?(): boolean;
+  shouldAwaitMacros?(): boolean;
   onGroupStarted?(): void;
   onGroupEnded?(): void;
   onMessageChanged?(): void;
@@ -225,6 +215,10 @@ export interface StChatMessage {
   readonly name: string;
   /** 是否用户消息（ST is_user） */
   readonly isUser: boolean;
+  /** 填表输入的处理标记：只有 AI 输出允许清洗。 */
+  readonly options: {
+    readonly needCleaning: boolean;
+  };
 }
 
 /**
@@ -366,7 +360,7 @@ export class StChatAdapter {
       charCard = lines.join("\n\n");
     } else if (context.characterId != null && !inGroup) {
       // ST characterId = this_chid = characters 数组下标（角色卡对象无 id 字段，
-      // 下标即 id）；stRegexEntries 同款下标访问
+      // 下标即 id）
       const chid =
         typeof context.characterId === "number" ? context.characterId : Number(context.characterId);
       const card = Number.isInteger(chid) ? characters[chid] : undefined;
@@ -420,23 +414,31 @@ export class StChatAdapter {
   }
 
   /**
-   * chatMetadata 清洗列表选择读写端口（ticket 22 / ADR 0011）：独立键小指针
-   * {version:1, listId}；写入 undefined = 清除选择（删除键）。随对话文件走。
+   * chatMetadata 清洗规则选择读写端口（ticket 22 / ADR 0011）：独立键小指针
+   * {version:3, ruleId}；写入 undefined = 清除选择（删除键）。随对话文件走。
    */
-  get cleaningListStore(): CleaningListStore {
+  get cleaningRuleStore(): CleaningRuleStore {
     return {
-      read: () =>
-        parseCleaningListSelection(
-          this.#getContext().chatMetadata?.[CHAT_METADATA_CLEANING_LIST_KEY],
-        ),
-      write: (listId) => {
+      read: () => {
+        const context = this.#getContext();
+        const metadata = context.chatMetadata;
+        const raw = metadata?.[CHAT_METADATA_CLEANING_RULE_KEY];
+        const selection = readCleaningRuleSelection(raw);
+        // 旧版选择随对话打开时清除，不再指向已丢弃的规则列表。
+        if (raw !== undefined && selection === undefined && metadata) {
+          delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
+          context.saveMetadataDebounced?.();
+        }
+        return selection;
+      },
+      write: (ruleId) => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
         if (!metadata) return;
-        if (listId === undefined) {
-          delete metadata[CHAT_METADATA_CLEANING_LIST_KEY];
+        if (ruleId === undefined) {
+          delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
         } else {
-          metadata[CHAT_METADATA_CLEANING_LIST_KEY] = formatCleaningListSelection(listId);
+          metadata[CHAT_METADATA_CLEANING_RULE_KEY] = formatCleaningRuleSelection(ruleId);
         }
         context.saveMetadataDebounced?.();
       },
@@ -468,49 +470,6 @@ export class StChatAdapter {
   }
 
   /**
-   * ST 正则条目（ticket 22 / ADR 0011）：全局（extension_settings.regex）+ 当前
-   * 角色卡 scoped（characters[chid].data.extensions.regex_scripts）+ 当前预设
-   * preset（preset manager regex_scripts），按脚本 id 去重（预设应用后条目可能
-   * 同时出现在全局）。官方 getContext() 三源均可达（st-context.js 已核实）。
-   */
-  get stRegexEntries(): readonly StRegexEntry[] {
-    const context = this.#getContext();
-    const entries: StRegexEntry[] = [];
-    const seen = new Set<string>();
-    const push = (source: StRegexEntrySource, script: unknown): void => {
-      if (!isRecord(script)) return;
-      const id = typeof script.id === "string" ? script.id : undefined;
-      if (id !== undefined) {
-        if (seen.has(id)) return;
-        seen.add(id);
-      }
-      entries.push({ source, script });
-    };
-    const global = context.extensionSettings?.regex;
-    if (Array.isArray(global)) {
-      for (const script of global) push("global", script);
-    }
-    const chid = context.characterId;
-    const character = typeof chid === "number" ? context.characters?.[chid] : undefined;
-    const scoped = isRecord(character) ? (character as { data?: unknown }).data : undefined;
-    const scopedScripts = isRecord(scoped)
-      ? (scoped as { extensions?: unknown }).extensions
-      : undefined;
-    const scopedRegex = isRecord(scopedScripts)
-      ? (scopedScripts as { regex_scripts?: unknown }).regex_scripts
-      : undefined;
-    if (Array.isArray(scopedRegex)) {
-      for (const script of scopedRegex) push("scoped", script);
-    }
-    const presetManager = context.getPresetManager?.();
-    const preset = presetManager?.readPresetExtensionField?.({ path: "regex_scripts" });
-    if (Array.isArray(preset)) {
-      for (const script of preset) push("preset", script);
-    }
-    return entries;
-  }
-
-  /**
    * 记忆宏注册端口（ticket 15 / ADR 0004 + ticket 02 / ADR 0025）：name 为裸标识符
    * （含花括号会被 ST 校验拒绝）；宿主缺失 macros 时静默跳过（无宏引擎 = 无注入，
    * 不报错）。ST 调用 handler 时传入完整 MacroExecutionContext——插件只消费
@@ -534,7 +493,7 @@ export class StChatAdapter {
     };
   }
 
-  /** 注册 ST 生命周期：正常发送等待召回，停止后的旧调用经拦截器退出。 */
+  /** 注册 ST 生命周期：生成等待宏计算，停止后的旧调用经拦截器退出。 */
   registerEventBridge(bridge: StEventBridge): void {
     const context = this.#getContext();
     const source = context.eventSource;
@@ -551,39 +510,10 @@ export class StChatAdapter {
     });
     source.on(types.MESSAGE_SENT, (floor) => {
       if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) return;
-      const result = bridge.onMessageEvent("message_sent", floor as number);
-      if (result && bridge.shouldAwaitRecall?.()) {
-        let drain!: () => void;
-        const drained = new Promise<void>((resolve) => {
-          drain = resolve;
-        });
-        const generation = {
-          awaitingMessage: true,
-          prompted: false,
-          cancelled: false,
-          drained,
-          drain,
-        };
-        this.#generation = generation;
-        this.#generationSignal?.addEventListener(
-          "abort",
-          () => {
-            if (this.#generation !== generation) return;
-            if (!generation.prompted) generation.cancelled = true;
-            bridge.onGenerationStopped?.();
-          },
-          { once: true },
-        );
-        void result.then(
-          () => {
-            generation.awaitingMessage = false;
-          },
-          () => {
-            generation.awaitingMessage = false;
-          },
-        );
-      }
-      return result;
+      return this.#trackMacroEvaluation(
+        bridge.onMessageEvent("message_sent", floor as number),
+        bridge,
+      );
     });
     if (types.GENERATION_STARTED)
       source.on(types.GENERATION_STARTED, async (type, options, dryRun) => {
@@ -619,15 +549,26 @@ export class StChatAdapter {
         );
       });
     if (types.GENERATION_AFTER_COMMANDS)
-      source.on(types.GENERATION_AFTER_COMMANDS, (_type, _options, dryRun) => {
-        if (dryRun !== true) this.#afterCommands = true;
+      source.on(types.GENERATION_AFTER_COMMANDS, (type, options, dryRun) => {
+        if (dryRun === true || type === "quiet" || type === "impersonate") return;
+        this.#afterCommands = true;
+        const result = bridge.onGenerationAfterCommands?.(
+          type,
+          options as { automatic_trigger?: boolean },
+          dryRun === true,
+        );
+        return dryRun === true ? result : this.#trackMacroEvaluation(result, bridge);
       });
     if (types.GENERATE_AFTER_DATA)
-      source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) =>
-        bridge.onGenerationFinished?.(dryRun === true),
-      );
+      source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) => {
+        if (dryRun === true) return bridge.onGenerationFinished?.(true);
+        if (this.#generation && !this.#generation.prompted) return;
+        return bridge.onGenerationFinished?.(false);
+      });
     if (types.GENERATION_ENDED)
       source.on(types.GENERATION_ENDED, () => {
+        // This global UI event also comes from quiet calls and has no operation identity.
+        if (this.#generation && !this.#generation.prompted && !this.#generation.cancelled) return;
         this.#sendEligible = false;
         this.#afterCommands = false;
         if (
@@ -658,6 +599,42 @@ export class StChatAdapter {
     if (types.MESSAGE_EDITED) source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
     if (types.MESSAGE_DELETED) source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
     source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
+  }
+
+  #trackMacroEvaluation(result: void | Promise<void>, bridge: StEventBridge): void | Promise<void> {
+    if (!result || !bridge.shouldAwaitMacros?.()) return result;
+    let drain!: () => void;
+    const drained = new Promise<void>((resolve) => {
+      drain = resolve;
+    });
+    const generation = { awaitingMessage: true, prompted: false, cancelled: false, drained, drain };
+    this.#generation = generation;
+    this.#generationSignal?.addEventListener(
+      "abort",
+      () => {
+        if (this.#generation !== generation) return;
+        if (!generation.prompted) generation.cancelled = true;
+        bridge.onGenerationStopped?.();
+      },
+      { once: true },
+    );
+    void result.then(
+      () => {
+        generation.awaitingMessage = false;
+      },
+      () => {
+        generation.awaitingMessage = false;
+      },
+    );
+    return result;
+  }
+
+  clearLegacyRecall(): void {
+    const context = this.#getContext();
+    if (context.chatMetadata && Object.hasOwn(context.chatMetadata, "steMemoryRecall")) {
+      delete context.chatMetadata.steMemoryRecall;
+      context.saveMetadataDebounced?.();
+    }
   }
 
   /** ST 的提示词拦截入口；取消中的旧发送必须在新 STARTED 放行前退出。 */
@@ -694,7 +671,7 @@ export class StChatAdapter {
    * 按同步楼层读取 ST 消息子集（证据 chip 的原文摘录数据源）。
    * 楼层越界 / 消息对象缺失 / 正文非字符串 → undefined（由 UI 决定提示）。
    * ST 1.18 消息对象形状（public/scripts 已核实）：{ mes: string, name: string,
-   * is_user: boolean, ... }——此处只做字段映射，不校验其余属性。
+   * is_user: boolean, is_system: boolean, ... }——此处只做字段映射，不校验其余属性。
    */
   getMessageAt(floor: number): StChatMessage | undefined {
     const chat = this.#getContext().chat;
@@ -710,6 +687,10 @@ export class StChatAdapter {
       content: record.mes,
       name: typeof record.name === "string" ? record.name : "",
       isUser: record.is_user === true,
+      // 清洗只针对 AI 输出；用户消息与系统消息保持原文。
+      options: {
+        needCleaning: record.is_user !== true && record.is_system !== true,
+      },
     };
   }
 
@@ -798,10 +779,6 @@ function isChatSpaceBinding(value: unknown): value is ChatSpaceBinding {
   )
     return true;
   return false;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** DOM 部分：ST 消息块 `.mes[mesid="N"]`（下标 = 同步楼层）。ST DOM 不测（测试决策）。 */

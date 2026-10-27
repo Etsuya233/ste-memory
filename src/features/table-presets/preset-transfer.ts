@@ -1,3 +1,9 @@
+import {
+  memoryMacroSchema,
+  parseMemoryMacros,
+  copyMemoryMacros,
+} from "../macros/macro-expression.ts";
+import { tablePresetVectorIndexSchema } from "./preset-vector-schema.ts";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import { type MemorySpaceId, type MemoryTableId, type MemoryFieldId } from "../memory/index.ts";
@@ -11,7 +17,7 @@ import {
 import { saveUserTablePreset } from "./table-preset-library.ts";
 
 export const TABLE_PRESET_FORMAT = "ste-memory-table-preset";
-export const TABLE_PRESET_VERSION = 1;
+export const TABLE_PRESET_VERSION = 3;
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);
 const displayStrategySchema = Type.Union([
@@ -56,6 +62,7 @@ const fieldSchema = Type.Object(
 );
 const presetSchema = Type.Object(
   {
+    macros: Type.Optional(Type.Array(memoryMacroSchema)),
     name: Type.String(),
     description: Type.String(),
     prompt: Type.Optional(Type.String()),
@@ -67,24 +74,7 @@ const presetSchema = Type.Object(
           description: Type.String(),
           prompt: Type.String(),
           enabled: Type.Boolean(),
-          vectorIndex: Type.Optional(
-            Type.Object(
-              {
-                enabled: Type.Boolean(),
-                updateMode: Type.Union([Type.Literal("manual"), Type.Literal("automatic")]),
-                groups: Type.Array(
-                  Type.Object(
-                    {
-                      name: Type.String(),
-                      fieldKeys: Type.Array(Type.String()),
-                    },
-                    { additionalProperties: false },
-                  ),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
+          vectorIndex: Type.Optional(tablePresetVectorIndexSchema),
           displayStrategy: displayStrategySchema,
           fields: Type.Array(fieldSchema),
         },
@@ -117,6 +107,7 @@ export function serializeTablePresetExport(
       version: TABLE_PRESET_VERSION,
       exportedAt,
       preset: {
+        macros: preset.macros ?? [],
         name: preset.name,
         description: preset.description,
         prompt: preset.prompt ?? "",
@@ -143,14 +134,16 @@ export function parseTablePresetExport(text: string): ImportedTablePreset {
   ) {
     throw new Error("这不是表格预设文件，请选择导出的表格预设 JSON");
   }
-  if (!("version" in raw) || raw.version !== TABLE_PRESET_VERSION) {
+  const current =
+    "version" in raw && raw.version === 2 ? { ...raw, version: TABLE_PRESET_VERSION } : raw;
+  if (!("version" in current) || current.version !== TABLE_PRESET_VERSION) {
     throw new Error(`表格预设文件版本不支持，当前支持 v${TABLE_PRESET_VERSION}`);
   }
-  if (!Value.Check(fileSchema, raw)) {
-    const issue = [...Value.Errors(fileSchema, raw)][0]!;
+  if (!Value.Check(fileSchema, current)) {
+    const issue = [...Value.Errors(fileSchema, current)][0]!;
     throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
   }
-  return validateTablePresetContent(raw.preset);
+  return validateTablePresetContent(current.preset);
 }
 
 /** 编辑与导入共用同一套结构、引用和显示策略校验。 */
@@ -160,6 +153,7 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
     throw new Error(`表格预设结构无效（${issue.instancePath}）：${issue.message}`);
   }
   const preset = raw;
+  parseMemoryMacros(preset.macros ?? []);
   if (!preset.name.trim() || preset.name.trim().length > 120)
     throw new Error("预设名称须为 1–120 个字符");
   // 引用和显示策略按实例化的真实规则校验，导入阶段失败不会写设置。
@@ -175,9 +169,13 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
       fieldKeys.add(field.key);
     }
     if (table.vectorIndex) {
+      const groupKeys = new Set<string>();
       if (table.vectorIndex.enabled && table.vectorIndex.groups.length === 0)
         throw new Error(`预设表「${table.key}」启用索引但没有向量分组`);
       for (const group of table.vectorIndex.groups) {
+        if (!group.key.trim() || group.key !== group.key.trim() || groupKeys.has(group.key))
+          throw new Error(`预设表「${table.key}」的向量分组 Key 为空或重复：${group.key}`);
+        groupKeys.add(group.key);
         if (
           !group.name.trim() ||
           group.fieldKeys.length === 0 ||
@@ -230,6 +228,10 @@ export function importTablePreset(
     ...input,
     name,
     description: imported.description,
-    structure: { prompt: imported.prompt, tables: imported.tables } satisfies TablePresetStructure,
+    structure: {
+      prompt: imported.prompt,
+      tables: imported.tables,
+      macros: copyMemoryMacros(imported.macros ?? [], () => crypto.randomUUID()),
+    } satisfies TablePresetStructure,
   });
 }

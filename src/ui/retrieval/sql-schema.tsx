@@ -176,6 +176,25 @@ function SchemaTable(props: {
             ))}
           </div>
         )}
+        {entry.vectorGroups && (
+          <div className="stm-sql-table-actions">
+            <span>向量组：{entry.vectorGroups.length ? "" : "未启用"}</span>
+            {entry.vectorGroups.map((group) => (
+              <button
+                key={group}
+                className="stm-sql-mini-button"
+                type="button"
+                onClick={() =>
+                  props.onQuery(
+                    `SELECT t."$display_text", s.score, s.group_key FROM ${quoteName(entry.name)} t JOIN semantic_scores('${entry.name.replaceAll("'", "''")}', json_array('${group.replaceAll("'", "''")}'), '查询文本') s ON s.record_id=t."$record_id" WHERE s.rank IS NOT NULL ORDER BY s.rank LIMIT 10;`,
+                  )
+                }
+              >
+                {group}
+              </button>
+            ))}
+          </div>
+        )}
         {entry.sql !== null && (
           <details className="stm-sql-ddl">
             <summary>

@@ -74,7 +74,17 @@ export type FillTaskView = FillTask & {
   readonly processedCount: number;
   readonly totalCount: number;
   readonly phase?: "running" | "saving";
+  readonly retryState?: FillTaskRetryState;
 };
+
+export interface FillTaskRetryState {
+  readonly from: number;
+  readonly to: number;
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  readonly retryAt: number;
+  readonly errorMessage: string;
+}
 
 /** 楼层填表状态（语义与 api SourceMessageStatusValue 一致）。 */
 export type FloorFillStatus = "untracked" | "processed" | "error";
@@ -91,6 +101,11 @@ export interface FillSourceMessage {
   readonly content: string;
   /** 发送者名（角色名 / 用户侧显示名；缺失为空串） */
   readonly name: string;
+  /** 来源层附带的填表处理选项；缺省时按不清洗处理。 */
+  readonly options?: {
+    /** 是否允许套用清洗规则；缺省 false。AI 输出为 true，用户/系统消息与初始化文本为 false。 */
+    readonly needCleaning?: boolean;
+  };
 }
 
 export interface FillTaskSource {

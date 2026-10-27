@@ -58,7 +58,6 @@ export interface TasksTabRuntime {
   readonly autoFill?: AutoFillService;
   readonly tasks: Pick<
     FillTaskService,
-    | "retryStates"
     | "submit"
     | "submitInit"
     | "cancel"
@@ -132,8 +131,8 @@ export function TasksTab(props: {
         historyTasks: recent,
         pendingTasks,
         cleaning: {
-          selectedListId: props.runtime.cleaning.readSelection(),
-          lists: props.settings.cleaningRuleLists,
+          selectedRuleId: props.runtime.cleaning.readSelection(),
+          rules: props.settings.cleaningRules,
         },
       });
       if (
@@ -156,7 +155,7 @@ export function TasksTab(props: {
     } catch (error) {
       reportError(error);
     }
-  }, [props.runtime, spaceId, props.settings.cleaningRuleLists]);
+  }, [props.runtime, spaceId, props.settings.cleaningRules]);
 
   useEffect(() => {
     if (props.autoFillFocus) {
@@ -408,12 +407,7 @@ export function TasksTab(props: {
         />
       ) : null}
       {props.runtime.autoFill && (
-        <AutoFillControls
-          service={props.runtime.autoFill}
-          tasks={props.runtime.tasks}
-          defaults={props.settings.autoFill}
-          spaceId={currentSpaceId}
-        />
+        <AutoFillControls service={props.runtime.autoFill} defaults={props.settings.autoFill} />
       )}
       <div className="stm-task-card" data-stm-section="queue">
         <div className="stm-task-card-title">填表队列</div>

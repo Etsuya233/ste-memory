@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildStGenerateBody, convertMessages } from "./st-backends-request.ts";
 import type { StBackendsModel } from "./st-completion-settings.ts";
+import {
+  assistantMessage,
+  textMessage,
+  toolCallMessage,
+} from "../../../features/agent/stream-fn-support.ts";
 
 /** 最小 pi 模型（真实端口构造会读 ST 配置；测试直接造） */
 function testModel(overrides: Partial<StBackendsModel> = {}): StBackendsModel {
@@ -132,6 +137,22 @@ describe("buildStGenerateBody（ST 特有请求形状）", () => {
 });
 
 describe("convertMessages（pi Context → OpenAI 消息）", () => {
+  it("过滤失败和取消的非空助手草稿，包含残缺工具调用时也不重放", () => {
+    const user = { role: "user" as const, content: "填写", timestamp: 1 };
+    expect(
+      convertMessages({
+        messages: [
+          user,
+          assistantMessage(
+            [textMessage("半截"), toolCallMessage("broken", "mutate", {})],
+            "error",
+            "500",
+          ),
+          assistantMessage([textMessage("取消草稿")], "aborted"),
+        ],
+      }),
+    ).toEqual([{ role: "user", content: "填写" }]);
+  });
   it("system prompt → system 消息；user 字符串原样", () => {
     const messages = convertMessages({
       systemPrompt: "你是填表助手",

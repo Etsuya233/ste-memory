@@ -1,3 +1,4 @@
+import { migrateMemoryView } from "./features/macros/macro-expression.ts";
 import { SYSTEM_TABLE_TEMPLATES } from "./features/memory/index.ts";
 import { describe, expect, it, vi } from "vitest";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"），
@@ -21,6 +22,7 @@ import {
 } from "./features/settings/plugin-settings.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
+  CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_MIRROR_KEY,
   type StContext,
 } from "./infrastructure/sillytavern/chat-adapter.ts";
@@ -28,7 +30,7 @@ import { createChatMirrorFile } from "./features/chat-mirror/index.ts";
 import { CHAT_METADATA_CHAT_SCOPE_MACROS_KEY } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import type { MemorySpaceBackup } from "./features/backup/index.ts";
-import type { MemorySpaceId } from "./features/memory/index.ts";
+import type { MemoryMacro, MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
 import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
 
@@ -83,6 +85,27 @@ function startTestRuntime(
 }
 
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
+  it("启动和切对话时清除旧清洗选择，保留 v3 选择", async () => {
+    const db = createTestDatabase();
+    const { context, chatMetadata, handlers } = fakeStContext();
+    chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, listId: "old" };
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    expect(chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    context.chatId = "other";
+    context.chatMetadata = {
+      [CHAT_METADATA_CLEANING_RULE_KEY]: { version: 2, listId: "other-old" },
+    };
+    await handlers.get("chat_id_changed")?.();
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 3, ruleId: "new" };
+    await handlers.get("chat_id_changed")?.();
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toEqual({
+      version: 3,
+      ruleId: "new",
+    });
+    expect(runtime.cleaning.readSelection()).toBe("new");
+  });
+
   it("首次打开对话：建空间 + 写绑定 + 系统表就位；再次打开不重复建", async () => {
     const db = createTestDatabase();
     const { context, chatMetadata } = fakeStContext();
@@ -235,7 +258,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.manager.getStatus()).toBe(status);
   });
 
-  it("记忆宏：切对话（空间切换）后快照立即重建，不等指纹轮询", async () => {
+  it("记忆宏仅在生成时计算，切对话立即撤下本次文本", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext({
       extensionSettings: {},
@@ -262,6 +285,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       payload: { [nameField.id]: "张三" },
     });
     await runtime.macro.kick();
+    expect(runtime.macro.getSnapshot()).toBe("");
+    await runtime.macro.prepare("测试");
     expect(runtime.macro.getSnapshot()).toContain("张三");
 
     // 切到对话二（新空间）：CHAT_CHANGED → 状态发布 → 快照立即清空重建
@@ -423,10 +448,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       created: false,
       space: { id: "file-first", name: "文件中的旧版本" },
     });
-    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual(fileUnit.space);
-    expect(await new DexieMemorySpaceRepository(db).find(fileUnit.space.id)).toEqual(
-      fileUnit.space,
-    );
+    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual({ ...fileUnit.space, macros: [] });
+    expect(await new DexieMemorySpaceRepository(db).find(fileUnit.space.id)).toEqual({
+      ...fileUnit.space,
+      macros: [],
+    });
   });
 
   it("切换对话立即重试 A 已提交但未保存的数据，B 初始化不会串写", async () => {
@@ -611,6 +637,131 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await spaceRepository.list()).toHaveLength(0);
   });
 
+  it("旧语义宏依赖失效后允许改名停用，表达式变化和新副本仍重新编译", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const legacy = {
+      id: "legacy-broken",
+      name: "旧语义",
+      enabled: true,
+      expression: {
+        language: "sql",
+        sql: "SELECT * FROM old_scores",
+        sources: [
+          {
+            name: "old_scores",
+            table: "deleted_table",
+            groups: ["deleted_group"],
+            query: { text: "线索" },
+          },
+        ],
+      },
+      output: { format: "json", maxChars: null },
+    } satisfies MemoryMacro;
+    let stored: PluginSettings = { ...structuredClone(DEFAULT_SETTINGS), macros: [legacy] };
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore: {
+        read: () => stored,
+        write: (next) => {
+          stored = next;
+        },
+      },
+    });
+    const changed: MemoryMacro = {
+      ...legacy,
+      name: "已失效停用",
+      enabled: false,
+      expression: { ...legacy.expression, usesSemantic: false },
+      output: { format: "markdown", maxChars: 200 },
+    };
+    await runtime.settingsService.setMacros([changed]);
+    expect(runtime.settings.read().macros).toEqual([
+      {
+        ...changed,
+        expression: { ...legacy.expression, usesSemantic: true },
+      },
+    ]);
+    await expect(
+      runtime.settingsService.setMacros([
+        {
+          ...changed,
+          expression: { ...legacy.expression, sql: "SELECT record_id FROM old_scores" },
+        },
+      ]),
+    ).rejects.toThrow("不存在");
+    await expect(
+      runtime.settingsService.setMacros([
+        {
+          ...changed,
+          id: "new-copy",
+        },
+      ]),
+    ).rejects.toThrow("不存在");
+    expect(runtime.settings.read().macros[0]!.name).toBe("已失效停用");
+    expect(runtime.settings.read().macros[0]!.enabled).toBe(false);
+    await expect(runtime.settingsService.setChatScopeMacros([changed])).rejects.toThrow("不存在");
+    const status = runtime.manager.getStatus();
+    if (status?.kind !== "active") throw new Error("expect active");
+    const unit = (await runtime.backup.loadSnapshot()).spaces.find(
+      (unit) => unit.space.id === status.space.id,
+    )!;
+    await expect(
+      runtime.normalizeImportedSpace({
+        ...unit,
+        space: { ...unit.space, macros: [changed] },
+      }),
+    ).rejects.toThrow("不存在");
+  });
+
+  it("无当前空间时已有SQL分类支持元数据编辑，新SQL仍须打开空间验证", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({ chatId: undefined });
+    const macro = {
+      id: "known-inline",
+      name: "已分类",
+      enabled: true,
+      expression: {
+        language: "sql",
+        sql: "SELECT * FROM semantic_scores('missing', '[\"missing\"]', '线索')",
+        usesSemantic: true,
+      },
+      output: { format: "json", maxChars: null },
+    } satisfies MemoryMacro;
+    let stored: PluginSettings = { ...structuredClone(DEFAULT_SETTINGS), macros: [macro] };
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore: {
+        read: () => stored,
+        write: (next) => {
+          stored = next;
+        },
+      },
+    });
+    const changed: MemoryMacro = {
+      ...macro,
+      enabled: false,
+      name: "暂停",
+      expression: { ...macro.expression, usesSemantic: false },
+    };
+    await runtime.settingsService.setMacros([changed]);
+    expect(runtime.settings.read().macros[0]).toMatchObject({
+      name: "暂停",
+      enabled: false,
+      expression: { usesSemantic: true },
+    });
+    await expect(
+      runtime.settingsService.setMacros([{ ...changed, id: "new-inline" }]),
+    ).rejects.toThrow("请先打开");
+    await expect(
+      runtime.settingsService.setMacros([
+        { ...changed, expression: { language: "sql", sql: "SELECT 1", usesSemantic: true } },
+      ]),
+    ).rejects.toThrow("请先打开");
+  });
+
   it("记忆宏接线（ticket 15）：默认宏名注册；数据变更后快照含最新记忆；改名/停用注销", async () => {
     const db = createTestDatabase();
     const registered = new Map<string, (context: unknown) => string>();
@@ -629,7 +780,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 默认前缀 {{ste}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
     // systemDefaultPrompt（Agent 预设宏）；内置/视图/对话宏全部走 {{前缀::名字}} 分发
     const registeredKeys = [...registered.keys()].sort();
-    expect(registeredKeys).toEqual(["memoryRecall", "ste", "systemDefaultPrompt", "tablesDigest"]);
+    expect(registeredKeys).toEqual(["ste", "systemDefaultPrompt", "tablesDigest"]);
     expect(runtime.macro.getSnapshot()).toBe("");
     // Agent 预设宏（ticket 17）：{{tablesDigest}} 快照 = 已激活空间的启用表摘要
     expect(runtime.agentMacro.getSnapshot().digestText).toContain("可用表与字段");
@@ -649,6 +800,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       payload: { [nameField.id]: "张三" },
     });
     await runtime.macro.kick();
+    expect(registered.get("ste")!({})).toBe("");
+    await runtime.macro.prepare("测试");
     const snapshot = registered.get("ste")!({});
     expect(snapshot).toContain("【人物】");
     expect(snapshot).toContain("张三");
@@ -665,18 +818,18 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     // 设置服务负责保存和联动；调用方不再安排宏刷新。
     await runtime.settingsService.setMacroName("{{myMemory}}");
     expect([...registered.keys()].sort()).toEqual(
-      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
 
     // 插件总开关关闭：注销（无注入）
     await runtime.settingsService.setPluginEnabled(false);
-    expect([...registered.keys()]).toEqual(["memoryRecall"]);
-    expect(registered.get("memoryRecall")!({})).toBe("");
+    expect([...registered.keys()]).toEqual([]);
+    expect(registered.has("memoryRecall")).toBe(false);
     expect(runtime.mirror.getStatus().kind).toBe("disabled");
 
     await runtime.settingsService.setPluginEnabled(true);
     expect([...registered.keys()].sort()).toEqual(
-      ["memoryRecall", "myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
+      ["myMemory", "tablesDigest", "systemDefaultPrompt"].sort(),
     );
   });
 
@@ -694,6 +847,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     if (status?.kind !== "active") throw new Error("expect active");
 
     // 默认前缀 {{ste}} → 行名花括号形态；记忆宏家族 + Agent 预设宏两行
+    expect(runtime.macro.getRecentResults()).toEqual([]);
+    await runtime.macro.prepare("测试");
     const overview = runtime.macroOverview();
     const names = overview.map((row) => row.name);
     expect(names[0]).toBe("{{ste}}");
@@ -718,7 +873,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       limit: 50,
       projection: [] as readonly string[],
     };
-    await runtime.settingsService.setMemoryViews([view]);
+    await runtime.settingsService.setMacros([migrateMemoryView(view, "global-preview")]);
     const refreshed = runtime.macroOverview();
     expect(refreshed.some((row) => row.name === "{{ste::人物速览}}")).toBe(true);
   });

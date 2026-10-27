@@ -1,6 +1,9 @@
 import type { MemorySpace, MemorySpaceId } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
-import type { TablePresetSettings } from "../../features/table-presets/preset-model.ts";
+import type {
+  TablePresetSettings,
+  ResolvedTablePreset,
+} from "../../features/table-presets/preset-model.ts";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { TablePresetManager } from "./table-preset-manager.tsx";
@@ -76,6 +79,8 @@ function render(
 ): string {
   return renderToString(
     <TablePresetManager
+      validatePreset={vi.fn(async (preset: ResolvedTablePreset) => preset)}
+      presetUpdate={{ preview: vi.fn(), apply: vi.fn(), retrySave: vi.fn() }}
       presets={overrides.presets ?? presets()}
       status={overrides.status ?? activeStatus()}
       pluginEnabled={overrides.pluginEnabled ?? true}

@@ -1,4 +1,7 @@
+import { copyMemoryMacros, restoredMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { Dialog } from "../kit/dialog.tsx";
+import { PresetSpaceUpdate } from "./preset-space-update.tsx";
+import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import { FormField, Button, Input } from "../kit/controls.tsx";
 import { ActionRow, ListGroup, NavigationRow } from "../kit/list.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
@@ -14,7 +17,6 @@ import {
   copyTablePresetAsUserPreset,
   deleteUserTablePreset,
   overwriteUserTablePreset,
-  renameUserTablePreset,
   saveUserTablePreset,
   setDefaultTablePreset,
 } from "../../features/table-presets/table-preset-library.ts";
@@ -28,13 +30,13 @@ import {
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import {
   importTablePreset,
-  validateTablePresetContent,
   parseTablePresetExport,
   serializeTablePresetExport,
 } from "../../features/table-presets/preset-transfer.ts";
 import { createUiId, reportError, reportSuccess, reportWarning } from "../shell/ui-helpers.tsx";
 import {
   SAVE_PRESET_HINT,
+  commitPresetDraft,
   applyPresetConfirmText,
   applyPresetConfirmTitle,
   applyPresetUnavailableReason,
@@ -57,9 +59,11 @@ import {
  * - 应用过程中固定目标空间与预设、禁止重复提交。
  */
 export function TablePresetManager(props: {
+  readonly presetUpdate: PresetSpaceUpdateService;
   readonly onBack?: () => void;
   readonly onEditingChange?: (editing: boolean) => void;
   readonly presets: TablePresetSettings;
+  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<ResolvedTablePreset>;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly status: SpaceContextStatus | undefined;
   readonly pluginEnabled: boolean;
@@ -82,6 +86,7 @@ export function TablePresetManager(props: {
   /** 重建成功后刷新面板数据 */
   readonly onDataChanged: () => void;
 }) {
+  const [updateOpen, setUpdateOpen] = useState(false);
   const [editor, setEditor] = useState<{
     initial: ResolvedTablePreset;
     isNew: boolean;
@@ -90,13 +95,19 @@ export function TablePresetManager(props: {
   const captureFormId = useId();
   const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
   const { screenRef, rememberScroll } = useSettingsPageNavigation(
-    editor ? `edit:preset:${editor.initial.id}` : utilityPage ? `edit:${utilityPage}` : "list",
+    updateOpen
+      ? "edit:update"
+      : editor
+        ? `edit:preset:${editor.initial.id}`
+        : utilityPage
+          ? `edit:${utilityPage}`
+          : "list",
   );
   function openEditor(value: { initial: ResolvedTablePreset; isNew: boolean }) {
     rememberScroll();
     setEditor(value);
   }
-  const editing = editor !== null || props.onBack !== undefined;
+  const editing = updateOpen || editor !== null || props.onBack !== undefined;
   useEffect(() => {
     props.onEditingChange?.(editing);
     return () => props.onEditingChange?.(false);
@@ -196,8 +207,23 @@ export function TablePresetManager(props: {
         id: createUiId(),
         now: new Date().toISOString(),
       });
-      changePresets(settings);
-      openEditor({ initial: { ...preset, builtIn: false }, isNew: false });
+      // 导入复制保持宏顺序；分类前还原文件启停值，避免信任文件内的旧分类元数据。
+      const classified = await props.validatePreset({
+        ...preset,
+        builtIn: false,
+        macros: (preset.macros ?? []).map((macro, index) => ({
+          ...macro,
+          enabled: imported.macros![index]!.enabled,
+        })),
+      });
+      const normalized = { ...classified, macros: restoredMemoryMacros(classified.macros ?? []) };
+      changePresets(
+        overwriteUserTablePreset(settings, preset.id, {
+          structure: normalized,
+          now: preset.updatedAt,
+        }),
+      );
+      openEditor({ initial: normalized, isNew: false });
       reportSuccess(`已导入「${preset.name}」，默认选择保持不变`);
     } catch (error) {
       reportError(error);
@@ -355,41 +381,38 @@ export function TablePresetManager(props: {
   /** 预设编辑即时落库：每次完成表格/字段/属性操作都写回预设库。 */
   function commitPreset(draft: ResolvedTablePreset): ResolvedTablePreset {
     if (!editor) return draft;
-    const now = new Date().toISOString();
-    const validated = validateTablePresetContent({
-      name: draft.name,
-      description: draft.description,
-      prompt: draft.prompt,
-      tables: draft.tables,
-    });
-    const exists = props.presets.userPresets.some((preset) => preset.id === draft.id);
-    const next = exists
-      ? overwriteUserTablePreset(
-          renameUserTablePreset(props.presets, draft.id, {
-            name: validated.name,
-            description: validated.description,
-            now,
-          }),
-          draft.id,
-          { structure: validated, now },
-        )
-      : saveUserTablePreset(props.presets, {
-          id: draft.id,
-          name: validated.name,
-          description: validated.description,
-          structure: validated,
-          now,
-        }).settings;
+    const next = commitPresetDraft(props.presets, draft, new Date().toISOString());
     changePresets(next);
     const saved = resolveTablePreset(next, SYSTEM_TABLE_PRESET, draft.id);
     setEditor({ isNew: false, initial: saved });
     return saved;
   }
 
+  if (updateOpen && active && active.binding.version === 2)
+    return (
+      <PresetSpaceUpdate
+        key={`${active.space.id}:${active.binding.chatIdentity}`}
+        spaceId={active.space.id}
+        chatIdentity={active.binding.chatIdentity}
+        sourcePresetId={sourcePresetId}
+        presets={listTablePresets(props.presets, SYSTEM_TABLE_PRESET)}
+        service={props.presetUpdate}
+        onBack={() => setUpdateOpen(false)}
+        onBackup={() =>
+          props.onBackupSpace(
+            active.space.id,
+            active.binding.version === 2 ? active.binding.chatIdentity : "",
+          )
+        }
+        onDataChanged={props.onDataChanged}
+        registerLeaveGuard={props.registerLeaveGuard}
+      />
+    );
   if (editor)
     return (
       <div ref={screenRef}>
         <TablePresetEditor
+          validatePreset={props.validatePreset}
           chrome={props.onEditingChange !== undefined}
           initial={editor.initial}
           isNew={editor.isNew}
@@ -441,6 +464,7 @@ export function TablePresetManager(props: {
             isNew: true,
             initial: {
               ...preset,
+              macros: copyMemoryMacros(preset.macros ?? [], createUiId),
               id: createUiId(),
               name: `${preset.name} 副本`,
               builtIn: false,
@@ -726,6 +750,16 @@ export function TablePresetManager(props: {
           </ListGroup>
           <div className="stm-section-label">空间设置</div>
           <ListGroup className="stm-settings-utility-list">
+            <NavigationRow
+              data-action="open-preset-update"
+              disabled={applyUnavailable !== undefined || active?.binding.version !== 2}
+              onClick={() => {
+                rememberScroll();
+                setUpdateOpen(true);
+              }}
+              title={<>从预设更新空间</>}
+              description={applyUnavailable ?? "比较并选择新增、更新或删除的内容"}
+            />
             <NavigationRow
               data-action="open-default-preset"
               onClick={() => openUtility("default")}

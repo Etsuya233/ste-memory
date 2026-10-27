@@ -1,3 +1,4 @@
+import { memoryMacroSchema } from "../macros/macro-expression.ts";
 import { Type } from "typebox";
 import type {
   MemoryEvidence,
@@ -8,7 +9,7 @@ import type {
   MemoryTable,
 } from "../memory/index.ts";
 import type { FillTask } from "../fill-tasks/fill-task.ts";
-import type { MemoryView } from "../macros/memory-views.ts";
+import type { MemoryMacro } from "../macros/macro-expression.ts";
 
 /**
  * 备份文件格式（ADR 0021）：全库序列化单元集合 + 信封。
@@ -27,7 +28,7 @@ import type { MemoryView } from "../macros/memory-views.ts";
  */
 
 export const BACKUP_FORMAT = "ste-memory-backup" as const;
-export const BACKUP_VERSION = 1 as const;
+export const BACKUP_VERSION = 2 as const;
 
 /** 备份文件信封：format/version 固定，data 为全库快照。 */
 export interface MemoryBackupFile {
@@ -63,7 +64,7 @@ export interface MemorySpaceBackup {
   /** 楼层进度台账（缺省 = 不涉及） */
   readonly floorLedger?: readonly MemorySpaceBackupLedgerEntry[];
   /** 该对话的对话级宏快照（缺省 = 不涉及；随对话文件走，导出单空间时写入） */
-  readonly chatScopeMacros?: readonly MemoryView[];
+  readonly chatScopeMacros?: readonly MemoryMacro[];
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ const memorySpaceInitializationSourceSchema = Type.Object({
 });
 
 const memorySpaceSchema = Type.Object({
+  macros: Type.Optional(Type.Array(memoryMacroSchema)),
   prompt: Type.Optional(Type.String()),
   id: Type.String(),
   name: Type.String(),
@@ -105,6 +107,7 @@ const memoryTableSchema = Type.Object({
       groups: Type.Array(
         Type.Object({
           id: Type.String(),
+          key: Type.Optional(Type.String()),
           name: Type.String(),
           fieldIds: Type.Array(Type.String()),
         }),
@@ -113,6 +116,7 @@ const memoryTableSchema = Type.Object({
         Type.Array(
           Type.Object({
             id: Type.String(),
+            key: Type.Optional(Type.String()),
             name: Type.String(),
             fieldIds: Type.Array(Type.String()),
           }),
@@ -280,18 +284,6 @@ const memorySpaceLedgerEntrySchema = Type.Object({
   updatedAt: timestampSchema,
 });
 
-/** 对话级宏条目 schema（与 MemoryView 同构）。 */
-const memoryViewSchema = Type.Object({
-  name: Type.String(),
-  tableKey: Type.String(),
-  condition: Type.Union([
-    Type.Object({ fieldKey: Type.String(), values: Type.Array(Type.String()) }),
-    Type.Null(),
-  ]),
-  limit: Type.Union([Type.Number(), Type.Null()]),
-  projection: Type.Array(Type.String()),
-});
-
 /** 单个记忆空间的序列化单元 schema（备份文件 data.spaces 元素；云同步文件 data 复用） */
 export const memorySpaceBackupSchema = Type.Object({
   space: memorySpaceSchema,
@@ -303,7 +295,7 @@ export const memorySpaceBackupSchema = Type.Object({
   // 可选集合：旧文件没有这些键（不涉及），新导出写全
   fillTasks: Type.Optional(Type.Array(memorySpaceFillTaskSchema)),
   floorLedger: Type.Optional(Type.Array(memorySpaceLedgerEntrySchema)),
-  chatScopeMacros: Type.Optional(Type.Array(memoryViewSchema)),
+  chatScopeMacros: Type.Optional(Type.Array(memoryMacroSchema)),
 });
 
 export const memoryBackupDataSchema = Type.Object({

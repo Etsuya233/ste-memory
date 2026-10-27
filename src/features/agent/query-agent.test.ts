@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_QUERY_AGENT_TIMEOUT_MS, QUERY_RECORDS_TOOL_NAME, QueryAgent } from "./index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Context } from "@earendil-works/pi-ai";
@@ -289,4 +289,67 @@ describe("QueryAgent", () => {
   it("导出默认超时常量供宿主参考", () => {
     expect(DEFAULT_QUERY_AGENT_TIMEOUT_MS).toBe(5 * 60 * 1000);
   });
+});
+
+it("QueryAgent exposes one query_sql for inline semantic SQL, cancellation and coverage diagnostics", async () => {
+  const space = createTestMemorySpace();
+  const query = vi.fn(async () => ({
+    columns: ["score", "large_integer", "blob"],
+    rows: [[0.9, 9223372036854775807n, new Uint8Array([1, 2])]],
+    truncated: false,
+    sources: [
+      {
+        table: "characters",
+        groups: ["facts"],
+        query: "线索",
+        coverage: { records: 1, expected: 1, ready: 1, empty: 0, missing: 0, stale: 0, invalid: 0 },
+        rows: [{ recordId: "r", score: 0.9, groupKey: "facts" }],
+        name: "semantic_scores#1",
+        calls: 1,
+        executionHits: 0,
+        sharedHits: 0,
+      },
+    ],
+    execution: { sqlPasses: 2, sqlMs: 1 },
+    diagnostics: {
+      sqlPasses: 2,
+      sqlMs: 1,
+      preparedSources: 1,
+      queryTexts: 1,
+      queryVectors: { requests: 1, executionHits: 0, sharedHits: 0 },
+    },
+  }));
+  const streamFn = scriptedStreamFn((context: Context) => {
+    expect(context.tools?.filter((tool) => tool.name === "query_sql")).toHaveLength(1);
+    expect(context.tools?.some((tool) => tool.name === "query_semantic_sql")).toBe(false);
+    expect(context.systemPrompt).toContain("semantic_scores");
+    if (!lastToolResult(context))
+      return assistantMessage(
+        [
+          toolCallMessage("semantic-1", "query_sql", {
+            sql: "SELECT score FROM semantic_scores('characters',json_array('facts'),'线索')",
+          }),
+        ],
+        "toolUse",
+      );
+    const result = lastToolResult(context)!;
+    expect(JSON.stringify(result)).toContain("coverage");
+    expect(JSON.stringify(result)).toContain("9223372036854775807");
+    expect(JSON.stringify(result)).not.toContain("recordId");
+    return assistantMessage([textMessage("已找到线索")], "stop");
+  });
+  const result = await new QueryAgent({
+    llm: { streamFn, model: fakeModel() },
+    reader: space.reader,
+    semanticQuery: query,
+  }).run({ memorySpaceId: SPACE_ID, messages: [userMessage("查找线索")] });
+  expect(result.answer).toBe("已找到线索");
+  expect(query).toHaveBeenCalledWith(
+    SPACE_ID,
+    expect.objectContaining({
+      sql: "SELECT score FROM semantic_scores('characters',json_array('facts'),'线索')",
+      maxRows: 100,
+      signal: expect.any(AbortSignal),
+    }),
+  );
 });

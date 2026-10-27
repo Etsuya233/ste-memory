@@ -456,32 +456,14 @@ export function VectorIndexEditor(props: {
                   </Button>
                 </div>
                 {draft.presetGroups?.length ? (
-                  <div className="stm-vector-source-view">
-                    {draft.presetGroups.map((group) => (
-                      <div className="stm-vector-summary-group" key={group.id}>
-                        <div className="stm-vector-summary-head">
-                          <span className="stm-vector-summary-name">{group.name}</span>
-                          <span className="stm-vector-summary-meta">
-                            {group.fieldIds.length} 字段
-                          </span>
-                        </div>
-                        <div className="stm-vector-chain">
-                          {group.fieldIds.map((fieldId) => {
-                            const field = fieldsById.get(fieldId);
-                            return (
-                              <span
-                                className="stm-vector-chain-item"
-                                data-invalid={!field?.enabled || undefined}
-                                key={fieldId}
-                              >
-                                {field?.name ?? "已删除字段"}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <VectorGroupEditor
+                    groups={draft.presetGroups!}
+                    fields={fieldOptions}
+                    disabled={props.saving}
+                    onChange={(next) =>
+                      setDraft({ ...draft, presetGroups: next as readonly VectorIndexGroup[] })
+                    }
+                  />
                 ) : (
                   <div className="stm-vector-empty">尚未导入</div>
                 )}

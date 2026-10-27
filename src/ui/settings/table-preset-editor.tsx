@@ -1,3 +1,4 @@
+import { PresetMacrosEditor } from "./preset-macros-editor.tsx";
 import { ActionGroup } from "../kit/actions.tsx";
 import { FormField, Button, Input, Select, Switch } from "../kit/controls.tsx";
 import { ListGroup, NavigationRow } from "../kit/list.tsx";
@@ -39,12 +40,14 @@ function presetContent(preset: ResolvedTablePreset): string {
     description: preset.description,
     prompt: preset.prompt,
     tables: preset.tables,
+    macros: preset.macros,
   });
 }
 
 export function TablePresetEditor(props: {
   readonly chrome?: boolean;
   readonly initial: ResolvedTablePreset;
+  readonly validatePreset: (preset: ResolvedTablePreset) => Promise<ResolvedTablePreset>;
   readonly isNew: boolean;
   readonly presetActions?: (draft: ResolvedTablePreset) => SettingsMenuAction[];
   /** 每次完成操作立即写回预设库；返回规范化后的预设，不再有顶层“保存预设”。 */
@@ -872,6 +875,16 @@ export function TablePresetEditor(props: {
               </ListGroup>
             ) : null}
           </TableFieldsPanel>
+          <PresetMacrosEditor
+            validate={async (macros) =>
+              (await props.validatePreset({ ...draft, macros })).macros ?? []
+            }
+            macros={draft.macros ?? []}
+            tables={draft.tables}
+            readonly={readonly}
+            onDirtyChange={setFormDirty}
+            onChange={(macros) => persist({ ...draft, macros })}
+          />
         </>
       )}
     </div>

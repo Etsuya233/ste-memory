@@ -27,6 +27,7 @@ export interface VectorFieldOption {
 
 export interface VectorGroupDraft {
   readonly id: string;
+  readonly key: string;
   readonly name: string;
   readonly fieldIds: readonly string[];
 }
@@ -62,16 +63,13 @@ export function VectorGroupEditor(props: {
         type="button"
         className="stm-vector-add-group"
         disabled={props.disabled}
-        onClick={() =>
+        onClick={() => {
+          const id = createUiId();
           props.onChange([
             ...props.groups,
-            {
-              id: createUiId(),
-              name: `分组 ${props.groups.length + 1}`,
-              fieldIds: [],
-            },
-          ])
-        }
+            { id, key: id, name: `分组 ${props.groups.length + 1}`, fieldIds: [] },
+          ]);
+        }}
       >
         <i className="fa-solid fa-plus" aria-hidden="true" />
         新增分组
@@ -159,6 +157,15 @@ function VectorGroupCard(props: {
           </button>
         </div>
       ) : null}
+      <label className="stm-form-row">
+        <span>分组 Key</span>
+        <input
+          aria-label={`分组 ${props.index + 1} Key`}
+          value={props.group.key}
+          disabled={props.disabled}
+          onChange={(event) => props.onChange({ ...props.group, key: event.target.value })}
+        />
+      </label>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={[...props.group.fieldIds]} strategy={rectSortingStrategy}>
           <ul className="stm-vector-chips">

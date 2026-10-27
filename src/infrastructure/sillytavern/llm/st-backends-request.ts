@@ -100,6 +100,7 @@ export function convertMessages(context: Context): StChatMessageBody[] {
     if (message.role === "user") {
       messages.push({ role: "user", content: contentToText(message.content) });
     } else if (message.role === "assistant") {
+      if (message.stopReason === "error" || message.stopReason === "aborted") continue;
       const text = textBlocksOf(message.content).join("");
       const toolCalls = message.content.filter(
         (block): block is Extract<typeof block, { type: "toolCall" }> => block.type === "toolCall",

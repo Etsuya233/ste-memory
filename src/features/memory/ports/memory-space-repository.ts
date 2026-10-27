@@ -1,6 +1,12 @@
+import type { MemoryMacro } from "../domain/index.ts";
 import type { MemorySpace, MemorySpaceId } from "../domain/index.ts";
 
 export interface MemorySpaceRepository {
+  setMacros(
+    id: MemorySpaceId,
+    macros: readonly MemoryMacro[],
+    updatedAt: string,
+  ): Promise<MemorySpace | undefined>;
   create(memorySpace: MemorySpace): Promise<void>;
   delete(id: MemorySpaceId): Promise<boolean>;
   find(id: MemorySpaceId): Promise<MemorySpace | undefined>;

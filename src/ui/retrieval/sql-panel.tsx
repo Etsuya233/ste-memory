@@ -1,3 +1,4 @@
+import { SemanticQueryError } from "../../features/semantic-query/semantic-query-service.ts";
 import { Button, Textarea } from "../kit/controls.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
@@ -6,8 +7,13 @@ import { PageChrome } from "../shell/page-layout.tsx";
 import { SqlResults, type SqlRunResult } from "./sql-results.tsx";
 import { SqlSchema } from "./sql-schema.tsx";
 
-const failureText = (failure: unknown): string =>
-  failure instanceof Error ? failure.message : String(failure);
+const failureText = (failure: unknown): string => {
+  if (failure instanceof SemanticQueryError && failure.diagnostics.queryVectors) {
+    const stats = failure.diagnostics.queryVectors;
+    return `${failure.message}\n查询向量请求 ${stats.requests} 次，批次缓存命中 ${stats.executionHits} 次，短期缓存命中 ${stats.sharedHits} 次，SQL 执行 ${failure.diagnostics.sqlPasses} 轮。`;
+  }
+  return failure instanceof Error ? failure.message : String(failure);
+};
 
 export function SqlPanel(props: {
   readonly console: SqlConsole;
@@ -17,6 +23,7 @@ export function SqlPanel(props: {
   readonly onExecuted: () => void;
 }) {
   const [sql, setSql] = useState("");
+  const request = useRef<AbortController | null>(null);
   const [schema, setSchema] = useState<readonly SqlSchemaEntry[]>([]);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
@@ -33,6 +40,7 @@ export function SqlPanel(props: {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      request.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -106,8 +114,10 @@ export function SqlPanel(props: {
     setError(null);
     setResult(null);
     const submitted = sql;
+    const controller = new AbortController();
+    request.current = controller;
     try {
-      const execution = await props.console.execute(props.spaceId, submitted);
+      const execution = await props.console.execute(props.spaceId, submitted, controller.signal);
       if (!mounted.current) return;
       setResult({
         sql: submitted,
@@ -118,6 +128,7 @@ export function SqlPanel(props: {
     } catch (failure) {
       if (mounted.current) setError(failureText(failure));
     } finally {
+      request.current = null;
       executing.current = false;
       if (mounted.current) {
         setRunning(false);
@@ -162,6 +173,10 @@ export function SqlPanel(props: {
                 void execute();
               }}
             >
+              <p className="stm-sql-card-meta">
+                支持 semantic_scores('表Key', json_array('组Key'),
+                '查询文本')。右侧向量组可生成示例。
+              </p>
               <div className="stm-sql-editor-body">
                 <div className="stm-sql-gutter" ref={gutter} aria-hidden="true">
                   {Array.from({ length: lineCount }, (_, index) => (
@@ -224,6 +239,11 @@ export function SqlPanel(props: {
                   </span>
                 </div>
                 <div className="stm-sql-editor-actions">
+                  {running && (
+                    <Button type="button" onClick={() => request.current?.abort()}>
+                      取消查询
+                    </Button>
+                  )}
                   <Button
                     className="stm-sql-ghost-button"
                     type="button"

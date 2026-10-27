@@ -58,6 +58,54 @@ export function Switch({
   );
 }
 
+export interface FieldControlAttributes {
+  readonly id: string;
+  readonly "aria-describedby"?: string;
+  readonly "aria-invalid"?: true;
+}
+
+/** Inline field with label association and shared text metrics; usable alone or inside ListGroup. */
+export function FormRow({
+  label,
+  hint,
+  error,
+  children,
+  className = "",
+  ...props
+}: Omit<ComponentProps<"div">, "children"> & {
+  readonly label: ReactNode;
+  readonly hint?: ReactNode;
+  readonly error?: ReactNode;
+  readonly children: (attributes: FieldControlAttributes) => ReactNode;
+}) {
+  const id = useId();
+  const description = error ?? hint;
+  return (
+    <div {...props} className={`ui-list-row ui-form-row ${className}`}>
+      <div className="ui-form-row-main">
+        <label className="ui-form-row-label" htmlFor={id}>
+          {label}
+        </label>
+        <div className="ui-form-row-control">
+          {children({
+            id,
+            "aria-describedby": description != null ? `${id}-description` : undefined,
+            "aria-invalid": error != null ? true : undefined,
+          })}
+        </div>
+      </div>
+      {description != null && (
+        <div
+          id={`${id}-description`}
+          className={error != null ? "ui-field-error" : "ui-field-hint"}
+        >
+          {description}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Owns the label/help/error association while preserving the actual input element. */
 export function FormField({
   label,
@@ -70,11 +118,7 @@ export function FormField({
   readonly hint?: ReactNode;
   readonly error?: ReactNode;
   readonly className?: string;
-  readonly children: (attributes: {
-    id: string;
-    "aria-describedby"?: string;
-    "aria-invalid"?: true;
-  }) => ReactNode;
+  readonly children: (attributes: FieldControlAttributes) => ReactNode;
 }) {
   const id = useId();
   const description = error ?? hint;

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { createChatMirrorFile } from "../../features/chat-mirror/index.ts";
 import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
 import type { ChatSpaceBinding } from "../../features/chat-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
-  CHAT_METADATA_CLEANING_LIST_KEY,
+  CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_CHAT_SCOPE_MACROS_KEY,
   CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
@@ -173,38 +174,53 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
   });
 });
 
-describe("StChatAdapter.cleaningListStore（清洗列表选择读写，ticket 22 / ADR 0011）", () => {
+describe("StChatAdapter.cleaningRuleStore（清洗列表选择读写，ticket 22 / ADR 0011）", () => {
   it("写入 {version:1,listId} 信封 + 触发防抖持久化；读回 listId；清除 = 删除键", () => {
     const saveMetadataDebounced = vi.fn();
     const { context, adapter } = stableAdapter({ saveMetadataDebounced });
 
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
-    adapter.cleaningListStore.write("l1");
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    adapter.cleaningRuleStore.write("l1");
 
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toEqual({
-      version: 1,
-      listId: "l1",
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toEqual({
+      version: 3,
+      ruleId: "l1",
     });
-    expect(adapter.cleaningListStore.read()).toBe("l1");
+    expect(adapter.cleaningRuleStore.read()).toBe("l1");
     expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
     expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
 
-    adapter.cleaningListStore.write(undefined);
-    expect(context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY]).toBeUndefined();
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    adapter.cleaningRuleStore.write(undefined);
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+  });
+
+  it("打开旧对话时删除旧选择并保存，对话切换后继续清理", () => {
+    const saveMetadataDebounced = vi.fn();
+    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, ruleId: "old" };
+    context.chatMetadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: "s1" };
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    expect(context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY]).toBeUndefined();
+    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({ version: 1, spaceId: "s1" });
+    adapter.cleaningRuleStore.read();
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
+    context.chatMetadata = { [CHAT_METADATA_CLEANING_RULE_KEY]: { version: 1, ruleId: "other" } };
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    expect(saveMetadataDebounced).toHaveBeenCalledTimes(2);
   });
 
   it("损坏值（版本不符/非对象）= 未选择；无 chatMetadata 时不报错", () => {
     const { context, adapter } = stableAdapter();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = { version: 2, listId: "l1" };
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
-    context.chatMetadata[CHAT_METADATA_CLEANING_LIST_KEY] = "junk";
-    expect(adapter.cleaningListStore.read()).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = { version: 1, ruleId: "l1" };
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
+    context.chatMetadata[CHAT_METADATA_CLEANING_RULE_KEY] = "junk";
+    expect(adapter.cleaningRuleStore.read()).toBeUndefined();
 
     const { adapter: noMetadata } = stableAdapter({ chatMetadata: undefined });
     expect(() => {
-      noMetadata.cleaningListStore.write("l1");
-      noMetadata.cleaningListStore.read();
+      noMetadata.cleaningRuleStore.write("l1");
+      noMetadata.cleaningRuleStore.read();
     }).not.toThrow();
   });
 });
@@ -239,15 +255,15 @@ describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => 
     }).not.toThrow();
   });
 
-  it("损坏值（版本不符/非对象）= 空列表", () => {
+  it("损坏旧宏与未知版本报错，原数据保留", () => {
     const { context, adapter } = stableAdapter();
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = { version: 2, macros: [] };
-    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("原始数据已保留");
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = "junk";
-    expect(adapter.chatScopeMacroStore.read()).toEqual([]);
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("原始数据已保留");
   });
 
-  it("损坏视图逐项丢弃，保留其余", () => {
+  it("损坏旧视图不能静默丢弃", () => {
     const { context, adapter } = stableAdapter();
     context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = {
       version: 1,
@@ -256,63 +272,10 @@ describe("StChatAdapter.chatScopeMacroStore（聊天 Scope 宏读写）", () => 
         { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
       ],
     };
-    expect(adapter.chatScopeMacroStore.read()).toEqual([
-      { name: "有效", tableKey: "t", condition: null, limit: 10, projection: [] },
-    ]);
-  });
-});
-
-describe("StChatAdapter.stRegexEntries（ST 正则条目读取：全局 + 角色卡 + 预设）", () => {
-  const scopedScript = { id: "s1", scriptName: "角色正则" };
-  const globalScript = { id: "g1", scriptName: "全局正则" };
-  const presetScript = { id: "p1", scriptName: "预设正则" };
-
-  function characterWithScripts(scripts: readonly unknown[]): Record<string, unknown> {
-    return { data: { extensions: { regex_scripts: scripts } } };
-  }
-
-  it("三源合并：全局 + 当前角色卡（characterId 下标）+ 当前预设，各带来源", () => {
-    const { adapter } = stableAdapter({
-      characterId: 1,
-      characters: [
-        { name: "角色A" },
-        characterWithScripts([scopedScript, { id: "s2", scriptName: "角色正则2" }]),
-      ],
-      extensionSettings: { regex: [globalScript] },
-      getPresetManager: () => ({ readPresetExtensionField: () => [presetScript] }),
+    expect(() => adapter.chatScopeMacroStore.read()).toThrow("空白");
+    expect(context.chatMetadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY]).toMatchObject({
+      macros: [{ name: "非法 名" }, { name: "有效" }],
     });
-    expect(adapter.stRegexEntries).toEqual([
-      { source: "global", script: globalScript },
-      { source: "scoped", script: scopedScript },
-      { source: "scoped", script: { id: "s2", scriptName: "角色正则2" } },
-      { source: "preset", script: presetScript },
-    ]);
-  });
-
-  it("按脚本 id 去重（预设应用后条目可能同时存在于全局）；非对象条目丢弃", () => {
-    const { adapter } = stableAdapter({
-      characterId: 0,
-      characters: [characterWithScripts([globalScript])],
-      extensionSettings: { regex: [globalScript, "junk", { scriptName: "无 id" }] },
-      getPresetManager: () => ({ readPresetExtensionField: () => [globalScript] }),
-    });
-    expect(adapter.stRegexEntries).toEqual([
-      { source: "global", script: globalScript },
-      { source: "global", script: { scriptName: "无 id" } },
-    ]);
-  });
-
-  it("来源缺失（无角色卡/无预设管理器/无全局）→ 空；角色卡未加载不报错", () => {
-    const { adapter: bare } = stableAdapter();
-    expect(bare.stRegexEntries).toEqual([]);
-    const { adapter: noPreset } = stableAdapter({
-      characterId: 0,
-      characters: [characterWithScripts([scopedScript])],
-      getPresetManager: () => undefined,
-    });
-    expect(noPreset.stRegexEntries).toEqual([{ source: "scoped", script: scopedScript }]);
-    const { adapter: shallow } = stableAdapter({ characterId: 0, characters: [] });
-    expect(shallow.stRegexEntries).toEqual([]);
   });
 });
 
@@ -378,7 +341,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     expect(settled).toBe(true);
   });
 
-  function recallBridge() {
+  function macroBridge() {
     const fake = fakeEventSource();
     const eventTypes = {
       ...fake.eventTypes,
@@ -412,14 +375,14 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
       onGenerationStopped: vi.fn(() => {
         release();
       }),
-      shouldAwaitRecall: () => true,
+      shouldAwaitMacros: () => true,
     };
     adapter.registerEventBridge(bridge);
     return { adapter, bridge, handlers: fake.handlers, stopGeneration, release };
   }
 
   it("命令阶段的发送不召回；经过提示词构建后的normal递归保留同轮资格", async () => {
-    const { adapter, bridge, handlers, release } = recallBridge();
+    const { adapter, bridge, handlers, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("message_sent")!(2);
     expect(bridge.onMessageEvent).not.toHaveBeenCalled();
@@ -437,7 +400,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("停止等待后新STARTED等待旧拦截器退出，旧ENDED不会清新发送", async () => {
-    const { adapter, bridge, handlers, stopGeneration } = recallBridge();
+    const { adapter, bridge, handlers, stopGeneration } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);
@@ -458,9 +421,68 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
       false,
     );
   });
+  it("manifest使取消门禁先于提前终止的第三方拦截器，正常下游终止也释放旧身份", async () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../../../manifest.json", import.meta.url), "utf8"),
+    ) as { loading_order: number; display_name: string };
+    const { adapter, bridge, handlers, stopGeneration } = macroBridge();
+    await handlers.get("started")!("normal", {}, false);
+    handlers.get("after_commands")!("normal", {}, false);
+    const sending = handlers.get("message_sent")!(2);
+    stopGeneration();
+    const next = handlers.get("started")!("normal", {}, false);
+    await sending;
+    const laterInterceptor = vi.fn((abort: (immediately: boolean) => void) => abort(true));
+    const registry = [
+      { loading_order: 10, display_name: "ImageGeneration", intercept: vi.fn() },
+      { loading_order: 10, display_name: "LittleWhiteBox", intercept: laterInterceptor },
+      {
+        ...manifest,
+        intercept: (abort: (immediately: boolean) => void) =>
+          adapter.interceptGeneration(abort, "normal"),
+      },
+      { loading_order: 100, display_name: "Vector", intercept: vi.fn() },
+    ].sort(
+      (a, b) => a.loading_order - b.loading_order || a.display_name.localeCompare(b.display_name),
+    );
+    let immediate = false;
+    const abort = vi.fn((value: boolean) => {
+      immediate = value;
+    });
+    for (const extension of registry) {
+      extension.intercept(abort);
+      if (immediate) break;
+    }
+    expect(abort).toHaveBeenCalledWith(true);
+    expect(laterInterceptor).not.toHaveBeenCalled();
+    handlers.get("ended")!();
+    await next;
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "normal",
+      { continuation: false },
+      false,
+    );
+
+    handlers.get("after_commands")!("normal", {}, false);
+    await handlers.get("message_sent")!(3);
+    immediate = false;
+    for (const extension of registry) {
+      extension.intercept(abort);
+      if (immediate) break;
+    }
+    expect(laterInterceptor).toHaveBeenCalledOnce();
+    // ST's unblock path emits ENDED after a downstream interceptor aborts.
+    handlers.get("ended")!();
+    await handlers.get("started")!("regenerate", {}, false);
+    expect(bridge.onGenerationStarted).toHaveBeenLastCalledWith(
+      "regenerate",
+      { continuation: false },
+      false,
+    );
+  });
 
   it("等待期间dryRun不停止或取消真实召回", async () => {
-    const { adapter, handlers, stopGeneration, release } = recallBridge();
+    const { adapter, handlers, stopGeneration, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);
@@ -473,8 +495,27 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     expect(abort).not.toHaveBeenCalled();
   });
 
+  it("quiet与impersonate的无归属结束事件不会撤销仍在等待的正常宏批次", async () => {
+    for (const excluded of ["quiet", "impersonate"]) {
+      const { adapter, bridge, handlers, release } = macroBridge();
+      await handlers.get("started")!("normal", {}, false);
+      handlers.get("after_commands")!("normal", {}, false);
+      const sending = handlers.get("message_sent")!(2);
+      await handlers.get("started")!(excluded, {}, false);
+      await handlers.get("after_commands")!(excluded, {}, false);
+      handlers.get("data")!({}, false);
+      handlers.get("ended")!();
+      expect(bridge.onGenerationFinished).not.toHaveBeenCalled();
+      release();
+      await sending;
+      const abort = vi.fn();
+      adapter.interceptGeneration(abort, "normal");
+      expect(abort).not.toHaveBeenCalled();
+    }
+  });
+
   it("真实发送开始后插入完整dryRun仍把MESSAGE_SENT交给召回等待", async () => {
-    const { adapter, bridge, handlers, stopGeneration, release } = recallBridge();
+    const { adapter, bridge, handlers, stopGeneration, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     await handlers.get("started")!("normal", {}, true);
@@ -492,7 +533,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("普通空输入生成结束后不接受孤立MESSAGE_SENT，dry结束不清真实发送资格", async () => {
-    const { bridge, handlers } = recallBridge();
+    const { bridge, handlers } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     handlers.get("ended")!();
@@ -502,7 +543,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
   });
 
   it("召回结束到拦截器之间切聊仍终止旧发送，STOP先发ENDED也保留归属", async () => {
-    const { adapter, handlers, release } = recallBridge();
+    const { adapter, handlers, release } = macroBridge();
     await handlers.get("started")!("normal", {}, false);
     handlers.get("after_commands")!("normal", {}, false);
     const sent = handlers.get("message_sent")!(2);
@@ -636,13 +677,22 @@ describe("StChatAdapter.getMessageAt（楼层消息读取，ticket 11）", () =>
       content: "你好",
       name: "User",
       isUser: true,
+      options: { needCleaning: false },
     });
     expect(adapter.getMessageAt(1)).toEqual({
       floor: 1,
       content: "你好呀，今天过得怎么样？",
       name: "爱丽丝",
       isUser: false,
+      options: { needCleaning: true },
     });
+  });
+
+  it("系统消息标记为不清洗", () => {
+    const { adapter } = stableAdapter({
+      chat: [{ mes: "系统提示", name: "System", is_system: true }],
+    });
+    expect(adapter.getMessageAt(0)?.options).toEqual({ needCleaning: false });
   });
 
   it("楼层越界 / 负楼层 / 非整数 → undefined", () => {
@@ -682,7 +732,7 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
     expect(stableAdapter({ chatId: "" }).adapter.chatId()).toBeUndefined();
   });
 
-  it("messagesInRange：闭区间楼层升序映射（floor/content/name），越界楼层跳过，缺正文跳过", () => {
+  it("messagesInRange：闭区间楼层升序映射（floor/content/name/清洗标记），越界楼层跳过，缺正文跳过", () => {
     const { adapter } = stableAdapter({
       chat: [
         { mes: "消息 0", name: "User", is_user: true },
@@ -692,13 +742,25 @@ describe("StChatAdapter 填表任务消息来源（chatMessageCount / messagesIn
       ],
     });
     expect(adapter.messagesInRange(0, 3)).toEqual([
-      { floor: 0, content: "消息 0", name: "User", isUser: true },
-      { floor: 1, content: "[reg] 原始 **标记**", name: "爱丽丝", isUser: false },
-      { floor: 3, content: "消息 3", name: "", isUser: false },
+      {
+        floor: 0,
+        content: "消息 0",
+        name: "User",
+        isUser: true,
+        options: { needCleaning: false },
+      },
+      {
+        floor: 1,
+        content: "[reg] 原始 **标记**",
+        name: "爱丽丝",
+        isUser: false,
+        options: { needCleaning: true },
+      },
+      { floor: 3, content: "消息 3", name: "", isUser: false, options: { needCleaning: true } },
     ]);
     // 越界楼层（chat 只有 4 条）：跳过缺失楼层
     expect(adapter.messagesInRange(2, 5)).toEqual([
-      { floor: 3, content: "消息 3", name: "", isUser: false },
+      { floor: 3, content: "消息 3", name: "", isUser: false, options: { needCleaning: true } },
     ]);
     expect(stableAdapter({ chat: undefined }).adapter.messagesInRange(0, 1)).toEqual([]);
   });

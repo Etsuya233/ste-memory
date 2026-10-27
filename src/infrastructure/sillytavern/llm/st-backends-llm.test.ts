@@ -10,6 +10,8 @@ import {
   type StBackendsLlmAdapterOptions,
 } from "./st-backends-llm.ts";
 import type { StContext } from "../chat-adapter.ts";
+import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
+import { runFillAgentWithRetry } from "../../../features/agent/fill-agent-retry.ts";
 
 /**
  * 适配器集成测试：mock fetch（可流式 SSE、可注入 AbortSignal），断言
@@ -137,6 +139,60 @@ function textChunk(text: string, finish: string | null = null): unknown {
 }
 
 describe("StBackendsLlmAdapter.streamFn（SSE → pi 事件流）", () => {
+  it.each(["500", "断流", "网络", "408", "501"])(
+    "填表 Agent 重试 %s，半截响应独立保留且不进入下一次请求",
+    async (failure) => {
+      let calls = 0;
+      const bodies: unknown[] = [];
+      const adapter = makeAdapter(
+        {},
+        mockFetch((_url, init) => {
+          calls++;
+          bodies.push(JSON.parse(init?.body as string));
+          if (calls === 1) {
+            if (failure === "断流") return sseResponse([sseEvent(textChunk("半截响应"))]);
+            if (failure === "网络") throw new TypeError("Failed to fetch");
+            return jsonResponse({ error: { message: "暂时不可用" } }, { status: Number(failure) });
+          }
+          return sseResponse([sseEvent(textChunk("完成", "stop"))]);
+        }).fn,
+      );
+      const events: AgentEvent[] = [];
+      const result = await runFillAgentWithRetry(
+        new Agent({ initialState: { model: testModel(), tools: [] }, streamFn: adapter.streamFn }),
+        [{ role: "user", content: "填写", timestamp: 1 }],
+        { onEvent: (event) => events.push(event) },
+        1000,
+        { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+      );
+      expect(result.stopReason).toBe("stop");
+      expect(calls).toBe(2);
+      expect(bodies[1]).toEqual(bodies[0]);
+      expect(events.filter((event) => event.type === "turn_end")).toHaveLength(2);
+      if (failure === "断流") {
+        expect(events.some((event) => event.type === "message_update")).toBe(true);
+        expect(
+          result.messages.filter((message) => message.role === "assistant")[0]?.content,
+        ).toEqual([{ type: "text", text: "半截响应" }]);
+      }
+    },
+  );
+
+  it("中文额度不足错误不被 429 自动重试", async () => {
+    const mock = mockFetch(() =>
+      jsonResponse({ quota_error: true, error: { message: "额度用完" } }, { status: 429 }),
+    );
+    const adapter = makeAdapter({}, mock.fn);
+    const result = await runFillAgentWithRetry(
+      new Agent({ initialState: { model: testModel(), tools: [] }, streamFn: adapter.streamFn }),
+      [{ role: "user", content: "填写", timestamp: 1 }],
+      {},
+      1000,
+      { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+    );
+    expect(result.stopReason).toBe("error");
+    expect(mock.calls).toHaveLength(1);
+  });
   it("文本流：start → text_start/delta… → text_end → done(stop)，终态消息完整", async () => {
     const fetchMock = mockFetch(() =>
       sseResponse([

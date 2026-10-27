@@ -1,6 +1,11 @@
+import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { SpaceStructureRebuild } from "../space-maintenance/space-structure-rebuild.ts";
-import { instantiateTablePreset, type PresetInstantiationIds } from "./preset-instantiation.ts";
+import {
+  instantiateTablePreset,
+  type PresetInstantiationIds,
+  type InstantiatedSpaceStructure,
+} from "./preset-instantiation.ts";
 import type { ResolvedTablePreset } from "./preset-model.ts";
 
 /**
@@ -25,10 +30,13 @@ export interface TablePresetApplyPorts {
   readonly defaultPreset: () => ResolvedTablePreset;
   /** 本次操作所属对话身份（对话切换后不再触碰新对话的元数据） */
   readonly currentChatIdentity: () => string | undefined;
-  /** 清除当前对话的对话级宏（写 chatMetadata） */
+  /** 清除当前对话已废弃的旧 metadata 宏（不能清除本次新空间宏） */
   readonly clearChatScopeMacros: () => void;
   readonly createIds: PresetInstantiationIds;
   readonly now: () => string;
+  readonly validateStructure: (
+    structure: InstantiatedSpaceStructure,
+  ) => Promise<InstantiatedSpaceStructure>;
 }
 
 /** 应用预设成功后的同步动作（调用方注入现有服务；失败不影响已提交的重建）。 */
@@ -48,6 +56,24 @@ export class TablePresetApplyService {
 
   constructor(ports: TablePresetApplyPorts) {
     this.#ports = ports;
+  }
+
+  async validate(preset: ResolvedTablePreset): Promise<ResolvedTablePreset> {
+    const structure = instantiateTablePreset(
+      preset,
+      "preset-validation" as MemorySpaceId,
+      this.#ports.createIds,
+      this.#ports.now(),
+    );
+    const normalized = await this.#ports.validateStructure(structure);
+    return {
+      ...preset,
+      macros: normalized.macros.map((macro, index) => ({
+        ...macro,
+        id: preset.macros![index]!.id,
+        enabled: preset.macros![index]!.enabled,
+      })),
+    };
   }
 
   /**
@@ -120,12 +146,20 @@ export class TablePresetApplyService {
     preset: ResolvedTablePreset,
   ): Promise<boolean> {
     const now = this.#ports.now();
-    const structure = instantiateTablePreset(preset, memorySpaceId, this.#ports.createIds, now);
+    const structure = await this.#ports.validateStructure(
+      instantiateTablePreset(preset, memorySpaceId, this.#ports.createIds, now),
+    );
     return this.#ports.rebuild.rebuild({
       memorySpaceId,
       prompt: preset.prompt ?? "",
       tables: structure.tables,
       fields: structure.fields,
+      macros: restoredMemoryMacros(
+        structure.macros.map((macro, index) => ({
+          ...macro,
+          enabled: preset.macros![index]!.enabled,
+        })),
+      ),
       initializationSource: { presetId: preset.id, presetName: preset.name, appliedAt: now },
     });
   }

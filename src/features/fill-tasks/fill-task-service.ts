@@ -27,7 +27,7 @@ import {
   composeBlockMessagesText,
   composeBlockPrompt,
 } from "./fill-task-block.ts";
-import { applyCleaningRules, type CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
+import { applyCleaningRule, type CleaningRule } from "../cleaning/cleaning-rules.ts";
 import { EVIDENCE_INIT_SOURCE_TYPE } from "../../constants.ts";
 import {
   createFillAgentTurnCollector,
@@ -46,6 +46,7 @@ import {
   type FillTaskRepository,
   type FillTaskSource,
   type FillTaskView,
+  type FillTaskRetryState,
   type FloorLedgerEntry,
   type FloorLedgerRepository,
   type FillSourceMessage,
@@ -53,6 +54,8 @@ import {
 
 /** 任务默认分块大小：每块楼层数对应一次 Agent 循环；每批独立事务。 */
 export const DEFAULT_FILL_TASK_BLOCK_SIZE = 20;
+
+const DEFAULT_FILL_TASK_RETRY_POLICY = { retries: 2, delaySeconds: 10 };
 
 /** 单块填写 Agent 的默认总超时。 */
 const BLOCK_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -126,9 +129,9 @@ export interface FillTaskServiceOptions {
   readonly logs: LogRepository;
   /**
    * 填表任务内容清洗（ticket 22 / ADR 0011）：任务开始时冻结当前对话所选
-   * 清洗规则列表的规则；未选择/列表已删 → 空（不清洗）。缺省 = 不清洗。
+   * 单份清洗规则；未选择或所选规则已删除时不清洗。
    */
-  readonly resolveCleaningRules?: () => readonly CleaningRule[];
+  readonly readCleaningRule?: () => CleaningRule | undefined;
   readonly createRunId?: () => string;
   readonly createEvidenceId: () => MemoryEvidenceId;
   readonly now?: () => string;
@@ -145,11 +148,7 @@ export class FillTaskService {
   #submissions: Promise<unknown> = Promise.resolve();
   readonly #policies = new Map<string, FillTaskSubmitInput["automatic"]>();
 
-  readonly retryStates = new Map<
-    string,
-    { from: number; to: number; attempt: number; retryAt: number }
-  >();
-  readonly #retryWakeups = new Map<string, () => void>();
+  readonly retryStates = new Map<string, FillTaskRetryState>();
   readonly #tasks: FillTaskRepository;
   readonly #ledger: FloorLedgerRepository;
   readonly #source: FillTaskSource;
@@ -168,7 +167,7 @@ export class FillTaskService {
   readonly #createPromptContext:
     ((storyText: string) => Promise<FillTaskPromptContext | undefined>) | undefined;
   readonly #logs: LogRepository;
-  readonly #resolveCleaningRules: () => readonly CleaningRule[];
+  readonly #readCleaningRule: () => CleaningRule | undefined;
   readonly #createRunId: () => string;
   readonly #createEvidenceId: () => MemoryEvidenceId;
   readonly #now: () => string;
@@ -184,7 +183,7 @@ export class FillTaskService {
     this.#createLlm = options.createLlm;
     this.#createPromptContext = options.createPromptContext;
     this.#logs = options.logs;
-    this.#resolveCleaningRules = options.resolveCleaningRules ?? (() => []);
+    this.#readCleaningRule = options.readCleaningRule ?? (() => undefined);
     this.#createRunId = options.createRunId ?? (() => crypto.randomUUID());
     this.#createEvidenceId = options.createEvidenceId;
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -234,10 +233,17 @@ export class FillTaskService {
           const llm = this.#createLlm();
           const input = structuredClone(
             task.kind === "init"
-              ? [{ floor: 0, name: "", content: task.initText }]
+              ? [
+                  {
+                    floor: 0,
+                    name: "",
+                    content: task.initText,
+                    options: { needCleaning: false },
+                  },
+                ]
               : this.#source.messagesInRange(task.from, task.to),
           );
-          const rules = structuredClone(this.#resolveCleaningRules());
+          const rule = structuredClone(this.#readCleaningRule());
           const promptContext = await this.#createPromptContext?.(
             task.kind === "init" ? task.initText : buildMergedStoryText(input),
           );
@@ -254,7 +260,7 @@ export class FillTaskService {
             fillTaskStartLog(running),
             `填表任务 ${task.runId} 开始日志写入失败`,
           );
-          await this.#startTask(running, llm, promptContext, input, rules, automatic);
+          await this.#startTask(running, llm, promptContext, input, rule, automatic);
         } catch (error) {
           await this.#failTask(running, error);
         } finally {
@@ -342,7 +348,6 @@ export class FillTaskService {
       }
       run.controller.abort(new Error(reason ? "对话已切换" : "用户取消填表任务"));
       run.interruptionReason = reason;
-      this.#retryWakeups.get(runId)?.();
       await run.done;
       if (reason) await this.#tasks.markInterrupted(runId, reason);
       else await this.#tasks.release(runId);
@@ -380,7 +385,6 @@ export class FillTaskService {
     if (run) {
       if (run.phase === "running") {
         run.controller.abort(new Error("空间任务已取消"));
-        this.#retryWakeups.get(active.runId)?.();
       }
       await run.done;
     }
@@ -549,7 +553,13 @@ export class FillTaskService {
    *  初始化任务无楼层：totalCount = 1（单块），进度不查台账。 */
   async #toView(task: FillTask): Promise<FillTaskView> {
     const run = this.#runs.get(task.runId);
-    const progress = run === undefined ? {} : { phase: run.phase };
+    const progress =
+      run === undefined
+        ? {}
+        : {
+            phase: run.phase,
+            retryState: this.retryStates.get(task.runId),
+          };
     if (task.kind === "init") {
       return { ...task, ...progress, processedCount: 0, totalCount: 1 };
     }
@@ -567,7 +577,7 @@ export class FillTaskService {
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
     input: readonly FillSourceMessage[],
-    rules: readonly CleaningRule[],
+    rule: CleaningRule | undefined,
     automatic?: FillTaskSubmitInput["automatic"],
   ): Promise<void> {
     const controller = new AbortController();
@@ -582,7 +592,7 @@ export class FillTaskService {
       llm,
       promptContext === undefined ? undefined : structuredClone(promptContext),
       input,
-      rules,
+      rule,
       control,
       automatic,
     );
@@ -594,7 +604,7 @@ export class FillTaskService {
     llm: LlmPort,
     promptContext: FillTaskPromptContext | undefined,
     input: readonly FillSourceMessage[],
-    rules: readonly CleaningRule[],
+    rule: CleaningRule | undefined,
     control: {
       controller: AbortController;
       phase: "running" | "saving";
@@ -608,97 +618,72 @@ export class FillTaskService {
         const to = Math.min(from + task.blockSize - 1, task.to);
         const messages = input.filter((message) => message.floor >= from && message.floor <= to);
         failingBlock = { from, to };
-        for (let attempt = 0; ; attempt++) {
-          let session: FillTaskSession | undefined;
-          let committing = false;
-          try {
-            control.controller.signal.throwIfAborted();
-            if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
-            if (!(await this.#chatUnchanged(task))) {
-              control.interruptionReason = "chat-changed";
-              control.controller.abort(new Error("对话已切换"));
-            }
-            if (automatic && !automatic.canContinue())
-              control.controller.abort(new Error("自动填表已停止"));
-            control.controller.signal.throwIfAborted();
-            session = await this.#beginTask(task, control.controller.signal);
-            await this.#processBlock(
-              llm,
-              promptContext,
-              task,
-              (from - task.from) / task.blockSize + 1,
-              from,
-              to,
-              session,
-              messages,
-              rules,
-              control.controller.signal,
-              async () => {
-                if (!(await this.#chatUnchanged(task))) {
-                  control.interruptionReason = "chat-changed";
-                  control.controller.abort(new Error("对话已切换"));
-                }
-                if (automatic && !automatic.canContinue())
-                  control.controller.abort(new Error("自动填表已停止"));
-                if (
-                  task.kind !== "init" &&
-                  JSON.stringify(messages) !==
-                    JSON.stringify(this.#source.messagesInRange(from, to))
-                )
-                  throw new Error("填表输入消息已变化，本批修改已撤销，请重新填表");
-                if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
-                // 从此处开始禁止取消；保存成功后才发布本批楼层进度。
-                control.controller.signal.throwIfAborted();
-                control.phase = "saving";
-                committing = true;
-                await session!.commitAndSave();
-                failingBlock = undefined;
-                if (task.kind !== "init")
-                  await this.#runInTransaction(() =>
-                    this.#ledger.markProcessed(
-                      task.memorySpaceId,
-                      messages.map((message) => message.floor),
-                    ),
-                  );
-              },
-            );
-            break;
-          } catch (error) {
-            await session?.rollback();
-            if (
-              !automatic ||
-              committing ||
-              control.controller.signal.aborted ||
-              attempt >= automatic.retries
-            )
-              throw error;
-            if (!automatic.canContinue()) {
-              control.controller.abort(new Error("自动填表已停止"));
-              throw error;
-            }
-            // 等待重试之前释放当前批的写入连接。
-            await session?.release();
-            session = undefined;
-            this.retryStates.set(task.runId, {
-              from,
-              to,
-              attempt: attempt + 1,
-              retryAt: Date.now() + automatic.delaySeconds * 1000,
-            });
-            await new Promise<void>((wake) => {
-              const timer = setTimeout(wake, automatic.delaySeconds * 1000);
-              this.#retryWakeups.set(task.runId, () => {
-                clearTimeout(timer);
-                wake();
-              });
-            });
-            control.controller.signal.throwIfAborted();
-          } finally {
-            this.retryStates.delete(task.runId);
-            this.#retryWakeups.delete(task.runId);
-            await session?.release();
-            control.phase = "running";
+        let session: FillTaskSession | undefined;
+        try {
+          control.controller.signal.throwIfAborted();
+          if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
+          if (!(await this.#chatUnchanged(task))) {
+            control.interruptionReason = "chat-changed";
+            control.controller.abort(new Error("对话已切换"));
           }
+          if (automatic && !automatic.canContinue())
+            control.controller.abort(new Error("自动填表已停止"));
+          control.controller.signal.throwIfAborted();
+          session = await this.#beginTask(task, control.controller.signal);
+          await this.#processBlock(
+            llm,
+            promptContext,
+            task,
+            (from - task.from) / task.blockSize + 1,
+            from,
+            to,
+            session,
+            messages,
+            rule,
+            control.controller.signal,
+            async () => {
+              if (!(await this.#chatUnchanged(task))) {
+                control.interruptionReason = "chat-changed";
+                control.controller.abort(new Error("对话已切换"));
+              }
+              if (automatic && !automatic.canContinue())
+                control.controller.abort(new Error("自动填表已停止"));
+              if (
+                task.kind !== "init" &&
+                JSON.stringify(messages) !== JSON.stringify(this.#source.messagesInRange(from, to))
+              )
+                throw new Error("填表输入消息已变化，本批修改已撤销，请重新填表");
+              if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
+              // 从此处开始禁止取消；保存成功后才发布本批楼层进度。
+              control.controller.signal.throwIfAborted();
+              control.phase = "saving";
+              await session!.commitAndSave();
+              failingBlock = undefined;
+              if (task.kind !== "init")
+                await this.#runInTransaction(() =>
+                  this.#ledger.markProcessed(
+                    task.memorySpaceId,
+                    messages.map((message) => message.floor),
+                  ),
+                );
+            },
+            async () => {
+              if (!(await this.#chatUnchanged(task))) {
+                control.interruptionReason = "chat-changed";
+                control.controller.abort(new Error("对话已切换"));
+              }
+              if (automatic && !automatic.canContinue())
+                control.controller.abort(new Error("自动填表已停止"));
+              control.controller.signal.throwIfAborted();
+            },
+          );
+        } catch (error) {
+          await session?.rollback();
+          throw error;
+        } finally {
+          this.retryStates.delete(task.runId);
+          await session?.release();
+          control.phase = "running";
         }
         if (control.interruptionReason) {
           control.controller.abort(new Error("对话已切换"));
@@ -780,9 +765,10 @@ export class FillTaskService {
     to: number,
     session: FillTaskSession,
     rawMessages: readonly FillSourceMessage[],
-    cleaningRules: readonly CleaningRule[],
+    cleaningRule: CleaningRule | undefined,
     signal: AbortSignal,
     commitBatch: () => Promise<void>,
+    checkRetry: () => Promise<void>,
   ): Promise<void> {
     // 批开始行在块处理前先落库（边跑边写）：运行中查询即可见已完成/进行中批。
     const startedAt = this.#now();
@@ -803,13 +789,18 @@ export class FillTaskService {
       // 输入源：楼层任务 = 任务开始时冻结的对话消息；初始化任务 = 合成单条消息
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
       if (rawMessages.length === 0) throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      // 清洗只作用于来源层标记为 AI 输出的消息；用户消息、系统消息与初始化文本保持原文。
       const messages =
-        cleaningRules.length === 0
+        cleaningRule === undefined
           ? rawMessages
-          : rawMessages.map((message) => ({
-              ...message,
-              content: applyCleaningRules(message.content, cleaningRules),
-            }));
+          : rawMessages.map((message) =>
+              message.options?.needCleaning === true
+                ? {
+                    ...message,
+                    content: applyCleaningRule(message.content, cleaningRule),
+                  }
+                : message,
+            );
       // 证据：楼层任务 = 同源唯一 reference（楼层）；初始化任务 = 单条 snapshot
       // （source_type init、source_id runId、内容 = initText 原文——清洗只作用于
       // Agent 输入，证据永远存原文；重复初始化每次生成新证据，同源唯一不冲突）。
@@ -889,11 +880,35 @@ export class FillTaskService {
         evidence,
         timeoutMs: this.#readAgentTimeoutMs(),
         onEvent: collector.listener,
+        retryPolicy: {
+          enabled: true,
+          maxRetries: (task.retryPolicy ?? DEFAULT_FILL_TASK_RETRY_POLICY).retries,
+          baseDelayMs: (task.retryPolicy ?? DEFAULT_FILL_TASK_RETRY_POLICY).delaySeconds * 1000,
+        },
+        retryCallbacks: {
+          onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+            this.retryStates.set(task.runId, {
+              from,
+              to,
+              attempt,
+              maxAttempts,
+              errorMessage,
+              retryAt: Date.now() + delayMs,
+            });
+          },
+          onRetryAttemptStart: async () => {
+            this.retryStates.delete(task.runId);
+            await checkRetry();
+          },
+          onRetryFinished: () => {
+            this.retryStates.delete(task.runId);
+          },
+        },
       });
       // 轮次行已全部入队：批收尾行落库前等写入链清空（行序 = 批内时间序，best-effort 写入不抛）。
       await collector.flush();
-      if (result.errorMessage !== undefined) {
-        throw new Error(`Agent 运行失败：${result.errorMessage}`);
+      if (result.errorMessage !== undefined || result.stopReason === "aborted") {
+        throw new Error(`Agent 运行失败：${result.errorMessage ?? "运行已中止"}`);
       }
       signal.throwIfAborted();
       await commitBatch();

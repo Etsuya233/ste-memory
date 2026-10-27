@@ -1,6 +1,7 @@
 export { DomainError } from "./domain-error.ts";
 export {
   effectiveVectorIndexGroups,
+  upgradeVectorIndexKeys,
   validateVectorIndexConfiguration,
   remapVectorIndexConfiguration,
 } from "./vector-index-configuration.ts";
@@ -59,3 +60,12 @@ export type {
   MemoryRevisionId,
   MemoryRevisionSource,
 } from "./memory-record.ts";
+
+export type {
+  MemoryMacro,
+  MacroExpression,
+  MacroQuery,
+  MacroQueryInput,
+  MacroQueryValue,
+  MacroSemanticSource,
+} from "./memory-macro.ts";

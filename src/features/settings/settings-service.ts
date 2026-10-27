@@ -1,5 +1,9 @@
-import { resolveMacroRegistrationName } from "../macros/macro-name.ts";
-import type { MemoryView } from "../macros/memory-views.ts";
+import { parseRerankSettings, type RerankSettings } from "./rerank-settings.ts";
+import {
+  hasSemanticSource,
+  validateMemoryMacro,
+  type MemoryMacro,
+} from "../macros/macro-expression.ts";
 import type { EntryPlacement, PluginSettings, SettingsStore } from "./plugin-settings.ts";
 import { parseEmbeddingConnection, type EmbeddingConnection } from "./embedding-connection.ts";
 
@@ -9,9 +13,15 @@ interface SettingsDependencies {
   readonly refreshMemoryMacros: () => Promise<void>;
   readonly refreshAgentMacros: () => Promise<void>;
   readonly refreshMirror: () => Promise<void>;
-  readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
+  readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void> | void;
   readonly refreshVectorIndex: () => Promise<void>;
   readonly refreshAutoFill?: () => void;
+  readonly validateMacros: (
+    macros: readonly MemoryMacro[],
+    previous: readonly MemoryMacro[],
+  ) => Promise<readonly MemoryMacro[]>;
+  readonly getChatScopeMacros: () => readonly MemoryMacro[];
+  readonly getChatContext: () => string;
 }
 
 export class SettingsService {
@@ -55,6 +65,11 @@ export class SettingsService {
     await this.dependencies.refreshVectorIndex();
   }
 
+  async setRerankSettings(rerank: RerankSettings): Promise<void> {
+    this.save({ ...this.read(), rerank: parseRerankSettings(rerank) });
+    await this.dependencies.refreshMemoryMacros();
+  }
+
   async setMirrorHistoryIncluded(includeHistory: boolean): Promise<void> {
     const settings = this.read();
     this.save({ ...settings, mirror: { ...settings.mirror, includeHistory } });
@@ -62,8 +77,6 @@ export class SettingsService {
   }
 
   async setMacroName(macroName: string): Promise<void> {
-    if (resolveMacroRegistrationName(macroName)?.toLowerCase() === "memoryrecall")
-      throw new Error("memoryRecall 为自动召回保留宏名");
     this.save({ ...this.read(), macroName });
     await this.dependencies.refreshMemoryMacros();
   }
@@ -73,13 +86,40 @@ export class SettingsService {
     await this.dependencies.refreshMemoryMacros();
   }
 
-  async setMemoryViews(memoryViews: readonly MemoryView[]): Promise<void> {
-    this.save({ ...this.read(), memoryViews });
+  async setMacros(macros: readonly MemoryMacro[]): Promise<void> {
+    for (const macro of macros) validateMemoryMacro(macro);
+    if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
+      throw new Error("宏名称重复");
+    const previous = this.read().macros;
+    const classified = await this.dependencies.validateMacros(macros, previous);
+    const normalized = classified.map((macro) => ({
+      ...macro,
+      enabled:
+        !previous.some((item) => item.id === macro.id) && hasSemanticSource(macro)
+          ? false
+          : macro.enabled,
+    }));
+    this.save({ ...this.read(), macros: normalized });
     await this.dependencies.refreshMemoryMacros();
   }
 
-  async setChatScopeMacros(macros: readonly MemoryView[]): Promise<void> {
-    this.dependencies.writeChatScopeMacros(macros);
+  async setChatScopeMacros(macros: readonly MemoryMacro[]): Promise<void> {
+    const context = this.dependencies.getChatContext();
+    for (const macro of macros) validateMemoryMacro(macro);
+    if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
+      throw new Error("宏名称重复");
+    const previous = this.dependencies.getChatScopeMacros();
+    const classified = await this.dependencies.validateMacros(macros, previous);
+    const normalized = classified.map((macro) => ({
+      ...macro,
+      enabled:
+        !previous.some((item) => item.id === macro.id) && hasSemanticSource(macro)
+          ? false
+          : macro.enabled,
+    }));
+    if (context !== this.dependencies.getChatContext())
+      throw new Error("对话已切换，未保存原对话的宏草稿");
+    await this.dependencies.writeChatScopeMacros(normalized);
     await this.dependencies.refreshMemoryMacros();
   }
 

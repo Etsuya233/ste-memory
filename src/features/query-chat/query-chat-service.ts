@@ -1,3 +1,4 @@
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 /**
  * QueryChatService：问答面板（ticket 20 / ADR 0009）的 run 编排（浏览器侧）。
  *
@@ -50,6 +51,7 @@ export const QUERY_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 export const QUERY_CHAT_SPACE_SWITCHED_NOTICE = "对话已切换，变更未提交";
 
 export interface QueryChatServiceOptions {
+  readonly semanticQuery?: SemanticQueryExecutor;
   /** 记忆空间只读端口（digest 构建 + query_records 工具共用）。 */
   readonly reader: MemorySpaceReader;
   /** 提案校验/预览/提交所需的领域访问端口（与填表任务共用同一组 repository）。 */
@@ -96,6 +98,7 @@ const ZERO_USAGE = {
 } as const;
 
 export class QueryChatService {
+  readonly #semanticQuery: SemanticQueryExecutor | undefined;
   readonly #reader: MemorySpaceReader;
   readonly #ports: MemoryProposalPorts;
   readonly #recordWriter: Pick<MemoryRecordService, "commitProposal">;
@@ -105,6 +108,7 @@ export class QueryChatService {
   readonly #timeoutMs: number;
 
   constructor(options: QueryChatServiceOptions) {
+    this.#semanticQuery = options.semanticQuery;
     this.#reader = options.reader;
     this.#ports = options.ports;
     this.#recordWriter = options.recordWriter;
@@ -148,6 +152,7 @@ export class QueryChatService {
     messages: readonly AgentMessage[],
   ): Promise<QueryChatRunResult> {
     const agent = new QueryAgent({
+      semanticQuery: this.#semanticQuery,
       llm,
       reader: this.#reader,
       timeoutMs: this.#timeoutMs,

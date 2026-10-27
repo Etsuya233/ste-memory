@@ -193,36 +193,6 @@
   color: var(--stm-danger);
 }
 
-.stm-memory-recall {
-  margin-top: var(--stm-space-4);
-}
-
-.stm-memory-recall form > label:first-child {
-  display: flex;
-  align-items: center;
-  gap: var(--stm-space-2);
-  min-height: var(--stm-control-h);
-}
-
-.stm-memory-recall fieldset {
-  margin: 0;
-  border: 1px solid var(--stm-border);
-  border-radius: var(--stm-radius);
-  padding: var(--stm-space-3);
-  min-width: 0;
-}
-
-.stm-memory-recall legend {
-  max-width: 100%;
-  font-size: var(--stm-fs-sm);
-}
-
-.stm-memory-recall .ui-button {
-  align-self: flex-start;
-  white-space: normal;
-  max-width: 100%;
-}
-
 /* ---------- SQL 控制台工作台 ---------- */
 
 .stm-sql {

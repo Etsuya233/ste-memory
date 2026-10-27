@@ -677,3 +677,78 @@ select.ui-input {
   color: var(--ui-fg-2);
   font-size: var(--ui-fs-sm);
 }
+
+/* Inline field geometry includes resetting label margins supplied by the host page. */
+.ui-form-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 var(--ui-list-inset);
+  border: 1px solid var(--ui-group-border);
+  border-radius: var(--ui-radius-card);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-group-shadow);
+  font-size: max(16px, var(--ui-fs-md));
+  line-height: 1.5;
+}
+.ui-form-row-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  min-height: 56px;
+}
+.ui-form-row .ui-form-row-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ui-form-row-control {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.ui-form-row .ui-form-row-control > .ui-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  text-align: end;
+  box-shadow: none;
+}
+.ui-form-row .ui-form-row-control > select.ui-input {
+  padding-inline-end: 24px;
+}
+.ui-form-row .ui-form-row-control > .ui-input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.ui-form-row .ui-form-row-control > .ui-input[aria-invalid="true"] {
+  box-shadow: inset 0 -1px var(--ui-danger);
+}
+.ui-form-row > .ui-field-hint,
+.ui-form-row > .ui-field-error {
+  padding-bottom: 12px;
+  text-align: start;
+}
+.ui-list-group .ui-form-row {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}

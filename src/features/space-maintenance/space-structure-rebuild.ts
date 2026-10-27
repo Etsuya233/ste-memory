@@ -1,3 +1,4 @@
+import type { MemoryMacro } from "../macros/macro-expression.ts";
 import type {
   MemoryField,
   MemorySpaceId,
@@ -16,6 +17,7 @@ import type {
  * 空间不存在返回 false（不创建空间）。
  */
 export interface SpaceStructureRebuildInput {
+  readonly macros?: readonly MemoryMacro[];
   readonly prompt?: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tables: readonly MemoryTable[];

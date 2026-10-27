@@ -1,4 +1,9 @@
 import {
+  copyMemoryMacros,
+  validateMacroDependencies,
+  type MemoryMacro,
+} from "../macros/macro-expression.ts";
+import {
   DomainError,
   memoryFieldConfiguration,
   memoryFieldKey,
@@ -34,6 +39,7 @@ export interface PresetInstantiationIds {
 }
 
 export interface InstantiatedSpaceStructure {
+  readonly macros: readonly MemoryMacro[];
   readonly tables: readonly MemoryTable[];
   readonly fields: readonly MemoryField[];
 }
@@ -44,6 +50,7 @@ export function instantiateTablePreset(
   ids: PresetInstantiationIds,
   now: string,
 ): InstantiatedSpaceStructure {
+  validateMacroDependencies(preset.macros ?? [], preset.tables);
   const tableIdByKey = new Map<string, MemoryTableId>();
   for (const table of preset.tables) {
     tableIdByKey.set(table.key, ids.table());
@@ -131,7 +138,11 @@ export function instantiateTablePreset(
       });
     }
   }
-  return { tables, fields };
+  return {
+    tables,
+    fields,
+    macros: copyMemoryMacros(preset.macros ?? [], () => crypto.randomUUID()),
+  };
 }
 
 /** 引用目标表 Key → 新表 ID；预设内没有该表 = 预设内容损坏（不静默降级）。 */

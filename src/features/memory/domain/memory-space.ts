@@ -1,3 +1,4 @@
+import type { MemoryMacro } from "./memory-macro.ts";
 import { DomainError } from "./domain-error.ts";
 
 export type MemorySpaceId = string & { readonly __brand: "MemorySpaceId" };
@@ -16,6 +17,7 @@ export interface MemorySpaceInitializationSource {
 }
 
 export interface MemorySpace {
+  readonly macros?: readonly MemoryMacro[];
   /** 复制自表格预设的通用填写规则；旧空间缺省为空。 */
   readonly prompt?: string;
   readonly id: MemorySpaceId;

@@ -1,3 +1,4 @@
+import { parseMemoryMacros } from "../../features/macros/macro-expression.ts";
 import type { Table } from "dexie";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type {
@@ -393,6 +394,19 @@ export class SqliteMemoryStore {
         (await this.#db.memorySpaces.toArray()).sort(
           (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
         ),
+      setMacros: async (id, macros, updatedAt) => {
+        return this.write(
+          id,
+          async () => {
+            const current = await get(id, "space", id);
+            if (!current) return undefined;
+            const next = { ...current, macros: parseMemoryMacros(macros), updatedAt };
+            await client.putEntity(id, "space", next);
+            return next;
+          },
+          token,
+        );
+      },
       rename: async (id, name, updatedAt) => {
         const current = await get(id, "space", id);
         if (!current) return undefined;
@@ -560,6 +574,7 @@ export class SqliteMemoryStore {
               space: {
                 ...unit.space,
                 prompt: input.prompt ?? "",
+                macros: input.macros ?? [],
                 initializationSource: input.initializationSource,
                 updatedAt: input.initializationSource.appliedAt,
               },

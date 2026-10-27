@@ -27,6 +27,7 @@ function sampleSnapshot(): MemoryBackupData {
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
+      macros: [],
       initializationSource: {
         presetId: "systemDefault",
         presetName: "系统默认",
@@ -274,13 +275,13 @@ describe("备份文件信封校验", () => {
   it("未知版本报「文件版本不支持」并携带版本号", () => {
     const error = decodeError({
       format: BACKUP_FORMAT,
-      version: 2,
+      version: 999,
       exportedAt: "2026-08-05T10:00:00.000Z",
       appVersion: "x",
       data: { spaces: [] },
     });
     expect(error.type).toBe("memory_backup_version_unsupported");
-    expect(error.param).toEqual({ version: 2 });
+    expect(error.param).toEqual({ version: 999 });
     expect(error.humanMsg).toContain("文件版本不支持");
   });
 

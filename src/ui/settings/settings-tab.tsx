@@ -1,3 +1,5 @@
+import { RerankConnectionEditor } from "./rerank-connection-editor.tsx";
+import { copyMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { Button, Input, Switch } from "../kit/controls.tsx";
 import { ListGroup, ListSection, ListRow, NavigationRow } from "../kit/list.tsx";
 import {
@@ -28,7 +30,7 @@ import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-
 import type { EntryPlacement, PluginSettings } from "../../features/settings/plugin-settings.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
 import { executeSpaceImport, planSpaceImport } from "../../features/chat-binding/space-import.ts";
-import type { MemoryView } from "../../features/macros/memory-views.ts";
+import type { MemoryMacro } from "../../features/macros/macro-expression.ts";
 import { AppearanceSettings } from "../shell/appearance-settings.tsx";
 import { PageChrome } from "../shell/page-layout.tsx";
 import { PanelBar, PanelBarAction } from "../shell/panel-bar.tsx";
@@ -79,15 +81,15 @@ import { mirrorStatusSummary, runtimeStatusLabel } from "../shell/space-info.ts"
 import { AgentPresetManager } from "./agent-preset-manager.tsx";
 import { AgentConnectionManager } from "./agent-connection-manager.tsx";
 import { CleaningRulesManager } from "./cleaning-rules-manager.tsx";
-import { MemoryViewsManager } from "./memory-views-manager.tsx";
-import { ChatScopeMacrosManager } from "./chat-scope-macros-manager.tsx";
+import { ExpressionMacrosManager } from "./expression-macros-manager.tsx";
 import { BuiltinMacrosList } from "./builtin-macros-list.tsx";
 import { MacroSettingsPage, MacroSettingsSummary } from "./macro-settings-page.tsx";
 import { macroBudgetInfo, macroNameStatus } from "./macro-ui-model.ts";
 import { TablePresetManager } from "./table-preset-manager.tsx";
+import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import type { SettingsService } from "../../features/settings/settings-service.ts";
 import type { MemoryFieldService, MemoryTableService } from "../../features/memory/index.ts";
-import type { MemoryBackupRepository } from "../../features/backup/index.ts";
+import type { MemoryBackupRepository, MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { ChatSpaceManager } from "../../features/chat-binding/chat-space-manager.ts";
 import type { ChatMetadataMirrorSync } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
@@ -101,7 +103,6 @@ import { captureSpaceStructure } from "../../features/table-presets/space-struct
 import type { AgentPresetPreviewPorts } from "../../features/agent-presets/preset-preview-model.ts";
 import type { MacroOverviewRow } from "../../features/macros/macro-overview-model.ts";
 import type { EntryMountControllerPort } from "../shell/entry-placement.ts";
-import type { StRegexEntry } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 
 // ---- 设置 Tab ----
@@ -116,8 +117,10 @@ const MACRO_SCOPE_TABS: readonly { readonly key: MacroScopeTab; readonly label: 
 ];
 
 export function SettingsTab(props: {
+  readonly presetUpdate: PresetSpaceUpdateService;
   readonly registerLeaveGuard?: (guard: (() => boolean) | null) => void;
   readonly settingsService: SettingsService;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   readonly tables: Pick<MemoryTableService, "list">;
   readonly fields: Pick<MemoryFieldService, "list">;
   readonly manager: Pick<ChatSpaceManager, "getStatus" | "syncToCurrentChat" | "importSpace">;
@@ -126,19 +129,28 @@ export function SettingsTab(props: {
     "loadSnapshot" | "restoreSnapshot" | "restoreSpace"
   >;
   readonly mirror: Pick<ChatMetadataMirrorSync, "kick" | "flushRebuiltSpace">;
-  readonly macro: Pick<MemoryMacroService, "kick">;
+  readonly macro: Pick<
+    MemoryMacroService,
+    | "kick"
+    | "skip"
+    | "getRecentResults"
+    | "subscribe"
+    | "testMacro"
+    | "getMigrationError"
+    | "getMigrationConflicts"
+    | "resolveMigrationConflict"
+  >;
   readonly spaceMaintenance: Pick<SpaceMaintenanceService, "clearRecords">;
   /** 表格预设应用服务（spec table-presets）：停止写入 + 原子重建 + 来源更新 */
   readonly presetApply: Pick<
     TablePresetApplyService,
-    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat"
+    "stopSpaceWrites" | "applyPreset" | "assertCurrentChat" | "validate"
   >;
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
-    readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly writeSelection: (ruleId: string | undefined) => void;
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
-    readonly readChatScopeMacros: () => readonly MemoryView[];
+    readonly readChatScopeMacros: () => readonly MemoryMacro[];
   };
   readonly presetPreview: AgentPresetPreviewPorts;
   readonly macroOverview: () => readonly MacroOverviewRow[];
@@ -156,17 +168,17 @@ export function SettingsTab(props: {
   /** 整库数据变更（导入备份成功）后的通知：触发依赖数据的区块重取 */
   readonly onDataChanged: () => void;
 }) {
-  // 当前对话的清洗列表选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
+  // 当前对话的清洗规则选择（ticket 22）：本地态 = chatMetadata 小指针的镜像，
   // 变更即写 chatMetadata（防抖持久化）；对话切换（status 变化）后重新读取。
-  const [chatCleaningListId, setChatCleaningListId] = useState<string | undefined>(() =>
+  const [chatCleaningRuleId, setChatCleaningRuleId] = useState<string | undefined>(() =>
     props.cleaning.readSelection(),
   );
   useEffect(() => {
-    setChatCleaningListId(props.cleaning.readSelection());
+    setChatCleaningRuleId(props.cleaning.readSelection());
   }, [props.status, props.cleaning]);
   // 当前对话的聊天 Scope 宏（双 Scope 宏系统）：本地态 = chatMetadata 的镜像，
   // 变更即写 chatMetadata（防抖持久化）+ macro.kick()；对话切换（status 变化）后重新读取。
-  const [chatScopeMacros, setChatScopeMacros] = useState<readonly MemoryView[]>(() =>
+  const [chatScopeMacros, setChatScopeMacros] = useState<readonly MemoryMacro[]>(() =>
     props.cleaning.readChatScopeMacros(),
   );
   useEffect(() => {
@@ -242,6 +254,7 @@ export function SettingsTab(props: {
     if (!window.confirm(plan.confirmMessage)) return;
     try {
       await executeFullBackupImport(plan, {
+        normalizeImportedSpace: props.normalizeImportedSpace,
         backup: props.backup,
         syncToCurrentChat: () => props.manager.syncToCurrentChat(),
         kickMacros: () => void props.macro.kick().catch(reportError),
@@ -298,15 +311,16 @@ export function SettingsTab(props: {
     try {
       reportInfo("正在导入…");
       await executeSpaceImport(plan, {
+        normalizeImportedSpace: props.normalizeImportedSpace,
         backup: props.backup,
         manager: props.manager,
         kickMacros: () => void props.macro.kick().catch(reportError),
         kickMirror: () => void props.mirror.kick().catch(reportError),
         onDataChanged: props.onDataChanged,
         // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
-        writeChatScopeMacros: (macros) => {
-          void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
-          setChatScopeMacros(macros);
+        writeChatScopeMacros: async (macros) => {
+          await props.settingsService.setChatScopeMacros(macros);
+          setChatScopeMacros(props.cleaning.readChatScopeMacros());
         },
       });
       reportSuccess(`已导入记忆空间「${plan.spaceName}」`);
@@ -343,7 +357,7 @@ export function SettingsTab(props: {
   async function spaceBackupText(
     spaceId: MemorySpaceId,
     includeHistory: boolean,
-    macros: readonly MemoryView[],
+    macros: readonly MemoryMacro[],
   ): Promise<string> {
     const snapshot = await props.backup.loadSnapshot();
     const unit = buildSpaceExportUnit(snapshot, spaceId, includeHistory, macros);
@@ -385,6 +399,7 @@ export function SettingsTab(props: {
       },
       active.space.id,
       active.space.prompt,
+      active.space.macros,
     );
   }
 
@@ -440,7 +455,7 @@ export function SettingsTab(props: {
   }
 
   const [activeGroup, setActiveGroup] = useState<
-    SettingsGroupKey | "embedding-connection" | "appearance" | null
+    SettingsGroupKey | "embedding-connection" | "rerank-connection" | "appearance" | null
   >(() => [...loadExpandedGroups(safeLocalStorage())][0] ?? null);
   const navigationRef = useRef<HTMLDivElement>(null);
   const categoryScroll = useRef(0);
@@ -468,7 +483,9 @@ export function SettingsTab(props: {
     [props.registerLeaveGuard],
   );
 
-  function toggleGroup(key: SettingsGroupKey | "embedding-connection" | "appearance" | null): void {
+  function toggleGroup(
+    key: SettingsGroupKey | "embedding-connection" | "rerank-connection" | "appearance" | null,
+  ): void {
     if (key === activeGroup) return;
     if (presetLeaveGuard.current && !presetLeaveGuard.current()) return;
     if (activeGroup === null)
@@ -478,7 +495,11 @@ export function SettingsTab(props: {
     setMacroCreateAction(null);
     saveExpandedGroups(
       safeLocalStorage(),
-      new Set(key && key !== "embedding-connection" && key !== "appearance" ? [key] : []),
+      new Set(
+        key && key !== "embedding-connection" && key !== "rerank-connection" && key !== "appearance"
+          ? [key]
+          : [],
+      ),
     );
   }
 
@@ -547,7 +568,7 @@ export function SettingsTab(props: {
         {
           key: "cleaning",
           title: "清洗规则",
-          summary: cleaningSummary(props.settings, chatCleaningListId),
+          summary: cleaningSummary(props.settings, chatCleaningRuleId),
         },
       ],
     },
@@ -563,6 +584,13 @@ export function SettingsTab(props: {
           key: "agent-connections",
           title: "Agent 连接",
           summary: agentConnectionsSummary(props.settings),
+        },
+        {
+          key: "rerank-connection",
+          title: "重排连接",
+          summary: props.settings.rerank.enabled
+            ? `已启用 · ${props.settings.rerank.connection?.model}`
+            : "默认关闭 · 可逐次启用",
         },
         {
           key: "embedding-connection",
@@ -612,6 +640,10 @@ export function SettingsTab(props: {
       ? macroBudgetInfo(props.macroOverview(), props.settings.macroName)
       : undefined;
   const macroSpaceId = props.status?.kind === "active" ? props.status.space.id : undefined;
+  const macroChatIdentity =
+    props.status?.kind === "active" && props.status.binding.version === 2
+      ? props.status.binding.chatIdentity
+      : undefined;
   const macroHasActiveSpace = macroSpaceId !== undefined;
 
   return (
@@ -622,6 +654,7 @@ export function SettingsTab(props: {
     >
       {activeGroup &&
       activeGroup !== "embedding-connection" &&
+      activeGroup !== "rerank-connection" &&
       !editorOwnsHeader &&
       !macroSettingsOpen ? (
         <PageChrome
@@ -718,6 +751,20 @@ export function SettingsTab(props: {
         )}
       </div>
 
+      {activeGroup === "rerank-connection" && (
+        <RerankConnectionEditor
+          onClose={() => toggleGroup(null)}
+          registerLeaveGuard={registerPresetLeaveGuard}
+          settings={props.settings.rerank}
+          onSave={async (settings) => {
+            try {
+              await props.settingsService.setRerankSettings(settings);
+            } finally {
+              props.onSettingsChange(props.settingsService.read());
+            }
+          }}
+        />
+      )}
       {/* 记忆宏：常用首位 */}
       <div
         className="stm-setting-group stm-setting-group--collapsible"
@@ -776,7 +823,10 @@ export function SettingsTab(props: {
 
                   {/* 全局宏：列表 CRUD（宏名/上限在独立宏设置页） */}
                   {macroScopeTab === "global" && (
-                    <MemoryViewsManager
+                    <ExpressionMacrosManager
+                      key={`global:${macroSpaceId}:${macroChatIdentity}`}
+                      scope="global"
+                      service={props.macro}
                       onCreateActionChange={setMacroCreateAction}
                       onEditingChange={setEditorOwnsHeader}
                       registerLeaveGuard={registerPresetLeaveGuard}
@@ -786,23 +836,36 @@ export function SettingsTab(props: {
                       readFields={(spaceId, tableId) =>
                         props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                       }
-                      readPreview={readMacroPreview}
-                      chatMacroNames={chatScopeMacros.map((macro) => macro.name)}
-                      views={props.settings.memoryViews}
-                      onChange={(views) => {
-                        void changeSettings(() => props.settingsService.setMemoryViews(views));
+                      otherNames={chatScopeMacros.map((macro) => macro.name)}
+                      macros={props.settings.macros}
+                      onCopyToChat={async (macro) => {
+                        const copied = copyMemoryMacros([macro], () => crypto.randomUUID())[0]!;
+                        let name = copied.name;
+                        let suffix = 2;
+                        while (chatScopeMacros.some((item) => item.name === name))
+                          name = `${copied.name}_${suffix++}`;
+                        const macros = [...chatScopeMacros, { ...copied, name }];
+                        await props.settingsService.setChatScopeMacros(macros);
+                        setChatScopeMacros(props.cleaning.readChatScopeMacros());
+                        setMacroScopeTab("chat");
+                      }}
+                      onChange={async (macros) => {
+                        await props.settingsService.setMacros(macros);
+                        props.onSettingsChange(props.settingsService.read());
                       }}
                     />
                   )}
 
                   {/* 对话宏：随对话文件走，同名优先于全局/内置宏 */}
                   {macroScopeTab === "chat" && (
-                    <ChatScopeMacrosManager
-                      chatIdentity={
-                        props.status?.kind === "active" && props.status.binding.version === 2
-                          ? props.status.binding.chatIdentity
-                          : undefined
+                    <ExpressionMacrosManager
+                      key={`chat:${macroSpaceId}:${macroChatIdentity}`}
+                      scope="chat"
+                      service={props.macro}
+                      onMigrationResolved={() =>
+                        setChatScopeMacros(props.cleaning.readChatScopeMacros())
                       }
+                      chatIdentity={macroChatIdentity}
                       onCreateActionChange={setMacroCreateAction}
                       onEditingChange={setEditorOwnsHeader}
                       registerLeaveGuard={registerPresetLeaveGuard}
@@ -812,12 +875,11 @@ export function SettingsTab(props: {
                       readFields={(spaceId, tableId) =>
                         props.fields.list(spaceId as MemorySpaceId, tableId as MemoryTableId)
                       }
-                      readPreview={readMacroPreview}
-                      globalMacroNames={props.settings.memoryViews.map((view) => view.name)}
+                      otherNames={props.settings.macros.map((view) => view.name)}
                       macros={chatScopeMacros}
-                      onChange={(macros) => {
-                        void changeSettings(() => props.settingsService.setChatScopeMacros(macros));
-                        setChatScopeMacros(macros);
+                      onChange={async (macros) => {
+                        await props.settingsService.setChatScopeMacros(macros);
+                        setChatScopeMacros(props.cleaning.readChatScopeMacros());
                       }}
                     />
                   )}
@@ -837,6 +899,8 @@ export function SettingsTab(props: {
         {activeGroup === "table-presets" && (
           <div className="stm-setting-group-body stm-setting-group-body--manager">
             <TablePresetManager
+              validatePreset={(preset) => props.presetApply.validate(preset)}
+              presetUpdate={props.presetUpdate}
               onBack={() => toggleGroup(null)}
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
@@ -936,15 +1000,14 @@ export function SettingsTab(props: {
               onEditingChange={setEditorOwnsHeader}
               registerLeaveGuard={registerPresetLeaveGuard}
               settings={props.settings}
-              selectedListId={chatCleaningListId}
-              onSelectList={(listId) => {
-                props.cleaning.writeSelection(listId);
-                setChatCleaningListId(listId);
+              selectedRuleId={chatCleaningRuleId}
+              onSelectRule={(ruleId) => {
+                props.cleaning.writeSelection(ruleId);
+                setChatCleaningRuleId(ruleId);
               }}
               onChange={(next) => {
                 saveSettings(next);
               }}
-              readStRegexEntries={props.cleaning.readStRegexEntries}
               readRecentMessages={props.cleaning.readRecentMessages}
             />
           </div>

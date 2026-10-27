@@ -34,8 +34,8 @@ function setup() {
       source: "custom",
       updateMode: "manual",
       groups: [
-        { id: "a", name: "背景", fieldIds: ["f"] },
-        { id: "b", name: "近况", fieldIds: ["f"] },
+        { key: "a", id: "a", name: "背景", fieldIds: ["f"] },
+        { key: "b", id: "b", name: "近况", fieldIds: ["f"] },
       ],
     },
   } as unknown as MemoryTable;

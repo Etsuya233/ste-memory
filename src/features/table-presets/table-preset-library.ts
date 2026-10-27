@@ -66,6 +66,7 @@ export function saveUserTablePreset(
     updatedAt: input.now,
     prompt: input.structure.prompt,
     tables: input.structure.tables,
+    macros: input.structure.macros,
   };
   return { settings: { ...settings, userPresets: [...settings.userPresets, preset] }, preset };
 }
@@ -102,6 +103,7 @@ export function overwriteUserTablePreset(
     ...preset,
     prompt: input.structure.prompt,
     tables: input.structure.tables,
+    macros: input.structure.macros,
     updatedAt: input.now,
   };
   return {

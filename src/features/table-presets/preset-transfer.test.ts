@@ -19,6 +19,7 @@ describe("表格预设导入导出", () => {
     const text = serializeTablePresetExport(STORY_MEMORY_PRESET, NOW);
     const parsed = parseTablePresetExport(text);
     expect(parsed).toEqual({
+      macros: STORY_MEMORY_PRESET.macros,
       name: STORY_MEMORY_PRESET.name,
       description: STORY_MEMORY_PRESET.description,
       prompt: STORY_MEMORY_PRESET.prompt,
@@ -67,7 +68,7 @@ describe("表格预设导入导出", () => {
     const raw = JSON.parse(serializeTablePresetExport(STORY_MEMORY_PRESET, NOW));
     switch (kind) {
       case "未知版本":
-        raw.version = 2;
+        raw.version = 999;
         break;
       case "错误字段类型":
         raw.preset.tables[0].fields[0].type = "unknown";

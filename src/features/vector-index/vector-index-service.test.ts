@@ -26,7 +26,7 @@ const table = {
     enabled: true,
     source: "custom",
     updateMode: "automatic",
-    groups: [{ id: "group", name: "组合", fieldIds: ["field"] }],
+    groups: [{ key: "group", id: "group", name: "组合", fieldIds: ["field"] }],
   },
 } as unknown as MemoryTable;
 const field = { id: "field", name: "数量", enabled: true, type: "integer" } as MemoryField;
@@ -125,7 +125,7 @@ describe("VectorIndexService", () => {
       enabled: false,
       groups: [
         ...table.vectorIndex!.groups,
-        { id: "invalid", name: "失效", fieldIds: ["missing" as MemoryField["id"]] },
+        { key: "invalid", id: "invalid", name: "失效", fieldIds: ["missing" as MemoryField["id"]] },
       ],
     };
     const tableScope = { memorySpaceId: space, tableId: table.id };
@@ -291,7 +291,7 @@ it("索引与检索目标共用读时引用显示，目标模板依赖变化使�
     id: "source",
     vectorIndex: {
       ...table.vectorIndex!,
-      groups: [{ id: "g", name: "关联人物", fieldIds: ["ref"] }],
+      groups: [{ key: "g", id: "g", name: "关联人物", fieldIds: ["ref"] }],
     },
   } as unknown as MemoryTable;
   const personTable = {

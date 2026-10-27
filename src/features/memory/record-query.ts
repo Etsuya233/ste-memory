@@ -60,21 +60,23 @@ export class MemoryRecordQueryService {
     this.#execute = execute;
   }
 
+  static validateDefinition(input: QueryRecordsInput, fields: readonly MemoryField[]): void {
+    const byId = new Map(fields.map((field) => [field.id as string, field]));
+    for (const id of input.fieldIds ?? [])
+      if (!byId.has(id)) MemoryRecordQueryService.#invalid(input, "projection_field_not_found", id);
+    for (const condition of input.conditions ?? [])
+      MemoryRecordQueryService.#validateCondition(input, condition, byId);
+    MemoryRecordQueryService.#validateOrder(input, byId);
+  }
+
   async query(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage> {
     this.#validateShape(input);
     const table = await this.#tables.find(memorySpaceId, input.tableId);
-    if (!table) this.#invalid(input, "table_not_found");
+    if (!table) MemoryRecordQueryService.#invalid(input, "table_not_found");
     this.#validatePaging(input);
 
     const fields = await this.#fields.list(memorySpaceId, input.tableId);
-    const fieldsById = new Map(fields.map((field) => [field.id as string, field]));
-    for (const fieldId of input.fieldIds ?? []) {
-      if (!fieldsById.has(fieldId)) this.#invalid(input, "projection_field_not_found", fieldId);
-    }
-    for (const condition of input.conditions ?? []) {
-      this.#validateCondition(input, condition, fieldsById);
-    }
-    this.#validateOrder(input, fieldsById);
+    MemoryRecordQueryService.validateDefinition(input, fields);
 
     // 读时显示文本：模板策略表按当前定义与目标记录重渲（存储 displayText 可能过期），
     // $display_text 条件/排序同样对计算值求值——「搜到的 = 看到的」。
@@ -154,7 +156,7 @@ export class MemoryRecordQueryService {
       (candidate.order !== undefined &&
         (typeof candidate.order !== "object" || candidate.order === null))
     ) {
-      this.#invalid(input, "shape_invalid");
+      MemoryRecordQueryService.#invalid(input, "shape_invalid");
     }
   }
 
@@ -167,11 +169,11 @@ export class MemoryRecordQueryService {
       pageSize < 1 ||
       pageSize > 100
     ) {
-      this.#invalid(input, "paging_invalid");
+      MemoryRecordQueryService.#invalid(input, "paging_invalid");
     }
   }
 
-  #validateCondition(
+  static #validateCondition(
     input: QueryRecordsInput,
     condition: QueryRecordsCondition,
     fieldsById: ReadonlyMap<string, MemoryField>,
@@ -187,37 +189,44 @@ export class MemoryRecordQueryService {
         ? isNonEmptyStringArray(condition.value)
         : condition.value === null || typeof condition.value === "string";
       if (!operators.has(condition.operator) || !valueValid) {
-        this.#invalid(input, "condition_invalid", condition.fieldId);
+        MemoryRecordQueryService.#invalid(input, "condition_invalid", condition.fieldId);
       }
       return;
     }
     const field = fieldsById.get(condition.fieldId);
-    if (!field) this.#invalid(input, "condition_field_not_found", condition.fieldId);
-    const operators = this.#operatorsFor(field.type);
-    if (!operators.has(condition.operator) || !this.#conditionValueMatches(field, condition)) {
-      this.#invalid(input, "condition_invalid", condition.fieldId);
+    if (!field)
+      MemoryRecordQueryService.#invalid(input, "condition_field_not_found", condition.fieldId);
+    const operators = MemoryRecordQueryService.#operatorsFor(field.type);
+    if (
+      !operators.has(condition.operator) ||
+      !MemoryRecordQueryService.#conditionValueMatches(field, condition)
+    ) {
+      MemoryRecordQueryService.#invalid(input, "condition_invalid", condition.fieldId);
     }
   }
 
-  #validateOrder(input: QueryRecordsInput, fieldsById: ReadonlyMap<string, MemoryField>): void {
+  static #validateOrder(
+    input: QueryRecordsInput,
+    fieldsById: ReadonlyMap<string, MemoryField>,
+  ): void {
     const order = input.order;
     if (!order) return;
     if (order.direction !== "asc" && order.direction !== "desc") {
-      this.#invalid(input, "order_invalid", order.fieldId);
+      MemoryRecordQueryService.#invalid(input, "order_invalid", order.fieldId);
     }
     if (systemFields.has(order.fieldId as QueryRecordSystemFieldId)) return;
     const field = fieldsById.get(order.fieldId);
-    if (!field) this.#invalid(input, "order_field_not_found", order.fieldId);
+    if (!field) MemoryRecordQueryService.#invalid(input, "order_field_not_found", order.fieldId);
     if (
       field.type === "short_text_list" ||
       field.type === "multi_select" ||
       field.type === "multi_reference"
     ) {
-      this.#invalid(input, "order_field_not_sortable", order.fieldId);
+      MemoryRecordQueryService.#invalid(input, "order_field_not_sortable", order.fieldId);
     }
   }
 
-  #operatorsFor(type: MemoryField["type"]): ReadonlySet<QueryRecordOperator> {
+  static #operatorsFor(type: MemoryField["type"]): ReadonlySet<QueryRecordOperator> {
     switch (type) {
       case "short_text":
       case "long_text":
@@ -238,7 +247,7 @@ export class MemoryRecordQueryService {
     }
   }
 
-  #conditionValueMatches(field: MemoryField, condition: QueryRecordsCondition): boolean {
+  static #conditionValueMatches(field: MemoryField, condition: QueryRecordsCondition): boolean {
     if (inOperators.has(condition.operator)) {
       return (
         Array.isArray(condition.value) &&
@@ -338,7 +347,7 @@ export class MemoryRecordQueryService {
     return { ...record, payload: Object.fromEntries(entries) };
   }
 
-  #invalid(input: QueryRecordsInput, reason: string, fieldId?: string): never {
+  static #invalid(input: QueryRecordsInput, reason: string, fieldId?: string): never {
     throw new DomainError({
       type: "memory_record_query_invalid",
       param: {
@@ -375,8 +384,11 @@ function isValidFieldValue(field: MemoryField, value: unknown): boolean {
   }
 }
 
-/** 运行时的数组成员匹配：契约类型只表达 readonly string[]，in/not_in 元素可含任意标量。 */
-function arrayContains(value: MemoryFieldValue, item: MemoryFieldValue | undefined): boolean {
+/** 运行时的数组成员匹配：in/not_in 的集合元素可含任意标量。 */
+function arrayContains(
+  value: QueryRecordsCondition["value"],
+  item: MemoryFieldValue | undefined,
+): boolean {
   return Array.isArray(value) && (value as readonly unknown[]).includes(item);
 }
 

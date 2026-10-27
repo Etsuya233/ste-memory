@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./plugin-settings.ts";
+import type { MemoryMacro } from "../memory/index.ts";
 import { SettingsService } from "./settings-service.ts";
 
 function harness() {
@@ -21,18 +22,111 @@ function harness() {
     refreshAgentMacros: vi.fn(refresh),
     refreshMirror: vi.fn(refresh),
     writeChatScopeMacros: vi.fn(),
+    validateMacros: vi.fn(async (macros: readonly MemoryMacro[]) => macros),
+    getChatScopeMacros: (): readonly MemoryMacro[] => [],
+    getChatContext: () => "test-chat",
     refreshVectorIndex: vi.fn(async () => {}),
   };
   return { service: new SettingsService(dependencies), dependencies, observed };
 }
 
 describe("SettingsService", () => {
-  it("拒绝覆盖自动召回保留宏，大小写与 ST 注册规则一致", async () => {
+  it("编译分类覆盖输入元数据，新增语义宏停用且已有宏保留显式启用", async () => {
     const { service, dependencies } = harness();
-    const before = service.read().macroName;
-    await expect(service.setMacroName("{{MemoryRecall}}")).rejects.toThrow("保留宏名");
-    expect(service.read().macroName).toBe(before);
-    expect(dependencies.refreshMemoryMacros).not.toHaveBeenCalled();
+    const existing: MemoryMacro = {
+      id: "existing",
+      name: "已有语义",
+      enabled: true,
+      expression: { language: "sql", sql: "SELECT 1", usesSemantic: true },
+      output: { format: "json", maxChars: null },
+    };
+    service.save({ ...service.read(), macros: [existing] });
+    const incoming = [
+      existing,
+      {
+        ...existing,
+        id: "new",
+        name: "新语义",
+        expression: {
+          language: "sql" as const,
+          sql: "SELECT * FROM semantic_scores('events', '[]', 'query')",
+          usesSemantic: false,
+        },
+      },
+      {
+        ...existing,
+        id: "plain",
+        name: "普通",
+        expression: {
+          language: "sql" as const,
+          sql: "SELECT 'semantic_scores'",
+          usesSemantic: true,
+        },
+      },
+    ];
+    dependencies.validateMacros.mockResolvedValueOnce(
+      incoming.map((macro) => ({
+        ...macro,
+        expression: { ...macro.expression, usesSemantic: macro.id !== "plain" },
+      })),
+    );
+    await service.setMacros(incoming);
+    expect(dependencies.validateMacros).toHaveBeenCalledWith(incoming, [existing]);
+    expect(service.read().macros.map((macro) => [macro.id, macro.enabled])).toEqual([
+      ["existing", true],
+      ["new", false],
+      ["plain", true],
+    ]);
+    expect(service.read().macros[1]!.expression).toMatchObject({ usesSemantic: true });
+    expect(service.read().macros[2]!.expression).toMatchObject({ usesSemantic: false });
+  });
+
+  it("对话宏使用编译结果保存，新语义宏关闭且已有语义宏启用状态保留", async () => {
+    const { service, dependencies } = harness();
+    const macro: MemoryMacro = {
+      id: "old",
+      name: "已有",
+      enabled: true,
+      expression: { language: "sql", sql: "SELECT 1" },
+      output: { format: "text", maxChars: null },
+    };
+    dependencies.getChatScopeMacros = () => [macro];
+    const incoming = [macro, { ...macro, id: "new", name: "新增" }];
+    dependencies.validateMacros.mockResolvedValueOnce(
+      incoming.map((item) => ({
+        ...item,
+        expression: { ...item.expression, usesSemantic: true },
+      })),
+    );
+    await service.setChatScopeMacros(incoming);
+    expect(dependencies.writeChatScopeMacros).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "old", enabled: true }),
+      expect.objectContaining({ id: "new", enabled: false }),
+    ]);
+  });
+
+  it("异步校验期间切换对话，旧草稿不能保存到新空间", async () => {
+    const { service, dependencies } = harness();
+    let context = "chat-A";
+    dependencies.getChatContext = () => context;
+    let finish!: () => void;
+    dependencies.validateMacros.mockImplementationOnce(
+      () =>
+        new Promise<readonly MemoryMacro[]>((resolve) => {
+          finish = () => resolve([]);
+        }),
+    );
+    const saving = service.setChatScopeMacros([]);
+    context = "chat-B";
+    finish();
+    await expect(saving).rejects.toThrow("对话已切换");
+    expect(dependencies.writeChatScopeMacros).not.toHaveBeenCalled();
+  });
+  it("旧召回宏名不再被专用功能保留", async () => {
+    const { service, dependencies } = harness();
+    await service.setMacroName("{{MemoryRecall}}");
+    expect(service.read().macroName).toBe("{{MemoryRecall}}");
+    expect(dependencies.refreshMemoryMacros).toHaveBeenCalledOnce();
   });
   it("保存独立向量连接后刷新索引，非法配置不落库", async () => {
     const { service, dependencies } = harness();
@@ -86,7 +180,7 @@ describe("SettingsService", () => {
     service.setEntryPlacement("wand");
     await service.setMacroName("{{memory}}");
     await service.setMacroLimit(4000);
-    await service.setMemoryViews([]);
+    await service.setMacros([]);
     expect(service.read()).toMatchObject({
       macroName: "{{memory}}",
       macroLimit: 4000,

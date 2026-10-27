@@ -12,7 +12,7 @@ import {
   type TasksTabViewModel,
 } from "./task-panel-model.ts";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
-import type { CleaningRuleList } from "../../features/cleaning/cleaning-rule-lists.ts";
+import type { CleaningRule } from "../../features/cleaning/cleaning-rules.ts";
 
 const SPACE = "space-1" as MemorySpaceId;
 
@@ -173,6 +173,24 @@ describe("validateFloorRangeIntegers（楼层整数校验：同步楼层 0 基�
 });
 
 describe("taskStatusViewModel（任务状态 → 文案，失败原因可读）", () => {
+  it("手动和初始化任务共用重试倒计时及失败原因展示", () => {
+    const retryState = {
+      from: 2,
+      to: 3,
+      attempt: 1,
+      maxAttempts: 2,
+      retryAt: Date.now() + 10000,
+      errorMessage: "500",
+    };
+    expect(taskStatusViewModel(task({ retryState }))).toEqual({
+      label: "等待重试",
+      detail: "楼层 #2–#3：第 1/2 次重试，10 秒后开始。500",
+    });
+    expect(taskStatusViewModel(task({ kind: "init", initText: "初始化", retryState }))).toEqual({
+      label: "等待重试",
+      detail: "初始化填表：第 1/2 次重试，10 秒后开始。500",
+    });
+  });
   it("running：状态 + 进度；succeeded/failed/interrupted：终态文案，failed 带错误信息", () => {
     expect(taskStatusViewModel(task())).toEqual({ label: "运行中", detail: "已处理 4/10 层" });
     expect(taskStatusViewModel(task({ status: "succeeded" }))).toEqual({
@@ -281,8 +299,8 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
     activeTask: undefined as FillTaskView | undefined,
     historyTasks: [] as readonly FillTaskView[],
     cleaning: {
-      selectedListId: undefined as string | undefined,
-      lists: [] as readonly CleaningRuleList[],
+      selectedRuleId: undefined as string | undefined,
+      rules: [] as readonly CleaningRule[],
     },
   };
 
@@ -414,15 +432,45 @@ describe("buildTasksTabViewModel（任务 Tab 视图模型：触发表单 + 活�
 
     const dangling = buildTasksTabViewModel({
       ...base,
-      cleaning: { selectedListId: "deleted", lists: [{ id: "l1", name: "我的清洗", rules: [] }] },
+      cleaning: {
+        selectedRuleId: "deleted",
+        rules: [
+          {
+            id: "l1",
+            name: "我的清洗",
+            enabled: true,
+            keepTags: [],
+            excludeTags: [{ pre: "<x>", post: "</x>" }],
+          },
+        ],
+      },
     });
-    expect(dangling.cleaningHint).toBe("所选清洗规则列表不存在，未清洗");
+    expect(dangling.cleaningHint).toBe("所选清洗规则不存在，未清洗");
 
     const active = buildTasksTabViewModel({
       ...base,
-      cleaning: { selectedListId: "l1", lists: [{ id: "l1", name: "我的清洗", rules: [] }] },
+      cleaning: {
+        selectedRuleId: "l1",
+        rules: [
+          {
+            id: "l1",
+            name: "我的清洗",
+            enabled: true,
+            keepTags: [],
+            excludeTags: [{ pre: "<x>", post: "</x>" }],
+          },
+        ],
+      },
     });
     expect(active.cleaningHint).toBe("清洗：我的清洗");
+    const disabled = buildTasksTabViewModel({
+      ...base,
+      cleaning: {
+        selectedRuleId: "r1",
+        rules: [{ id: "r1", name: "正文", enabled: false, keepTags: [], excludeTags: [] }],
+      },
+    });
+    expect(disabled.cleaningHint).toBe("清洗规则已停用：正文");
   });
 });
 
@@ -458,7 +506,7 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       ledger: [],
       activeTask: initTask({ status: "running" }),
       historyTasks: [],
-      cleaning: { selectedListId: undefined, lists: [] },
+      cleaning: { selectedRuleId: undefined, rules: [] },
     });
     expect(view).toMatchObject({
       hasActiveTask: true,
@@ -476,7 +524,7 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       ledger: [],
       activeTask: undefined,
       historyTasks: [],
-      cleaning: { selectedListId: undefined, lists: [] },
+      cleaning: { selectedRuleId: undefined, rules: [] },
     });
     expect(empty.canTriggerInit).toBe(true);
     expect(empty.canTrigger).toBe(false);
@@ -489,7 +537,7 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       ledger: [],
       activeTask: undefined,
       historyTasks: [initTask({ status: "succeeded", runId: "run-init" })],
-      cleaning: { selectedListId: undefined, lists: [] },
+      cleaning: { selectedRuleId: undefined, rules: [] },
     });
     expect(view.history).toHaveLength(1);
     expect(view.history[0]).toEqual({
@@ -511,7 +559,7 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
       ledger: [],
       activeTask: undefined,
       historyTasks: [task({ status: "succeeded", runId: "run-floor" })],
-      cleaning: { selectedListId: undefined, lists: [] },
+      cleaning: { selectedRuleId: undefined, rules: [] },
     });
     expect(view.history[0]).toMatchObject({
       kindLabel: "填表",
@@ -537,7 +585,7 @@ it("等待队列的楼层纳入任务中覆盖，初始化任务不占用楼层"
     activeTask: init,
     pendingTasks: [init, queued],
     historyTasks: [],
-    cleaning: { selectedListId: undefined, lists: [] },
+    cleaning: { selectedRuleId: undefined, rules: [] },
   });
   expect(view.coverage).toMatchObject({ runningCount: 3, untrackedCount: 3 });
   expect(view.pendingTasks).toEqual([init, queued]);

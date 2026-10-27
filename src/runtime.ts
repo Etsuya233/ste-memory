@@ -1,10 +1,19 @@
+import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
+import type { RerankPort } from "./features/semantic-query/rerank.ts";
+import type {
+  SqlValue,
+  SqlExecutionResult,
+  SqlResultSet,
+} from "./features/sql-console/sql-console.ts";
+import { createSemanticQuerySession } from "./features/semantic-query/semantic-query-session.ts";
+import { createSemanticQueryExecutor } from "./features/semantic-query/semantic-query-service.ts";
 import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
-import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import {
-  MemoryRecallService,
-  DEFAULT_RECALL_CONFIGURATION,
-  type RecallConfiguration,
-} from "./features/vector-retrieval/memory-recall-service.ts";
+  buildPresetUpdate,
+  previewPresetUpdate,
+  type PresetSpaceUpdateService,
+} from "./features/table-presets/preset-space-update.ts";
+import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
 import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
@@ -14,6 +23,7 @@ import {
   MemorySpaceService,
   MemoryTableService,
   createReadTimeDisplayTextResolver,
+  effectiveVectorIndexGroups,
   type MemoryEvidenceId,
   type MemoryFieldId,
   type MemoryRecordHistoryId,
@@ -64,6 +74,9 @@ import { QueryChatService } from "./features/query-chat/query-chat-service.ts";
 import type { Table } from "dexie";
 import type { LogRepository } from "./features/logging/log.ts";
 import { MemoryMacroService } from "./features/macros/memory-macro-service.ts";
+import { createMacroEvaluationBatch } from "./features/macros/macro-evaluation.ts";
+import { QueryVectorCache } from "./features/semantic-query/query-vector-cache.ts";
+import type { MemoryMacro } from "./features/macros/macro-expression.ts";
 import {
   AgentMacroService,
   AGENT_TABLES_DIGEST_MACRO,
@@ -78,17 +91,12 @@ import { createFillTaskPromptContext } from "./features/fill-tasks/prompt-contex
 import type { FillSourceMessage } from "./features/fill-tasks/fill-task.ts";
 import type { SettingsStore } from "./features/settings/plugin-settings.ts";
 import { SettingsService } from "./features/settings/settings-service.ts";
-import { resolveSelectedCleaningRules } from "./features/cleaning/cleaning-rule-lists.ts";
-import type { MemoryView } from "./features/macros/memory-views.ts";
+import { findSelectedCleaningRule } from "./features/cleaning/cleaning-rules.ts";
 import { ChatSpaceManager, chatIdentityKey } from "./features/chat-binding/chat-space-manager.ts";
 import { TablePresetApplyService } from "./features/table-presets/table-preset-apply-service.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import { resolveDefaultTablePreset } from "./features/table-presets/preset-model.ts";
-import {
-  StChatAdapter,
-  type StContext,
-  type StRegexEntry,
-} from "./infrastructure/sillytavern/chat-adapter.ts";
+import { StChatAdapter, type StContext } from "./infrastructure/sillytavern/chat-adapter.ts";
 import { StSettingsStore } from "./infrastructure/sillytavern/settings-store.ts";
 import {
   createAgentConnectionLlmPort,
@@ -118,6 +126,7 @@ export interface SteMemoryRuntime {
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
   readonly settings: SettingsStore;
   readonly settingsService: SettingsService;
+  readonly normalizeImportedSpace: (unit: MemorySpaceBackup) => Promise<MemorySpaceBackup>;
   /** 对话文件镜像（ticket 16）：状态订阅 + 设置变化 kick；随聊天文件同步记忆快照 */
   readonly mirror: ChatMetadataMirrorSync;
   /** 填表任务（ticket 13）：手动楼层范围触发/取消 + 台账；启动时中断非终态任务 */
@@ -125,15 +134,15 @@ export interface SteMemoryRuntime {
   readonly vector: VectorIndexService;
   readonly retrieval: VectorRetrievalService;
   readonly sqlConsole: SqlConsole;
-  readonly memoryRecall: MemoryRecallService;
   readonly autoFill: AutoFillService;
   /** 空间维护（spec reset-space）：清除空间记录（危险操作区） */
   readonly spaceMaintenance: SpaceMaintenanceService;
   /** 表格预设（spec table-presets）：首次创建安装与当前空间应用（原子重建） */
   readonly presetApply: TablePresetApplyService;
+  readonly presetUpdate: PresetSpaceUpdateService;
   /** 通用日志（独立数据库，ADR 0015）：本地审计日志（填表行流）；不同步不备份不随空间删除 */
   readonly logs: LogRepository;
-  /** 记忆宏（ticket 15）：设置变化 kick（宏名/上限/开关即时生效）；快照按指纹轮询重建 */
+  /** 记忆宏：注册、生成时统一计算与独立测试。 */
   readonly macro: MemoryMacroService;
   /** Agent 预设宏（ticket 17）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 + 快照轮询 */
   readonly agentMacro: AgentMacroService;
@@ -154,15 +163,14 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
-  /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目读取 + 聊天 Scope 宏 */
+  /** 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写 + 聊天 Scope 宏 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
-    readonly writeSelection: (listId: string | undefined) => void;
-    readonly readStRegexEntries: () => readonly StRegexEntry[];
+    readonly writeSelection: (ruleId: string | undefined) => void;
     /** 最近 N 条对话消息（ticket 27 清洗测试「从当前对话载入」数据源，与填表任务同源） */
     readonly readRecentMessages: (count: number) => readonly FillSourceMessage[];
-    readonly readChatScopeMacros: () => readonly MemoryView[];
-    readonly writeChatScopeMacros: (macros: readonly MemoryView[]) => void;
+    readonly readChatScopeMacros: () => readonly MemoryMacro[];
+    readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void>;
   };
   /** 插件版本（构建时注入，设置面板展示） */
   readonly version: string;
@@ -186,6 +194,7 @@ export interface StartSteMemoryOptions {
   readonly snapshotFiles?: ChatSnapshotFileStore;
   /** 测试与其他宿主可注入 embedding 实现；浏览器默认使用独立 HTTP 连接。 */
   readonly embedding?: VectorEmbeddingPort;
+  readonly rerank?: RerankPort;
   readonly log?: PluginLog;
   /** 时钟；缺省 = Date.toISOString（测试注入固定时钟） */
   readonly now?: () => string;
@@ -461,11 +470,8 @@ export async function startSteMemory(
     now,
     logError: (message, error) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`, error),
     // 任务开始执行时冻结当前对话的清洗规则，后续批次共用该快照。
-    resolveCleaningRules: () =>
-      resolveSelectedCleaningRules(
-        settings.read().cleaningRuleLists,
-        adapter.cleaningListStore.read(),
-      ),
+    readCleaningRule: () =>
+      findSelectedCleaningRule(settings.read().cleaningRules, adapter.cleaningRuleStore.read()),
   });
 
   const mirror = new ChatMetadataMirrorSync({
@@ -494,6 +500,43 @@ export async function startSteMemory(
   });
   persistence.onStatusChange(() => mirror.reportSaveStatus(persistence.getStatus()));
   const presetApply = new TablePresetApplyService({
+    validateStructure: async (structure) => {
+      if (!structure.macros.length) return structure;
+      const at = now();
+      const snapshot: MemorySpaceBackup = {
+        space: {
+          id: structure.tables[0]?.memorySpaceId ?? ("preset-validation" as MemorySpaceId),
+          name: "预设校验",
+          initializationSource: null,
+          createdAt: at,
+          updatedAt: at,
+          macros: structure.macros,
+        },
+        tables: structure.tables,
+        fields: structure.fields,
+        records: [],
+        history: [],
+        evidence: [],
+      };
+      const batch = await createMacroBatch(snapshot, {
+        lastUserMessage: null,
+        signal: AbortSignal.timeout(10_000),
+        deadline: performance.now() + 10_000,
+      });
+      try {
+        const macros = await Promise.all(
+          structure.macros.map(async (macro) => {
+            const usesSemantic = await batch.validate(macro.expression);
+            return macro.expression.language === "sql"
+              ? { ...macro, expression: { ...macro.expression, usesSemantic } }
+              : macro;
+          }),
+        );
+        return { ...structure, macros };
+      } finally {
+        await batch.close();
+      }
+    },
     cancelActiveTask: (id) => tasks.cancelAll(id),
     rebuild: spaceStructureRebuild,
     defaultPreset: () =>
@@ -552,13 +595,28 @@ export async function startSteMemory(
     spaces,
     installer: { installDefaultStructure: (id) => presetApply.installDefaultStructure(id) },
     log: { info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`) },
-    // 分支对话分离：cloneSpace 克隆空间 + ID 工厂
-    backup,
+    // 新空间副本重新编译宏依赖，避免导入元数据伪装成普通 SQL。
+    backup: {
+      cloneSpace: async (id, ids) => {
+        const snapshot = await backup.loadSnapshot();
+        const unit = snapshot.spaces.find((item) => item.space.id === id);
+        if (!unit) throw new Error(`源空间不存在：${id}`);
+        const committed = await memoryStore.snapshot(id);
+        if (!committed) throw new Error(`源空间尚未就绪：${id}`);
+        return backup.cloneSpaceFromUnit(
+          await normalizeImportedSpace({ ...unit, ...committed }),
+          ids,
+        );
+      },
+      cloneSpaceFromUnit: async (unit, ids) =>
+        backup.cloneSpaceFromUnit(await normalizeImportedSpace(unit), ids),
+    },
     createId,
   });
 
   const embedding =
     options.embedding ?? new OpenAiEmbeddingPort(() => settings.read().embeddingConnection);
+  const queryVectorCache = new QueryVectorCache();
   const vectorRepository = new DexieVectorIndexRepository(db);
   const vector = new VectorIndexService(
     tableRepository,
@@ -590,61 +648,14 @@ export async function startSteMemory(
     embedding,
     retrievalContext,
   );
-  const recallRetrieval = new VectorRetrievalService(
-    tableRepository,
-    fieldRepository,
-    vector,
-    vectorRepository,
-    embedding,
-    retrievalContext,
-  );
   const currentSpaceId = () => {
     const status = manager.getStatus();
     return status?.kind === "active" ? status.space.id : null;
   };
-  const memoryRecall = new MemoryRecallService({
-    retrieval: recallRetrieval,
-    reader,
-    context: retrievalContext,
-    spaceId: currentSpaceId,
-    readConfiguration: () =>
-      ((getContext() as StContext).chatMetadata?.steMemoryRecall as
-        RecallConfiguration | undefined) ?? DEFAULT_RECALL_CONFIGURATION,
-    writeConfiguration: (configuration) => {
-      const context = getContext() as StContext;
-      if (!context.chatMetadata) throw new Error("当前对话尚未准备好");
-      context.chatMetadata.steMemoryRecall = configuration;
-      context.saveMetadataDebounced?.();
-    },
-    views: (scope) =>
-      scope === "global" ? settings.read().memoryViews : adapter.chatScopeMacroStore.read(),
-    enabled: () =>
-      settings.read().enabled &&
-      resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall",
-    source: (floor) => adapter.getMessageAt(floor),
-    lastUser: () => {
-      for (let floor = adapter.chatMessageCount() - 1; floor >= 0; floor--)
-        if (adapter.getMessageAt(floor)?.isUser) return floor;
-      return -1;
-    },
-    stopGeneration: () => {
-      (getContext() as StContext).stopGeneration?.();
-    },
-    isGroup: () => Boolean((getContext() as StContext).groupId),
-  });
-  let recallContext = "";
-  const syncRetrievalContext = () => {
-    const status = manager.getStatus();
-    retrieval.setContext(retrievalContext(), status?.kind === "active" ? status.space.id : null);
-    recallRetrieval.setContext(retrievalContext(), currentSpaceId());
-    if (recallContext !== retrievalContext()) {
-      recallContext = retrievalContext();
-      memoryRecall.syncContext();
-    }
-  };
+  let chatMacros: readonly MemoryMacro[] = [];
+  const syncRetrievalContext = () => retrieval.setContext(retrievalContext(), currentSpaceId());
   manager.onStatusChange(syncRetrievalContext);
   trackRetrievalChanges(db, retrieval);
-  trackRetrievalChanges(db, recallRetrieval);
   await vector.start();
   const vectorSync = new VectorIndexChangeSync(
     db,
@@ -654,9 +665,58 @@ export async function startSteMemory(
   );
   vectorSync.start();
 
+  const semanticEvaluationInput = (
+    snapshot: MemorySpaceBackup,
+    context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
+  ) => {
+    const connection = settings.read().embeddingConnection;
+    const rerankSettings = structuredClone(settings.read().rerank);
+    const captured = connection ? structuredClone(connection) : undefined;
+    const batchEmbedding = options.embedding ?? new OpenAiEmbeddingPort(() => captured);
+    const revision = queryVectorCache.revisionFor({
+      connection: captured,
+      profile: batchEmbedding.getProfile(),
+    });
+    const queryVectors = queryVectorCache.createExecution({
+      embedding: batchEmbedding,
+      revision,
+      signal: context.signal,
+      isCurrent: () =>
+        queryVectorCache.revisionFor({
+          connection: settings.read().embeddingConnection,
+          profile: embedding.getProfile(),
+        }) === revision,
+    });
+    return {
+      sql: sqlite,
+      vectors: vectorRepository,
+      embedding: batchEmbedding,
+      rerankSettings,
+      rerank:
+        options.rerank ??
+        (rerankSettings.connection ? new HttpRerankPort(rerankSettings.connection) : undefined),
+      queryVectors,
+      onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
+      snapshot,
+      ...context,
+    };
+  };
+  const semanticQuery = createSemanticQueryExecutor({
+    snapshot: async (spaceId) => {
+      if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+      const snapshot = await memoryStore.snapshot(spaceId);
+      if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+      return snapshot;
+    },
+    createSession: (snapshot, context) =>
+      createSemanticQuerySession(semanticEvaluationInput(snapshot, context)),
+    onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
+  });
+
   // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
   // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
   const queryChat = new QueryChatService({
+    semanticQuery,
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     recordWriter: records,
@@ -685,39 +745,124 @@ export async function startSteMemory(
   // 镜像同步启动：本地变更在轮询中回填进对话文件（文件自洽）
   await mirror.start();
 
-  // 记忆宏（ticket 15 / ADR 0004 + ticket 02 / ADR 0025）：注册由设置面板配置的宏名
-  // （带可选视图名参数），预计算快照（默认 + 每视图）随变更指纹/视图设置重建
-  // （与镜像同机制）；handler 同步返回快照（ST 宏引擎同步约束）
-  const macro = new MemoryMacroService({
-    getSpaceId: () => {
-      const status = manager.getStatus();
-      return status?.kind === "active" ? status.space.id : undefined;
-    },
-    data: {
-      listTables: (id) => tableRepository.list(id),
-      listRecords: (id, tableId) => recordRepository.list(id, tableId),
-    },
-    // 视图翻译/查询/引用解析共用既有 reader（queryRecords → MemoryRecordQueryService）
-    reader,
-    readSettings: () => {
-      const settingsValue = settings.read();
-      return {
-        enabled: settingsValue.enabled,
-        macroName: settingsValue.macroName,
-        macroLimit: settingsValue.macroLimit,
-        memoryViews: settingsValue.memoryViews,
-      };
-    },
-    registerMacro: adapter.macroRegistration,
-    changes: new DexieMemoryChangeSource(db),
-    readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
-    log: {
-      info: (message) => log.info(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
-      warn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
-      error: (message) => log.error(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
-    },
+  const refreshChatMacros = async () => {
+    const context = retrievalContext();
+    const id = currentSpaceId();
+    const space = id ? await spaces.find(id) : undefined;
+    if (context === retrievalContext()) chatMacros = space?.macros ?? [];
+  };
+  const createMacroBatch = (
+    snapshot: MemorySpaceBackup,
+    context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
+  ) => createMacroEvaluationBatch(semanticEvaluationInput(snapshot, context));
+  const classifyMacros = async (
+    snapshot: MemorySpaceBackup,
+    macros: readonly MemoryMacro[],
+  ): Promise<readonly MemoryMacro[]> => {
+    if (!macros.length) return macros;
+    const signal = AbortSignal.timeout(10_000);
+    const batch = await createMacroBatch(snapshot, {
+      lastUserMessage: null,
+      signal,
+      deadline: performance.now() + 10_000,
+    });
+    try {
+      return await Promise.all(
+        macros.map(async (macro) => {
+          const usesSemantic = await batch.validate(macro.expression);
+          return macro.expression.language === "sql"
+            ? { ...macro, expression: { ...macro.expression, usesSemantic } }
+            : macro;
+        }),
+      );
+    } finally {
+      await batch.close();
+    }
+  };
+  const validateMacros = async (
+    macros: readonly MemoryMacro[],
+    previous: readonly MemoryMacro[],
+  ): Promise<readonly MemoryMacro[]> => {
+    if (!macros.length) return macros;
+    const normalized = new Map<string, MemoryMacro>();
+    const pending: MemoryMacro[] = [];
+    for (const macro of macros) {
+      const before = previous.find((item) => item.id === macro.id);
+      if (
+        macro.expression.language === "query" &&
+        before?.expression.language === "query" &&
+        JSON.stringify(macro.expression) === JSON.stringify(before.expression)
+      ) {
+        normalized.set(macro.id, macro);
+      } else if (
+        macro.expression.language === "sql" &&
+        before?.expression.language === "sql" &&
+        macro.expression.sql === before.expression.sql &&
+        JSON.stringify(macro.expression.sources ?? []) ===
+          JSON.stringify(before.expression.sources ?? []) &&
+        (typeof before.expression.usesSemantic === "boolean" ||
+          (before.expression.sources?.length ?? 0) > 0)
+      ) {
+        normalized.set(macro.id, {
+          ...macro,
+          expression: {
+            ...macro.expression,
+            usesSemantic:
+              (before.expression.sources?.length ?? 0) > 0 ||
+              before.expression.usesSemantic === true,
+          },
+        });
+      } else pending.push(macro);
+    }
+    if (!pending.length) return macros.map((macro) => normalized.get(macro.id)!);
+    const id = currentSpaceId();
+    if (!id) {
+      if (pending.some((macro) => macro.expression.language === "sql"))
+        throw new Error("请先打开已绑定记忆空间的对话，再保存 SQL 宏");
+      for (const macro of pending) normalized.set(macro.id, macro);
+      return macros.map((macro) => normalized.get(macro.id)!);
+    }
+    const snapshot = await memoryStore.snapshot(id);
+    if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+    for (const macro of await classifyMacros(snapshot, pending)) normalized.set(macro.id, macro);
+    return macros.map((macro) => normalized.get(macro.id)!);
+  };
+  const normalizeImportedSpace = async (unit: MemorySpaceBackup): Promise<MemorySpaceBackup> => ({
+    ...unit,
+    space: { ...unit.space, macros: await classifyMacros(unit, unit.space.macros ?? []) },
+    ...(unit.chatScopeMacros === undefined
+      ? {}
+      : { chatScopeMacros: await classifyMacros(unit, unit.chatScopeMacros) }),
   });
-
+  const writeChatMacros = async (macros: readonly MemoryMacro[]) => {
+    const id = currentSpaceId();
+    const context = retrievalContext();
+    if (!id) throw new Error("当前对话尚未准备好");
+    const saved = await spaces.setMacros(id, macros);
+    if (!saved) throw new Error("记忆空间已不存在");
+    if (context !== retrievalContext()) return;
+    chatMacros = macros;
+    await manager.refreshSpace(id);
+  };
+  const macro = new MemoryMacroService({
+    getContext: retrievalContext,
+    getChatMacros: () => chatMacros,
+    saveChatMacros: writeChatMacros,
+    readLegacyChatMacros: () => adapter.chatScopeMacroStore.read(),
+    writeLegacyChatMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
+    readSettings: () => settings.read(),
+    capture: async () => {
+      const id = currentSpaceId();
+      return id ? memoryStore.snapshot(id) : undefined;
+    },
+    createBatch: createMacroBatch,
+    registerMacro: adapter.macroRegistration,
+    now,
+  });
+  memoryStore.onCommitted = async (snapshot) => {
+    macro.markStale();
+    await saveSnapshot(snapshot);
+  };
   const autoFill = new AutoFillService({
     tasks,
     chatStore: adapter.autoFillStore,
@@ -756,11 +901,21 @@ export async function startSteMemory(
     reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
   });
 
+  async function syncCurrentChat() {
+    adapter.cleaningRuleStore.read();
+    adapter.clearLegacyRecall();
+    const state = await manager.syncToCurrentChat();
+    await refreshChatMacros();
+    if (state.kind === "active") await macro.migrateLegacyChatMacros();
+    return state;
+  }
+
   let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
       const stoppingAutoFill = autoFill.chatChanged();
-      memoryRecall.chatChanged();
+      macro.chatChanged();
+      chatMacros = [];
       chatEpoch++;
       retrieval.setContext(retrievalContext(), null, true);
       // 插件总开关门控：停用期间不响应切对话（重新启用时由设置面板触发同步）
@@ -778,7 +933,7 @@ export async function startSteMemory(
             void saveSnapshot(snapshot).catch((error) => log.error("旧对话记忆保存失败", error));
           await memoryStore.unload(previous.space.id);
         }
-        await manager.syncToCurrentChat();
+        await syncCurrentChat();
         autoFill.chatReady();
       });
       switching = next.catch((error) => {
@@ -787,24 +942,36 @@ export async function startSteMemory(
       });
       return switching;
     },
-    // 把召回 Promise 原样返回 MESSAGE_SENT，ST 等待后才构建本轮提示词。
     onMessageEvent: (kind, floor) =>
-      kind === "message_sent" && floor !== undefined ? memoryRecall.messageSent(floor) : undefined,
+      kind === "message_sent" && floor !== undefined
+        ? macro.messageSent(adapter.getMessageAt(floor))
+        : undefined,
     onGenerationStarted: (type, options, dryRun) => {
-      memoryRecall.started(type, options, dryRun);
+      macro.started(type, options, dryRun);
       if (!dryRun && type !== "quiet" && type !== "impersonate") autoFill.generationStarted();
     },
+    onGenerationAfterCommands: (type, options, dryRun) => {
+      let lastUserMessage: string | null = null;
+      for (let floor = adapter.chatMessageCount() - 1; floor >= 0; floor--) {
+        const message = adapter.getMessageAt(floor);
+        if (message?.isUser) {
+          lastUserMessage = message.content;
+          break;
+        }
+      }
+      return macro.afterCommands(type, options, dryRun, lastUserMessage);
+    },
     onGenerationEnded: () => autoFill.generationEnded(),
-    onGenerationStopped: () => memoryRecall.stop(),
-    onGenerationFinished: (dryRun) => memoryRecall.generationFinished(dryRun),
-    shouldAwaitRecall: () => memoryRecall.getState().status === "preparing",
-    onGroupStarted: () => memoryRecall.groupStarted(),
-    onGroupEnded: () => memoryRecall.groupEnded(),
-    onMessageChanged: () => memoryRecall.sourceChanged(),
+    onGenerationStopped: () => macro.cancel("ST 已停止生成"),
+    onGenerationFinished: (dryRun) => macro.generationFinished(dryRun),
+    shouldAwaitMacros: macro.isPreparing,
+    onGroupStarted: () => macro.groupStarted(),
+    onGroupEnded: () => macro.groupEnded(),
+    onMessageChanged: () => macro.markStale(),
   });
 
   // Agent 预设宏（ticket 17 / ADR 0006）：{{tablesDigest}}/{{systemDefaultPrompt}} 注册 +
-  // 预计算快照（digest 摘要 + 默认提示词全文）随变更指纹重建（与记忆宏同机制）；
+  // 预计算快照（digest 摘要 + 默认提示词全文）随变更指纹重建；
   // 插件停用时注销（读 enabled 门控）。
   const agentMacro = new AgentMacroService({
     getSpaceId: () => {
@@ -824,7 +991,7 @@ export async function startSteMemory(
 
   if (settings.read().enabled) {
     try {
-      await manager.syncToCurrentChat();
+      await syncCurrentChat();
     } catch (error) {
       manager.reportLoadError(error);
       log.error("记忆空间初始化失败", error);
@@ -832,24 +999,18 @@ export async function startSteMemory(
     const status = manager.getStatus();
     if (status?.kind === "active") vectorSync.activate(status.space.id);
   }
-  // 记忆宏（ticket 15）：注册 + 首次快照重建放在首次空间同步之后——
-  // 活动空间就绪后立即展开的就是最新记忆，而非等第一轮轮询
+  // 空间就绪后注册宏，表达式只在实际生成或显式测试时求值。
   autoFill.start();
   await macro.start();
-  let recallMacroRegistered = false;
-  if (resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall") {
-    adapter.macroRegistration.register("memoryRecall", () => memoryRecall.getMacroText());
-    recallMacroRegistered = true;
-  }
   await agentMacro.start();
-  // 空间切换（打开对话/切对话）立即重建快照：宏服务本身靠指纹轮询收敛，
-  // 状态变化事件让它不等下一轮轮询（打开对话后马上生成也要展开当前空间记忆）
+  // 空间切换时刷新注册并使旧结果失效，Agent 提示词摘要沿用自身刷新机制。
   manager.onStatusChange(() => {
     const status = manager.getStatus();
     if (status?.kind === "active") vectorSync.activate(status.space.id);
     autoFill.kick();
+    void refreshChatMacros().catch((error) => log.error("对话宏读取失败", error));
     void macro.kick().catch((error) => {
-      log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏快照重建失败`, error);
+      log.error(`[${PLUGIN_DISPLAY_NAME}] 记忆宏注册刷新失败`, error);
     });
     void agentMacro.kick().catch((error) => {
       log.error(`[${PLUGIN_DISPLAY_NAME}] Agent 预设宏快照重建失败`, error);
@@ -858,28 +1019,170 @@ export async function startSteMemory(
   const settingsService = new SettingsService({
     store: settings,
     refreshAutoFill: () => autoFill.kick(),
-    syncToCurrentChat: () => manager.syncToCurrentChat(),
-    refreshMemoryMacros: async () => {
-      memoryRecall.invalidate("记忆宏或视图设置已修改");
-      await macro.kick();
-      if (
-        !recallMacroRegistered &&
-        resolveMacroRegistrationName(settings.read().macroName)?.toLowerCase() !== "memoryrecall"
-      ) {
-        adapter.macroRegistration.register("memoryRecall", () => memoryRecall.getMacroText());
-        recallMacroRegistered = true;
-      }
-    },
+    syncToCurrentChat: () => syncCurrentChat(),
+    refreshMemoryMacros: () => macro.kick(),
+    validateMacros,
+    getChatScopeMacros: () => chatMacros,
+    getChatContext: retrievalContext,
     refreshAgentMacros: () => agentMacro.kick(),
     refreshMirror: () => mirror.kick(),
-    writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
+    writeChatScopeMacros: writeChatMacros,
     refreshVectorIndex: () => {
       retrieval.profileChanged();
-      recallRetrieval.profileChanged();
-      memoryRecall.invalidate("设置已修改");
       return vectorSync.refreshSettings();
     },
   });
+  const assertUpdateTarget = (spaceId: MemorySpaceId, chatIdentity: string) => {
+    presetApply.assertCurrentChat(chatIdentity);
+    const status = manager.getStatus();
+    if (!settings.read().enabled || status?.kind !== "active" || status.space.id !== spaceId)
+      throw new Error("当前空间绑定或插件状态已变化，请重新比较");
+  };
+  const finishPresetUpdate = async (spaceId: MemorySpaceId, initialIssues: string[] = []) => {
+    const issues = [...initialIssues];
+    try {
+      await manager.refreshSpace(spaceId);
+    } catch (error) {
+      issues.push(`空间状态刷新失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    retrieval.invalidate(spaceId, "空间已更新，请重新搜索");
+    try {
+      await macro.kick();
+    } catch (error) {
+      issues.push(`宏刷新失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await vector.reconcile({ memorySpaceId: spaceId });
+      const latest = await memoryStore.snapshot(spaceId);
+      if (!latest) throw new Error("记忆空间不存在");
+      const groupIds = new Map(
+        latest.tables.map((table) => [
+          table.id,
+          new Set(
+            effectiveVectorIndexGroups(
+              table.vectorIndex,
+              latest.fields.filter((field) => field.tableId === table.id),
+            ).map((group) => group.id),
+          ),
+        ]),
+      );
+      const recordIds = new Set(latest.records.map((record) => record.id));
+      for (const item of await vectorRepository.listVectors({ memorySpaceId: spaceId })) {
+        if (!recordIds.has(item.recordId) || !groupIds.get(item.tableId)?.has(item.groupId))
+          await vectorRepository.deleteVector(item.id);
+      }
+      for (const suppression of await vectorRepository.listSuppressions()) {
+        if (suppression.memorySpaceId !== spaceId) continue;
+        const [, tableId, recordId, groupId] = suppression.id.split("\u0000");
+        if (
+          !recordIds.has(recordId as MemoryRecordId) ||
+          !groupIds.get(tableId as MemoryTableId)?.has(groupId!)
+        )
+          await vectorRepository.deleteSuppression(suppression.id);
+      }
+    } catch (error) {
+      issues.push(`索引处理失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { issues };
+  };
+  const presetUpdate: PresetSpaceUpdateService = {
+    async preview(spaceId, preset, chatIdentity) {
+      assertUpdateTarget(spaceId, chatIdentity);
+      const unit = await memoryStore.snapshot(spaceId);
+      if (!unit) throw new Error("记忆空间不存在");
+      assertUpdateTarget(spaceId, chatIdentity);
+      return previewPresetUpdate(unit, preset);
+    },
+    async apply(plan, selectedIds, chatIdentity) {
+      assertUpdateTarget(plan.spaceId, chatIdentity);
+      const previewUnit = await memoryStore.snapshot(plan.spaceId);
+      if (!previewUnit) throw new Error("记忆空间不存在");
+      buildPresetUpdate(
+        previewUnit,
+        plan,
+        selectedIds,
+        {
+          table: () => createId("table") as MemoryTableId,
+          field: () => createId("field") as MemoryFieldId,
+          group: () => createId("vector-group"),
+        },
+        now(),
+      );
+      await tasks.cancelAll(plan.spaceId);
+      await memoryStore.whenIdle(plan.spaceId);
+      const issues: string[] = [];
+      await memoryStore.exclusive(plan.spaceId, async () => {
+        assertUpdateTarget(plan.spaceId, chatIdentity);
+        const unit = await memoryStore.snapshot(plan.spaceId);
+        if (!unit) throw new Error("记忆空间不存在");
+        let next = buildPresetUpdate(
+          unit,
+          plan,
+          selectedIds,
+          {
+            table: () => createId("table") as MemoryTableId,
+            field: () => createId("field") as MemoryFieldId,
+            group: () => createId("vector-group"),
+          },
+          now(),
+        );
+        const display = createReadTimeDisplayTextResolver({
+          getTable: async (id) => next.tables.find((table) => table.id === id),
+          getFields: async (id) => next.fields.filter((field) => field.tableId === id),
+          findRecord: async (tableId, recordId) =>
+            next.records.find((record) => record.tableId === tableId && record.id === recordId),
+        });
+        next = {
+          ...next,
+          records: await Promise.all(
+            next.records.map(async (record) => ({ ...record, displayText: await display(record) })),
+          ),
+        };
+        assertUpdateTarget(plan.spaceId, chatIdentity);
+        // importSpace builds and commits a separate SQLite database before publishing it.
+        // It retains the old database if validation or publication fails; it does not clear vectors/tasks.
+        await sqlite.importSpace(next);
+        try {
+          await memoryStore.cache(next);
+        } catch (error) {
+          issues.push(
+            `本地缓存保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        try {
+          await saveSnapshot(next);
+        } catch (error) {
+          issues.push(
+            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      });
+      return finishPresetUpdate(plan.spaceId, issues);
+    },
+    async retrySave(spaceId, chatIdentity) {
+      assertUpdateTarget(spaceId, chatIdentity);
+      const issues: string[] = [];
+      await memoryStore.exclusive(spaceId, async () => {
+        const latest = await memoryStore.snapshot(spaceId);
+        if (!latest) throw new Error("记忆空间不存在");
+        try {
+          await memoryStore.cache(latest);
+        } catch (error) {
+          issues.push(
+            `本地缓存保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        try {
+          await saveSnapshot(latest);
+        } catch (error) {
+          issues.push(
+            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      });
+      return finishPresetUpdate(spaceId, issues);
+    },
+  };
   return {
     manager,
     adapter,
@@ -891,31 +1194,109 @@ export async function startSteMemory(
     backupRepo: backup,
     settings,
     settingsService,
+    normalizeImportedSpace,
     mirror,
     tasks,
     vector,
     retrieval,
     sqlConsole: {
-      async execute(spaceId, sql) {
+      async execute(spaceId, sql, signal) {
         if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        const started = performance.now();
+        const results: SqlResultSet[] = [];
+        let changes = 0;
+        let transactionOpen: boolean;
+        let semantic: SqlExecutionResult["semantic"];
+        let remainingSql = sql;
         try {
-          return await sqlite.executeConsole(spaceId, sql);
+          do {
+            signal?.throwIfAborted();
+            const chunk = await sqlite.executeConsole(spaceId, remainingSql);
+            signal?.throwIfAborted();
+            results.push(...chunk.results);
+            changes += chunk.changes;
+            transactionOpen = chunk.transactionOpen;
+            if (!chunk.semanticStatement) break;
+            const result = await semanticQuery(spaceId, {
+              sql: chunk.semanticStatement.sql,
+              signal,
+            });
+            results.push({
+              columns: result.columns,
+              rows: result.rows as readonly (readonly SqlValue[])[],
+            });
+            const sources = result.sources.map(({ table, groups, coverage }) => ({
+              table,
+              groups,
+              coverage,
+            }));
+            if (!semantic) semantic = { sources, diagnostics: result.diagnostics };
+            else
+              semantic = {
+                sources: [...semantic.sources, ...sources],
+                diagnostics: {
+                  sqlPasses: semantic.diagnostics.sqlPasses + result.diagnostics.sqlPasses,
+                  sqlMs: semantic.diagnostics.sqlMs + result.diagnostics.sqlMs,
+                  preparedSources:
+                    semantic.diagnostics.preparedSources + result.diagnostics.preparedSources,
+                  queryTexts: semantic.diagnostics.queryTexts + result.diagnostics.queryTexts,
+                  queryVectors: {
+                    requests:
+                      semantic.diagnostics.queryVectors.requests +
+                      result.diagnostics.queryVectors.requests,
+                    executionHits:
+                      semantic.diagnostics.queryVectors.executionHits +
+                      result.diagnostics.queryVectors.executionHits,
+                    sharedHits:
+                      semantic.diagnostics.queryVectors.sharedHits +
+                      result.diagnostics.queryVectors.sharedHits,
+                  },
+                },
+              };
+            remainingSql = chunk.semanticStatement.remainingSql;
+          } while (remainingSql.trim());
+          return {
+            results,
+            changes,
+            transactionOpen,
+            elapsedMs: performance.now() - started,
+            ...(semantic ? { semantic } : {}),
+          };
         } finally {
           retrieval.invalidate(spaceId, "SQL 已执行，请重新搜索");
-          recallRetrieval.invalidate(spaceId, "SQL 已执行");
-          memoryRecall.invalidate("SQL 已执行");
           macro.kick();
         }
       },
       async schema(spaceId) {
         if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
-        return sqlite.consoleSchema(spaceId);
+        const [entries, snapshot] = await Promise.all([
+          sqlite.consoleSchema(spaceId),
+          memoryStore.snapshot(spaceId),
+        ]);
+        if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+        return entries.map((entry) => {
+          const table = snapshot.tables.find((table) => table.key === entry.name && table.enabled);
+          if (!table?.vectorIndex?.enabled) return entry;
+          const fields = snapshot.fields.filter((field) => field.tableId === table.id);
+          return {
+            ...entry,
+            vectorGroups: effectiveVectorIndexGroups(table.vectorIndex, fields)
+              .filter(
+                (group) =>
+                  group.fieldIds.length &&
+                  group.fieldIds.every((id) =>
+                    fields.some((field) => field.id === id && field.enabled),
+                  ),
+              )
+              .map((group) => group.key),
+          };
+        });
       },
     },
-    memoryRecall,
     autoFill,
     spaceMaintenance,
     presetApply,
+    presetUpdate,
     logs,
     macro,
     agentMacro,
@@ -934,12 +1315,12 @@ export async function startSteMemory(
     macroOverview: createMacroOverviewReader({
       readSettings: () => ({
         macroName: settings.read().macroName,
-        memoryViews: settings.read().memoryViews,
+        macros: settings.read().macros,
       }),
       resolveRegistrationName: resolveMacroRegistrationName,
       readDefaultSnapshot: () => macro.getSnapshot(),
       readViewSnapshot: (viewName) => macro.getViewSnapshot(viewName),
-      readChannelScopeMacros: () => adapter.chatScopeMacroStore.read(),
+      readChannelScopeMacros: () => chatMacros,
       readChatScopeSnapshot: (name) => macro.getChatScopeSnapshot(name),
       readBuiltinNames: () => macro.builtinSnapshotNames(),
       readBuiltinSnapshot: (name) => macro.getBuiltinSnapshot(name),
@@ -955,14 +1336,13 @@ export async function startSteMemory(
     createQueryChatLlm,
     queryChat,
     version: options.version ?? "",
-    // 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 全局正则条目
+    // 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写
     cleaning: {
-      readSelection: () => adapter.cleaningListStore.read(),
-      writeSelection: (listId) => adapter.cleaningListStore.write(listId),
-      readStRegexEntries: () => adapter.stRegexEntries,
+      readSelection: () => adapter.cleaningRuleStore.read(),
+      writeSelection: (ruleId) => adapter.cleaningRuleStore.write(ruleId),
       readRecentMessages: (count) => adapter.recentMessages(count),
-      readChatScopeMacros: () => adapter.chatScopeMacroStore.read(),
-      writeChatScopeMacros: (macros) => adapter.chatScopeMacroStore.write(macros),
+      readChatScopeMacros: () => chatMacros,
+      writeChatScopeMacros: writeChatMacros,
     },
     // 弹窗 API（分支检测等需要用户交互的场景）
     popup: {

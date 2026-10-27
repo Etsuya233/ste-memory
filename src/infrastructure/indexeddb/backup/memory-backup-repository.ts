@@ -1,3 +1,4 @@
+import { copyMemoryMacros } from "../../../features/macros/macro-expression.ts";
 import type {
   BackupIdFactory,
   MemoryBackupRepository,
@@ -375,6 +376,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         // 写入新空间行
         await this.#db.memorySpaces.add({
           ...source.space,
+          macros: copyMemoryMacros(source.space.macros ?? [], () => crypto.randomUUID()),
           id: newSpaceId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),

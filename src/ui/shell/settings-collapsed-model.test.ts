@@ -84,15 +84,14 @@ describe("折叠头摘要", () => {
     const settings: PluginSettings = {
       ...DEFAULT_SETTINGS,
       macroName: "{{memoryContext}}",
-      memoryViews: [
+      macros: [
         {
-          name: "v1",
-          tableKey: "t",
-          conditionFieldKey: "",
-          conditionValues: [],
-          projection: [],
-          limit: undefined,
-        } as never,
+          id: "macro",
+          name: "未完成",
+          enabled: true,
+          expression: { language: "query", query: { table: "plots" } },
+          output: { format: "text", maxChars: null },
+        },
       ],
     };
     expect(macroSummary(settings, 2)).toBe("{{memoryContext}} · 1 个全局宏 · 2 个对话宏");
@@ -148,13 +147,21 @@ describe("折叠头摘要", () => {
     expect(cleaningSummary(DEFAULT_SETTINGS, undefined)).toBe("未配置");
   });
 
-  it("cleaningSummary：有列表 + 选中", () => {
+  it("cleaningSummary：有规则 + 选中", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
-      cleaningRuleLists: [{ id: "l1", name: "我的列表", rules: [] }],
+      cleaningRules: [
+        {
+          id: "l1",
+          name: "我的规则",
+          enabled: true,
+          keepTags: [],
+          excludeTags: [{ pre: "<x>", post: "</x>" }],
+        },
+      ],
     } as unknown as PluginSettings;
-    expect(cleaningSummary(settings, "l1")).toBe("1列表 · 当前:我的列表");
-    expect(cleaningSummary(settings, undefined)).toBe("1列表 · 未选择");
+    expect(cleaningSummary(settings, "l1")).toBe("1条规则 · 当前:我的规则");
+    expect(cleaningSummary(settings, undefined)).toBe("1条规则 · 未选择");
   });
 
   it("mirrorSummary：停用", () => {

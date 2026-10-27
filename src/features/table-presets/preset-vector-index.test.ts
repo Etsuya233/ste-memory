@@ -19,7 +19,7 @@ describe("向量配置在空间和预设之间转换", () => {
     };
     expect(effectiveVectorIndexGroups(config, fields)[0]?.fieldIds).toEqual(["b", "a"]);
     expect(capturePresetVectorIndex(config, fields)?.groups).toEqual([
-      { name: "全部启用字段", fieldKeys: ["status", "name"] },
+      { key: "automatic", name: "全部启用字段", fieldKeys: ["status", "name"] },
     ]);
     expect(
       effectiveVectorIndexGroups(
@@ -35,15 +35,15 @@ describe("向量配置在空间和预设之间转换", () => {
         enabled: true,
         updateMode: "manual" as const,
         groups: [
-          { name: "背景", fieldKeys: ["name", "status"] },
-          { name: "近况", fieldKeys: ["name"] },
+          { key: "背景", name: "背景", fieldKeys: ["name", "status"] },
+          { key: "近况", name: "近况", fieldKeys: ["name"] },
         ],
       },
     };
     let next = 0;
     expect(importPresetVectorIndexGroups(presetTable, fields, () => `g${++next}`)).toEqual([
-      { id: "g1", name: "背景", fieldIds: ["a", "b"] },
-      { id: "g2", name: "近况", fieldIds: ["a"] },
+      { key: "背景", id: "g1", name: "背景", fieldIds: ["a", "b"] },
+      { key: "近况", id: "g2", name: "近况", fieldIds: ["a"] },
     ]);
     expect(() =>
       importPresetVectorIndexGroups(

@@ -1,4 +1,7 @@
+import { parseMemoryMacros, type MemoryMacro } from "../macros/macro-expression.ts";
 import { STORY_MEMORY_PRESET } from "./story-memory-preset.ts";
+import { Value } from "typebox/value";
+import { tablePresetVectorIndexSchema } from "./preset-vector-schema.ts";
 import { DomainError, type MemoryFieldType } from "../memory/index.ts";
 
 /**
@@ -34,7 +37,11 @@ export interface TablePresetTable {
 export interface TablePresetVectorIndex {
   readonly enabled: boolean;
   readonly updateMode: "manual" | "automatic";
-  readonly groups: readonly { readonly name: string; readonly fieldKeys: readonly string[] }[];
+  readonly groups: readonly {
+    readonly key: string;
+    readonly name: string;
+    readonly fieldKeys: readonly string[];
+  }[];
 }
 
 /** 预设显示策略：字段与模板都写预设内字段 Key（实例化时换成空间内字段 ID）。 */
@@ -60,6 +67,7 @@ export interface TablePresetField {
 
 /** 预设结构（系统预设与用户预设共用形态）。 */
 export interface TablePresetStructure {
+  readonly macros?: readonly MemoryMacro[];
   /** 跨表填写规则；早期预设缺省为空。 */
   readonly prompt?: string;
   readonly tables: readonly TablePresetTable[];
@@ -109,6 +117,7 @@ export function listTablePresets(
       description: preset.description,
       prompt: preset.prompt,
       tables: preset.tables,
+      macros: preset.macros,
       builtIn: false,
     })),
   ];
@@ -135,6 +144,7 @@ export function resolveTablePreset(
     description: userPreset.description,
     prompt: userPreset.prompt,
     tables: userPreset.tables,
+    macros: userPreset.macros,
     builtIn: false,
   };
 }
@@ -222,6 +232,7 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
     if (table) tables.push(table);
   }
   return {
+    macros: raw.macros === undefined ? undefined : parseMemoryMacros(raw.macros),
     id: raw.id,
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     name: raw.name,
@@ -242,6 +253,20 @@ function mergePresetTable(raw: unknown): TablePresetTable | undefined {
     return undefined;
   }
   const fields: TablePresetField[] = [];
+  // 旧用户预设没有分组身份。仅补本预设内的 Key，不推断历史空间对应关系。
+  let vectorIndex = raw.vectorIndex;
+  if (isRecord(vectorIndex) && Array.isArray(vectorIndex.groups)) {
+    vectorIndex = {
+      ...vectorIndex,
+      groups: vectorIndex.groups.map((group, index) =>
+        isRecord(group) && group.key === undefined
+          ? { ...group, key: `legacy_group_${index + 1}` }
+          : group,
+      ),
+    };
+  }
+  if (vectorIndex !== undefined && !Value.Check(tablePresetVectorIndexSchema, vectorIndex))
+    throw new Error(`预设表「${raw.key}」的向量配置无效，请检查分组 Key`);
   for (const item of raw.fields) {
     const field = mergePresetField(item);
     if (field) fields.push(field);
@@ -249,6 +274,7 @@ function mergePresetTable(raw: unknown): TablePresetTable | undefined {
   return {
     key: raw.key,
     name: raw.name,
+    vectorIndex: vectorIndex as TablePresetVectorIndex | undefined,
     description: typeof raw.description === "string" ? raw.description : "",
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     enabled: raw.enabled !== false,

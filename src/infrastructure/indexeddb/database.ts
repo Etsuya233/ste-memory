@@ -1,4 +1,5 @@
 import { Dexie, type Table } from "dexie";
+import { upgradeVectorIndexKeys } from "../../features/memory/index.ts";
 import type {
   MemoryEvidenceId,
   MemoryEvidenceReference,
@@ -155,6 +156,26 @@ export class SteMemoryDatabase extends Dexie {
       recordVectors: "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId]",
       vectorSuppressions: "id, memorySpaceId",
     });
+    this.version(7)
+      .stores({})
+      .upgrade(async (transaction) => {
+        await transaction
+          .table("memoryTables")
+          .toCollection()
+          .modify((table) => {
+            table.vectorIndex = upgradeVectorIndexKeys(table.vectorIndex);
+          });
+      });
+    this.version(8)
+      .stores({})
+      .upgrade(async (transaction) => {
+        await transaction
+          .table("memorySpaces")
+          .toCollection()
+          .modify((space) => {
+            space.macros = [];
+          });
+      });
   }
 }
 

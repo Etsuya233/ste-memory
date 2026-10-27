@@ -40,6 +40,7 @@ export function composeProposalAgentMessages(
 export function composeQueryAgentSystemPrompt(
   digest: MemorySpaceTableDigest,
   sqlAvailable = false,
+  semanticSqlAvailable = false,
 ): string {
   return [
     "你是一个问答助手，回答用户关于记忆空间记录的问题。",
@@ -55,6 +56,12 @@ export function composeQueryAgentSystemPrompt(
     "4. 用户问题不明确时，先用查询确认范围，再回答。",
     "5. 查询先窄后宽：先用 conditions 与 fields 投影缩小范围，结果不足再放宽，不要一次性全表查询。",
     "",
+    ...(semanticSqlAvailable
+      ? [
+          "query_sql 可直接使用 semantic_scores 按语义相关度检索，并结合 SQL 条件、JOIN、排序；向量组 Key 见工具说明。先检查返回的索引覆盖，区分无有效索引和零命中。",
+          "",
+        ]
+      : []),
     ...digestSummaryLines(digest, false),
   ].join("\n");
 }

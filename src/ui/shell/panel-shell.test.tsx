@@ -1,3 +1,5 @@
+import type { MemorySpaceBackup } from "../../features/backup/index.ts";
+import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { SettingsService } from "../../features/settings/settings-service.ts";
 /**
  * 面板组件冒烟测试（react-dom/server renderToString，无 jsdom——沿用
@@ -5,7 +7,7 @@ import { SettingsService } from "../../features/settings/settings-service.ts";
  * 类名 / aria 属性 / 占位文案与脚本选择器一致）。异步加载（useEffect）
  * 在 SSR 不执行，表格列表的完整渲染由真机验收脚本覆盖。
  */
-import type { MemorySpaceId } from "../../features/memory/index.ts";
+import type { MemoryMacro, MemorySpaceId } from "../../features/memory/index.ts";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
@@ -88,10 +90,14 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       getMessageAt: vi.fn(() => undefined),
       chatMessageCount: vi.fn(() => 0),
     },
+    normalizeImportedSpace: vi.fn(async (unit: MemorySpaceBackup) => unit),
     settingsService: new SettingsService({
+      getChatContext: () => "test-chat",
       store: { read: () => DEFAULT_SETTINGS, write: vi.fn() },
       syncToCurrentChat: vi.fn(async () => {}),
       refreshMemoryMacros: vi.fn(async () => {}),
+      validateMacros: vi.fn(async (macros: readonly MemoryMacro[]) => macros),
+      getChatScopeMacros: () => [],
       refreshAgentMacros: vi.fn(async () => {}),
       refreshMirror: vi.fn(async () => {}),
       refreshVectorIndex: vi.fn(async () => {}),
@@ -126,7 +132,13 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       markFloorStatuses: vi.fn(async () => undefined),
     },
     spaceMaintenance: { clearRecords: vi.fn(async () => false) },
+    presetUpdate: {
+      preview: vi.fn(),
+      apply: vi.fn(async () => ({ issues: [] })),
+      retrySave: vi.fn(async () => ({ issues: [] })),
+    },
     presetApply: {
+      validate: vi.fn(async (preset: ResolvedTablePreset) => preset),
       assertCurrentChat: vi.fn(),
       stopSpaceWrites: vi.fn(async () => undefined),
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
@@ -145,6 +157,13 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       clearAll: vi.fn(async () => {}),
     },
     macro: {
+      subscribe: () => () => undefined,
+      getRecentResults: () => [],
+      skip: vi.fn(),
+      testMacro: vi.fn(),
+      getMigrationError: () => null,
+      getMigrationConflicts: () => [],
+      resolveMigrationConflict: vi.fn(),
       kick: vi.fn(async () => {}),
     },
     agentMacro: {
@@ -166,7 +185,6 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
     cleaning: {
       readSelection: () => undefined,
       writeSelection: vi.fn(),
-      readStRegexEntries: () => [],
       readRecentMessages: () => [],
       readChatScopeMacros: () => [],
       writeChatScopeMacros: vi.fn(),
@@ -351,7 +369,7 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain("428 / 2000 字");
     expect(html).toContain("有 1 个宏的输出已按上限截断");
     expect(html).toContain("使用说明");
-    expect(html).toContain("……（已截断）");
+    expect(html).toContain("按查询顺序装入完整记录或结果行");
   });
 
   it("设置 Tab：记忆宏组三作用域 + 宏设置摘要条（默认全局宏）", () => {
@@ -370,9 +388,9 @@ describe("PanelShell（面板骨架投影）", () => {
     // 宏名/上限摘要条进入独立设置页
     expect(expanded).toContain('data-action="open-macro-settings"');
     expect(expanded).toContain('data-stm-field="macro-status"');
-    expect(expanded).toContain("默认快照 0 / 2000 字");
+    expect(expanded).toContain("最近执行 0 / 2000 字");
     // 默认展示全局宏内容（全局宏管理器）；内置/对话宏/设置页未渲染
-    expect(expanded).toContain('data-stm-section="memory-views"');
+    expect(expanded).toContain('data-expression-macros="global"');
     expect(expanded).not.toContain('data-stm-section="builtin-macros"');
     expect(expanded).not.toContain('data-stm-section="chat-scope-macros"');
     expect(expanded).not.toContain('data-stm-section="macro-settings"');

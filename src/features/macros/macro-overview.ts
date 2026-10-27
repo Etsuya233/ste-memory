@@ -1,4 +1,4 @@
-import type { MemoryView } from "./memory-views.ts";
+import type { MemoryMacro } from "./macro-expression.ts";
 import {
   buildMacroOverviewRows,
   type MacroOverviewInput,
@@ -13,13 +13,13 @@ export interface MacroOverviewSources {
   /** 插件设置里的宏前缀（{{ste}} 形态）与全局视图列表（每次读取重取） */
   readonly readSettings: () => {
     readonly macroName: string;
-    readonly memoryViews: readonly MemoryView[];
+    readonly macros: readonly Pick<MemoryMacro, "name">[];
   };
   /** 注册名解析（前缀 → 裸标识符；不合法 = undefined） */
   readonly resolveRegistrationName: (macroName: string) => string | undefined;
   readonly readDefaultSnapshot: () => string;
   readonly readViewSnapshot: (viewName: string) => string | undefined;
-  readonly readChannelScopeMacros: () => readonly MemoryView[];
+  readonly readChannelScopeMacros: () => readonly Pick<MemoryMacro, "name">[];
   readonly readChatScopeSnapshot: (name: string) => string | undefined;
   readonly readBuiltinNames: () => readonly string[];
   readonly readBuiltinSnapshot: (name: string) => string | undefined;
@@ -35,7 +35,7 @@ export function createMacroOverviewReader(
     const input: MacroOverviewInput = {
       prefix: sources.resolveRegistrationName(settings.macroName) ?? "",
       defaultSnapshot: sources.readDefaultSnapshot(),
-      views: settings.memoryViews.map((view) => ({
+      views: settings.macros.map((view) => ({
         name: view.name,
         text: sources.readViewSnapshot(view.name) ?? "",
       })),

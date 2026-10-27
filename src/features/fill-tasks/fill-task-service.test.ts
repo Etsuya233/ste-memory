@@ -52,7 +52,7 @@ import {
 import type { FillSourceMessage } from "./fill-task.ts";
 import type { LogEntry, LogRepository } from "../logging/log.ts";
 import { DexieLogRepository } from "../../infrastructure/indexeddb/logs/log-repository.ts";
-import type { CleaningRule } from "../cleaning/cleaning-rule-lists.ts";
+import type { CleaningRule } from "../cleaning/cleaning-rules.ts";
 
 const NOW = "2026-07-30T01:02:03.000Z";
 
@@ -66,6 +66,7 @@ function defaultMessagesInRange(from: number, to: number): readonly FillSourceMe
       floor,
       content: floor === 1 ? "[reg] 原始内容 **带标记**" : `消息 ${floor + 1}`,
       name: floor % 2 === 0 ? "爱丽丝" : "鲍勃",
+      options: { needCleaning: true },
     });
   }
   return messages;
@@ -133,8 +134,10 @@ function emptyProposalAgent() {
   return scriptedStreamFn(() => assistantMessage([textMessage("无需变更")], "stop"));
 }
 
-function failingAgent() {
-  return scriptedStreamFn(() => assistantMessage([textMessage("模型炸了")], "error", "模型炸了"));
+function failingAgent(errorMessage = "模型炸了") {
+  return scriptedStreamFn(() =>
+    assistantMessage([textMessage(errorMessage)], "error", errorMessage),
+  );
 }
 
 /** 第一次调用失败、之后走成功脚本的 respond（重试场景：首轮失败 → 重试成功）。 */
@@ -199,7 +202,7 @@ async function createHarness(
     ) => Promise<FillTaskPromptContext | undefined>;
     readonly logs?: LogRepository;
     readonly logError?: (message: string, error: unknown) => void;
-    readonly resolveCleaningRules?: () => readonly CleaningRule[];
+    readonly readCleaningRule?: () => CleaningRule | undefined;
     /** 台账 markProcessed 注入失败；缺省使用真实 Dexie 台账。 */
     readonly failLedgerMarkProcessed?: boolean;
     readonly onSave?: () => Promise<void>;
@@ -336,7 +339,7 @@ async function createHarness(
     now: () => NOW,
     logs,
     createPromptContext: options.createPromptContext,
-    resolveCleaningRules: options.resolveCleaningRules,
+    readCleaningRule: options.readCleaningRule,
     logError: options.logError,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
@@ -1144,33 +1147,29 @@ function capturePrompts(onPrompt: (text: string) => void) {
 }
 
 describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
-  it("注入 resolveCleaningRules：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
+  it("注入 readCleaningRule：喂给 Agent 的消息已按规则清洗；空规则保持原文", async () => {
     const prompts: string[] = [];
     const harness = await createHarness({
       streamFn: capturePrompts((text) => prompts.push(text)),
-      resolveCleaningRules: () => [
-        {
-          id: "c1",
-          name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
-          enabled: true,
-        },
-      ],
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "**", post: "**" }],
+        enabled: true,
+      }),
     });
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 5 });
     await waitForTerminal(harness, view.runId);
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("原始内容 带标记");
+    expect(prompt).toContain("原始内容 ");
     expect(prompt).not.toContain("**");
 
-    // 空规则列表 = 不清洗（缺省无端口由既有测试断言原文进提示词）
+    // 未选择规则 = 不清洗（缺省无端口由既有测试断言原文进提示词）
     const rawPrompts: string[] = [];
     const harness2 = await createHarness({
       streamFn: capturePrompts((text) => rawPrompts.push(text)),
-      resolveCleaningRules: () => [],
+      readCleaningRule: () => undefined,
     });
     const view2 = await harness2.service.submit({
       memorySpaceId: harness2.spaceId,
@@ -1179,6 +1178,79 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     });
     await waitForTerminal(harness2, view2.runId);
     expect(rawPrompts.join("\n")).toContain("**带标记**");
+  });
+
+  it("只清洗 AI 输出：用户消息、系统消息与缺省 options 的消息保持原文", async () => {
+    const prompts: string[] = [];
+    const harness = await createHarness({
+      source: {
+        chatMessageCount: () => 3,
+        chatId: () => "story",
+        messagesInRange: () => [
+          { floor: 0, name: "User", content: "用户 <drop>保留</drop>消息" },
+          {
+            floor: 1,
+            name: "爱丽丝",
+            content: "AI <drop>去掉</drop>消息",
+            options: { needCleaning: true },
+          },
+          {
+            floor: 2,
+            name: "System",
+            content: "系统 <drop>保留</drop>提示",
+            options: { needCleaning: false },
+          },
+        ],
+      },
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "<drop>", post: "</drop>" }],
+        enabled: true,
+      }),
+    });
+    const task = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 2 });
+    const terminal = await waitForTerminal(harness, task.runId);
+    expect(terminal.status).toBe("succeeded");
+
+    const prompt = prompts.join("\n");
+    expect(prompt).toContain("用户 <drop>保留</drop>消息");
+    expect(prompt).toContain("系统 <drop>保留</drop>提示");
+    expect(prompt).toContain("AI 消息");
+    expect(prompt).not.toContain("去掉");
+  });
+
+  it("单份规则先排除再保留：思考区域的正文不进入 Agent 输入", async () => {
+    const prompts: string[] = [];
+    const harness = await createHarness({
+      source: {
+        chatMessageCount: () => 1,
+        chatId: () => "story",
+        messagesInRange: () => [
+          {
+            floor: 0,
+            name: "角色",
+            content: "<think><正文>草稿不应进入Agent</正文></think><正文>正式正文输入</正文>",
+            options: { needCleaning: true },
+          },
+        ],
+      },
+      streamFn: capturePrompts((text) => prompts.push(text)),
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "正文",
+        enabled: true,
+        excludeTags: [{ pre: "<think>", post: "</think>" }],
+        keepTags: [{ pre: "<正文>", post: "</正文>" }],
+      }),
+    });
+    const task = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 0 });
+    const terminal = await waitForTerminal(harness, task.runId);
+    expect(terminal.status).toBe("succeeded");
+    expect(prompts.join("\n")).toContain("正式正文输入");
+    expect(prompts.join("\n")).not.toContain("草稿不应进入Agent");
   });
 
   it("任务开始时冻结规则：中途变更不影响后续块", async () => {
@@ -1195,21 +1267,17 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     const harness = await createHarness({
       source: markedSource,
       streamFn: capturePrompts((text) => prompts.push(text)),
-      resolveCleaningRules: () => {
+      readCleaningRule: () => {
         calls += 1;
         return calls === 1
-          ? [
-              {
-                id: "c1",
-                name: "去标记",
-                mode: "discard",
-                type: "regex",
-                pattern: "\\*\\*",
-                flags: "g",
-                enabled: true,
-              },
-            ]
-          : [];
+          ? {
+              id: "c1",
+              name: "去标记",
+              keepTags: [],
+              excludeTags: [{ pre: "**", post: "**" }],
+              enabled: true,
+            }
+          : undefined;
       },
     });
     const view = await harness.service.submit({
@@ -1220,9 +1288,9 @@ describe("FillTaskService 内容清洗（ticket 22 / ADR 0011）", () => {
     });
     await waitForTerminal(harness, view.runId);
     expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("原始内容 带标记");
+    expect(prompts[0]).toContain("原始内容 ");
     expect(prompts[0]).not.toContain("**");
-    expect(prompts[1]).toContain("带标记");
+    expect(prompts[1]).toContain("消息  5");
     expect(prompts[1]).not.toContain("**");
   });
 });
@@ -2057,7 +2125,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     ]);
   });
 
-  it("清洗规则应用于初始化文本：喂给 Agent 的文本已清洗，证据存原文", async () => {
+  it("初始化文本不套清洗规则：喂给 Agent 的文本与证据都保留原文", async () => {
     const prompts: string[] = [];
     // 捕获提示词的同时提交提案（空提案不落证据，无法验证证据原文）
     const streamFn = scriptedStreamFn((context) => {
@@ -2088,17 +2156,13 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     });
     const harness = await createHarness({
       streamFn,
-      resolveCleaningRules: () => [
-        {
-          id: "c1",
-          name: "去标记",
-          mode: "discard",
-          type: "regex",
-          pattern: "\\*\\*",
-          flags: "g",
-          enabled: true,
-        },
-      ],
+      readCleaningRule: () => ({
+        id: "c1",
+        name: "去标记",
+        keepTags: [],
+        excludeTags: [{ pre: "**", post: "**" }],
+        enabled: true,
+      }),
     });
     const view = await harness.service.submitInit({
       memorySpaceId: harness.spaceId,
@@ -2108,9 +2172,9 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(terminal.status).toBe("succeeded");
 
     const prompt = prompts.join("\n");
-    expect(prompt).toContain("设定 带标记 原文");
-    expect(prompt).not.toContain("**");
-    // 证据存原文（清洗只作用于 Agent 输入，不破坏证据）
+    expect(prompt).toContain("设定 **带标记** 原文");
+    expect(prompt).not.toContain("设定  原文");
+    // 证据存原文
     const evidenceRows = await harness.db.memoryEvidence.toArray();
     expect(evidenceRows[0]).toMatchObject({ content: "设定 **带标记** 原文" });
   });
@@ -2365,9 +2429,112 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
   });
 });
 
-describe("自动填表批内重试", () => {
+describe("填表 API 请求重试", () => {
+  it("等待期间自动模式关闭时中断，不发出下一次请求", async () => {
+    let canContinue = true;
+    const streamFn = failingAgent("500 Internal Server Error");
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 2, delaySeconds: 1, canContinue: () => canContinue },
+    });
+    await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+    canContinue = false;
+    expect((await waitForTerminal(harness, task.runId)).status).toBe("interrupted");
+    expect(streamFn.calls.count).toBe(1);
+  });
+  it("写入工具成功后下一轮 500：保留当前事务，重试成功只提交一条记录", async () => {
+    let calls = 0;
+    const contexts: Context["messages"][] = [];
+    const streamFn = scriptedStreamFn((context) => {
+      contexts.push(structuredClone(context.messages));
+      calls++;
+      if (calls === 1)
+        return assistantMessage(
+          [
+            toolCallMessage("create", MUTATE_TOOL_NAME, {
+              op: "create",
+              table: "characters",
+              patch: { name: "云烬" },
+            }),
+          ],
+          "toolUse",
+        );
+      if (calls === 2)
+        return assistantMessage(
+          [textMessage("半截"), toolCallMessage("broken", MUTATE_TOOL_NAME, {})],
+          "error",
+          "500 Internal Server Error",
+        );
+      if (calls === 3)
+        return assistantMessage(
+          [toolCallMessage("submit", SUBMIT_PROPOSAL_TOOL_NAME, {})],
+          "toolUse",
+        );
+      return assistantMessage([textMessage("完成")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 1, delaySeconds: 1, canContinue: () => true },
+    });
+    expect((await waitForTerminal(harness, task.runId)).status).toBe("succeeded");
+    expect(calls).toBe(4);
+    expect(contexts[2]).toEqual(contexts[1]);
+    expect(await harness.db.memoryRecords.count()).toBe(1);
+    const logs = await harness.logs.byKey(task.runId, 100);
+    expect(
+      logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "context"),
+    ).toHaveLength(1);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(2);
+  });
+
+  it.each(["手动", "初始化"])("%s 填表默认重试，失败轮保留日志且仅创建一次批事务", async (kind) => {
+    let calls = 0;
+    const streamFn = scriptedStreamFn(() => {
+      calls++;
+      return calls === 1
+        ? assistantMessage([textMessage("半截输出")], "error", "500 Internal Server Error")
+        : assistantMessage([textMessage("完成")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const task =
+        kind === "初始化"
+          ? await harness.service.submitInit({ memorySpaceId: harness.spaceId, text: "初始化文本" })
+          : await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+      await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+      const active = await harness.service.activeTask(harness.spaceId);
+      expect(active?.automatic).toBeUndefined();
+      expect(active?.retryState).toMatchObject({
+        attempt: 1,
+        maxAttempts: 2,
+        errorMessage: "500 Internal Server Error",
+      });
+      await vi.advanceTimersByTimeAsync(10000);
+      await vi.waitFor(async () =>
+        expect((await harness.tasks.find(task.runId))?.status).toBe("succeeded"),
+      );
+      expect(calls).toBe(2);
+      const logs = await harness.logs.byKey(task.runId, 100);
+      expect(
+        logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "turn"),
+      ).toHaveLength(2);
+      expect(
+        logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "context"),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("切换对话中断原因随任务保存，重复中断返回实际终态", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const task = await harness.service.submit({
       memorySpaceId: harness.spaceId,
@@ -2389,7 +2556,7 @@ describe("自动填表批内重试", () => {
   });
 
   it("耗尽配置次数后失败，并在任务终态前通知持久化暂停", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const onFailure = vi.fn();
     const task = await harness.service.submit({
@@ -2401,7 +2568,7 @@ describe("自动填表批内重试", () => {
     expect((await waitForTerminal(harness, task.runId)).status).toBe("failed");
     expect(streamFn.calls.count).toBe(2);
     expect(onFailure).toHaveBeenCalledTimes(1);
-    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("模型炸了"));
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("500"));
     expect(harness.service.retryStates.size).toBe(0);
   });
 
@@ -2410,7 +2577,7 @@ describe("自动填表批内重试", () => {
     const streamFn = scriptedStreamFn(() => {
       calls += 1;
       return calls === 2 || calls === 4
-        ? assistantMessage([textMessage("失败")], "error", "失败")
+        ? assistantMessage([textMessage("失败")], "error", "500 Internal Server Error")
         : assistantMessage([textMessage("无需变更")], "stop");
     });
     const harness = await createHarness({ streamFn });
@@ -2428,7 +2595,7 @@ describe("自动填表批内重试", () => {
   });
 
   it("取消等待立即停止倒计时，不继续尝试", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const task = await harness.service.submit({
       memorySpaceId: harness.spaceId,

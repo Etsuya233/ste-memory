@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Theme } from "../../src/ui/kit/theme.tsx";
 import { ActionGroup, IconButton } from "../../src/ui/kit/actions.tsx";
-import { Button, FormField, Input, Select, Switch, Textarea } from "../../src/ui/kit/controls.tsx";
+import { Button, FormField, FormRow, Input, Select, Switch, Textarea } from "../../src/ui/kit/controls.tsx";
 import { ActionMenu } from "../../src/ui/kit/action-menu.tsx";
 import { Dialog } from "../../src/ui/kit/dialog.tsx";
 import { Disclosure } from "../../src/ui/kit/disclosure.tsx";
@@ -57,6 +57,14 @@ function Sample({ appearance, dark, accent }: { appearance: "glass" | "classic" 
           <Disclosure title="更新方式" leading={<span>↻</span>}>
             <Segmented label="更新方式" value={selection} onChange={setSelection} options={[{ value: "manual", label: "手动" }, { value: "automatic", label: "自动" }]} />
           </Disclosure>
+          <ListSection title="横向表单行">
+            <FormRow label="独立名称" hint="单独使用时自带分组表面">{(field) => <Input {...field} value={name} onChange={(event) => setName(event.target.value)} />}</FormRow>
+          </ListSection>
+          <ListSection title="与列表组合"><ListGroup>
+            <FormRow label="名称">{(field) => <Input {...field} value={name} onChange={(event) => setName(event.target.value)} />}</FormRow>
+            <FormRow label="连接">{(field) => <Select {...field}><option>跟随当前连接</option><option>独立连接</option></Select>}</FormRow>
+            <FormRow label="必填名称" error={name.trim() ? undefined : "请输入名称"}>{(field) => <Input {...field} value={name} onChange={(event) => setName(event.target.value)} />}</FormRow>
+          </ListGroup></ListSection>
           <FormField label="预设名称" hint="仅用于区分预设">{(field) => <Input {...field} value={name} onChange={(event) => setName(event.target.value)} />}</FormField>
           <FormField label="必填示例" error={name.trim() ? undefined : "请输入预设名称"}>{(field) => <Input {...field} value={name} onChange={(event) => setName(event.target.value)} />}</FormField>
           <FormField label="连接">{(field) => <Select {...field}><option>跟随当前连接</option><option>独立连接</option></Select>}</FormField>

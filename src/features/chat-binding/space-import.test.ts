@@ -58,6 +58,7 @@ function deps(overrides: Partial<SpaceImportExecutionDeps> = {}): {
     importSpace,
     writeChatScopeMacros,
     deps: {
+      normalizeImportedSpace: async (unit) => unit,
       backup: { restoreSpace } as unknown as Pick<MemoryBackupRepository, "restoreSpace">,
       manager: {
         importSpace,
@@ -73,6 +74,68 @@ function deps(overrides: Partial<SpaceImportExecutionDeps> = {}): {
 }
 
 describe("space-import（单空间导入编排，issue 26）", () => {
+  it("导入先编译分类再关闭语义宏，伪造false不能绕过且普通SQL保持启用", async () => {
+    const source = unit("A");
+    const macros = [true, false].map((semantic, index) => ({
+      id: `macro-${index}`,
+      name: `宏${index}`,
+      enabled: true,
+      expression: {
+        language: "sql" as const,
+        sql: semantic ? "SELECT * FROM semantic_scores('t','[]','q')" : "SELECT 1",
+        usesSemantic: false,
+      },
+      output: { format: "json" as const, maxChars: null },
+    }));
+    const plan = planSpaceImport(
+      fileText({ ...source, space: { ...source.space, macros } }),
+      activeStatus("A"),
+    );
+    if (plan.kind !== "ready") throw new Error("expect ready");
+    const harness = deps({
+      normalizeImportedSpace: async (unit) => ({
+        ...unit,
+        space: {
+          ...unit.space,
+          macros: unit.space.macros!.map((macro, index) => ({
+            ...macro,
+            expression: { ...macro.expression, usesSemantic: index === 0 },
+          })),
+        },
+      }),
+    });
+    await executeSpaceImport(plan, harness.deps);
+    expect(harness.restoreSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        space: expect.objectContaining({
+          macros: [
+            expect.objectContaining({
+              enabled: false,
+              expression: expect.objectContaining({ usesSemantic: true }),
+            }),
+            expect.objectContaining({
+              enabled: true,
+              expression: expect.objectContaining({ usesSemantic: false }),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("编译失败不会恢复或克隆空间", async () => {
+    const plan = planSpaceImport(fileText(unit("A")), activeStatus("A"));
+    if (plan.kind !== "ready") throw new Error("expect ready");
+    const harness = deps({
+      normalizeImportedSpace: async () => {
+        throw new Error("SQL依赖无效");
+      },
+    });
+    await expect(executeSpaceImport(plan, harness.deps)).rejects.toThrow("SQL依赖无效");
+    expect(harness.restoreSpace).not.toHaveBeenCalled();
+    expect(harness.importSpace).not.toHaveBeenCalled();
+  });
+
   it("restore：绑定匹配 → 恢复当前空间并重同步", async () => {
     const plan = planSpaceImport(fileText(unit("A")), activeStatus("A"));
     expect(plan.kind).toBe("ready");
@@ -97,29 +160,27 @@ describe("space-import（单空间导入编排，issue 26）", () => {
     expect(harness.restoreSpace).not.toHaveBeenCalled();
   });
 
-  it("文件携带对话级宏时写回当前对话；缺省不写（spec 表格预设 6.3）", async () => {
+  it("新文件的宏随空间恢复，不再写回独立聊天元数据", async () => {
     const macros = [
       {
-        name: "未完成伏笔",
-        tableKey: "plots",
-        condition: { fieldKey: "status", values: ["埋设中"] },
-        limit: 20,
-        projection: [],
+        id: "m1",
+        name: "纪要",
+        enabled: true,
+        expression: { language: "sql" as const, sql: "SELECT 1" },
+        output: { format: "markdown" as const, maxChars: null },
       },
     ];
-    const withMacros = planSpaceImport(
-      fileText(unit("A", { chatScopeMacros: macros })),
+    const source = unit("A");
+    const plan = planSpaceImport(
+      fileText({ ...source, space: { ...source.space, macros } }),
       activeStatus("A"),
     );
-    if (withMacros.kind !== "ready") throw new Error("expect ready");
-    const first = deps();
-    await executeSpaceImport(withMacros, first.deps);
-    expect(first.writeChatScopeMacros).toHaveBeenCalledWith(macros);
-
-    const withoutMacros = planSpaceImport(fileText(unit("A")), activeStatus("A"));
-    if (withoutMacros.kind !== "ready") throw new Error("expect ready");
-    const second = deps();
-    await executeSpaceImport(withoutMacros, second.deps);
-    expect(second.writeChatScopeMacros).not.toHaveBeenCalled();
+    if (plan.kind !== "ready") throw new Error("expect ready");
+    const harness = deps();
+    await executeSpaceImport(plan, harness.deps);
+    expect(harness.restoreSpace).toHaveBeenCalledWith(
+      expect.objectContaining({ space: expect.objectContaining({ macros }) }),
+    );
+    expect(harness.writeChatScopeMacros).not.toHaveBeenCalled();
   });
 });

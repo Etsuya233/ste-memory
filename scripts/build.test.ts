@@ -31,9 +31,14 @@ describe("esbuild 构建链", () => {
         const manifest = JSON.parse(readFileSync(path.join(outdir, "manifest.json"), "utf8")) as {
           js: string;
           css: string;
+          loading_order: number;
+          generate_interceptor: string;
         };
         expect(existsSync(path.join(outdir, manifest.js))).toBe(true);
         expect(existsSync(path.join(outdir, manifest.css))).toBe(true);
+        // The cancellation gate must run before interceptors that can abort(true).
+        expect(manifest.loading_order).toBe(-1000);
+        expect(manifest.generate_interceptor).toBe("steMemoryGenerationInterceptor");
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }
