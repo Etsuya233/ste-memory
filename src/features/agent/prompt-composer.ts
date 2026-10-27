@@ -58,7 +58,7 @@ export function composeQueryAgentSystemPrompt(
     "",
     ...(semanticSqlAvailable
       ? [
-          "可用 query_semantic_sql 按语义相关度检索，并结合 SQL 条件、JOIN、排序；向量组 Key 与参数格式见工具说明。先检查返回的索引覆盖，区分无有效索引和零命中。",
+          "query_sql 可直接使用 semantic_scores 按语义相关度检索，并结合 SQL 条件、JOIN、排序；向量组 Key 见工具说明。先检查返回的索引覆盖，区分无有效索引和零命中。",
           "",
         ]
       : []),

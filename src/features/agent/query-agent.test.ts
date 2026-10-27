@@ -291,7 +291,7 @@ describe("QueryAgent", () => {
   });
 });
 
-it("QueryAgent exposes semantic SQL with named parameters, cancellation and coverage diagnostics", async () => {
+it("QueryAgent exposes one query_sql for inline semantic SQL, cancellation and coverage diagnostics", async () => {
   const space = createTestMemorySpace();
   const query = vi.fn(async () => ({
     columns: ["score", "large_integer", "blob"],
@@ -320,14 +320,14 @@ it("QueryAgent exposes semantic SQL with named parameters, cancellation and cove
     },
   }));
   const streamFn = scriptedStreamFn((context: Context) => {
-    expect(context.tools?.some((tool) => tool.name === "query_semantic_sql")).toBe(true);
-    expect(context.systemPrompt).toContain("query_semantic_sql");
+    expect(context.tools?.filter((tool) => tool.name === "query_sql")).toHaveLength(1);
+    expect(context.tools?.some((tool) => tool.name === "query_semantic_sql")).toBe(false);
+    expect(context.systemPrompt).toContain("semantic_scores");
     if (!lastToolResult(context))
       return assistantMessage(
         [
-          toolCallMessage("semantic-1", "query_semantic_sql", {
-            sql: "SELECT :query",
-            params: { query: "线索" },
+          toolCallMessage("semantic-1", "query_sql", {
+            sql: "SELECT score FROM semantic_scores('characters',json_array('facts'),'线索')",
           }),
         ],
         "toolUse",
@@ -347,8 +347,7 @@ it("QueryAgent exposes semantic SQL with named parameters, cancellation and cove
   expect(query).toHaveBeenCalledWith(
     SPACE_ID,
     expect.objectContaining({
-      sql: "SELECT :query",
-      params: { query: "线索" },
+      sql: "SELECT score FROM semantic_scores('characters',json_array('facts'),'线索')",
       maxRows: 100,
       signal: expect.any(AbortSignal),
     }),

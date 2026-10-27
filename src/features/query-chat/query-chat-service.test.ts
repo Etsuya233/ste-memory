@@ -546,20 +546,24 @@ describe("translateAgentEvent / toAgentMessages（历史组装）", () => {
   });
 });
 
-it("semantic SQL is mounted only for query mode while interactive fill keeps its existing tools", async () => {
+it("query mode uses unified query_sql while interactive fill keeps its original SQL capability", async () => {
   const query = vi.fn<SemanticQueryExecutor>();
   const modes: string[][] = [];
+  const descriptions: string[] = [];
   const harness = await createHarness({
     semanticQuery: query,
     streamFn: scriptedStreamFn((context) => {
       modes.push((context.tools ?? []).map((tool) => tool.name));
+      descriptions.push((context.tools ?? []).map((tool) => tool.description).join("\n"));
       return assistantMessage([textMessage("已完成")], "stop");
     }),
   });
   await run(harness, { mode: "query" });
   await run(harness, { mode: "fill" });
-  expect(modes[0]).toContain("query_semantic_sql");
-  expect(modes[1]).not.toContain("query_semantic_sql");
+  expect(modes[0]!.filter((name) => name === "query_sql")).toHaveLength(1);
+  expect(modes.flat()).not.toContain("query_semantic_sql");
+  expect(descriptions[0]).toContain("semantic_scores");
+  expect(descriptions[1]).not.toContain("semantic_scores");
   expect(modes[1]).toContain(MUTATE_TOOL_NAME);
   expect(query).not.toHaveBeenCalled();
 });

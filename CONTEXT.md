@@ -85,7 +85,7 @@ _Avoid_: 主键、唯一名称
 _Avoid_: 查询语法、筛选字符串、表达式 DSL
 
 **SQL 查询工具**：
-Agent 的只读 `query_sql` 入口，以表和字段定义 Key 编写 SQLite SELECT，支持 AND/OR、括号、JOIN、聚合与子查询。由 SQLite authorizer 禁止写入、结构变更及事务控制，并限制执行预算和返回行数。任务内读取暂存修改，普通查询读取已提交数据；宏 SQL 表达式使用独立的本批只读求值会话。SQL 的 `$display_text` 使用存储值，需按当前引用重新计算显示文本时使用 `query_records`。
+Agent 的只读 `query_sql` 入口，以表和字段定义 Key 编写 SQLite SELECT，支持 AND/OR、括号、JOIN、聚合与子查询。由 SQLite authorizer 禁止写入、结构变更及事务控制，并限制执行预算和返回行数。任务内读取暂存修改，普通查询读取已提交数据；宏 SQL 表达式使用独立的本批只读求值会话。查询 Agent 的 `query_sql` 共用语义执行器，普通 SQL 与 `semantic_scores` 查询使用同一入口和按列名返回的结果格式，显示文本按当前引用刷新；填表 Agent 沿用原有 SQL 工具及事务视图。
 _Avoid_: SQL 写工具、宏 SQL 表达式
 
 **手动 SQL 控制台**：
@@ -173,7 +173,7 @@ _Avoid_: 宏脚本、JavaScript 宏、筛选小语言
 _Avoid_: 候选 SQL、截断召回列表
 
 **语义 SQL 查询**：
-通过 `semantic_scores` 在 SQL 中引用语义源，并由同一份 SQL 决定业务条件、关联、排序和最终结果的查询方式。宏、查询 Agent 的 `query_semantic_sql` 与手动 SQL 控制台共用执行器及短期查询向量缓存；填表 Agent 保持现有工具与事务读视图。
+通过 `semantic_scores` 在 SQL 中引用语义源，并由同一份 SQL 决定业务条件、关联、排序和最终结果的查询方式。宏、查询 Agent 的 `query_sql` 与手动 SQL 控制台共用执行器及短期查询向量缓存；填表 Agent 保持现有工具与事务读视图。
 _Avoid_: SQL 召回块、Agent 专属召回
 
 **对话宏**：

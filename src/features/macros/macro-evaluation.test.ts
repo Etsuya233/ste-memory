@@ -1,3 +1,4 @@
+import { createQuerySqlTool } from "../agent/tools/query/query-sql-tool.ts";
 import type { SemanticQueryRequest } from "../semantic-query/semantic-query-session.ts";
 import { createSemanticQuerySession } from "../semantic-query/semantic-query-session.ts";
 import { createSemanticQueryExecutor } from "../semantic-query/semantic-query-service.ts";
@@ -709,4 +710,27 @@ it("standalone semantic SQL cancellation closes its session and does not cache l
   resolveVector([1, 0]);
   await query(snapshot.space.id, request);
   expect(embedding.embed).toHaveBeenCalledTimes(2);
+});
+
+it("query_sql uses one shared executor for ordinary and semantic SQL with unchanged named-row results", async () => {
+  const { query, snapshot, embedding } = await setup(fixture(120));
+  const tool = createQuerySqlTool({
+    query,
+    digest: { memorySpaceId: snapshot.space.id, tables: [] },
+    semanticDescription: "semantic_scores",
+  });
+  const ordinary = await tool.execute("plain", {
+    sql: "SELECT content FROM facts ORDER BY content LIMIT 1",
+  });
+  expect(ordinary.details.rows).toEqual([{ content: "内容0" }]);
+  expect(embedding.embed).not.toHaveBeenCalled();
+  const semantic = await tool.execute("semantic", {
+    sql: `SELECT record_id,score FROM semantic_scores('facts',json_array('facts'),'线索') ORDER BY record_id`,
+  });
+  expect(semantic.details.rows).toHaveLength(100);
+  expect(semantic.details.rows[0]).toEqual({ record_id: "r0", score: 0 });
+  expect(semantic.details.truncated).toBe(true);
+  expect(semantic.details.sources![0]!.coverage.ready).toBe(120);
+  expect(embedding.embed).toHaveBeenCalledTimes(1);
+  await expect(tool.execute("write", { sql: "DELETE FROM facts" })).rejects.toThrow();
 });
