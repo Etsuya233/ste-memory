@@ -1,3 +1,4 @@
+import type { SemanticQueryResponse } from "../semantic-query/semantic-query-session.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 
 export type SqlValue = string | number | bigint | null | Uint8Array;
@@ -9,6 +10,14 @@ export interface SqlResultSet {
 }
 
 export interface SqlExecutionResult {
+  readonly semantic?: {
+    readonly sources: readonly {
+      readonly table: string;
+      readonly groups: readonly string[];
+      readonly coverage: SemanticQueryResponse["sources"][number]["coverage"];
+    }[];
+    readonly diagnostics: SemanticQueryResponse["diagnostics"];
+  };
   readonly results: readonly SqlResultSet[];
   readonly changes: number;
   readonly transactionOpen: boolean;
@@ -16,6 +25,7 @@ export interface SqlExecutionResult {
 }
 
 export interface SqlSchemaEntry {
+  readonly vectorGroups?: readonly string[];
   readonly name: string;
   readonly type: string;
   readonly sql: string | null;
@@ -24,6 +34,6 @@ export interface SqlSchemaEntry {
 
 /** Manual console capability is deliberately separate from the Agent's read-only SQL port. */
 export interface SqlConsole {
-  execute(spaceId: MemorySpaceId, sql: string): Promise<SqlExecutionResult>;
+  execute(spaceId: MemorySpaceId, sql: string, signal?: AbortSignal): Promise<SqlExecutionResult>;
   schema(spaceId: MemorySpaceId): Promise<readonly SqlSchemaEntry[]>;
 }

@@ -1,20 +1,15 @@
 import {
-  createSemanticScores,
-  semanticSourceKey,
-  type SemanticScoreResult,
-} from "../semantic-query/semantic-scores.ts";
+  createSemanticQuerySession,
+  type SemanticSqlProgress,
+} from "../semantic-query/semantic-query-session.ts";
+import { type SemanticScoreResult } from "../semantic-query/semantic-scores.ts";
 import type { QueryVectorExecution } from "../semantic-query/query-vector-cache.ts";
-import type {
-  SemanticSqlEvaluationPort,
-  PreparedSemanticSqlSource,
-} from "../semantic-query/semantic-sql-port.ts";
+import type { SemanticSqlEvaluationPort } from "../semantic-query/semantic-sql-port.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import {
   compileMemoryQueryConditions,
-  createReadTimeDisplayTextResolver,
   MemoryRecordQueryService,
   type MemoryField,
-  type MemoryRecord,
   type QueryRecordFieldId,
   type QueryRecordsInput,
 } from "../memory/index.ts";
@@ -63,69 +58,13 @@ const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 export async function createMacroEvaluationBatch(
   input: MacroEvaluationBatchInput,
 ): Promise<MacroEvaluationBatch> {
-  const { sql, signal, deadline, lastUserMessage } = input;
-  let snapshot = structuredClone(input.snapshot);
-  let closed = false;
-  let cleanupError: unknown;
-  const executions = new WeakMap<
-    MacroExpression,
-    { sqlPasses: number; sqlMs: number; preparedSources: number; queryTexts: number }
-  >();
-  const check = () => {
-    signal.throwIfAborted();
-    if (closed) throw new DOMException("宏求值会话已关闭", "AbortError");
-    if (performance.now() >= deadline) throw new DOMException("宏求值超时", "TimeoutError");
-  };
-  const yieldExecution = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    check();
-  };
-  check();
-  const display = createReadTimeDisplayTextResolver({
-    getTable: async (id) => snapshot.tables.find((table) => table.id === id),
-    getFields: async (id) => snapshot.fields.filter((field) => field.tableId === id),
-    findRecord: async (tableId, id) =>
-      snapshot.records.find((record) => record.tableId === tableId && record.id === id),
-  });
-  const fresh: MemoryRecord[] = [];
-  for (let i = 0; i < snapshot.records.length; i++) {
-    if (i % 100 === 0) await yieldExecution();
-    const record = snapshot.records[i]!;
-    fresh.push({ ...record, displayText: await display(record) });
-  }
-  snapshot = { ...snapshot, records: fresh };
-  check();
-  const opening = sql.openEvaluation(snapshot);
-  let closing: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    if (!closing) {
-      closed = true;
-      input.queryVectors.close();
-      signal.removeEventListener("abort", aborted);
-      closing = opening.then((id) => sql.closeEvaluation(id));
-    }
-    return closing;
-  };
-  const aborted = () => {
-    void close().catch((error) => {
-      cleanupError = error;
-      input.onCleanupError?.(error);
-    });
-  };
-  signal.addEventListener("abort", aborted, { once: true });
-  if (signal.aborted) aborted();
-  let sessionId: string;
-  try {
-    sessionId = await opening;
-    check();
-  } catch (error) {
-    await close();
-    throw error;
-  }
+  const { sql, deadline, lastUserMessage } = input;
+  const session = await createSemanticQuerySession(input);
+  const { snapshot, sessionId, scoring, check, close } = session;
+  const executions = new WeakMap<MacroExpression, SemanticSqlProgress>();
   let querySourceName = "macro_scores";
   while (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === querySourceName))
     querySourceName += "_";
-  const scoring = createSemanticScores({ ...input, snapshot });
   const sourceResult = async (source: MacroSemanticSource): Promise<MacroSemanticResult> => ({
     ...(await scoring.get({
       table: source.table,
@@ -243,59 +182,10 @@ export async function createMacroEvaluationBatch(
     }
     return declarations;
   }
-  async function evaluateInline(
-    sqlText: string,
-    progress: { sqlPasses: number; sqlMs: number; preparedSources: number; queryTexts: number },
-  ): Promise<MacroEvaluationResult> {
-    const prepared = new Map<string, PreparedSemanticSqlSource>();
-    const sources: MacroSemanticResult[] = [];
-    const texts = new Set<string>();
-    let sqlMs = 0;
-    for (let pass = 1; pass <= 17; pass++) {
-      progress.sqlPasses = pass;
-      check();
-      if (sqlMs >= 1000) throw new Error("语义 SQL 累计执行超过 1 秒");
-      const result = await sql.evaluateSemanticSql({
-        sessionId,
-        sql: sqlText,
-        lastUserMessage,
-        sources: [...prepared.values()],
-        budgetMs: 1000 - sqlMs,
-        remainingMs: deadline - performance.now(),
-      });
-      sqlMs += result.elapsedMs;
-      progress.sqlMs = sqlMs;
-      check();
-      if (sqlMs > 1000) throw new Error("语义 SQL 累计执行超过 1 秒");
-      if (result.status === "complete")
-        return {
-          columns: result.columns,
-          rows: result.rows,
-          sources,
-          execution: { sqlPasses: pass, sqlMs },
-        };
-      const request = result.request;
-      const key = semanticSourceKey(request);
-      if (prepared.has(key)) throw new Error("语义评分源已供给，但 SQL 仍重复请求准备");
-      if (prepared.size >= 16) throw new Error("单条 SQL 的语义评分源超过 16 个");
-      if (!texts.has(request.query) && texts.size >= 4)
-        throw new Error("单条 SQL 的不同查询文本超过 4 种");
-      texts.add(request.query);
-      progress.queryTexts = texts.size;
-      const scored = await scoring.get(request);
-      check();
-      prepared.set(key, { ...request, rows: scored.rows });
-      progress.preparedSources = prepared.size;
-      sources.push({ ...scored, name: `semantic_scores#${sources.length + 1}` });
-    }
-    throw new Error("语义 SQL 重执行超过 17 轮");
-  }
   return {
     statistics: (expression) => ({
       ...executions.get(expression),
-      queryVectorScope: "batch",
-      queryVectors: input.queryVectors.stats(),
-      ...(cleanupError === undefined ? {} : { cleanupError: String(cleanupError) }),
+      ...session.statistics(),
     }),
     async validate(expression) {
       check();
@@ -331,7 +221,7 @@ export async function createMacroEvaluationBatch(
       const declarations = expressionSources(expression);
       const query = expression.language === "query" ? compile(expression.query) : null;
       if (expression.language === "sql" && !declarations.length)
-        return evaluateInline(expression.sql, progress);
+        return session.evaluate(expression.sql, { progress });
       if (expression.language === "sql") {
         await sql.evaluateMacro({
           sessionId,

@@ -124,6 +124,26 @@ export function SqlResults(props: { readonly result: SqlRunResult; readonly data
             {Math.round(props.result.execution.elapsedMs)} ms
           </span>
         </div>
+        {props.result.execution.semantic && (
+          <div className="stm-sql-banner stm-sql-banner--info" role="status">
+            <div>
+              <p>
+                查询向量请求 {props.result.execution.semantic.diagnostics.queryVectors.requests} 次
+                · 批次缓存命中{" "}
+                {props.result.execution.semantic.diagnostics.queryVectors.executionHits} 次 ·
+                短期缓存命中 {props.result.execution.semantic.diagnostics.queryVectors.sharedHits}{" "}
+                次 · SQL 执行 {props.result.execution.semantic.diagnostics.sqlPasses} 轮
+              </p>
+              {props.result.execution.semantic.sources.map((source, index) => (
+                <p key={index}>
+                  {source.table} / {source.groups.join("、")}：索引就绪 {source.coverage.ready} /{" "}
+                  {source.coverage.expected}，缺失 {source.coverage.missing}，过期{" "}
+                  {source.coverage.stale}，无效 {source.coverage.invalid}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
         {copyStatus !== null && !copied && (
           <p className="stm-sql-inline-error" role="alert">
             {copyStatus}

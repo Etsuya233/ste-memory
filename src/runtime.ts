@@ -1,3 +1,10 @@
+import type {
+  SqlValue,
+  SqlExecutionResult,
+  SqlResultSet,
+} from "./features/sql-console/sql-console.ts";
+import { createSemanticQuerySession } from "./features/semantic-query/semantic-query-session.ts";
+import { createSemanticQueryExecutor } from "./features/semantic-query/semantic-query-service.ts";
 import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
 import {
   buildPresetUpdate,
@@ -655,9 +662,53 @@ export async function startSteMemory(
   );
   vectorSync.start();
 
+  const semanticEvaluationInput = (
+    snapshot: MemorySpaceBackup,
+    context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
+  ) => {
+    const connection = settings.read().embeddingConnection;
+    const captured = connection ? structuredClone(connection) : undefined;
+    const batchEmbedding = options.embedding ?? new OpenAiEmbeddingPort(() => captured);
+    const revision = queryVectorCache.revisionFor({
+      connection: captured,
+      profile: batchEmbedding.getProfile(),
+    });
+    const queryVectors = queryVectorCache.createExecution({
+      embedding: batchEmbedding,
+      revision,
+      signal: context.signal,
+      isCurrent: () =>
+        queryVectorCache.revisionFor({
+          connection: settings.read().embeddingConnection,
+          profile: embedding.getProfile(),
+        }) === revision,
+    });
+    return {
+      sql: sqlite,
+      vectors: vectorRepository,
+      embedding: batchEmbedding,
+      queryVectors,
+      onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
+      snapshot,
+      ...context,
+    };
+  };
+  const semanticQuery = createSemanticQueryExecutor({
+    snapshot: async (spaceId) => {
+      if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+      const snapshot = await memoryStore.snapshot(spaceId);
+      if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+      return snapshot;
+    },
+    createSession: (snapshot, context) =>
+      createSemanticQuerySession(semanticEvaluationInput(snapshot, context)),
+    onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
+  });
+
   // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
   // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
   const queryChat = new QueryChatService({
+    semanticQuery,
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     recordWriter: records,
@@ -695,34 +746,7 @@ export async function startSteMemory(
   const createMacroBatch = (
     snapshot: MemorySpaceBackup,
     context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
-  ) => {
-    const connection = settings.read().embeddingConnection;
-    const captured = connection ? structuredClone(connection) : undefined;
-    const batchEmbedding = options.embedding ?? new OpenAiEmbeddingPort(() => captured);
-    const revision = queryVectorCache.revisionFor({
-      connection: captured,
-      profile: batchEmbedding.getProfile(),
-    });
-    const queryVectors = queryVectorCache.createExecution({
-      embedding: batchEmbedding,
-      revision,
-      signal: context.signal,
-      isCurrent: () =>
-        queryVectorCache.revisionFor({
-          connection: settings.read().embeddingConnection,
-          profile: embedding.getProfile(),
-        }) === revision,
-    });
-    return createMacroEvaluationBatch({
-      sql: sqlite,
-      vectors: vectorRepository,
-      embedding: batchEmbedding,
-      queryVectors,
-      onCleanupError: (error) => log.error("语义查询会话关闭失败", error),
-      snapshot,
-      ...context,
-    });
-  };
+  ) => createMacroEvaluationBatch(semanticEvaluationInput(snapshot, context));
   const classifyMacros = async (
     snapshot: MemorySpaceBackup,
     macros: readonly MemoryMacro[],
@@ -1168,10 +1192,79 @@ export async function startSteMemory(
     vector,
     retrieval,
     sqlConsole: {
-      async execute(spaceId, sql) {
+      async execute(spaceId, sql, signal) {
         if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
+        const started = performance.now();
+        let lastUserMessage: string | null = null;
+        if (currentSpaceId() === spaceId) {
+          for (let floor = adapter.chatMessageCount() - 1; floor >= 0; floor--) {
+            const message = adapter.getMessageAt(floor);
+            if (message?.isUser) {
+              lastUserMessage = message.content;
+              break;
+            }
+          }
+        }
+        const results: SqlResultSet[] = [];
+        let changes = 0;
+        let transactionOpen: boolean;
+        let semantic: SqlExecutionResult["semantic"];
+        let remainingSql = sql;
         try {
-          return await sqlite.executeConsole(spaceId, sql);
+          do {
+            signal?.throwIfAborted();
+            const chunk = await sqlite.executeConsole(spaceId, remainingSql, lastUserMessage);
+            signal?.throwIfAborted();
+            results.push(...chunk.results);
+            changes += chunk.changes;
+            transactionOpen = chunk.transactionOpen;
+            if (!chunk.semanticStatement) break;
+            const result = await semanticQuery(spaceId, {
+              sql: chunk.semanticStatement.sql,
+              signal,
+              lastUserMessage,
+            });
+            results.push({
+              columns: result.columns,
+              rows: result.rows as readonly (readonly SqlValue[])[],
+            });
+            const sources = result.sources.map(({ table, groups, coverage }) => ({
+              table,
+              groups,
+              coverage,
+            }));
+            if (!semantic) semantic = { sources, diagnostics: result.diagnostics };
+            else
+              semantic = {
+                sources: [...semantic.sources, ...sources],
+                diagnostics: {
+                  sqlPasses: semantic.diagnostics.sqlPasses + result.diagnostics.sqlPasses,
+                  sqlMs: semantic.diagnostics.sqlMs + result.diagnostics.sqlMs,
+                  preparedSources:
+                    semantic.diagnostics.preparedSources + result.diagnostics.preparedSources,
+                  queryTexts: semantic.diagnostics.queryTexts + result.diagnostics.queryTexts,
+                  queryVectors: {
+                    requests:
+                      semantic.diagnostics.queryVectors.requests +
+                      result.diagnostics.queryVectors.requests,
+                    executionHits:
+                      semantic.diagnostics.queryVectors.executionHits +
+                      result.diagnostics.queryVectors.executionHits,
+                    sharedHits:
+                      semantic.diagnostics.queryVectors.sharedHits +
+                      result.diagnostics.queryVectors.sharedHits,
+                  },
+                },
+              };
+            remainingSql = chunk.semanticStatement.remainingSql;
+          } while (remainingSql.trim());
+          return {
+            results,
+            changes,
+            transactionOpen,
+            elapsedMs: performance.now() - started,
+            ...(semantic ? { semantic } : {}),
+          };
         } finally {
           retrieval.invalidate(spaceId, "SQL 已执行，请重新搜索");
           macro.kick();
@@ -1179,7 +1272,28 @@ export async function startSteMemory(
       },
       async schema(spaceId) {
         if (!(await memoryStore.ensure(spaceId))) throw new Error(`记忆空间不存在: ${spaceId}`);
-        return sqlite.consoleSchema(spaceId);
+        const [entries, snapshot] = await Promise.all([
+          sqlite.consoleSchema(spaceId),
+          memoryStore.snapshot(spaceId),
+        ]);
+        if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+        return entries.map((entry) => {
+          const table = snapshot.tables.find((table) => table.key === entry.name && table.enabled);
+          if (!table?.vectorIndex?.enabled) return entry;
+          const fields = snapshot.fields.filter((field) => field.tableId === table.id);
+          return {
+            ...entry,
+            vectorGroups: effectiveVectorIndexGroups(table.vectorIndex, fields)
+              .filter(
+                (group) =>
+                  group.fieldIds.length &&
+                  group.fieldIds.every((id) =>
+                    fields.some((field) => field.id === id && field.enabled),
+                  ),
+              )
+              .map((group) => group.key),
+          };
+        });
       },
     },
     autoFill,

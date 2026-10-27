@@ -1,3 +1,6 @@
+import type { SemanticQueryRequest } from "../semantic-query/semantic-query-session.ts";
+import { createSemanticQuerySession } from "../semantic-query/semantic-query-session.ts";
+import { createSemanticQueryExecutor } from "../semantic-query/semantic-query-service.ts";
 import { afterEach, expect, it, vi } from "vitest";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import type { RecordVector, VectorEmbeddingPort } from "../vector-index/index.ts";
@@ -136,7 +139,27 @@ async function setup(
     onCleanupError,
   });
   batches.push(batch);
+  const query = createSemanticQueryExecutor({
+    snapshot: async () => snapshot,
+    createSession: (snapshot, context) =>
+      createSemanticQuerySession({
+        sql,
+        snapshot,
+        ...context,
+        vectors: vectorRepository,
+        embedding,
+        queryVectors: cache.createExecution({
+          embedding,
+          revision,
+          signal: context.signal,
+          isCurrent: () => true,
+        }),
+      }),
+    onCleanupError,
+  });
   return {
+    query,
+    snapshot,
     batch,
     embedding,
     vectors,
@@ -603,4 +626,87 @@ it("clones each table's vector list once so later SQL rounds cannot mix new vect
   ]);
   expect(result.execution?.sqlPasses).toBe(3);
   expect(vectorRepository.listVectors).toHaveBeenCalledOnce();
+});
+
+it("shares successful query vectors between macros and standalone semantic SQL while refreshing record scores", async () => {
+  const { batch, query, embedding, snapshot } = await setup(fixture(2));
+  await batch.evaluate({
+    language: "sql",
+    sql: `SELECT * FROM semantic_scores('facts','["facts"]',:last_user_message)`,
+  });
+  const request = {
+    sql: `SELECT f.content,s.score FROM facts f JOIN semantic_scores('facts',json_array('facts'),:query) s ON s.record_id=f."$record_id"`,
+    params: { query: "本轮问题" },
+  };
+  const first = await query(snapshot.space.id, request);
+  expect(first.rows).toHaveLength(2);
+  expect(first.diagnostics.queryVectors).toEqual({ requests: 0, executionHits: 0, sharedHits: 1 });
+  expect(embedding.embed).toHaveBeenCalledTimes(1);
+  Object.assign(snapshot.records[0]!.payload, { f: "已修改" });
+  const second = await query(snapshot.space.id, request);
+  expect(second.rows).toHaveLength(1);
+  expect(second.sources[0]!.coverage).toMatchObject({ stale: 1, ready: 1 });
+  expect(embedding.embed).toHaveBeenCalledTimes(1);
+});
+
+it("standalone semantic SQL rejects invalid bindings and writes before requesting embeddings", async () => {
+  const { query, snapshot, embedding } = await setup(fixture(1));
+  const invalidRequests: SemanticQueryRequest[] = [
+    { sql: "DELETE FROM facts" },
+    { sql: "SELECT 1; SELECT 2" },
+    { sql: "PRAGMA table_info(facts)" },
+    { sql: "SELECT :missing" },
+    { sql: "SELECT 1", params: { unused: 1 } },
+    { sql: "SELECT ?", params: { query: "text" } },
+    { sql: "SELECT @query", params: { query: "text" } },
+    { sql: "SELECT :query", params: { query: Infinity } },
+  ];
+  for (const request of invalidRequests)
+    await expect(query(snapshot.space.id, request)).rejects.toThrow();
+  expect(embedding.embed).not.toHaveBeenCalled();
+  expect(
+    (await query(snapshot.space.id, { sql: "SELECT :name AS value", params: { name: "星港'；" } }))
+      .rows,
+  ).toEqual([["星港'；"]]);
+});
+
+it("standalone caller limits probe truncation without truncating the semantic score source", async () => {
+  const { query, snapshot } = await setup(fixture(120));
+  const result = await query(snapshot.space.id, {
+    sql: `SELECT * FROM semantic_scores('facts','["facts"]', 'text')`,
+    maxRows: 100,
+  });
+  expect(result.rows).toHaveLength(100);
+  expect(result.truncated).toBe(true);
+  expect(result.sources[0]!.rows).toHaveLength(120);
+  const exact = await query(snapshot.space.id, { sql: "SELECT 1", maxRows: 1 });
+  expect(exact.rows).toEqual([[1]]);
+  expect(exact.truncated).toBe(false);
+});
+
+it("standalone semantic SQL cancellation closes its session and does not cache late vectors", async () => {
+  const { query, snapshot, embedding, sql } = await setup(fixture(1));
+  const close = vi.spyOn(sql, "closeEvaluation");
+  let resolveVector!: (values: number[]) => void;
+  let started!: () => void;
+  const start = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  vi.mocked(embedding.embed).mockImplementationOnce(() => {
+    started();
+    return new Promise((resolve) => {
+      resolveVector = resolve;
+    });
+  });
+  const controller = new AbortController();
+  const request = { sql: `SELECT * FROM semantic_scores('facts','["facts"]','cancel-text')` };
+  const pending = query(snapshot.space.id, { ...request, signal: controller.signal });
+  const failed = expect(pending).rejects.toThrow();
+  await start;
+  controller.abort();
+  await failed;
+  expect(close).toHaveBeenCalledTimes(1);
+  resolveVector([1, 0]);
+  await query(snapshot.space.id, request);
+  expect(embedding.embed).toHaveBeenCalledTimes(2);
 });

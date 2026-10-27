@@ -384,7 +384,9 @@ describe("real SQLite WASM memory engine", () => {
         tables: [{ ...data.tables[0]!, key: "SEMANTIC_SCORES" }],
       } as unknown as MemorySpaceBackup),
     ).rejects.toThrow("保留名称");
-    await expect(client.executeConsole("s", `SELECT * FROM ${from}`)).rejects.toThrow();
+    expect(
+      (await client.executeConsole("s", `SELECT * FROM ${from}`)).semanticStatement?.sql,
+    ).toContain("semantic_scores");
   });
   it("preserves a legacy temp source named semantic_scores without classifying it as the inline function", async () => {
     const sessionId = await client.openEvaluation(fixture());
@@ -763,6 +765,65 @@ describe("real SQLite WASM memory engine", () => {
       }
     },
   );
+  it("pauses only the native semantic statement and returns its tail without replaying console writes", async () => {
+    const semanticSql = `SELECT * FROM semantic_scores('角色','["facts"]','问题;文本');`;
+    const result = await client.executeConsole(
+      "s",
+      `CREATE TABLE console_once(n); INSERT INTO console_once VALUES(1); ${semanticSql} INSERT INTO console_once VALUES(2);`,
+    );
+    expect(result.semanticStatement!.sql.trim()).toBe(semanticSql);
+    expect(result.semanticStatement!.remainingSql.trim()).toBe(
+      "INSERT INTO console_once VALUES(2);",
+    );
+    expect(result.changes).toBe(1);
+    expect(
+      (await client.executeConsole("s", "SELECT * FROM console_once")).results[0]!.rows,
+    ).toEqual([[1]]);
+    await client.executeConsole("s", result.semanticStatement!.remainingSql);
+    expect(
+      (await client.executeConsole("s", "SELECT * FROM console_once")).results[0]!.rows,
+    ).toEqual([[1], [2]]);
+    const literal = await client.executeConsole(
+      "s",
+      "SELECT 'semantic_scores(ignored)' AS text; -- semantic_scores\n SELECT 2;",
+    );
+    expect(literal.semanticStatement).toBeUndefined();
+    expect(literal.results).toHaveLength(2);
+    const shadow = await client.executeConsole(
+      "s",
+      "CREATE TABLE semantic_scores(value TEXT); INSERT INTO semantic_scores VALUES('ordinary'); SELECT * FROM semantic_scores;",
+    );
+    expect(shadow.semanticStatement).toBeUndefined();
+    expect(shadow.results[0]!.rows).toEqual([["ordinary"]]);
+  });
+  it("detects native semantic reads through CTE, COUNT, subqueries and branches and refuses semantic writes before stepping", async () => {
+    const from = `semantic_scores('角色','["facts"]','问题')`;
+    for (const sql of [
+      `SELECT count(*) FROM ${from}`,
+      `WITH scores AS(SELECT * FROM ${from}) SELECT * FROM scores`,
+      `SELECT * FROM(SELECT * FROM ${from})`,
+      `SELECT * FROM ${from} WHERE 0`,
+      `SELECT CASE WHEN 0 THEN(SELECT count(*) FROM ${from}) ELSE 1 END`,
+    ])
+      expect((await client.executeConsole("s", sql)).semanticStatement?.sql).toBe(sql);
+    await client.executeConsole("s", "CREATE TABLE forbidden(n)");
+    await expect(
+      client.executeConsole("s", `INSERT INTO forbidden SELECT score FROM ${from}`),
+    ).rejects.toThrow("只读");
+    expect((await client.executeConsole("s", "SELECT * FROM forbidden")).results[0]!.rows).toEqual(
+      [],
+    );
+    await client.executeConsole(
+      "s",
+      `CREATE TRIGGER no_semantic_write AFTER INSERT ON forbidden BEGIN SELECT count(*) FROM ${from}; END;`,
+    );
+    await expect(client.executeConsole("s", "INSERT INTO forbidden VALUES(1)")).rejects.toThrow(
+      "只读",
+    );
+    expect((await client.executeConsole("s", "SELECT * FROM forbidden")).results[0]!.rows).toEqual(
+      [],
+    );
+  });
   it("executes unrestricted console DDL, DML, PRAGMA and multiple result sets in order", async () => {
     const result = await client.executeConsole(
       "s",

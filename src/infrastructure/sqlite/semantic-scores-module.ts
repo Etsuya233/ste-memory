@@ -48,7 +48,12 @@ export class SemanticScoresModule {
   error: Error | undefined;
   planned = false;
 
-  constructor(sqlite: Sqlite3Static, db: Database, snapshot: MemorySpaceBackup) {
+  constructor(
+    sqlite: Sqlite3Static,
+    db: Database,
+    snapshot: MemorySpaceBackup,
+    initializeSchema = true,
+  ) {
     const { capi, wasm } = sqlite;
     const native = sqlite.vtab as unknown as NativeVtab;
     const Module = capi.sqlite3_module as unknown as { new (): NativeModule };
@@ -183,7 +188,10 @@ export class SemanticScoresModule {
       ),
     );
     // Initialize the fixed schema with host rights. This prepares only and never executes xFilter.
-    db.prepare("SELECT record_id,score,group_key FROM semantic_scores(NULL,NULL,NULL)").finalize();
+    if (initializeSchema)
+      db.prepare(
+        "SELECT record_id,score,group_key FROM semantic_scores(NULL,NULL,NULL)",
+      ).finalize();
   }
 
   begin(sources: readonly PreparedSemanticSqlSource[], deadline: number): void {

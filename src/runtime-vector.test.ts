@@ -565,3 +565,66 @@ it("废弃旧召回后删除分组不再被旧绑定阻止，并清理向量", a
   expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(0);
   expect((await runtime.tables.find(spaceId, tableId))!.vectorIndex!.presetGroups).toEqual([]);
 });
+
+it("manual SQL automatically prepares semantic statements, shares cached vectors and executes neighboring writes once", async () => {
+  const embedding = {
+    getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+    embed: vi.fn(async () => [1, 2]),
+  };
+  const { runtime, db, spaceId, tableId, fieldId, context } = await setup(embedding);
+  await runtime.tables.update(spaceId, tableId, {
+    vectorIndex: {
+      enabled: true,
+      source: "custom",
+      updateMode: "manual",
+      groups: [{ id: "sql-group", key: "facts", name: "事实", fieldIds: [fieldId] }],
+    },
+  });
+  await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "星港" } });
+  await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
+  await waitFor(async () =>
+    expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1),
+  );
+  embedding.embed.mockClear();
+  const sql = `SELECT t.content, s.score FROM vector_test t JOIN semantic_scores('vector_test',json_array('facts'),'星港线索') s ON s.record_id=t."$record_id"`;
+  const cold = await runtime.sqlConsole.execute(spaceId, sql);
+  expect(cold.results[0]!.rows[0]![0]).toBe("星港");
+  expect(cold.semantic!.diagnostics.queryVectors.requests).toBe(1);
+  const warm = await runtime.sqlConsole.execute(spaceId, sql);
+  expect(warm.semantic!.diagnostics.queryVectors.sharedHits).toBe(1);
+  expect(embedding.embed).toHaveBeenCalledTimes(1);
+  const schema = await runtime.sqlConsole.schema(spaceId);
+  expect(schema.find((entry) => entry.name === "vector_test")!.vectorGroups).toEqual(["facts"]);
+  expect(schema.some((entry) => entry.name === "__entities")).toBe(true);
+  await expect(
+    runtime.sqlConsole.execute(
+      spaceId,
+      `DELETE FROM vector_test WHERE "$record_id" IN (SELECT record_id FROM semantic_scores('vector_test','["facts"]','星港线索'))`,
+    ),
+  ).rejects.toThrow();
+  await runtime.sqlConsole.execute(
+    spaceId,
+    "CREATE TABLE console_only(value TEXT); INSERT INTO console_only VALUES ('ok');",
+  );
+  expect(
+    (await runtime.sqlConsole.execute(spaceId, "SELECT value FROM console_only")).results[0]!.rows,
+  ).toEqual([["ok"]]);
+  context.chat = [{ is_user: true, mes: "最后保存的用户消息" }];
+  expect(
+    (await runtime.sqlConsole.execute(spaceId, "SELECT :last_user_message AS message")).results[0]!
+      .rows,
+  ).toEqual([["最后保存的用户消息"]]);
+  const implicit = await runtime.sqlConsole.execute(
+    spaceId,
+    sql.replace("'星港线索'", ":last_user_message"),
+  );
+  expect(implicit.results[0]!.rows).toHaveLength(1);
+  expect(embedding.embed).toHaveBeenLastCalledWith("最后保存的用户消息", expect.any(AbortSignal));
+  const mixed = await runtime.sqlConsole.execute(
+    spaceId,
+    `INSERT INTO console_only VALUES('before'); ${sql}; INSERT INTO console_only VALUES('after'); SELECT value FROM console_only;`,
+  );
+  expect(mixed.changes).toBe(2);
+  expect(mixed.results[0]!.rows).toHaveLength(1);
+  expect(mixed.results[1]!.rows).toEqual([["ok"], ["before"], ["after"]]);
+});

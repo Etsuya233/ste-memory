@@ -13,7 +13,12 @@ export interface SemanticSqlSourceRequest {
 export interface PreparedSemanticSqlSource extends SemanticSqlSourceRequest {
   readonly rows: readonly SemanticScoreRow[];
 }
+export type SemanticSqlParams = Readonly<Record<string, string | number | null>>;
+
 export interface SemanticSqlEvaluationInput {
+  readonly params?: SemanticSqlParams;
+  /** Stop after probing one row beyond this caller limit. */
+  readonly maxRows?: number;
   readonly sessionId: string;
   readonly sql: string;
   readonly lastUserMessage?: string | null;
@@ -29,6 +34,7 @@ export type SemanticSqlEvaluationResult =
       readonly columns: readonly string[];
       readonly rows: readonly (readonly unknown[])[];
       readonly usesSemantic: boolean;
+      readonly truncated?: boolean;
       readonly elapsedMs: number;
     }
   | {

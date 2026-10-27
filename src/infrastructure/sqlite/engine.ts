@@ -4,6 +4,7 @@ import type {
   PreparedSemanticSqlSource,
   SemanticSqlEvaluationInput,
   SemanticSqlEvaluationResult,
+  SemanticSqlParams,
 } from "../../features/semantic-query/semantic-sql-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type {
@@ -12,12 +13,12 @@ import type {
 } from "../../features/macros/macro-evaluation-port.ts";
 import type { MemoryField, MemoryRecord, MemoryTable } from "../../features/memory/index.ts";
 import type {
-  SqlExecutionResult,
   SqlResultSet,
   SqlSchemaEntry,
   SqlValue,
 } from "../../features/sql-console/sql-console.ts";
 import type {
+  SqliteConsoleResult,
   SqliteEntities,
   SqliteEntityKind,
   SqliteExecution,
@@ -52,6 +53,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     string,
     { db: Database; semantic: SemanticScoresModule }
   >();
+  private readonly consoleModules = new WeakMap<Database, SemanticScoresModule>();
   private evaluationSequence = 0;
   private readonly sqlite: Sqlite3Static;
   constructor(sqlite: Sqlite3Static) {
@@ -99,7 +101,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
 
   private async executeEvaluation(
-    input: MacroSqlEvaluationInput,
+    input: MacroSqlEvaluationInput & { params?: SemanticSqlParams; maxRows?: number },
     inlineSources?: readonly PreparedSemanticSqlSource[],
   ): Promise<SemanticSqlEvaluationResult> {
     const evaluation = this.evaluations.get(input.sessionId);
@@ -224,11 +226,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         if (!next) continue;
         if (statement) {
           capi.sqlite3_finalize(next);
-          throw new Error("宏 SQL 只允许一条语句");
+          throw new Error("SQL 只允许一条语句");
         }
         statement = next;
       }
-      if (!statement) throw new Error("宏 SQL 需要一条查询语句");
+      if (!statement) throw new Error("SQL 需要一条查询语句");
       usesSemantic ||= semantic.planned;
       if (usesSemantic && input.sources.length)
         throw new Error("非空旧 sources 与内联 semantic_scores 不能混用");
@@ -238,23 +240,44 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, i) =>
         capi.sqlite3_column_name(statement, i),
       );
-      if (columns.length === 0) throw new Error("宏 SQL 必须返回查询结果");
+      if (columns.length === 0) throw new Error("SQL 必须返回查询结果");
       if (new Set(columns).size !== columns.length)
-        throw new Error("宏 SQL 返回重复列名，请使用不同别名");
+        throw new Error("SQL 返回重复列名，请使用不同别名");
       let positional = 0;
+      const unused = new Set(Object.keys(input.params ?? {}));
+      for (const [key, value] of Object.entries(input.params ?? {})) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`SQL 参数名无效：${key}`);
+        if (
+          value !== null &&
+          typeof value !== "string" &&
+          !(typeof value === "number" && Number.isFinite(value))
+        )
+          throw new Error(`SQL 参数值无效：${key}`);
+      }
+      if (
+        input.maxRows !== undefined &&
+        (!Number.isSafeInteger(input.maxRows) || input.maxRows < 1)
+      )
+        throw new Error("SQL 返回行数上限必须为正整数");
       for (let i = 1; i <= capi.sqlite3_bind_parameter_count(statement); i++) {
         const name = capi.sqlite3_bind_parameter_name(statement, i);
-        if (name && name !== ":last_user_message") throw new Error(`宏 SQL 参数未声明：${name}`);
-        if (input.prepareOnly) {
-          if (!name && input.bind?.[positional++] === undefined)
-            throw new Error("宏 SQL 缺少绑定参数");
-          continue;
+        let value: string | number | null | undefined;
+        if (input.params !== undefined) {
+          if (!name || !/^:[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+            throw new Error("语义查询只接受 :name 命名参数");
+          const key = name.slice(1);
+          if (!Object.hasOwn(input.params, key)) throw new Error(`SQL 缺少绑定参数：${name}`);
+          unused.delete(key);
+          value = input.params[key];
+        } else {
+          if (name && name !== ":last_user_message") throw new Error(`SQL 参数未声明：${name}`);
+          value =
+            name === ":last_user_message"
+              ? (input.lastUserMessage ?? null)
+              : input.bind?.[positional++];
         }
-        const value =
-          name === ":last_user_message"
-            ? (input.lastUserMessage ?? null)
-            : input.bind?.[positional++];
-        if (value === undefined) throw new Error("宏 SQL 缺少绑定参数");
+        if (value === undefined) throw new Error("SQL 缺少绑定参数");
+        if (input.prepareOnly) continue;
         if (typeof value === "string") {
           const text = wasm.allocCString(value, false);
           try {
@@ -277,6 +300,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
               : capi.sqlite3_bind_double(statement, i, value),
           );
       }
+      if (unused.size) throw new Error(`SQL 包含未使用参数：${[...unused].join("、")}`);
       if (input.prepareOnly) {
         const result = {
           status: "complete" as const,
@@ -289,9 +313,14 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         return result;
       }
       const rows: unknown[][] = [];
+      let truncated = false;
       let step: number;
       while ((step = capi.sqlite3_step(statement)) === capi.SQLITE_ROW) {
-        if (rows.length === 10000) throw new Error("宏查询结果超过 10000 行");
+        if (input.maxRows !== undefined && rows.length === input.maxRows) {
+          truncated = true;
+          break;
+        }
+        if (rows.length === 10000) throw new Error("SQL 查询结果超过 10000 行");
         rows.push(columns.map((_, i) => capi.sqlite3_column_js(statement, i)));
       }
       if (semantic.error) throw semantic.error;
@@ -304,9 +333,16 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         timedResult = result;
         return result;
       }
-      if (step !== capi.SQLITE_DONE) db.checkRc(step);
+      if (!truncated && step !== capi.SQLITE_DONE) db.checkRc(step);
       if (performance.now() >= deadline) throw new Error("语义 SQL 超出执行预算");
-      const result = { status: "complete" as const, columns, rows, usesSemantic, elapsedMs: 0 };
+      const result = {
+        status: "complete" as const,
+        columns,
+        rows,
+        usesSemantic,
+        truncated,
+        elapsedMs: 0,
+      };
       timedResult = result;
       return result;
     } finally {
@@ -322,9 +358,19 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     }
   }
 
-  /** Execute verbatim against the current browsing connection; no publication or snapshot saving. */
-  async executeConsole(spaceId: string, sql: string): Promise<SqlExecutionResult> {
+  /** Execute ordinary statements once, pausing at semantic reads for asynchronous preparation. */
+  async executeConsole(
+    spaceId: string,
+    sql: string,
+    lastUserMessage?: string | null,
+  ): Promise<SqliteConsoleResult> {
     const db = this.database(spaceId);
+    let semantic = this.consoleModules.get(db);
+    if (!semantic) {
+      // This module only detects native query plans. Scoring runs in the shared snapshot executor.
+      semantic = new SemanticScoresModule(this.sqlite, db, this.session(spaceId).snapshot, false);
+      this.consoleModules.set(db, semantic);
+    }
     const { capi, wasm } = this.sqlite;
     const started = performance.now();
     const changesBefore = db.changes(true);
@@ -333,9 +379,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     const statementPointer = wasm.allocPtr(1);
     const tailPointer = wasm.allocPtr(1);
     let cursor = source;
+    let semanticStatement: SqliteConsoleResult["semanticStatement"];
     try {
       // SQLite locates statement boundaries, including semicolons inside strings and trigger bodies.
       while (wasm.heap8u()[cursor] !== 0) {
+        semantic.begin([], Infinity);
         const code = capi.sqlite3_prepare_v3(
           db.pointer!,
           cursor,
@@ -349,6 +397,35 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           db.checkRc(code);
           cursor = wasm.peekPtr(tailPointer);
           if (!statement) continue;
+          if (semantic.planned) {
+            if (!capi.sqlite3_stmt_readonly(statement))
+              throw new Error("包含 semantic_scores 的语句只允许只读查询");
+            semanticStatement = {
+              sql: capi.sqlite3_sql(statement)!,
+              remainingSql: wasm.cstrToJs(cursor)!,
+            };
+            break;
+          }
+          const contextParameter = capi.sqlite3_bind_parameter_index(
+            statement,
+            ":last_user_message",
+          );
+          if (contextParameter && lastUserMessage !== undefined && lastUserMessage !== null) {
+            const text = wasm.allocCString(lastUserMessage, false);
+            try {
+              db.checkRc(
+                capi.sqlite3_bind_text(
+                  statement,
+                  contextParameter,
+                  text,
+                  new TextEncoder().encode(lastUserMessage).byteLength,
+                  capi.SQLITE_TRANSIENT,
+                ),
+              );
+            } finally {
+              wasm.dealloc(text);
+            }
+          }
           const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, index) =>
             capi.sqlite3_column_name(statement, index),
           );
@@ -363,9 +440,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           if (columns.length > 0) results.push({ columns, rows });
         } finally {
           if (statement) capi.sqlite3_finalize(statement);
+          semantic.end();
         }
       }
       return {
+        ...(semanticStatement ? { semanticStatement } : {}),
         results,
         changes: Number(db.changes(true)) - Number(changesBefore),
         transactionOpen: capi.sqlite3_get_autocommit(db.pointer!) === 0,

@@ -1,3 +1,5 @@
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
+import { createQuerySemanticSqlTool } from "./tools/query/query-semantic-sql-tool.ts";
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import type { MemorySpaceId } from "../memory/index.ts";
 import {
@@ -18,6 +20,7 @@ import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
 export const DEFAULT_QUERY_AGENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface QueryAgentOptions {
+  readonly semanticQuery?: SemanticQueryExecutor;
   readonly llm: LlmPort;
   /** 记忆空间只读端口（表/字段列表 + 记录查询），由宿主装配。 */
   readonly reader: MemorySpaceReader;
@@ -45,11 +48,13 @@ export type QueryAgentRunHooks = RunHooks;
  * - 总超时 timeoutMs（默认 5 分钟），超时/取消经 agent.abort() 按 streamFn 契约收尾。
  */
 export class QueryAgent {
+  readonly #semanticQuery: SemanticQueryExecutor | undefined;
   readonly #llm: LlmPort;
   readonly #reader: MemorySpaceReader;
   readonly #timeoutMs: number;
 
   constructor(options: QueryAgentOptions) {
+    this.#semanticQuery = options.semanticQuery;
     this.#llm = options.llm;
     this.#reader = options.reader;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_QUERY_AGENT_TIMEOUT_MS;
@@ -67,14 +72,28 @@ export class QueryAgent {
     }
 
     const digest = await buildMemorySpaceTableDigest(this.#reader, input.memorySpaceId);
+    const semanticTools = this.#semanticQuery
+      ? [
+          await createQuerySemanticSqlTool({
+            reader: this.#reader,
+            digest,
+            query: this.#semanticQuery,
+          }),
+        ]
+      : [];
     // 每请求一个 Agent 实例；query_records 只读且相互独立，工具默认并行执行。
     const agent = new Agent({
       initialState: {
-        systemPrompt: composeQueryAgentSystemPrompt(digest, this.#reader.querySql !== undefined),
+        systemPrompt: composeQueryAgentSystemPrompt(
+          digest,
+          this.#reader.querySql !== undefined,
+          this.#semanticQuery !== undefined,
+        ),
         model: this.#llm.model,
         tools: [
           createQueryRecordsTool({ reader: this.#reader, digest }),
           ...optionalQuerySqlTools(this.#reader, digest),
+          ...semanticTools,
         ],
       },
       streamFn: this.#llm.streamFn,

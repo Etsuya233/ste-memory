@@ -34,8 +34,16 @@ export interface SqliteExecution {
   /** Restrict raw Agent SQL to the enabled digest, excluding internal system tables. */
   allowedTables?: Readonly<Record<string, readonly string[]>>;
 }
+export interface SqliteConsoleResult extends SqlExecutionResult {
+  /** Ordinary statements before this query have already executed exactly once. */
+  readonly semanticStatement?: { readonly sql: string; readonly remainingSql: string };
+}
 export interface SqliteMemoryClient extends MacroSqlEvaluationPort, SemanticSqlEvaluationPort {
-  executeConsole(spaceId: string, sql: string): Promise<SqlExecutionResult>;
+  executeConsole(
+    spaceId: string,
+    sql: string,
+    lastUserMessage?: string | null,
+  ): Promise<SqliteConsoleResult>;
   consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;
   exportSpace(spaceId: string, view?: SqliteView): Promise<MemorySpaceBackup>;

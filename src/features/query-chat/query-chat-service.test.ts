@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
+import { describe, expect, it, vi } from "vitest";
 import type { Context } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
@@ -103,6 +104,7 @@ let harnessSeq = 0;
 async function createHarness(
   options: {
     readonly streamFn?: StreamFn;
+    readonly semanticQuery?: SemanticQueryExecutor;
     readonly createLlmThrows?: boolean;
     readonly currentSpace?: () => MemorySpaceId | undefined;
   } = {},
@@ -159,6 +161,7 @@ async function createHarness(
     );
   const buildService = (streamFn: StreamFn): QueryChatService =>
     new QueryChatService({
+      semanticQuery: options.semanticQuery,
       reader,
       ports,
       recordWriter,
@@ -541,4 +544,22 @@ describe("translateAgentEvent / toAgentMessages（历史组装）", () => {
     const assistantContent = (messages[1] as { content: unknown[] }).content;
     expect(assistantContent).toEqual([{ type: "text", text: "答" }]);
   });
+});
+
+it("semantic SQL is mounted only for query mode while interactive fill keeps its existing tools", async () => {
+  const query = vi.fn<SemanticQueryExecutor>();
+  const modes: string[][] = [];
+  const harness = await createHarness({
+    semanticQuery: query,
+    streamFn: scriptedStreamFn((context) => {
+      modes.push((context.tools ?? []).map((tool) => tool.name));
+      return assistantMessage([textMessage("已完成")], "stop");
+    }),
+  });
+  await run(harness, { mode: "query" });
+  await run(harness, { mode: "fill" });
+  expect(modes[0]).toContain("query_semantic_sql");
+  expect(modes[1]).not.toContain("query_semantic_sql");
+  expect(modes[1]).toContain(MUTATE_TOOL_NAME);
+  expect(query).not.toHaveBeenCalled();
 });
