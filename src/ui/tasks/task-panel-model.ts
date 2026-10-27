@@ -179,6 +179,15 @@ export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
       return { label: "等待中", detail: "按提交顺序等待执行" };
     case "running":
       if (task.phase === "saving") return { label: "保存中", detail: "正在提交当前批次…" };
+      if (task.retryState) {
+        const retry = task.retryState;
+        const seconds = Math.max(0, Math.ceil((retry.retryAt - Date.now()) / 1000));
+        const range = task.kind === "init" ? "初始化填表" : `楼层 #${retry.from}–#${retry.to}`;
+        return {
+          label: "等待重试",
+          detail: `${range}：第 ${retry.attempt}/${retry.maxAttempts} 次重试，${seconds} 秒后开始。${retry.errorMessage}`,
+        };
+      }
       return task.kind === "init"
         ? { label: "运行中", detail: "正在初始化…" }
         : { label: "运行中", detail: `已处理 ${task.processedCount}/${task.totalCount} 层` };

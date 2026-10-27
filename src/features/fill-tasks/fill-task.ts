@@ -74,7 +74,17 @@ export type FillTaskView = FillTask & {
   readonly processedCount: number;
   readonly totalCount: number;
   readonly phase?: "running" | "saving";
+  readonly retryState?: FillTaskRetryState;
 };
+
+export interface FillTaskRetryState {
+  readonly from: number;
+  readonly to: number;
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  readonly retryAt: number;
+  readonly errorMessage: string;
+}
 
 /** 楼层填表状态（语义与 api SourceMessageStatusValue 一致）。 */
 export type FloorFillStatus = "untracked" | "processed" | "error";

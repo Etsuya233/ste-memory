@@ -58,7 +58,6 @@ export interface TasksTabRuntime {
   readonly autoFill?: AutoFillService;
   readonly tasks: Pick<
     FillTaskService,
-    | "retryStates"
     | "submit"
     | "submitInit"
     | "cancel"
@@ -408,12 +407,7 @@ export function TasksTab(props: {
         />
       ) : null}
       {props.runtime.autoFill && (
-        <AutoFillControls
-          service={props.runtime.autoFill}
-          tasks={props.runtime.tasks}
-          defaults={props.settings.autoFill}
-          spaceId={currentSpaceId}
-        />
+        <AutoFillControls service={props.runtime.autoFill} defaults={props.settings.autoFill} />
       )}
       <div className="stm-task-card" data-stm-section="queue">
         <div className="stm-task-card-title">填表队列</div>

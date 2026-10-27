@@ -134,8 +134,10 @@ function emptyProposalAgent() {
   return scriptedStreamFn(() => assistantMessage([textMessage("无需变更")], "stop"));
 }
 
-function failingAgent() {
-  return scriptedStreamFn(() => assistantMessage([textMessage("模型炸了")], "error", "模型炸了"));
+function failingAgent(errorMessage = "模型炸了") {
+  return scriptedStreamFn(() =>
+    assistantMessage([textMessage(errorMessage)], "error", errorMessage),
+  );
 }
 
 /** 第一次调用失败、之后走成功脚本的 respond（重试场景：首轮失败 → 重试成功）。 */
@@ -2427,9 +2429,112 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
   });
 });
 
-describe("自动填表批内重试", () => {
+describe("填表 API 请求重试", () => {
+  it("等待期间自动模式关闭时中断，不发出下一次请求", async () => {
+    let canContinue = true;
+    const streamFn = failingAgent("500 Internal Server Error");
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 2, delaySeconds: 1, canContinue: () => canContinue },
+    });
+    await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+    canContinue = false;
+    expect((await waitForTerminal(harness, task.runId)).status).toBe("interrupted");
+    expect(streamFn.calls.count).toBe(1);
+  });
+  it("写入工具成功后下一轮 500：保留当前事务，重试成功只提交一条记录", async () => {
+    let calls = 0;
+    const contexts: Context["messages"][] = [];
+    const streamFn = scriptedStreamFn((context) => {
+      contexts.push(structuredClone(context.messages));
+      calls++;
+      if (calls === 1)
+        return assistantMessage(
+          [
+            toolCallMessage("create", MUTATE_TOOL_NAME, {
+              op: "create",
+              table: "characters",
+              patch: { name: "云烬" },
+            }),
+          ],
+          "toolUse",
+        );
+      if (calls === 2)
+        return assistantMessage(
+          [textMessage("半截"), toolCallMessage("broken", MUTATE_TOOL_NAME, {})],
+          "error",
+          "500 Internal Server Error",
+        );
+      if (calls === 3)
+        return assistantMessage(
+          [toolCallMessage("submit", SUBMIT_PROPOSAL_TOOL_NAME, {})],
+          "toolUse",
+        );
+      return assistantMessage([textMessage("完成")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    const task = await harness.service.submit({
+      memorySpaceId: harness.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 1, delaySeconds: 1, canContinue: () => true },
+    });
+    expect((await waitForTerminal(harness, task.runId)).status).toBe("succeeded");
+    expect(calls).toBe(4);
+    expect(contexts[2]).toEqual(contexts[1]);
+    expect(await harness.db.memoryRecords.count()).toBe(1);
+    const logs = await harness.logs.byKey(task.runId, 100);
+    expect(
+      logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "context"),
+    ).toHaveLength(1);
+    expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(2);
+  });
+
+  it.each(["手动", "初始化"])("%s 填表默认重试，失败轮保留日志且仅创建一次批事务", async (kind) => {
+    let calls = 0;
+    const streamFn = scriptedStreamFn(() => {
+      calls++;
+      return calls === 1
+        ? assistantMessage([textMessage("半截输出")], "error", "500 Internal Server Error")
+        : assistantMessage([textMessage("完成")], "stop");
+    });
+    const harness = await createHarness({ streamFn });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const task =
+        kind === "初始化"
+          ? await harness.service.submitInit({ memorySpaceId: harness.spaceId, text: "初始化文本" })
+          : await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
+      await vi.waitFor(() => expect(harness.service.retryStates.has(task.runId)).toBe(true));
+      const active = await harness.service.activeTask(harness.spaceId);
+      expect(active?.automatic).toBeUndefined();
+      expect(active?.retryState).toMatchObject({
+        attempt: 1,
+        maxAttempts: 2,
+        errorMessage: "500 Internal Server Error",
+      });
+      await vi.advanceTimersByTimeAsync(10000);
+      await vi.waitFor(async () =>
+        expect((await harness.tasks.find(task.runId))?.status).toBe("succeeded"),
+      );
+      expect(calls).toBe(2);
+      const logs = await harness.logs.byKey(task.runId, 100);
+      expect(
+        logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "turn"),
+      ).toHaveLength(2);
+      expect(
+        logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "context"),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("切换对话中断原因随任务保存，重复中断返回实际终态", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const task = await harness.service.submit({
       memorySpaceId: harness.spaceId,
@@ -2451,7 +2556,7 @@ describe("自动填表批内重试", () => {
   });
 
   it("耗尽配置次数后失败，并在任务终态前通知持久化暂停", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const onFailure = vi.fn();
     const task = await harness.service.submit({
@@ -2463,7 +2568,7 @@ describe("自动填表批内重试", () => {
     expect((await waitForTerminal(harness, task.runId)).status).toBe("failed");
     expect(streamFn.calls.count).toBe(2);
     expect(onFailure).toHaveBeenCalledTimes(1);
-    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("模型炸了"));
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("500"));
     expect(harness.service.retryStates.size).toBe(0);
   });
 
@@ -2472,7 +2577,7 @@ describe("自动填表批内重试", () => {
     const streamFn = scriptedStreamFn(() => {
       calls += 1;
       return calls === 2 || calls === 4
-        ? assistantMessage([textMessage("失败")], "error", "失败")
+        ? assistantMessage([textMessage("失败")], "error", "500 Internal Server Error")
         : assistantMessage([textMessage("无需变更")], "stop");
     });
     const harness = await createHarness({ streamFn });
@@ -2490,7 +2595,7 @@ describe("自动填表批内重试", () => {
   });
 
   it("取消等待立即停止倒计时，不继续尝试", async () => {
-    const streamFn = failingAgent();
+    const streamFn = failingAgent("500 Internal Server Error");
     const harness = await createHarness({ streamFn });
     const task = await harness.service.submit({
       memorySpaceId: harness.spaceId,

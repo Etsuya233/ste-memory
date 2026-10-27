@@ -19,7 +19,8 @@
  *   （含冻结提案），proposal 取 `state.frozenProposal`。
  */
 import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import type { StopReason } from "@earendil-works/pi-ai";
+import type { StopReason, RetryPolicy, RetryCallbacks } from "@earendil-works/pi-ai";
+import { runFillAgentWithRetry } from "./fill-agent-retry.ts";
 import {
   previewProposal,
   validateProposalOperation,
@@ -50,6 +51,8 @@ import { createTaskMutationTools } from "./task-mutation-tools.ts";
 import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
 
 export interface FillAgentRunInput {
+  readonly retryPolicy?: RetryPolicy;
+  readonly retryCallbacks?: RetryCallbacks;
   /** 填表任务即时写入；交互问答省略此端口，保持确认后提交。 */
   readonly taskWriter?: Pick<MemoryRecordService, "commitProposal">;
   readonly llm: LlmPort;
@@ -222,12 +225,21 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
     convertToLlm: convertAgentMessagesToLlm,
   });
 
-  const summary = await runAgentWithTimeout(
-    agent,
-    messages,
-    { signal: input.signal, onEvent: input.onEvent },
-    input.timeoutMs,
-  );
+  const summary = input.retryPolicy
+    ? await runFillAgentWithRetry(
+        agent,
+        messages,
+        { signal: input.signal, onEvent: input.onEvent },
+        input.timeoutMs,
+        input.retryPolicy,
+        input.retryCallbacks,
+      )
+    : await runAgentWithTimeout(
+        agent,
+        messages,
+        { signal: input.signal, onEvent: input.onEvent },
+        input.timeoutMs,
+      );
   if (summary.errorMessage === undefined && summary.stopReason !== "aborted")
     taskTools?.assertCompleted();
   return { ...summary, proposal: state.frozenProposal };

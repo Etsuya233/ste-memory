@@ -1,17 +1,15 @@
 import { Input } from "../kit/controls.tsx";
-import type { MemorySpaceId } from "../../features/memory/index.ts";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AutoFillService } from "../../features/fill-tasks/auto-fill-service.ts";
 import type { AutoFillSettings } from "../../features/fill-tasks/auto-fill-settings.ts";
-import type { FillTaskService } from "../../features/fill-tasks/fill-task-service.ts";
 import { reportError } from "../shell/ui-helpers.tsx";
 
 export const AUTO_FILL_MODE_LABELS = { off: "关闭", remind: "仅提醒", auto: "自动填表" };
 const NUMERIC_FIELDS = [
   ["interval", "触发间隔（层）", 1],
   ["blockSize", "每批楼层数", 1],
-  ["retries", "额外重试次数", 0],
-  ["retryDelaySeconds", "重试等待（秒）", 1],
+  ["retries", "每次 API 请求额外重试次数", 0],
+  ["retryDelaySeconds", "首次重试等待（秒，后续翻倍）", 1],
 ] as const;
 
 export function AutoFillFields(props: {
@@ -93,34 +91,9 @@ export function AutoFillFields(props: {
 
 export function AutoFillControls(props: {
   readonly service: AutoFillService;
-  readonly tasks: Pick<FillTaskService, "activeTask" | "retryStates">;
   readonly defaults: AutoFillSettings;
-  readonly spaceId: MemorySpaceId;
 }) {
   const [, update] = useState(0);
-  const [progress, setProgress] = useState("");
-  useEffect(() => {
-    let disposed = false;
-    const refresh = async () => {
-      const task = await props.tasks.activeTask(props.spaceId);
-      if (disposed) return;
-      const waiting = task && props.tasks.retryStates.get(task.runId);
-      setProgress(
-        waiting
-          ? `楼层 #${waiting.from}–#${waiting.to}：第 ${waiting.attempt} 次重试，${Math.max(0, Math.ceil((waiting.retryAt - Date.now()) / 1000))} 秒后开始`
-          : task?.automatic
-            ? "自动填表运行中"
-            : "",
-      );
-      update((value) => value + 1);
-    };
-    void refresh().catch(reportError);
-    const timer = setInterval(() => void refresh().catch(reportError), 1000);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-    };
-  }, [props.tasks, props.spaceId]);
   const state = props.service.read();
   return (
     <div className="stm-task-card" data-stm-section="auto-fill">
@@ -140,11 +113,6 @@ export function AutoFillControls(props: {
           }
         }}
       />
-      {progress && (
-        <div className="stm-task-hint" role="status">
-          {progress}
-        </div>
-      )}
     </div>
   );
 }

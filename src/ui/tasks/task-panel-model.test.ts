@@ -173,6 +173,24 @@ describe("validateFloorRangeIntegers（楼层整数校验：同步楼层 0 基�
 });
 
 describe("taskStatusViewModel（任务状态 → 文案，失败原因可读）", () => {
+  it("手动和初始化任务共用重试倒计时及失败原因展示", () => {
+    const retryState = {
+      from: 2,
+      to: 3,
+      attempt: 1,
+      maxAttempts: 2,
+      retryAt: Date.now() + 10000,
+      errorMessage: "500",
+    };
+    expect(taskStatusViewModel(task({ retryState }))).toEqual({
+      label: "等待重试",
+      detail: "楼层 #2–#3：第 1/2 次重试，10 秒后开始。500",
+    });
+    expect(taskStatusViewModel(task({ kind: "init", initText: "初始化", retryState }))).toEqual({
+      label: "等待重试",
+      detail: "初始化填表：第 1/2 次重试，10 秒后开始。500",
+    });
+  });
   it("running：状态 + 进度；succeeded/failed/interrupted：终态文案，failed 带错误信息", () => {
     expect(taskStatusViewModel(task())).toEqual({ label: "运行中", detail: "已处理 4/10 层" });
     expect(taskStatusViewModel(task({ status: "succeeded" }))).toEqual({
