@@ -45,6 +45,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     cleaningSchemaVersion: 3,
     cleaningRules: [],
     macros: [],
+    rerank: { enabled: false, candidateLimit: 50 },
     tablePresets: { userPresets: [], defaultPresetId: "systemDefault" },
     entryPlacement: "top",
     ...overrides,

@@ -186,7 +186,7 @@ function SchemaTable(props: {
                 type="button"
                 onClick={() =>
                   props.onQuery(
-                    `SELECT t."$display_text", s.score, s.group_key FROM ${quoteName(entry.name)} t JOIN semantic_scores('${entry.name.replaceAll("'", "''")}', json_array('${group.replaceAll("'", "''")}'), '查询文本') s ON s.record_id=t."$record_id" ORDER BY s.score DESC LIMIT 10;`,
+                    `SELECT t."$display_text", s.score, s.group_key FROM ${quoteName(entry.name)} t JOIN semantic_scores('${entry.name.replaceAll("'", "''")}', json_array('${group.replaceAll("'", "''")}'), '查询文本') s ON s.record_id=t."$record_id" WHERE s.rank IS NOT NULL ORDER BY s.rank LIMIT 10;`,
                   )
                 }
               >

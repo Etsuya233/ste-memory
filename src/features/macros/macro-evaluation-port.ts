@@ -4,6 +4,9 @@ export interface MacroScoreRow {
   readonly recordId: string;
   readonly score: number;
   readonly groupKey: string;
+  readonly rank?: number | null;
+  readonly rerankScore?: number | null;
+  readonly rerankRank?: number | null;
 }
 export interface MacroSqlSource {
   readonly name: string;

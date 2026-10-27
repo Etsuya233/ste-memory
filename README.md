@@ -81,6 +81,12 @@ Authorization 时发送空鉴权值。`Content-Type` 固定为 `application/json
 查询长度上限为连接限制与 4000 字符中的较小值，超长需自行缩短，分数仅表示相似程度。
 端点、模型及维度变化需重建；换密钥无需重建。同名远端模型更换权重无法自动识别，需强制重算。
 
+可在设置的「重排连接」配置独立的 Cohere 兼容 rerank 服务。语义 SQL 与宏 Query 默认跟随全局开关，
+SQL 可用第四参数 `'{"rerank":false}'` 单次关闭，`candidateLimit` 控制向量前 K 条重排候选。
+`score` 保持余弦含义；使用 `WHERE s.rank IS NOT NULL ORDER BY s.rank` 跟随当前排序，再由 SQL `LIMIT` 决定最终数量。
+业务范围通过 `scopeRecordIds` 在候选截取前限定，重排文本默认使用所选组字段，可由 `textFields` 覆盖。
+实际生成中的宏完成重排后再渲染注入；手动向量检索页保持原有向量排序。详见[共享语义 SQL](./docs/semantic-sql.md)。
+
 ## SQL 控制台
 
 “检索”页通过“向量 / SQL”切换手动查询方式。SQL 页可浏览实际表结构、插入名称与示例，

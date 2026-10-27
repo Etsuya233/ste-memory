@@ -1,3 +1,4 @@
+import { RerankConnectionEditor } from "./rerank-connection-editor.tsx";
 import { copyMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { Button, Input, Switch } from "../kit/controls.tsx";
 import { ListGroup, ListSection, ListRow, NavigationRow } from "../kit/list.tsx";
@@ -454,7 +455,7 @@ export function SettingsTab(props: {
   }
 
   const [activeGroup, setActiveGroup] = useState<
-    SettingsGroupKey | "embedding-connection" | "appearance" | null
+    SettingsGroupKey | "embedding-connection" | "rerank-connection" | "appearance" | null
   >(() => [...loadExpandedGroups(safeLocalStorage())][0] ?? null);
   const navigationRef = useRef<HTMLDivElement>(null);
   const categoryScroll = useRef(0);
@@ -482,7 +483,9 @@ export function SettingsTab(props: {
     [props.registerLeaveGuard],
   );
 
-  function toggleGroup(key: SettingsGroupKey | "embedding-connection" | "appearance" | null): void {
+  function toggleGroup(
+    key: SettingsGroupKey | "embedding-connection" | "rerank-connection" | "appearance" | null,
+  ): void {
     if (key === activeGroup) return;
     if (presetLeaveGuard.current && !presetLeaveGuard.current()) return;
     if (activeGroup === null)
@@ -492,7 +495,11 @@ export function SettingsTab(props: {
     setMacroCreateAction(null);
     saveExpandedGroups(
       safeLocalStorage(),
-      new Set(key && key !== "embedding-connection" && key !== "appearance" ? [key] : []),
+      new Set(
+        key && key !== "embedding-connection" && key !== "rerank-connection" && key !== "appearance"
+          ? [key]
+          : [],
+      ),
     );
   }
 
@@ -579,6 +586,13 @@ export function SettingsTab(props: {
           summary: agentConnectionsSummary(props.settings),
         },
         {
+          key: "rerank-connection",
+          title: "重排连接",
+          summary: props.settings.rerank.enabled
+            ? `已启用 · ${props.settings.rerank.connection?.model}`
+            : "默认关闭 · 可逐次启用",
+        },
+        {
           key: "embedding-connection",
           title: "向量连接",
           summary: props.settings.embeddingConnection?.model ?? "配置索引与检索服务",
@@ -640,6 +654,7 @@ export function SettingsTab(props: {
     >
       {activeGroup &&
       activeGroup !== "embedding-connection" &&
+      activeGroup !== "rerank-connection" &&
       !editorOwnsHeader &&
       !macroSettingsOpen ? (
         <PageChrome
@@ -736,6 +751,20 @@ export function SettingsTab(props: {
         )}
       </div>
 
+      {activeGroup === "rerank-connection" && (
+        <RerankConnectionEditor
+          onClose={() => toggleGroup(null)}
+          registerLeaveGuard={registerPresetLeaveGuard}
+          settings={props.settings.rerank}
+          onSave={async (settings) => {
+            try {
+              await props.settingsService.setRerankSettings(settings);
+            } finally {
+              props.onSettingsChange(props.settingsService.read());
+            }
+          }}
+        />
+      )}
       {/* 记忆宏：常用首位 */}
       <div
         className="stm-setting-group stm-setting-group--collapsible"

@@ -1,3 +1,5 @@
+import type { RerankPort } from "./rerank.ts";
+import type { RerankSettings } from "../settings/rerank-settings.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import {
   createReadTimeDisplayTextResolver,
@@ -38,6 +40,8 @@ export interface SemanticQuerySessionInput {
   readonly queryVectors: QueryVectorExecution;
   readonly vectors: Pick<VectorIndexRepository, "listVectors">;
   readonly embedding: VectorEmbeddingPort;
+  readonly rerank?: RerankPort;
+  readonly rerankSettings?: RerankSettings;
   readonly snapshot: MemorySpaceBackup;
   readonly lastUserMessage: string | null;
   readonly signal: AbortSignal;
@@ -167,6 +171,7 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
     statistics: () => ({
       queryVectorScope: "batch" as const,
       queryVectors: input.queryVectors.stats(),
+      rerank: scoring.statistics(),
       ...(cleanupError === undefined ? {} : { cleanupError: String(cleanupError) }),
     }),
     evaluate,
@@ -182,6 +187,7 @@ export interface SemanticQueryRequest {
 export interface SemanticQueryResponse extends SemanticQueryResult {
   readonly diagnostics: SemanticSqlProgress & {
     readonly queryVectors: ReturnType<QueryVectorExecution["stats"]>;
+    readonly rerank?: { requests: number; cacheHits: number; candidates: number };
   };
 }
 export type SemanticQueryExecutor = (

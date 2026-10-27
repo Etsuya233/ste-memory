@@ -131,7 +131,10 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           ]),
         ]),
     );
-    allowed.set("semantic_scores", new Set(["record_id", "score", "group_key"]));
+    allowed.set(
+      "semantic_scores",
+      new Set(["record_id", "score", "group_key", "rerank_score", "rerank_rank", "rank"]),
+    );
     const created: string[] = [];
     let statement = 0;
     let source = 0;
@@ -145,18 +148,24 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           throw new Error(`语义源名称冲突或使用保留名称：${relation.name}`);
         names.add(name);
         db.exec(
-          `CREATE TEMP TABLE ${quote(relation.name)}(record_id TEXT NOT NULL,score REAL NOT NULL,group_key TEXT NOT NULL) STRICT`,
+          `CREATE TEMP TABLE ${quote(relation.name)}(record_id TEXT NOT NULL,score REAL NOT NULL,group_key TEXT NOT NULL,rerank_score REAL,rerank_rank INTEGER,rank INTEGER) STRICT`,
         );
         created.push(relation.name);
         for (const row of relation.rows) {
           if (performance.now() >= totalDeadline) throw new Error("宏求值超时");
-          this.rows(db, `INSERT INTO ${quote(relation.name)} VALUES(?,?,?)`, [
+          this.rows(db, `INSERT INTO ${quote(relation.name)} VALUES(?,?,?,?,?,?)`, [
             row.recordId,
             row.score,
             row.groupKey,
+            row.rerankScore ?? null,
+            row.rerankRank ?? null,
+            row.rank ?? null,
           ]);
         }
-        allowed.set(name, new Set(["record_id", "score", "group_key"]));
+        allowed.set(
+          name,
+          new Set(["record_id", "score", "group_key", "rerank_score", "rerank_rank", "rank"]),
+        );
       }
       // Legacy source insertion belongs to the total budget; inline retries charge all SQL work.
       const sqlStarted = inlineSources === undefined ? performance.now() : started;

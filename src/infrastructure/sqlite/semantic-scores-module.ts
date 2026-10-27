@@ -1,3 +1,5 @@
+import { parseSemanticOptions } from "../../features/semantic-query/semantic-options.ts";
+import { semanticSourceKey } from "../../features/semantic-query/semantic-scores.ts";
 import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import { effectiveVectorIndexGroups } from "../../features/memory/index.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
@@ -68,7 +70,7 @@ export class SemanticScoresModule {
         xConnect: (pointer, _aux, _argc, _argv, out) => {
           const code = capi.sqlite3_declare_vtab(
             pointer,
-            "CREATE TABLE x(record_id TEXT,score REAL,group_key TEXT,table_arg TEXT HIDDEN,groups_arg TEXT HIDDEN,query_arg TEXT HIDDEN)",
+            "CREATE TABLE x(record_id TEXT,score REAL,group_key TEXT,rerank_score REAL,rerank_rank INTEGER,rank INTEGER,table_arg TEXT HIDDEN,groups_arg TEXT HIDDEN,query_arg TEXT HIDDEN,options_arg TEXT HIDDEN)",
           );
           if (code === capi.SQLITE_OK) native.xVtab.create(out);
           return code;
@@ -90,19 +92,22 @@ export class SemanticScoresModule {
           this.planned = true;
           const index = native.xIndexInfo(pointer);
           const selected = new Set<number>();
+          let hasOptionsArgument = false;
           try {
             for (let i = 0; i < index.$nConstraint; i++) {
               const constraint = index.nthConstraint(i);
               try {
+                if (constraint.$iColumn === 9 && constraint.$op === capi.SQLITE_INDEX_CONSTRAINT_EQ)
+                  hasOptionsArgument = true;
                 if (
                   constraint.$usable &&
                   constraint.$op === capi.SQLITE_INDEX_CONSTRAINT_EQ &&
-                  constraint.$iColumn >= 3 &&
-                  constraint.$iColumn <= 5 &&
+                  constraint.$iColumn >= 6 &&
+                  constraint.$iColumn <= 9 &&
                   !selected.has(constraint.$iColumn)
                 ) {
                   const usage = index.nthConstraintUsage(i);
-                  usage.$argvIndex = constraint.$iColumn - 2;
+                  usage.$argvIndex = constraint.$iColumn - 5;
                   usage.$omit = 1;
                   usage.dispose();
                   selected.add(constraint.$iColumn);
@@ -111,7 +116,8 @@ export class SemanticScoresModule {
                 constraint.dispose();
               }
             }
-            if (selected.size !== 3) return capi.SQLITE_CONSTRAINT;
+            if (![6, 7, 8].every((column) => selected.has(column))) return capi.SQLITE_CONSTRAINT;
+            if (hasOptionsArgument && !selected.has(9)) return capi.SQLITE_CONSTRAINT;
             index.$estimatedRows = estimatedRows;
             index.$estimatedCost = 10000;
             // LIMIT/OFFSET and ORDER BY remain entirely SQLite's responsibility.
@@ -123,19 +129,25 @@ export class SemanticScoresModule {
         xFilter: (pointer, _idx, _text, argc, argv) => {
           try {
             this.checkDeadline();
-            if (argc !== 3) throw new Error("semantic_scores 需要三个 TEXT 参数");
+            if (argc !== 3 && argc !== 4)
+              throw new Error("semantic_scores 需要三个或四个 TEXT 参数");
             const values = Array.from({ length: argc }, (_, i) => {
               const value = wasm.peekPtr(argv + i * wasm.sizeofIR("*"));
               if (capi.sqlite3_value_type(value) !== capi.SQLITE_TEXT)
-                throw new Error("semantic_scores 的三个参数必须为 TEXT，不能为 NULL 或其他类型");
+                throw new Error("semantic_scores 参数必须为 TEXT，不能为 NULL 或其他类型");
               const pointer = textPointer(value);
               return decoder.decode(
                 wasm.heap8u().subarray(pointer, pointer + capi.sqlite3_value_bytes(value)),
               );
             });
-            const [table, groupsJson, query] = values;
+            const [table, groupsJson, query, optionsJson] = values;
             const groups: unknown = JSON.parse(groupsJson!);
-            const request = this.request(table!, groups, query!);
+            const request = this.request(
+              table!,
+              groups,
+              query!,
+              optionsJson === undefined ? undefined : JSON.parse(optionsJson),
+            );
             const rows = this.sources.get(this.key(request));
             if (rows === undefined) {
               this.pending = request;
@@ -169,9 +181,13 @@ export class SemanticScoresModule {
             row.recordId,
             row.score,
             row.groupKey,
+            row.rerankScore ?? null,
+            row.rerankRank ?? null,
+            row.rank ?? null,
             cursor.request.table,
             JSON.stringify(cursor.request.groups),
             cursor.request.query,
+            JSON.stringify(cursor.request.options ?? {}),
           ];
           capi.sqlite3_result_js(context, values[column]);
           return capi.SQLITE_OK;
@@ -202,7 +218,7 @@ export class SemanticScoresModule {
     this.sources = new Map();
     for (const source of sources) {
       this.checkDeadline();
-      const request = this.request(source.table, source.groups, source.query);
+      const request = this.request(source.table, source.groups, source.query, source.options);
       const key = this.key(request);
       if (this.sources.has(key)) throw new Error("重复供给相同的语义评分源");
       this.sources.set(key, source.rows);
@@ -222,10 +238,15 @@ export class SemanticScoresModule {
   }
 
   private key(request: SemanticSqlSourceRequest): string {
-    return JSON.stringify([request.table, request.groups, request.query]);
+    return semanticSourceKey(request);
   }
 
-  private request(tableKey: string, groups: unknown, query: string): SemanticSqlSourceRequest {
+  private request(
+    tableKey: string,
+    groups: unknown,
+    query: string,
+    rawOptions?: unknown,
+  ): SemanticSqlSourceRequest {
     if (!tableKey.trim()) throw new Error("semantic_scores 表 Key 不能为空");
     if (
       !Array.isArray(groups) ||
@@ -250,6 +271,12 @@ export class SemanticScoresModule {
       )
         throw new Error(`语义源分组不存在或字段无效：${tableKey}/${key}`);
     }
-    return { table: tableKey, groups: [...groups].sort(), query: text };
+    const options = parseSemanticOptions(rawOptions);
+    return {
+      table: tableKey,
+      groups: [...groups],
+      query: text,
+      ...(options === undefined ? {} : { options }),
+    };
   }
 }

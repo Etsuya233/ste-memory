@@ -259,3 +259,16 @@ node docs/playwright-st-extension/verify-semantic-sql-cache.mjs
 停止链路的专项诊断可加 `--stop-probe --synthetic`：只建立一条合成索引，通过真实 ST 生成、停止和下一发送记录事件顺序、dry run 参数、实际插件拦截器 registry 与 abort 调用。报告明确标记 `synthetic: true`，真实 embedding 调用数为零；这份诊断报告不替代完整验收。
 
 Text Completion 等待专项使用 `--tc-probe --synthetic`，给查询向量增加受控延迟，报告保存生成事件、请求时间及宏终态。完整真实轮保留产品 10 秒预算；只有诊断明确为该预算超时，验收脚本才允许重测一次 TC 成功链路，生产逻辑不重试。
+
+### 可选 rerank 的真实注入验收
+
+在已连接待测 `dist/` 的独立确认 ST 环境运行：
+
+```powershell
+node docs/playwright-st-extension/verify-expression-macros.mjs --synthetic --rerank-probe --install <ST安装目录> --chrome <浏览器路径> --api-dir <embedding连接目录> --output <报告目录>
+```
+
+依赖和环境变量沿用表达式宏验收。`--rerank-probe` 使用浏览器路由提供确定性 embedding 和 rerank，
+外部模型调用为零；模型目录只用于装配连接，不输出密钥。它创建专用角色、对话和记录，让重排第一名
+刻意不同于向量第一名，检查实际主生成请求中的 Query/SQL 宏文本、同批一次重排及关闭后的向量顺序，
+并打开重排设置页截图。结束时清理测试数据并恢复运行前设置。

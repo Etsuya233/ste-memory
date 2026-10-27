@@ -1,3 +1,5 @@
+import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
+import type { RerankPort } from "./features/semantic-query/rerank.ts";
 import type {
   SqlValue,
   SqlExecutionResult,
@@ -192,6 +194,7 @@ export interface StartSteMemoryOptions {
   readonly snapshotFiles?: ChatSnapshotFileStore;
   /** 测试与其他宿主可注入 embedding 实现；浏览器默认使用独立 HTTP 连接。 */
   readonly embedding?: VectorEmbeddingPort;
+  readonly rerank?: RerankPort;
   readonly log?: PluginLog;
   /** 时钟；缺省 = Date.toISOString（测试注入固定时钟） */
   readonly now?: () => string;
@@ -667,6 +670,7 @@ export async function startSteMemory(
     context: { lastUserMessage: string | null; signal: AbortSignal; deadline: number },
   ) => {
     const connection = settings.read().embeddingConnection;
+    const rerankSettings = structuredClone(settings.read().rerank);
     const captured = connection ? structuredClone(connection) : undefined;
     const batchEmbedding = options.embedding ?? new OpenAiEmbeddingPort(() => captured);
     const revision = queryVectorCache.revisionFor({
@@ -687,6 +691,10 @@ export async function startSteMemory(
       sql: sqlite,
       vectors: vectorRepository,
       embedding: batchEmbedding,
+      rerankSettings,
+      rerank:
+        options.rerank ??
+        (rerankSettings.connection ? new HttpRerankPort(rerankSettings.connection) : undefined),
       queryVectors,
       onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
       snapshot,

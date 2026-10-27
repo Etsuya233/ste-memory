@@ -10,6 +10,7 @@ import type {
 export class SemanticQueryError extends Error {
   readonly diagnostics: SemanticSqlProgress & {
     readonly queryVectors?: { requests: number; executionHits: number; sharedHits: number };
+    readonly rerank?: { requests: number; cacheHits: number; candidates: number };
   };
   constructor(
     message: string,
@@ -55,12 +56,24 @@ export function createSemanticQueryExecutor(input: {
       signal.throwIfAborted();
       return {
         ...result,
-        diagnostics: { ...progress, queryVectors: session.statistics().queryVectors },
+        diagnostics: {
+          ...progress,
+          queryVectors: session.statistics().queryVectors,
+          rerank: session.statistics().rerank,
+        },
       };
     } catch (error) {
       throw new SemanticQueryError(
         error instanceof Error ? error.message : String(error),
-        { ...progress, ...(session ? { queryVectors: session.statistics().queryVectors } : {}) },
+        {
+          ...progress,
+          ...(session
+            ? {
+                queryVectors: session.statistics().queryVectors,
+                rerank: session.statistics().rerank,
+              }
+            : {}),
+        },
         { cause: error },
       );
     } finally {

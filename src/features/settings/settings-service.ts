@@ -1,3 +1,4 @@
+import { parseRerankSettings, type RerankSettings } from "./rerank-settings.ts";
 import {
   hasSemanticSource,
   validateMemoryMacro,
@@ -62,6 +63,11 @@ export class SettingsService {
   async setEmbeddingConnection(connection: EmbeddingConnection | undefined): Promise<void> {
     this.save({ ...this.read(), embeddingConnection: parseEmbeddingConnection(connection) });
     await this.dependencies.refreshVectorIndex();
+  }
+
+  async setRerankSettings(rerank: RerankSettings): Promise<void> {
+    this.save({ ...this.read(), rerank: parseRerankSettings(rerank) });
+    await this.dependencies.refreshMemoryMacros();
   }
 
   async setMirrorHistoryIncluded(includeHistory: boolean): Promise<void> {

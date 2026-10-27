@@ -144,6 +144,7 @@ export type {
   MemoryMacro,
   MacroExpression,
   MacroQuery,
+  MacroSemanticOptions,
   MacroQueryInput,
   MacroQueryValue,
   MacroSemanticSource,

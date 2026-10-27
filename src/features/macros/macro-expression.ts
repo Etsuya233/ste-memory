@@ -1,3 +1,4 @@
+import { parseSemanticOptions } from "../semantic-query/semantic-options.ts";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { validateMemoryViewName, type MemoryView } from "./memory-views.ts";
@@ -59,7 +60,24 @@ const querySchema = Type.Object(
     ),
     limit: Type.Optional(Type.Integer({ minimum: 1 })),
     semantic: Type.Optional(
-      Type.Object({ groups: groupsSchema, query: inputSchema }, { additionalProperties: false }),
+      Type.Object(
+        {
+          groups: groupsSchema,
+          query: inputSchema,
+          options: Type.Optional(
+            Type.Object(
+              {
+                rerank: Type.Optional(Type.Boolean()),
+                candidateLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+                textFields: Type.Optional(Type.Array(text, { minItems: 1, uniqueItems: true })),
+                scopeRecordIds: Type.Optional(Type.Array(text, { maxItems: 10000 })),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        },
+        { additionalProperties: false },
+      ),
     ),
   },
   { additionalProperties: false },
@@ -106,13 +124,17 @@ export function validateMemoryMacro(macro: MemoryMacro): void {
   const expression = macro.expression;
   if (expression.language === "query") {
     const query = expression.query;
+    parseSemanticOptions(query.semantic?.options);
     const fields = [
       ...(query.fields ?? []),
       ...(query.conditions ?? []).map((item) => item.field),
       ...(query.orderBy ? [query.orderBy.field] : []),
     ];
-    if (!query.semantic && fields.includes("$similarity"))
-      throw new Error("使用 $similarity 需要声明 semantic");
+    if (
+      !query.semantic &&
+      fields.some((field) => ["$similarity", "$rank", "$rerank_score"].includes(field))
+    )
+      throw new Error("使用评分字段需要声明 semantic");
   } else {
     const names = new Set<string>();
     for (const source of expression.sources ?? []) {
@@ -262,7 +284,7 @@ export function validateMacroDependencies(
           "$display_text",
           "$created_at",
           "$updated_at",
-          ...(query.semantic ? ["$similarity"] : []),
+          ...(query.semantic ? ["$similarity", "$rank", "$rerank_score"] : []),
         ]);
         for (const key of keys) {
           if (!system.has(key) && !table.fields.some((field) => field.key === key))

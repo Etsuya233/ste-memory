@@ -150,7 +150,7 @@ describe("real SQLite WASM memory engine", () => {
     });
     expect(pending).toMatchObject({
       status: "needs-semantic-source",
-      request: { table: "角色", groups: ["extra", "facts"], query: "问题" },
+      request: { table: "角色", groups: ["facts", "extra"], query: "问题" },
     });
     expect(pending).not.toHaveProperty("rows");
     expect(
@@ -276,6 +276,60 @@ describe("real SQLite WASM memory engine", () => {
         sql: `SELECT t."姓名",s.score FROM "角色" t LEFT JOIN ${from} s ON s.record_id=t."$record_id"`,
       }),
     ).toMatchObject({ status: "complete", rows: [["甲", null]] });
+  });
+  it("plans a correlated fourth argument after its JOIN dependency", async () => {
+    const data = fixture();
+    const sessionId = await client.openEvaluation({
+      ...data,
+      records: [record("a", "甲"), record("b", "乙")],
+      tables: [
+        {
+          ...data.tables[0]!,
+          vectorIndex: {
+            enabled: true,
+            source: "custom",
+            updateMode: "manual",
+            groups: [{ id: "g", key: "facts", name: "事实", fieldIds: [data.fields[0]!.id] }],
+          },
+        },
+      ],
+    });
+    const sql = `SELECT t."姓名",s.record_id FROM semantic_scores(
+      '角色','["facts"]','问题',
+      json_object('rerank',json('false'),'scopeRecordIds',json_array(t."$record_id"))
+    ) s JOIN "角色" t ON s.record_id=t."$record_id" ORDER BY t."$record_id"`;
+    const first = await client.evaluateSemanticSql({ sessionId, sql, sources: [] });
+    expect(first).toMatchObject({
+      status: "needs-semantic-source",
+      request: { options: { rerank: false, scopeRecordIds: ["a"] } },
+    });
+    const sources = [
+      {
+        table: "角色",
+        groups: ["facts"],
+        query: "问题",
+        options: { rerank: false, scopeRecordIds: ["a"] },
+        rows: [{ recordId: "a", score: 0.8, groupKey: "facts" }],
+      },
+    ];
+    expect(await client.evaluateSemanticSql({ sessionId, sql, sources })).toMatchObject({
+      status: "needs-semantic-source",
+      request: { options: { rerank: false, scopeRecordIds: ["b"] } },
+    });
+    sources.push({
+      table: "角色",
+      groups: ["facts"],
+      query: "问题",
+      options: { rerank: false, scopeRecordIds: ["b"] },
+      rows: [{ recordId: "b", score: 0.6, groupKey: "facts" }],
+    });
+    expect(await client.evaluateSemanticSql({ sessionId, sql, sources })).toMatchObject({
+      status: "complete",
+      rows: [
+        ["甲", "a"],
+        ["乙", "b"],
+      ],
+    });
   });
   it("accepts row-correlated TEXT parameters without mixing sources or cursor state", async () => {
     const data = fixture();

@@ -109,7 +109,7 @@ export function ExpressionMacroEditor(props: {
       </p>
       {
         <p role="note">
-          表达式含语义查询时，启用后实际生成可能请求 embedding；成功缓存可复用查询向量。
+          表达式含语义查询时，启用后实际生成可能请求 embedding 和 rerank；成功缓存可复用查询向量。
           {props.scope === "global"
             ? "此全局宏适用于所有活动对话。"
             : "即使提示词未引用该宏也会执行。"}
@@ -211,7 +211,9 @@ export function ExpressionMacroEditor(props: {
         <Disclosure title="内联语义查询与缓存" icon="fa-code">
           <p>
             <span className="stm-mono">semantic_scores(table_key, groups_json, query_text)</span>{" "}
-            返回 record_id、score、group_key。三个参数均必填，groups_json 是向量组 Key 的 JSON
+            返回 record_id、score、group_key、rerank_score、rerank_rank、rank。score
+            保留余弦含义，rank 跟随全局重排开关。可选第四参数支持
+            rerank、candidateLimit、textFields、scopeRecordIds。groups_json 是向量组 Key 的 JSON
             数组。SQL 决定筛选、排序和最终条数。
           </p>
           <pre>{`SELECT e."summary", s.score, s.group_key
@@ -219,8 +221,8 @@ FROM "chronicle" AS e
 JOIN semantic_scores(
   'chronicle', '["event_memory"]', :last_user_message
 ) AS s ON s.record_id = e."$record_id"
-WHERE s.score >= 0.3
-ORDER BY s.score DESC
+WHERE s.rank IS NOT NULL
+ORDER BY s.rank
 LIMIT 10;`}</pre>
           <p className="stm-setting-hint">
             示例需按实际表、字段与向量组 Key
@@ -233,7 +235,8 @@ LIMIT 10;`}</pre>
       <Disclosure title="表、字段与向量组 Key" icon="fa-table">
         <p className="stm-setting-hint">
           Query 通过 table、conditions、fields、orderBy、limit 决定结果。semantic 声明 groups 与
-          query；$similarity 可用于字段、条件和排序。Query 输入可用{" "}
+          query 与可选 options；$similarity、$rerank_score、$rank 可用于字段、条件和排序。按 $rank
+          升序可跟随默认重排。启用重排时普通业务条件先限定候选范围。Query 输入可用{" "}
           {JSON.stringify({ context: "last_user_message" })} 或{" "}
           {JSON.stringify({ text: "固定查询" })}。
         </p>

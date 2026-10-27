@@ -165,8 +165,8 @@ export async function createQueryAgentSqlTool(input: {
     digest: input.digest,
     query: input.query,
     semanticDescription: [
-      "可直接在 SQL 中使用 semantic_scores(table_key, groups_json, query_text)，返回 record_id、score、group_key；每条记录取所选组最高分，评分源不预先截取 Top K。",
-      `示例：SELECT t."$display_text",s.score FROM "表Key" t JOIN semantic_scores('表Key',json_array('组Key'),'查询文本') s ON s.record_id=t."$record_id" ORDER BY s.score DESC LIMIT 10。`,
+      "可直接在 SQL 中使用 semantic_scores(table_key, groups_json, query_text)，返回 record_id、score、group_key、rerank_score、rerank_rank、rank；score 始终为最高组余弦分，rank 跟随全局重排开关，未重排候选的 rank 为 NULL。第四个可选 JSON 参数支持 rerank、candidateLimit、textFields、scopeRecordIds；业务过滤须通过 scope 在候选截取前执行，外层 WHERE 不限定内部候选。",
+      `示例：SELECT t."$display_text",s.score FROM "表Key" t JOIN semantic_scores('表Key',json_array('组Key'),'查询文本') s ON s.record_id=t."$record_id" WHERE s.rank IS NOT NULL ORDER BY s.rank LIMIT 10。`,
       "在 SQL 中填写实际查询文本，不读取 ST 输入或宏上下文。普通 SQL 和语义 SQL 均使用本工具，无需切换入口。",
       "只搜索已有有效索引，不补建；检查返回的索引覆盖，区分无有效索引和零命中，不能据此断言记忆中没有相关事实。",
       "总等待 10 秒，累计 SQL 1 秒，最多 16 个源、4 种查询文本。相同查询向量可命中短期缓存。",

@@ -1,3 +1,7 @@
+import type { RerankPort } from "../semantic-query/rerank.ts";
+import type { RerankSettings } from "../settings/rerank-settings.ts";
+import { MemoryMacroService, type MemoryMacroExecutionContext } from "./memory-macro-service.ts";
+import type { MemoryMacro } from "./macro-expression.ts";
 import { createQuerySqlTool } from "../agent/tools/query/query-sql-tool.ts";
 import type { SemanticQueryRequest } from "../semantic-query/semantic-query-session.ts";
 import { createSemanticQuerySession } from "../semantic-query/semantic-query-session.ts";
@@ -94,6 +98,7 @@ async function setup(
   configured = true,
   maxInputChars = 4000,
   cache = new QueryVectorCache(),
+  rerank?: { port: RerankPort; settings: RerankSettings },
 ) {
   const sql = await createInProcessSqliteMemoryClient();
   clients.push(sql);
@@ -132,6 +137,8 @@ async function setup(
     sql,
     vectors: vectorRepository,
     embedding,
+    rerank: rerank?.port,
+    rerankSettings: rerank?.settings,
     queryVectors,
     snapshot,
     lastUserMessage: "本轮问题",
@@ -149,6 +156,8 @@ async function setup(
         ...context,
         vectors: vectorRepository,
         embedding,
+        rerank: rerank?.port,
+        rerankSettings: rerank?.settings,
         queryVectors: cache.createExecution({
           embedding,
           revision,
@@ -733,4 +742,273 @@ it("query_sql uses one shared executor for ordinary and semantic SQL with unchan
   expect(semantic.details.sources![0]!.coverage.ready).toBe(120);
   expect(embedding.embed).toHaveBeenCalledTimes(1);
   await expect(tool.execute("write", { sql: "DELETE FROM facts" })).rejects.toThrow();
+});
+
+const rerankSettings: RerankSettings = {
+  enabled: true,
+  candidateLimit: 2,
+  connection: {
+    endpoint: "https://rerank.invalid/v1/rerank",
+    apiKey: "",
+    model: "test",
+    maxInputChars: 8000,
+    timeoutSeconds: 5,
+  },
+};
+
+it("large ordinary and rerank-disabled Query macros avoid the candidate scope prequery", async () => {
+  const rerank = vi.fn(async () => [1]);
+  const { batch, embedding, vectorRepository, snapshot } = await setup(
+    fixture(10001),
+    false,
+    true,
+    4000,
+    new QueryVectorCache(),
+    { port: { rerank }, settings: rerankSettings },
+  );
+  const result = await batch.evaluate({
+    language: "query",
+    query: {
+      table: "facts",
+      conditions: [{ field: "content", op: "contains", value: "内容" }],
+      fields: ["content"],
+      orderBy: { field: "$record_id", direction: "asc" },
+      limit: 1,
+    },
+  });
+  expect(result.rows).toEqual([["内容0"]]);
+  expect(result.sources).toEqual([]);
+  expect(vectorRepository.listVectors).not.toHaveBeenCalled();
+  expect(embedding.embed).not.toHaveBeenCalled();
+  const indexedRecord = snapshot.records[0]!;
+  vectorRepository.listVectors.mockResolvedValue([
+    {
+      id: "r0g",
+      memorySpaceId: indexedRecord.memorySpaceId,
+      tableId: indexedRecord.tableId,
+      recordId: indexedRecord.id,
+      groupId: "g",
+      fingerprint: JSON.stringify([["f"], "内容：内容0", "model", "v1"]),
+      model: "model",
+      version: "v1",
+      values: [1, 0],
+      updatedAt: stamp,
+    },
+  ]);
+  const semantic = await batch.evaluate({
+    language: "query",
+    query: {
+      table: "facts",
+      semantic: { groups: ["facts"], query: { text: "问题" }, options: { rerank: false } },
+      conditions: [{ field: "content", op: "contains", value: "内容" }],
+      fields: ["content"],
+      limit: 1,
+    },
+  });
+  expect(semantic.rows).toEqual([["内容0"]]);
+  expect(semantic.sources[0]!.coverage.records).toBe(10001);
+  expect(rerank).not.toHaveBeenCalled();
+});
+
+it("reranks scoped SQL candidates, preserves cosine scores and the full relation, and honors explicit false", async () => {
+  const rerank = vi.fn(async (_query: string, documents: readonly string[]) =>
+    documents.map((_, i) => i),
+  );
+  const { batch } = await setup(fixture(4), true, true, 4000, new QueryVectorCache(), {
+    port: { rerank },
+    settings: rerankSettings,
+  });
+  const result = await batch.evaluate({
+    language: "sql",
+    sql: `
+    WITH eligible AS MATERIALIZED (SELECT * FROM facts WHERE content != '内容0')
+    SELECT s.record_id,s.score,s.rerank_score,s.rerank_rank,s.rank
+    FROM semantic_scores('facts',json_array('facts','extra'),:last_user_message,
+      json_object('scopeRecordIds',json((SELECT json_group_array("$record_id") FROM eligible)))) s
+    ORDER BY s.record_id`,
+  });
+  expect(result.rows).toEqual([
+    ["r1", 0, 0, 2, 2],
+    ["r2", 0, 1, 1, 1],
+    ["r3", 0, null, null, null],
+  ]);
+  expect(rerank).toHaveBeenCalledTimes(1);
+  expect(rerank.mock.calls[0]![1]).toEqual(["表格：记忆\n内容：内容1", "表格：记忆\n内容：内容2"]);
+  const disabled = await batch.evaluate({
+    language: "sql",
+    sql: `SELECT record_id,score,rank,rerank_score FROM semantic_scores('facts','["facts"]',:last_user_message,'{"rerank":false,"candidateLimit":1}') ORDER BY rank`,
+  });
+  expect(disabled.rows).toEqual([
+    ["r0", 0, 1, null],
+    ["r1", 0, 2, null],
+    ["r2", 0, 3, null],
+    ["r3", 0, 4, null],
+  ]);
+  expect(rerank).toHaveBeenCalledTimes(1);
+});
+
+it("Query business conditions limit scope before rerank and its limit only limits final rows", async () => {
+  const rerank = vi.fn(async (_query: string, documents: readonly string[]) =>
+    documents.map((_, i) => i),
+  );
+  const { batch } = await setup(fixture(5), true, true, 4000, new QueryVectorCache(), {
+    port: { rerank },
+    settings: rerankSettings,
+  });
+  const result = await batch.evaluate({
+    language: "query",
+    query: {
+      table: "facts",
+      semantic: {
+        groups: ["facts"],
+        query: { context: "last_user_message" },
+        options: { candidateLimit: 2, textFields: ["content"] },
+      },
+      conditions: [{ field: "content", op: "in", value: ["内容2", "内容3", "内容4"] }],
+      fields: ["content", "$similarity", "$rerank_score", "$rank"],
+      orderBy: { field: "$rank", direction: "asc" },
+      limit: 1,
+    },
+  });
+  expect(result.rows).toEqual([["内容3", 0, 1, 1]]);
+  expect(rerank.mock.calls[0]![1]).toEqual(["表格：记忆\n内容：内容2", "表格：记忆\n内容：内容3"]);
+  expect(result.sources[0]!.coverage.records).toBe(3);
+});
+
+it("shares successful rerank inputs across Query and SQL and skips empty scopes", async () => {
+  const rerank = vi.fn(async (_query: string, documents: readonly string[]) =>
+    documents.map((_, i) => i),
+  );
+  const { batch } = await setup(fixture(3), true, true, 4000, new QueryVectorCache(), {
+    port: { rerank },
+    settings: rerankSettings,
+  });
+  await batch.evaluate({
+    language: "query",
+    query: {
+      table: "facts",
+      semantic: { groups: ["facts"], query: { context: "last_user_message" } },
+      fields: ["content"],
+      orderBy: { field: "$rank", direction: "asc" },
+      limit: 1,
+    },
+  });
+  await batch.evaluate({
+    language: "sql",
+    sql: `SELECT record_id FROM semantic_scores('facts','["facts"]',:last_user_message,'{"candidateLimit":2}') WHERE rank IS NOT NULL ORDER BY rank`,
+  });
+  expect(rerank).toHaveBeenCalledTimes(1);
+  const empty = await batch.evaluate({
+    language: "sql",
+    sql: `SELECT count(*) FROM semantic_scores('facts','["facts"]',:last_user_message,'{"scopeRecordIds":[]}')`,
+  });
+  expect(empty.rows).toEqual([[0]]);
+  expect(rerank).toHaveBeenCalledTimes(1);
+});
+
+it("propagates rerank failure and rejects a cancelled late response", async () => {
+  let resolve!: (scores: readonly number[]) => void;
+  const rerank = vi.fn(
+    () =>
+      new Promise<readonly number[]>((done) => {
+        resolve = done;
+      }),
+  );
+  const { batch, controller } = await setup(fixture(3), true, true, 4000, new QueryVectorCache(), {
+    port: { rerank },
+    settings: rerankSettings,
+  });
+  const execution = batch.evaluate({
+    language: "sql",
+    sql: `SELECT * FROM semantic_scores('facts','["facts"]',:last_user_message)`,
+  });
+  const failed = expect(execution).rejects.toThrow();
+  await vi.waitFor(() => expect(rerank).toHaveBeenCalledTimes(1));
+  controller.abort(new Error("切换对话"));
+  resolve([0, 1]);
+  await failed;
+  const broken = await setup(fixture(3), true, true, 4000, new QueryVectorCache(), {
+    port: {
+      rerank: async () => {
+        throw new Error("HTTP 503");
+      },
+    },
+    settings: rerankSettings,
+  });
+  await expect(
+    broken.batch.evaluate({
+      language: "sql",
+      sql: `SELECT * FROM semantic_scores('facts','["facts"]',:last_user_message)`,
+    }),
+  ).rejects.toThrow("HTTP 503");
+});
+
+it("publishes reranked Query and SQL macro rows during actual generation expansion", async () => {
+  const rerank = vi.fn(async (_query: string, documents: readonly string[]) =>
+    documents.map((_, i) => i),
+  );
+  const { batch, snapshot } = await setup(fixture(4), true, true, 4000, new QueryVectorCache(), {
+    port: { rerank },
+    settings: rerankSettings,
+  });
+  const definitions: MemoryMacro[] = [
+    {
+      id: "q",
+      name: "查询记忆",
+      enabled: true,
+      expression: {
+        language: "query",
+        query: {
+          table: "facts",
+          semantic: { groups: ["facts"], query: { context: "last_user_message" } },
+          fields: ["content"],
+          orderBy: { field: "$rank", direction: "asc" },
+          limit: 1,
+        },
+      },
+      output: { format: "text", maxChars: null },
+    },
+    {
+      id: "s",
+      name: "SQL记忆",
+      enabled: true,
+      expression: {
+        language: "sql",
+        sql: `SELECT f.content FROM facts f JOIN semantic_scores('facts','["facts"]',:last_user_message) s ON s.record_id=f."$record_id" WHERE s.rank IS NOT NULL ORDER BY s.rank LIMIT 1`,
+      },
+      output: { format: "text", maxChars: null },
+    },
+  ];
+  let expand: ((context: MemoryMacroExecutionContext) => string) | undefined;
+  const service = new MemoryMacroService({
+    getContext: () => "chat",
+    getChatMacros: () => [],
+    saveChatMacros: async () => {},
+    readLegacyChatMacros: () => [],
+    writeLegacyChatMacros: () => {},
+    readSettings: () => ({
+      enabled: true,
+      macroName: "{{ste}}",
+      macroLimit: 2000,
+      macros: definitions,
+    }),
+    capture: async () => snapshot,
+    createBatch: async () => batch,
+    registerMacro: {
+      register: (_name, handler) => {
+        expand = handler;
+      },
+      unregister: () => {},
+    },
+  });
+  await service.start();
+  expect(expand?.({ unnamedArgs: ["查询记忆"] })).toBe("");
+  service.started("regenerate", {}, false);
+  await service.afterCommands("regenerate", {}, false, "本轮问题");
+  expect(expand?.({ unnamedArgs: ["查询记忆"] })).toBe("内容1");
+  expect(expand?.({ unnamedArgs: ["SQL记忆"] })).toBe("内容1");
+  expect(rerank).toHaveBeenCalledTimes(1);
+  service.chatChanged();
+  expect(expand?.({ unnamedArgs: ["查询记忆"] })).toBe("");
+  service.stop();
 });

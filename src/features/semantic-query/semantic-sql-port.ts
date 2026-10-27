@@ -1,14 +1,19 @@
+import type { MacroSemanticOptions } from "../memory/index.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 
 export interface SemanticScoreRow {
   readonly recordId: string;
   readonly score: number;
   readonly groupKey: string;
+  readonly rank?: number | null;
+  readonly rerankScore?: number | null;
+  readonly rerankRank?: number | null;
 }
 export interface SemanticSqlSourceRequest {
   readonly table: string;
   readonly groups: readonly string[];
   readonly query: string;
+  readonly options?: MacroSemanticOptions;
 }
 export interface PreparedSemanticSqlSource extends SemanticSqlSourceRequest {
   readonly rows: readonly SemanticScoreRow[];

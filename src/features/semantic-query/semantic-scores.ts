@@ -1,3 +1,6 @@
+import { parseSemanticOptions } from "./semantic-options.ts";
+import { validateRerankScores, type RerankPort } from "./rerank.ts";
+import { DEFAULT_RERANK_SETTINGS, type RerankSettings } from "../settings/rerank-settings.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import { effectiveVectorIndexGroups, type MemoryRecord } from "../memory/index.ts";
 import type {
@@ -22,12 +25,23 @@ export interface SemanticScoreResult {
     invalid: number;
   };
   readonly rows: readonly SemanticScoreRow[];
+  readonly rerank?: {
+    readonly enabled: boolean;
+    readonly candidates: number;
+    readonly textFields: readonly string[];
+    readonly elapsedMs: number;
+  };
   readonly calls: number;
   readonly executionHits: number;
   readonly sharedHits: number;
 }
 export function semanticSourceKey(source: SemanticSqlSourceRequest): string {
-  return JSON.stringify([source.table, [...source.groups].sort(), source.query.trim()]);
+  return JSON.stringify([
+    source.table,
+    source.groups,
+    source.query.trim(),
+    parseSemanticOptions(source.options) ?? null,
+  ]);
 }
 function norm(values: readonly number[]): number {
   let sum = 0;
@@ -51,9 +65,16 @@ export function createSemanticScores(input: {
   queryVectors: QueryVectorExecution;
   signal: AbortSignal;
   deadline: number;
+  rerank?: RerankPort;
+  rerankSettings?: RerankSettings;
 }) {
   const { snapshot, vectors, embedding, queryVectors, signal, deadline } = input;
   const profile = structuredClone(embedding.getProfile());
+  const rerankSettings = structuredClone(input.rerankSettings ?? DEFAULT_RERANK_SETTINGS);
+  const reranked = new Map<string, Promise<readonly number[]>>();
+  const rerankStats = { requests: 0, cacheHits: 0, candidates: 0 };
+  const lanes: Promise<unknown>[] = [Promise.resolve(), Promise.resolve()];
+  let scheduled = 0;
   const check = () => {
     signal.throwIfAborted();
     if (performance.now() >= deadline) throw new DOMException("语义评分超时", "TimeoutError");
@@ -86,10 +107,26 @@ export function createSemanticScores(input: {
   async function scoreSource(source: SemanticSqlSourceRequest): Promise<SemanticScoreResult> {
     check();
     const { table, fields, selected } = sourceMetadata(source);
+    const options = parseSemanticOptions(source.options);
+    const enabled = options?.rerank ?? rerankSettings.enabled;
+    if (enabled && (!input.rerank || !rerankSettings.connection))
+      throw new Error("启用重排前请配置 rerank 连接");
+    const textFields = options?.textFields
+      ? options.textFields.map((key) => {
+          const field = fields.find((field) => field.key === key && field.enabled);
+          if (!field) throw new Error(`重排字段不存在或已停用：${table.key}.${key}`);
+          return field;
+        })
+      : [...new Set(selected.flatMap((group) => group.fieldIds))].map((id) =>
+          fields.find((field) => field.id === id)!,
+        );
     const query = source.query.trim();
     if (!query) throw new Error("语义查询文本为空或缺少最后用户消息");
     if (query.length > 4000) throw new Error("语义查询文本超过 4000 字符");
-    const records = snapshot.records.filter((record) => record.tableId === table.id);
+    const scope = options?.scopeRecordIds === undefined ? null : new Set(options.scopeRecordIds);
+    const records = snapshot.records.filter(
+      (record) => record.tableId === table.id && (scope === null || scope.has(record.id)),
+    );
     const coverage = {
       records: records.length,
       expected: 0,
@@ -223,9 +260,106 @@ export function createSemanticScores(input: {
       if (!old || score > old.score || (score === old.score && groupKey < old.groupKey))
         rows.set(record.id, { recordId: record.id, score, groupKey });
     }
+    const ordered = [...rows.values()].sort(
+      (a, b) =>
+        b.score - a.score || (a.recordId < b.recordId ? -1 : a.recordId > b.recordId ? 1 : 0),
+    );
+    let finalRows: SemanticScoreRow[] = ordered.map((row, index) => ({
+      ...row,
+      rank: enabled ? null : index + 1,
+      rerankScore: null,
+      rerankRank: null,
+    }));
+    let elapsedMs = 0;
+    let rerankCount = 0;
+    if (enabled && ordered.length) {
+      const picked = ordered.slice(0, options?.candidateLimit ?? rerankSettings.candidateLimit);
+      const documents = picked.map((row) => {
+        const record = records.find((record) => record.id === row.recordId)!;
+        const lines: string[] = [];
+        for (const field of textFields) {
+          const value = record.payload[field.id];
+          if (
+            value === null ||
+            value === undefined ||
+            value === "" ||
+            (Array.isArray(value) && !value.length)
+          )
+            continue;
+          let text: string;
+          if (field.type === "single_reference" || field.type === "multi_reference") {
+            const ids = Array.isArray(value) ? value : [String(value)];
+            text = ids
+              .map((id) => {
+                const ref = snapshot.records.find(
+                  (item) => item.tableId === field.referenceTableId && item.id === id,
+                );
+                if (!ref) throw new Error(`重排引用记录不存在：${field.key}/${id}`);
+                return ref.displayText;
+              })
+              .join("、");
+          } else text = Array.isArray(value) ? value.join("、") : String(value);
+          if (text) lines.push(`${field.name}：${text}`);
+        }
+        if (!lines.length) throw new Error(`记录 ${record.id} 的重排字段均为空`);
+        const text = [`表格：${table.name}`, ...lines].join("\n");
+        const limit = rerankSettings.connection!.maxInputChars;
+        if (text.length > limit)
+          throw new Error(`记录 ${record.id} 的重排文本 ${text.length} 字符超过上限 ${limit}`);
+        return text;
+      });
+      const limit = rerankSettings.connection!.maxInputChars;
+      if (query.length > limit) throw new Error(`重排查询超过 ${limit} 字符上限`);
+      const requestKey = JSON.stringify([query, documents]);
+      if (new TextEncoder().encode(requestKey).byteLength > 2 * 1024 * 1024)
+        throw new Error("重排输入超过 2 MiB 上限");
+      const started = performance.now();
+      let request = reranked.get(requestKey);
+      if (request) rerankStats.cacheHits++;
+      else {
+        if (scheduled >= 16) throw new Error("本批重排请求超过 16 次上限");
+        const lane = scheduled++ % lanes.length;
+        request = lanes[lane]!.then(async () => {
+          check();
+          rerankStats.requests++;
+          rerankStats.candidates += picked.length;
+          const result = await input.rerank!.rerank(query, documents, signal);
+          check();
+          validateRerankScores(result, documents.length);
+          return result;
+        });
+        lanes[lane] = request.catch(() => undefined);
+        reranked.set(requestKey, request);
+        void request.catch(() => {
+          if (reranked.get(requestKey) === request) reranked.delete(requestKey);
+        });
+      }
+      const values = await request;
+      check();
+      const ranked = picked
+        .map((row, index) => ({ recordId: row.recordId, score: values[index]!, index }))
+        .sort((a, b) => b.score - a.score || a.index - b.index);
+      const byId = new Map(
+        ranked.map((row, index) => [row.recordId, { score: row.score, rank: index + 1 }]),
+      );
+      finalRows = finalRows.map((row) => {
+        const scored = byId.get(row.recordId);
+        return scored
+          ? { ...row, rerankScore: scored.score, rerankRank: scored.rank, rank: scored.rank }
+          : row;
+      });
+      rerankCount = picked.length;
+      elapsedMs = performance.now() - started;
+    }
     return {
       ...result,
-      rows: [...rows.values()],
+      rows: finalRows,
+      rerank: {
+        enabled,
+        candidates: rerankCount,
+        textFields: textFields.map((field) => field.key),
+        elapsedMs,
+      },
       calls: vectorResult.calls,
       executionHits: vectorResult.executionHits,
       sharedHits: vectorResult.sharedHits,
@@ -233,7 +367,15 @@ export function createSemanticScores(input: {
   }
 
   return {
-    validate: sourceMetadata,
+    statistics: () => ({ ...rerankStats }),
+    validate(source: Pick<SemanticSqlSourceRequest, "table" | "groups" | "options">) {
+      const metadata = sourceMetadata(source);
+      const options = parseSemanticOptions(source.options);
+      for (const key of options?.textFields ?? [])
+        if (!metadata.fields.some((field) => field.key === key && field.enabled))
+          throw new Error(`重排字段不存在或已停用：${source.table}.${key}`);
+      return metadata;
+    },
     get(source: SemanticSqlSourceRequest): Promise<SemanticScoreResult> {
       check();
       sourceMetadata(source);
@@ -241,7 +383,8 @@ export function createSemanticScores(input: {
         throw new Error("语义源分组必须非空且不能重复");
       const normalized = {
         ...source,
-        groups: [...source.groups].sort(),
+        groups: [...source.groups],
+        ...(source.options === undefined ? {} : { options: parseSemanticOptions(source.options) }),
         query: source.query.trim(),
       };
       const key = semanticSourceKey(normalized);

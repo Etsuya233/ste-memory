@@ -23,11 +23,13 @@ const { values } = parseArgs({
     headed: { type: "boolean" },
     "stop-probe": { type: "boolean" },
     synthetic: { type: "boolean" },
+    "rerank-probe": { type: "boolean" },
     "tc-probe": { type: "boolean" },
   },
 });
 const stopProbe = values["stop-probe"] === true;
 const synthetic = values.synthetic === true;
+const rerankProbe = values["rerank-probe"] === true;
 const tcProbe = values["tc-probe"] === true;
 const stUrl = values.url ?? process.env.ST_URL ?? "http://127.0.0.1:8000";
 const installation = values.install ?? process.env.STE_ST_INSTALL;
@@ -110,6 +112,7 @@ function safeError(error) {
   return String(error).replaceAll(embedding.apiKey, "[redacted]");
 }
 async function check(name, work) {
+  if (rerankProbe && !name.includes("建立索引") && !name.includes("rerank")) return;
   if (stopProbe && !name.includes("建立索引") && name !== "ST 停止取消未完成计算，迟到结果不发布")
     return;
   if (
@@ -379,6 +382,7 @@ try {
       ...runtime.settings.read(),
       enabled: true,
       macros: [],
+      rerank: { enabled: false, candidateLimit: 50 },
       autoFill: { ...runtime.settings.read().autoFill, enabled: false },
       macroName: "steExpression",
       macroLimit: 10000,
@@ -642,6 +646,98 @@ try {
     assert(synthetic ? embeddingCalls >= 1 : realEmbeddingCalls >= 1);
     return { realRequests: realEmbeddingCalls };
   });
+  if (rerankProbe)
+    await check("rerank 改变真实 Query/SQL 宏注入，关闭后恢复向量顺序", async () => {
+      let calls = 0;
+      await page.route("https://rerank-e2e.invalid/v1/rerank", async (route) => {
+        if (route.request().method() === "OPTIONS") {
+          await route.fulfill({
+            status: 204,
+            headers: {
+              "access-control-allow-origin": "*",
+              "access-control-allow-headers": "*",
+              "access-control-allow-methods": "POST, OPTIONS",
+            },
+          });
+          return;
+        }
+        calls++;
+        const { documents, top_n } = route.request().postDataJSON();
+        assert.equal(top_n, documents.length);
+        await route.fulfill({
+          json: {
+            results: documents.map((text, index) => ({
+              index,
+              relevance_score: text.includes("图书馆") ? 0.95 : 0.1,
+            })),
+          },
+          headers: { "access-control-allow-origin": "*" },
+        });
+      });
+      await page.evaluate(async () => {
+        const r = window.__STE_MEMORY_RUNTIME__;
+        await r.settingsService.setRerankSettings({
+          enabled: true,
+          candidateLimit: 2,
+          connection: {
+            endpoint: "https://rerank-e2e.invalid/v1/rerank",
+            apiKey: "",
+            model: "test",
+            maxInputChars: 8000,
+            timeoutSeconds: 5,
+          },
+        });
+      });
+      await page.evaluate(async (macros) => {
+        const r = window.__STE_MEMORY_RUNTIME__;
+        const next = macros.slice(0, 2).map((macro) => ({ ...macro, enabled: true }));
+        next[0].expression.query.fields = ["summary"];
+        next[0].expression.query.orderBy = { field: "$rank", direction: "asc" };
+        next[1].expression = {
+          language: "sql",
+          sql: `SELECT e.summary AS "摘要" FROM e2e_events e JOIN semantic_scores('e2e_events','["event_memory"]',:last_user_message) s ON s.record_id=e."$record_id" WHERE s.rank IS NOT NULL ORDER BY s.rank LIMIT 1`,
+        };
+        await r.settingsService.setChatScopeMacros(next);
+      }, fixture.macros);
+      await generate("normal", "古桥事故的线索");
+      await finishGeneration();
+      const rows = await recent();
+      assert(
+        rows
+          .filter((row) => row.name.startsWith("semantic"))
+          .every((row) => row.status === "success"),
+        JSON.stringify(rows.map(({ name, status, error }) => ({ name, status, error }))),
+      );
+      const prompt = JSON.stringify(generated.at(-1).body);
+      assert(
+        prompt.includes("图书馆开放时间"),
+        "Reranked winner missing from actual generation prompt",
+      );
+      assert(!prompt.includes("红色披风"), "Vector winner leaked into reranked macro output");
+      assert.equal(calls, 1, "Query and SQL must share one rerank request per batch");
+      assert.deepEqual(
+        JSON.parse(rows.find((row) => row.name === "semantic").text),
+        JSON.parse(rows.find((row) => row.name === "semantic_sql").text),
+      );
+      await page.evaluate(async () => {
+        const r = window.__STE_MEMORY_RUNTIME__;
+        await r.settingsService.setRerankSettings({ ...r.settings.read().rerank, enabled: false });
+      });
+      await generate("normal", "古桥事故的线索，再看一次");
+      await finishGeneration();
+      assert(JSON.stringify(generated.at(-1).body).includes("红色披风"));
+      assert.equal(calls, 1);
+      await page.locator("#top-settings-holder .stm-toolbar-button").click();
+      await switchTab(page, "settings");
+      await openSettingsGroup(page, "rerank-connection");
+      await page.locator('[data-stm-section="rerank-connection"]').waitFor({ state: "visible" });
+      await page.screenshot({ path: path.join(output, "rerank-settings.png") });
+      return {
+        rerankRequests: calls,
+        actualPromptWinner: "图书馆开放时间",
+        disabledPromptWinner: "红色披风",
+      };
+    });
   await check("无后台求值与 memoryRecall 注册", async () => {
     const result = await page.evaluate(() => ({
       recent: window.__STE_MEMORY_RUNTIME__.macro.getRecentResults(),
@@ -1155,7 +1251,13 @@ try {
     JSON.stringify(
       {
         runId,
-        mode: stopProbe ? "stop-probe" : tcProbe ? "tc-probe" : "full",
+        mode: rerankProbe
+          ? "rerank-probe"
+          : stopProbe
+            ? "stop-probe"
+            : tcProbe
+              ? "tc-probe"
+              : "full",
         synthetic,
         artifactHashes,
         checks,

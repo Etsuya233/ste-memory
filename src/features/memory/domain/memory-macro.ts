@@ -19,6 +19,13 @@ export interface MacroSemanticSource {
   readonly table: string;
   readonly groups: readonly string[];
   readonly query: MacroQueryInput;
+  readonly options?: MacroSemanticOptions;
+}
+export interface MacroSemanticOptions {
+  readonly rerank?: boolean;
+  readonly candidateLimit?: number;
+  readonly textFields?: readonly string[];
+  readonly scopeRecordIds?: readonly string[];
 }
 export interface MacroQuery {
   readonly table: string;
@@ -30,7 +37,11 @@ export interface MacroQuery {
   readonly fields?: readonly string[];
   readonly orderBy?: { readonly field: string; readonly direction: "asc" | "desc" };
   readonly limit?: number;
-  readonly semantic?: { readonly groups: readonly string[]; readonly query: MacroQueryInput };
+  readonly semantic?: {
+    readonly groups: readonly string[];
+    readonly query: MacroQueryInput;
+    readonly options?: MacroSemanticOptions;
+  };
 }
 export type MacroExpression =
   | { readonly language: "query"; readonly query: MacroQuery }
