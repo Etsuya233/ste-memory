@@ -150,36 +150,38 @@ export function RecordDetailPage({
             ) : null}
           </form>
         ) : state.detail ? (
-          <div className="ste:flex ste:flex-col ste:gap-6">
-            {state.fields.map((field) => (
-              <div key={field.id} className="ste:flex ste:flex-col ste:gap-2">
-                <div className="ste:flex ste:items-center ste:gap-2">
-                  <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
-                    {field.name}
-                  </span>
-                  {!field.enabled ? <Badge variant="secondary">已停用</Badge> : null}
+          <div className="ste:flex ste:flex-col ste:gap-4">
+            <div className="ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+              {state.fields.map((field) => (
+                <div key={field.id} className="ste:flex ste:flex-col ste:gap-1.5 ste:px-4 ste:py-3">
+                  <div className="ste:flex ste:items-center ste:gap-2">
+                    <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
+                      {field.name}
+                    </span>
+                    {!field.enabled ? <Badge variant="secondary">已停用</Badge> : null}
+                  </div>
+                  <p className="ste:wrap-anywhere ste:whitespace-pre-wrap ste:leading-relaxed">
+                    {recordFieldValueText(field, state.detail!.payload[field.id], labels)}
+                  </p>
+                  <div className="ste:flex ste:flex-wrap ste:gap-2">
+                    {(state.detail!.fieldEvidence[field.id] ?? [])
+                      .filter(
+                        (evidence) =>
+                          evidence.source_type === "sync_floor" &&
+                          typeof evidence.source_id === "number",
+                      )
+                      .map((evidence, index) => (
+                        <EvidenceChip
+                          key={index}
+                          floor={evidence.source_id as number}
+                          getMessageAt={getMessageAt}
+                          onJump={onJumpFloor}
+                        />
+                      ))}
+                  </div>
                 </div>
-                <p className="ste:wrap-anywhere ste:whitespace-pre-wrap ste:leading-relaxed">
-                  {recordFieldValueText(field, state.detail!.payload[field.id], labels)}
-                </p>
-                <div className="ste:flex ste:flex-wrap ste:gap-2">
-                  {(state.detail!.fieldEvidence[field.id] ?? [])
-                    .filter(
-                      (evidence) =>
-                        evidence.source_type === "sync_floor" &&
-                        typeof evidence.source_id === "number",
-                    )
-                    .map((evidence, index) => (
-                      <EvidenceChip
-                        key={index}
-                        floor={evidence.source_id as number}
-                        getMessageAt={getMessageAt}
-                        onJump={onJumpFloor}
-                      />
-                    ))}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
             {state.history.length ? (
               <Accordion>
                 <AccordionItem value="history">

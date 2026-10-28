@@ -19,7 +19,6 @@ import type { StChatMessage, FloorJumpResult } from "../infrastructure/sillytave
 import type { RecordsWorkspace } from "./pages/records-workspace.ts";
 import { recordPreview, referenceLabels } from "./components/record-fields.tsx";
 import { RecordSortMenu } from "./components/record-sort-menu.tsx";
-import { recordSortOptions } from "../ui/memory/record-sort-model.ts";
 import { Button } from "../ui/primitives/button.tsx";
 import { Input } from "../ui/primitives/input.tsx";
 import { NativeSelect } from "../ui/primitives/native-select.tsx";
@@ -279,7 +278,7 @@ export function RecordsApp(props: RecordsAppProps) {
             hidden={showingDetail}
             className="ste:min-h-0 ste:flex-1 ste:overflow-y-auto ste:overscroll-contain ste:p-4"
           >
-            <div className="ste:mb-5 ste:flex ste:flex-col ste:gap-4">
+            <div className="ste:mb-4 ste:flex ste:flex-col ste:gap-3">
               <div className="ste:flex ste:items-end ste:gap-3">
                 <Field className="ste:flex-1">
                   <FieldLabel htmlFor="ste-record-table">记忆表格</FieldLabel>
@@ -341,18 +340,6 @@ export function RecordsApp(props: RecordsAppProps) {
                   }
                 />
               </div>
-              <div className="ste:flex ste:items-center ste:justify-between ste:gap-3 ste:text-xs ste:text-muted-foreground">
-                <span className="ste:shrink-0">{state.records?.total ?? 0} 条记录</span>
-                <span className="ste:text-right ste:break-words">
-                  按
-                  {
-                    recordSortOptions(state.fields).find(
-                      (option) => option.fieldId === state.order.fieldId,
-                    )!.label
-                  }
-                  {state.order.direction === "asc" ? "升序" : "降序"}排列
-                </span>
-              </div>
             </div>
             {state.listError ? (
               <Alert variant="destructive">
@@ -372,20 +359,34 @@ export function RecordsApp(props: RecordsAppProps) {
                 ))}
               </div>
             ) : state.records?.records.length ? (
-              <ItemGroup aria-label="记录列表">
+              <ItemGroup
+                aria-label="记录列表"
+                className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border"
+              >
                 {state.records.records.map((record) => (
                   <div key={record.id} role="listitem">
                     <Item
-                      variant="outline"
                       render={<button type="button" />}
-                      className="ste:cursor-pointer ste:text-left ste:hover:bg-muted"
+                      className="ste:cursor-pointer ste:rounded-none ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
                       data-action="open-record"
                       data-record-id={record.id}
                       onClick={() => openRecord(record.id)}
                     >
                       <ItemContent>
-                        <ItemTitle>{record.displayText}</ItemTitle>
-                        <ItemDescription className="ste:line-clamp-2">
+                        <div className="ste:flex ste:items-baseline ste:gap-3">
+                          <ItemTitle className="ste:min-w-0 ste:flex-1">
+                            {record.displayText}
+                          </ItemTitle>
+                          <time
+                            className="ste:shrink-0 ste:text-xs ste:font-normal ste:text-muted-foreground"
+                            dateTime={record.updatedAt}
+                            aria-label={`更新于 ${record.updatedAt.slice(0, 16).replace("T", " ")}`}
+                            title={`更新于 ${record.updatedAt.slice(0, 16).replace("T", " ")}`}
+                          >
+                            {record.updatedAt.slice(5, 10)}
+                          </time>
+                        </div>
+                        <ItemDescription className="ste:line-clamp-1">
                           {recordPreview(record, state.fields, labels) || "暂无更多内容"}
                         </ItemDescription>
                       </ItemContent>
@@ -443,7 +444,8 @@ export function RecordsApp(props: RecordsAppProps) {
                 上一页
               </Button>
               <span className="ste:text-xs ste:text-muted-foreground">
-                第 {state.page} / {Math.max(1, state.records?.totalPages ?? 1)} 页
+                第 {state.page} / {Math.max(1, state.records?.totalPages ?? 1)} 页 ·{" "}
+                {state.records?.total ?? 0} 条
               </span>
               <Button
                 variant="ghost"
