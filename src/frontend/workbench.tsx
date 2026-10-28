@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BookOpen, TableProperties, ListTodo, Settings, Search } from "lucide-react";
 import { Button } from "../ui/primitives/button.tsx";
-import { RecordsApp, type RecordsAppProps } from "./app.tsx";
+import { RecordsPage, type RecordsPageProps } from "./pages/records-page.tsx";
 import type { NavigationGuard } from "./components/confirmation.tsx";
 import { TablesPage } from "./pages/tables/tables-page.tsx";
 import type { TablesWorkspace } from "./pages/tables/tables-workspace.ts";
@@ -23,7 +23,7 @@ import { SYSTEM_TABLE_PRESET } from "../features/table-presets/system-preset.ts"
 import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
 
-export interface WorkbenchProps extends RecordsAppProps {
+export interface WorkbenchProps extends RecordsPageProps {
   tables: TablesWorkspace;
   tasks: TasksWorkspace;
   autoFill: AutoFillServices;
@@ -79,7 +79,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
             />
           </div>
         ) : page === "records" ? (
-          <RecordsApp {...props} {...controls} registerLeaveGuard={registerLeaveGuard} />
+          <RecordsPage {...props} {...controls} registerLeaveGuard={registerLeaveGuard} />
         ) : page === "tables" ? (
           <TablesPage
             workspace={props.tables}

@@ -1,6 +1,6 @@
-import { PageHeader, PageContent, PageFooter } from "./components/page-layout.tsx";
-import { usePageLeave, type RegisterLeaveGuard } from "./components/confirmation.tsx";
-import { RecordDetailPage } from "./pages/record-detail.tsx";
+import { PageHeader, PageContent, PageFooter } from "../components/page-layout.tsx";
+import { usePageLeave, type RegisterLeaveGuard } from "../components/confirmation.tsx";
+import { RecordDetailPage } from "./record-detail.tsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId } from "react";
 import {
   BookOpen,
@@ -12,19 +12,22 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import type { MemoryRecordId, MemoryTableId } from "../features/memory/index.ts";
-import type { SpaceContextStatus } from "../features/chat-binding/chat-space-manager.ts";
-import type { ChatMirrorStatus } from "../features/chat-mirror/chat-metadata-mirror-sync.ts";
-import type { StChatMessage, FloorJumpResult } from "../infrastructure/sillytavern/chat-adapter.ts";
-import type { RecordsWorkspace } from "./pages/records-workspace.ts";
-import { recordPreview, referenceLabels } from "./components/record-fields.tsx";
-import { RecordSortMenu } from "./components/record-sort-menu.tsx";
-import { Button } from "../ui/primitives/button.tsx";
-import { Input } from "../ui/primitives/input.tsx";
-import { NativeSelect } from "../ui/primitives/native-select.tsx";
-import { Field, FieldLabel } from "../ui/primitives/field.tsx";
-import { Alert, AlertDescription, AlertTitle } from "../ui/primitives/alert.tsx";
-import { Skeleton } from "../ui/primitives/skeleton.tsx";
+import type { MemoryRecordId, MemoryTableId } from "../../features/memory/index.ts";
+import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
+import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
+import type {
+  StChatMessage,
+  FloorJumpResult,
+} from "../../infrastructure/sillytavern/chat-adapter.ts";
+import type { RecordsWorkspace } from "./records-workspace.ts";
+import { recordPreview, referenceLabels } from "../components/record-fields.tsx";
+import { RecordSortMenu } from "../components/record-sort-menu.tsx";
+import { Button } from "../../ui/primitives/button.tsx";
+import { Input } from "../../ui/primitives/input.tsx";
+import { NativeSelect } from "../../ui/primitives/native-select.tsx";
+import { Field, FieldLabel } from "../../ui/primitives/field.tsx";
+import { Alert, AlertDescription, AlertTitle } from "../../ui/primitives/alert.tsx";
+import { Skeleton } from "../../ui/primitives/skeleton.tsx";
 import {
   Empty,
   EmptyHeader,
@@ -32,7 +35,7 @@ import {
   EmptyTitle,
   EmptyDescription,
   EmptyContent,
-} from "../ui/primitives/empty.tsx";
+} from "../../ui/primitives/empty.tsx";
 import {
   Item,
   ItemGroup,
@@ -40,17 +43,17 @@ import {
   ItemTitle,
   ItemDescription,
   ItemActions,
-} from "../ui/primitives/item.tsx";
+} from "../../ui/primitives/item.tsx";
 import {
   Pagination,
   PaginationContent,
   PaginationItem,
   PaginationNext,
   PaginationPrevious,
-} from "../ui/primitives/pagination.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/primitives/popover.tsx";
+} from "../../ui/primitives/pagination.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../../ui/primitives/popover.tsx";
 
-export interface RecordsAppProps {
+export interface RecordsPageProps {
   registerLeaveGuard?: RegisterLeaveGuard;
   workspace: RecordsWorkspace;
   status: SpaceContextStatus | undefined;
@@ -64,7 +67,7 @@ export interface RecordsAppProps {
   onJumpFloor: (floor: number) => FloorJumpResult;
 }
 
-export function RecordsApp(props: RecordsAppProps) {
+export function RecordsPage(props: RecordsPageProps) {
   const { workspace } = props;
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const [hostError, setHostError] = useState<string | null>(null);

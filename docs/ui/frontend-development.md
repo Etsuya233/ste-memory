@@ -30,7 +30,7 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | [src/frontend/host/st-host.tsx](../../src/frontend/host/st-host.tsx)                                       | 挂载 ST 工具栏入口，连接 runtime、当前对话、工作区与服务回调。页面通过注入接口消费这些能力。 |
 | [src/frontend/host/](../../src/frontend/host/)                                                             | 宿主相关接线、预设及维护操作协调、窗口定位。ST DOM 与 runtime 适配集中在此层。               |
 | [src/frontend/workbench.tsx](../../src/frontend/workbench.tsx)                                             | 五个主页面、工具子页接入、顶层导航和关闭守卫。                                               |
-| [src/frontend/app.tsx](../../src/frontend/app.tsx) 与 [pages/](../../src/frontend/pages/)                  | 页面组合、表单草稿和展示；页面需要的能力用明确的 Services/Props 接口表达。                   |
+| [src/frontend/pages/](../../src/frontend/pages/)                                                           | 页面组合、表单草稿和展示；页面需要的能力用明确的 Services/Props 接口表达。                   |
 | `pages/records-workspace.ts`、`pages/tables/tables-workspace.ts`、`pages/tasks/tasks-workspace.ts`         | 相应流程的快照、请求归属、加载、编辑和保存状态。通过订阅供 React 使用。                      |
 | [src/frontend/components/](../../src/frontend/components/)                                                 | 跨页面的布局、表单组合、导航守卫和滚动管理。                                                 |
 | [src/ui/primitives/](../../src/ui/primitives/)                                                             | shadcn 组件、主题、Portal 容器和基础工具；保持与插件业务及 ST 解耦。                         |
