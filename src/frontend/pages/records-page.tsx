@@ -8,9 +8,11 @@ import {
   ChevronRight,
   FileText,
   LoaderCircle,
+  List,
   Plus,
   RefreshCw,
   Search,
+  Table2,
 } from "lucide-react";
 import type { MemoryRecordId, MemoryTableId } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
@@ -22,10 +24,13 @@ import type {
 import type { RecordsWorkspace } from "./records-workspace.ts";
 import { recordPreview, referenceLabels } from "../components/record-fields.tsx";
 import { RecordSortMenu } from "../components/record-sort-menu.tsx";
+import { RecordsTable } from "../components/records-table.tsx";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/primitives/tabs.tsx";
+import { cn } from "../../ui/primitives/utils.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { Input } from "../../ui/primitives/input.tsx";
 import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel } from "../../ui/primitives/field.tsx";
+import { Field } from "../../ui/primitives/field.tsx";
 import { Alert, AlertDescription, AlertTitle } from "../../ui/primitives/alert.tsx";
 import { Skeleton } from "../../ui/primitives/skeleton.tsx";
 import {
@@ -67,6 +72,14 @@ export interface RecordsPageProps {
   onJumpFloor: (floor: number) => FloorJumpResult;
 }
 
+interface RecordsPosition {
+  top: number;
+  left: number;
+  recordId: MemoryRecordId | null;
+  fieldId: string | null;
+}
+const recordPositions = new WeakMap<RecordsWorkspace, Map<string, RecordsPosition>>();
+
 export function RecordsPage(props: RecordsPageProps) {
   const { workspace } = props;
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
@@ -79,7 +92,8 @@ export function RecordsPage(props: RecordsPageProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const listPosition = useRef(new Map<string, { top: number; recordId: MemoryRecordId | null }>());
+  const listPosition = recordPositions.get(workspace) ?? new Map<string, RecordsPosition>();
+  recordPositions.set(workspace, listPosition);
   const viewKey = state.context
     ? JSON.stringify([
         state.context.chatKey,
@@ -90,6 +104,7 @@ export function RecordsPage(props: RecordsPageProps) {
         state.search,
         state.order.fieldId,
         state.order.direction,
+        state.viewMode,
       ])
     : "";
   const showingDetail = state.detailId !== null || state.editor !== null;
@@ -122,15 +137,27 @@ export function RecordsPage(props: RecordsPageProps) {
           ?.querySelector<HTMLElement>("input, textarea, select, button[role=switch]")
           ?.focus();
       else detailRef.current?.focus();
-    } else if (listRef.current) {
-      const previous = listPosition.current.get(viewKey);
+    }
+  }, [
+    showingDetail,
+    !!state.editor,
+    state.detailId,
+    state.context?.chatKey,
+    state.context?.spaceId,
+  ]);
+  useLayoutEffect(() => {
+    if (!showingDetail && listRef.current && !state.listLoading) {
+      const previous = listPosition.get(viewKey);
       listRef.current.scrollTop = previous?.top ?? 0;
+      listRef.current.scrollLeft = previous?.left ?? 0;
       if (previous?.recordId)
         listRef.current
-          .querySelector<HTMLButtonElement>(`[data-record-id="${CSS.escape(previous.recordId)}"]`)
+          .querySelector<HTMLButtonElement>(
+            `[data-record-id="${CSS.escape(previous.recordId)}"]${previous.fieldId ? `[data-record-field="${CSS.escape(previous.fieldId)}"]` : ""}`,
+          )
           ?.focus({ preventScroll: true });
     }
-  }, [showingDetail, !!state.editor, state.detailId, state.context?.chatKey]);
+  }, [showingDetail, state.listLoading, viewKey, listPosition]);
   useEffect(() => {
     if (state.editor && Object.keys(state.editor.errors).length)
       formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
@@ -157,9 +184,14 @@ export function RecordsPage(props: RecordsPageProps) {
       if (operation === hostOperation.current) setHostBusy(false);
     }
   }
-  function openRecord(id: MemoryRecordId) {
-    listPosition.current.set(viewKey, { top: listRef.current?.scrollTop ?? 0, recordId: id });
-    navigate(() => void workspace.openRecord(id));
+  function openRecord(id: MemoryRecordId, fieldId: string | null = null) {
+    listPosition.set(viewKey, {
+      top: listRef.current!.scrollTop,
+      left: listRef.current!.scrollLeft,
+      recordId: id,
+      fieldId,
+    });
+    navigate(() => void workspace.openRecord(id, fieldId === null ? "detail" : "edit"));
   }
   function changePage(page: number) {
     listRef.current?.scrollTo({ top: 0 });
@@ -295,134 +327,196 @@ export function RecordsPage(props: RecordsPageProps) {
                 `其他对话有 ${state.retainedDraftCount} 份未保存修改，返回原对话后可继续。本次打开期间保留。`}
             </p>
           ) : null}
-          <PageContent
-            ref={listRef}
+          <Tabs
+            value={state.viewMode}
+            onValueChange={(value) => {
+              if (value === "list" || value === "table") workspace.setViewMode(value);
+            }}
             hidden={showingDetail}
-            className="ste:min-h-0 ste:flex-1 ste:overflow-y-auto ste:overscroll-contain ste:p-4"
+            className={cn(
+              "ste:min-h-0 ste:min-w-0 ste:flex-1 ste:gap-0 ste:overflow-hidden",
+              showingDetail && "ste:hidden",
+            )}
           >
-            <div className="ste:mb-4 ste:flex ste:flex-col ste:gap-3">
-              <div className="ste:flex ste:items-end ste:gap-3">
-                <Field className="ste:flex-1">
-                  <FieldLabel htmlFor="ste-record-table">记忆表格</FieldLabel>
-                  <NativeSelect
-                    id="ste-record-table"
-                    aria-label="记忆表格"
-                    className="ste:w-full"
-                    value={state.tableId ?? ""}
-                    disabled={state.listLoading || state.tables.length === 0}
-                    onChange={(event) =>
-                      navigate(
-                        () => void workspace.selectTable(event.target.value as MemoryTableId),
-                      )
-                    }
-                  >
-                    {state.tables.length === 0 ? <option value="">暂无表格</option> : null}
-                    {state.tables.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                        {item.enabled ? "" : "（已停用）"}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-                <Button
-                  aria-label="新建记录"
-                  data-action="create-record"
-                  disabled={!state.tableId || state.listLoading || !!state.listError}
-                  onClick={() => navigate(() => workspace.startCreate())}
-                >
-                  <Plus data-icon="inline-start" />
-                  新建
-                </Button>
-              </div>
-              <div className="ste:flex ste:items-end ste:gap-2">
-                <Field className="ste:min-w-0 ste:flex-1">
-                  <div className="ste:relative">
-                    <Search className="ste:pointer-events-none ste:absolute ste:top-1/2 ste:left-3 ste:size-4 ste:-translate-y-1/2 ste:text-muted-foreground" />
-                    <Input
-                      id="ste-record-search"
-                      type="search"
-                      className="ste:pl-9"
-                      aria-label="搜索记录"
-                      placeholder="搜索当前表的记录"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                    />
-                  </div>
-                </Field>
-                <RecordSortMenu
-                  fields={state.fields}
-                  order={state.order}
-                  disabled={!state.tableId || state.listLoading || hostBusy}
-                  onSelect={(fieldId) =>
-                    navigate(() => {
-                      listRef.current!.scrollTop = 0;
-                      void runHost(() => workspace.setSort(fieldId));
-                    })
-                  }
-                />
-              </div>
-            </div>
-            {state.listError ? (
-              <Alert variant="destructive">
-                <AlertTitle>记录加载失败</AlertTitle>
-                <AlertDescription>
-                  {state.listError}
-                  <Button variant="outline" size="sm" onClick={() => void workspace.refresh()}>
-                    重新加载
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            {state.listLoading ? (
-              <div aria-label="正在加载记录" className="ste:flex ste:flex-col ste:gap-3">
-                {[0, 1, 2, 3].map((item) => (
-                  <Skeleton key={item} className="ste:h-24 ste:w-full ste:rounded-2xl" />
-                ))}
-              </div>
-            ) : state.records?.records.length ? (
-              <ItemGroup
-                aria-label="记录列表"
-                className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border"
-              >
-                {state.records.records.map((record) => (
-                  <div key={record.id} role="listitem">
-                    <Item
-                      render={<button type="button" />}
-                      className="ste:cursor-pointer ste:rounded-none ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
-                      data-action="open-record"
-                      data-record-id={record.id}
-                      onClick={() => openRecord(record.id)}
+            <PageContent className="ste:flex ste:min-w-0 ste:flex-col ste:overflow-hidden">
+              <div className="ste:mb-4 ste:flex ste:shrink-0 ste:flex-col ste:gap-3">
+                <div className="ste:flex ste:items-center ste:gap-2">
+                  <Field className="ste:min-w-0 ste:flex-1">
+                    <NativeSelect
+                      id="ste-record-table"
+                      aria-label="记忆表格"
+                      className="ste:w-full"
+                      value={state.tableId ?? ""}
+                      disabled={state.listLoading || state.tables.length === 0}
+                      onChange={(event) =>
+                        navigate(
+                          () => void workspace.selectTable(event.target.value as MemoryTableId),
+                        )
+                      }
                     >
-                      <ItemContent>
-                        <ItemTitle>{record.displayText}</ItemTitle>
-                        <ItemDescription className="ste:line-clamp-1">
-                          {recordPreview(record, state.fields, labels) || "暂无更多内容"}
-                        </ItemDescription>
-                      </ItemContent>
-                      <ItemActions>
-                        <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
-                      </ItemActions>
-                    </Item>
-                  </div>
-                ))}
-              </ItemGroup>
-            ) : !state.listError ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <FileText />
-                  </EmptyMedia>
-                  <EmptyTitle>{state.search ? "没有匹配的记录" : "还没有记录"}</EmptyTitle>
-                  <EmptyDescription>
-                    {state.search
-                      ? "试试其他关键词，或清空搜索查看全部记录。"
-                      : "新建第一条记录，开始整理这段对话的记忆。"}
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : null}
-          </PageContent>
+                      {state.tables.length === 0 ? <option value="">暂无表格</option> : null}
+                      {state.tables.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                          {item.enabled ? "" : "（已停用）"}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <TabsList aria-label="记录展示方式" className="ste:shrink-0">
+                    <TabsTrigger
+                      value="list"
+                      aria-label="列表"
+                      className="ste:h-7 ste:w-7 ste:flex-none ste:p-0"
+                    >
+                      <List />
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="table"
+                      aria-label="表格"
+                      className="ste:h-7 ste:w-7 ste:flex-none ste:p-0"
+                    >
+                      <Table2 />
+                    </TabsTrigger>
+                  </TabsList>
+                  <Button
+                    aria-label="新建记录"
+                    data-action="create-record"
+                    disabled={!state.tableId || state.listLoading || !!state.listError}
+                    onClick={() => navigate(() => workspace.startCreate())}
+                  >
+                    <Plus data-icon="inline-start" />
+                    新建
+                  </Button>
+                </div>
+                <div className="ste:flex ste:items-end ste:gap-2">
+                  <Field className="ste:min-w-0 ste:flex-1">
+                    <div className="ste:relative">
+                      <Search className="ste:pointer-events-none ste:absolute ste:top-1/2 ste:left-3 ste:size-4 ste:-translate-y-1/2 ste:text-muted-foreground" />
+                      <Input
+                        id="ste-record-search"
+                        type="search"
+                        className="ste:pl-9"
+                        aria-label="搜索记录"
+                        placeholder="搜索当前表的记录"
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                      />
+                    </div>
+                  </Field>
+                  <RecordSortMenu
+                    fields={state.fields}
+                    order={state.order}
+                    disabled={!state.tableId || state.listLoading || hostBusy}
+                    onSelect={(fieldId) =>
+                      navigate(() => {
+                        listRef.current!.scrollTop = 0;
+                        void runHost(() => workspace.setSort(fieldId));
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <TabsContent
+                value={state.viewMode}
+                className="ste:flex ste:min-h-0 ste:min-w-0 ste:flex-col"
+              >
+                <div
+                  key={viewKey}
+                  ref={listRef}
+                  data-slot="records-scroll"
+                  className={cn(
+                    "ste:min-h-0 ste:min-w-0 ste:flex-1 ste:overflow-auto ste:overscroll-contain",
+                    state.viewMode === "table" && "ste:rounded-xl ste:border ste:border-border",
+                  )}
+                  onScroll={(event) => {
+                    if (showingDetail || state.listLoading) return;
+                    const previous = listPosition.get(viewKey);
+                    listPosition.set(viewKey, {
+                      top: event.currentTarget.scrollTop,
+                      left: event.currentTarget.scrollLeft,
+                      recordId: previous?.recordId ?? null,
+                      fieldId: previous?.fieldId ?? null,
+                    });
+                  }}
+                >
+                  {state.listError ? (
+                    <Alert variant="destructive">
+                      <AlertTitle>记录加载失败</AlertTitle>
+                      <AlertDescription>
+                        {state.listError}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void workspace.refresh()}
+                        >
+                          重新加载
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {state.listLoading ? (
+                    <div aria-label="正在加载记录" className="ste:flex ste:flex-col ste:gap-3">
+                      {[0, 1, 2, 3].map((item) => (
+                        <Skeleton key={item} className="ste:h-24 ste:w-full ste:rounded-2xl" />
+                      ))}
+                    </div>
+                  ) : state.records?.records.length ? (
+                    state.viewMode === "table" ? (
+                      <RecordsTable
+                        fields={state.fields}
+                        records={state.records.records}
+                        labels={labels}
+                        offset={(state.page - 1) * state.pageSize}
+                        onEdit={openRecord}
+                      />
+                    ) : (
+                      <ItemGroup
+                        aria-label="记录列表"
+                        className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border"
+                      >
+                        {state.records.records.map((record) => (
+                          <div key={record.id} role="listitem">
+                            <Item
+                              render={<button type="button" />}
+                              className="ste:cursor-pointer ste:rounded-none ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                              data-action="open-record"
+                              data-record-id={record.id}
+                              onClick={() => openRecord(record.id)}
+                            >
+                              <ItemContent>
+                                <ItemTitle>{record.displayText}</ItemTitle>
+                                <ItemDescription className="ste:line-clamp-1">
+                                  {recordPreview(record, state.fields, labels) || "暂无更多内容"}
+                                </ItemDescription>
+                              </ItemContent>
+                              <ItemActions>
+                                <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                              </ItemActions>
+                            </Item>
+                          </div>
+                        ))}
+                      </ItemGroup>
+                    )
+                  ) : !state.listError ? (
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <FileText />
+                        </EmptyMedia>
+                        <EmptyTitle>{state.search ? "没有匹配的记录" : "还没有记录"}</EmptyTitle>
+                        <EmptyDescription>
+                          {state.search
+                            ? "试试其他关键词，或清空搜索查看全部记录。"
+                            : "新建第一条记录，开始整理这段对话的记忆。"}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  ) : null}
+                </div>
+              </TabsContent>
+            </PageContent>
+          </Tabs>
 
           {showingDetail ? (
             <RecordDetailPage

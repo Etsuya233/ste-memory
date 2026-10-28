@@ -64,6 +64,7 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | 自动填表配置                         | [AutoFillFields](../../src/frontend/components/auto-fill-fields.tsx)                   | 全局配置与对话覆盖共享字段，页面负责继承和保存语义。                                   |
 | 密钥显示/隐藏                        | `connection-settings-editor.tsx` 的 `SecretInput`                                      | 显隐状态为局部状态；沿用表单保存流程。                                                 |
 | 记录排序                             | [RecordSortMenu](../../src/frontend/components/record-sort-menu.tsx)                   | 复用可排序字段模型，服务对完整匹配集排序后分页。                                       |
+| 记录表格展示                         | [RecordsTable](../../src/frontend/components/records-table.tsx)                        | 只读展示当前页字段值，复用字段格式化；点击进入工作区的记录编辑流程。                   |
 | 下拉框、按钮、输入、确认框等基础控件 | [primitives](../../src/ui/primitives/) 中已安装的组件                                  | 使用实际 Base UI API，组件 class 合并使用 `cn`。先检查目录，再决定是否添加组件。       |
 
 表单使用 `Field`、`FieldLabel`、`FieldDescription`、`FieldError` 等现有组合，关联控件 ID 与说明。
@@ -92,6 +93,12 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 ## 移动端与桌面交互
 
 所有尺寸共用“列表 → 详情 → 编辑”的页面流程和同一套操作语义。
+记录页同时支持只读表格视图，点击单元格、行号或编辑按钮可直接进入同一编辑页。
+列表与表格共用搜索、排序和分页；默认列表，视图模式由记录工作区按对话与空间保留。
+记录页的横纵滚动及返回焦点按工作区、上下文、视图模式与查询条件缓存；
+表头与行号在记录滚动容器内固定，单元格最多显示三行。表格视图不维护编辑草稿。
+图标视图切换位于表格选择旁；表格使用圆角滚动容器，右侧固定铅笔编辑列。
+单元格按钮高度跟随整行，短文本、行号和编辑列也必须铺满单元格的 hover 与点击区域。
 320px 窄屏能完成主要任务，390px 检查常用布局。主要操作可点击，不能依赖 hover、拖拽或仅图标提示。
 标签、错误和长内容能够换行；普通页面不产生横向溢出。SQL 结果等二维数据允许在自己的容器内横向滚动。
 
@@ -231,6 +238,7 @@ ST 给原生 `select` 设置 `background-image: url('/img/down-arrow.svg')`，
 | 工作区或提交       | 对应单元测试和页面脚本，覆盖过期响应、A → B → A、保存中切换、冲突及提交后同步失败。                           |
 | 滚动与返回         | `verify-tables.mjs` 等对应流程，覆盖加载后恢复、进入子页置顶、导航切回和对话隔离。                            |
 | 预设、预览或排序   | 对应 `verify-preset-update.mjs`、`verify-vector-preview.mjs`、`verify-record-sorting.mjs`，沿用真实服务语义。 |
+| 记录表格展示       | `verify-record-table.mjs` 覆盖字段值、三行预览、固定表头与行号、横纵滚动恢复、直达编辑和窄屏操作。            |
 
 独立预览使用 [docs/ui/frontend-preview.tsx](./frontend-preview.tsx) 的内存数据，服务接口与生产共用。
 新增能力同时补齐 host 接线和必要的预览实现，不能把假数据或调试入口接入生产。
