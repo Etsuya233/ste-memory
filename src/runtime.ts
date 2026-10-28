@@ -412,6 +412,7 @@ export async function startSteMemory(
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
   const floorLedgerRepository = new DexieFloorLedgerRepository(db);
   const tasks = new FillTaskService({
+    onAutomaticSuccess: (task): Promise<void> => autoFill.taskSucceeded(task),
     tasks: fillTaskRepository,
     ledger: floorLedgerRepository,
     logs,
@@ -864,6 +865,7 @@ export async function startSteMemory(
     await saveSnapshot(snapshot);
   };
   const autoFill = new AutoFillService({
+    hideFloors: (identity, to) => adapter.hideFloors(identity, to),
     tasks,
     chatStore: adapter.autoFillStore,
     globalSettings: () => settings.read().autoFill,
@@ -878,6 +880,7 @@ export async function startSteMemory(
         return undefined;
       return {
         identity,
+        chatId: snapshot.chatId,
         spaceId: status.space.id,
         chatLength: adapter.chatMessageCount(),
         aiFloor: adapter.latestAiFloor(),

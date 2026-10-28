@@ -108,6 +108,8 @@ export interface FillTaskInitInput {
 }
 
 export interface FillTaskServiceOptions {
+  /** 整次自动楼层填表保存成功后的宿主动作，失败不改变填表结果。 */
+  readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   readonly readAgentTimeoutMs?: () => number;
   readonly tasks: FillTaskRepository;
   readonly ledger: FloorLedgerRepository;
@@ -140,6 +142,7 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  readonly #onAutomaticSuccess: FillTaskServiceOptions["onAutomaticSuccess"];
   readonly #readAgentTimeoutMs: () => number;
   #suspended = false;
   #worker: Promise<void> | undefined;
@@ -174,6 +177,7 @@ export class FillTaskService {
   readonly #logError: (message: string, error: unknown) => void;
 
   constructor(options: FillTaskServiceOptions) {
+    this.#onAutomaticSuccess = options.onAutomaticSuccess;
     this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
     this.#ledger = options.ledger;
@@ -691,11 +695,19 @@ export class FillTaskService {
         }
       }
       control.controller.signal.throwIfAborted();
-      if (await this.#tasks.markSucceeded(task.runId))
+      if (await this.#tasks.markSucceeded(task.runId)) {
         await this.#appendLog(
           fillTaskEndLog({ task, status: "succeeded", errorMessage: null, endedAt: this.#now() }),
           "填表任务 " + task.runId + " 结束日志写入失败",
         );
+        if (task.automatic && task.kind === "floor") {
+          try {
+            await this.#onAutomaticSuccess?.({ ...task, status: "succeeded" });
+          } catch (error) {
+            this.#logError("填表任务 " + task.runId + " 已成功，后续自动隐藏失败", error);
+          }
+        }
+      }
     } catch (error) {
       try {
         if (control.controller.signal.aborted) {

@@ -842,3 +842,46 @@ describe("自动填表聊天适配", () => {
     expect(adapter.latestAiFloor()).toBe(0);
   });
 });
+
+describe("ST 楼层隐藏", () => {
+  it("通过 ST 原生 hide 回调隐藏闭区间，支持终点为 0", async () => {
+    const callback = vi.fn(async () => "");
+    const { adapter } = stableAdapter({
+      chat: [{ mes: "开场" }, { mes: "回复" }],
+      SlashCommandParser: { commands: { hide: { callback } } },
+    });
+    await adapter.hideFloors("char:3:story", 0);
+    expect(callback).toHaveBeenCalledExactlyOnceWith({}, "0-0");
+    await adapter.hideFloors("char:3:story", 1);
+    expect(callback).toHaveBeenLastCalledWith({}, "0-1");
+  });
+
+  it("切到同名聊天的另一角色时跳过隐藏", async () => {
+    const callback = vi.fn(async () => "");
+    const { adapter } = stableAdapter({
+      characterId: 4,
+      chat: [{ mes: "另一对话" }],
+      SlashCommandParser: { commands: { hide: { callback } } },
+    });
+    await adapter.hideFloors("char:3:story", 0);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("保存失败和范围越界直接抛出", async () => {
+    const callback = vi.fn(async () => {
+      throw new Error("保存失败");
+    });
+    const { adapter } = stableAdapter({
+      chat: [{ mes: "开场" }],
+      SlashCommandParser: { commands: { hide: { callback } } },
+    });
+    await expect(adapter.hideFloors("char:3:story", 0)).rejects.toThrow("保存失败");
+    await expect(adapter.hideFloors("char:3:story", 1)).rejects.toThrow("超出当前对话");
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it("ST 未提供 hide 命令时明确报错", async () => {
+    const { adapter } = stableAdapter({ chat: [{ mes: "开场" }] });
+    await expect(adapter.hideFloors("char:3:story", 0)).rejects.toThrow("未提供 /hide 命令");
+  });
+});

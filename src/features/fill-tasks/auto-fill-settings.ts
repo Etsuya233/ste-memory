@@ -7,6 +7,8 @@ export interface AutoFillSettings {
   readonly blockSize: number;
   readonly retries: number;
   readonly retryDelaySeconds: number;
+  readonly hideAfterSuccess: boolean;
+  readonly keepRecentFloors: number;
 }
 
 export const DEFAULT_AUTO_FILL_SETTINGS: AutoFillSettings = {
@@ -16,6 +18,8 @@ export const DEFAULT_AUTO_FILL_SETTINGS: AutoFillSettings = {
   blockSize: 20,
   retries: 2,
   retryDelaySeconds: 10,
+  hideAfterSuccess: false,
+  keepRecentFloors: 10,
 };
 
 export type PendingFillContinuation = Pick<
@@ -53,7 +57,8 @@ export interface AutoFillChatStore {
 export function validateAutoFillSettings(settings: AutoFillSettings): void {
   if (
     !["off", "remind", "auto"].includes(settings.mode) ||
-    typeof settings.includeCurrent !== "boolean"
+    typeof settings.includeCurrent !== "boolean" ||
+    typeof settings.hideAfterSuccess !== "boolean"
   ) {
     throw new Error("自动填表模式或楼层选项无效");
   }
@@ -62,6 +67,8 @@ export function validateAutoFillSettings(settings: AutoFillSettings): void {
       throw new Error("自动填表间隔、批大小和等待秒数须为正整数，重试次数须为非负整数");
     }
   }
+  if (!Number.isInteger(settings.keepRecentFloors) || settings.keepRecentFloors < 0)
+    throw new Error("保留最近楼层数须为非负整数");
 }
 
 export function autoFillRange(

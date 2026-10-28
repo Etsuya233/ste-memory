@@ -1,6 +1,6 @@
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { FillTaskService } from "./fill-task-service.ts";
-import type { FillTaskView } from "./fill-task.ts";
+import type { FillTask, FillTaskView } from "./fill-task.ts";
 import {
   autoFillRange,
   validateAutoFillSettings,
@@ -31,14 +31,22 @@ interface AutoFillPorts {
   readonly chatStore: AutoFillChatStore;
   readonly globalSettings: () => AutoFillSettings;
   readonly current: () =>
-    { identity: string; spaceId: MemorySpaceId; chatLength: number; aiFloor: number } | undefined;
+    | {
+        identity: string;
+        chatId: string | undefined;
+        spaceId: MemorySpaceId;
+        chatLength: number;
+        aiFloor: number;
+      }
+    | undefined;
   readonly notify: (notice: AutoFillNotification) => void;
   readonly confirmResume: (task: PendingFillContinuation) => Promise<boolean>;
   readonly dismissReminder: () => void;
   readonly reportError: (error: unknown) => void;
+  readonly hideFloors: (identity: string, to: number) => Promise<void>;
 }
 
-/** 自动填表只计算范围和入队；运行、等待、失败暂停均由 FillTaskService 管理。 */
+/** 自动填表负责范围、入队和成功后的楼层隐藏；任务执行由 FillTaskService 管理。 */
 export class AutoFillService {
   readonly #ports: AutoFillPorts;
   #checking = false;
@@ -66,6 +74,55 @@ export class AutoFillService {
   }
   settings(): AutoFillSettings {
     return { ...this.#ports.globalSettings(), ...this.read().overrides };
+  }
+
+  async taskSucceeded(task: FillTask): Promise<void> {
+    const current = this.#ports.current();
+    if (
+      !task.automatic ||
+      task.kind !== "floor" ||
+      task.status !== "succeeded" ||
+      !current ||
+      current.spaceId !== task.memorySpaceId ||
+      current.chatId !== task.chatId ||
+      this.#suspended
+    )
+      return;
+    const settings = this.settings();
+    if (settings.mode !== "auto" || !settings.hideAfterSuccess) return;
+    const epoch = this.#epoch;
+    try {
+      const ledger = await this.#ports.tasks.ledgerStatuses(
+        current.spaceId,
+        0,
+        current.chatLength - 1,
+      );
+      const latest = this.#ports.current();
+      if (
+        this.#epoch !== epoch ||
+        this.#suspended ||
+        latest?.identity !== current.identity ||
+        latest.spaceId !== current.spaceId
+      )
+        return;
+      const activeSettings = this.settings();
+      if (activeSettings.mode !== "auto" || !activeSettings.hideAfterSuccess) return;
+      const highest = ledger.reduce(
+        (max, entry) => (entry.status === "processed" ? Math.max(max, entry.floor) : max),
+        -1,
+      );
+      const to = Math.min(latest.chatLength - 1 - activeSettings.keepRecentFloors, highest);
+      if (to >= 0) await this.#ports.hideFloors(current.identity, to);
+    } catch (error) {
+      this.#ports.reportError(error);
+      if (this.#epoch !== epoch || this.#ports.current()?.identity !== current.identity) return;
+      this.#observed.delete(task.runId);
+      this.#ports.notify({
+        kind: "failed",
+        identity: current.identity,
+        message: `自动填表已成功，隐藏楼层失败：${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   }
 
   saveOverrides(overrides: Partial<AutoFillSettings>): void {
@@ -164,7 +221,7 @@ export class AutoFillService {
         if (from > to) continue;
         if (pending.some((task) => task.kind === "floor" && task.from <= from && task.to >= to))
           continue;
-        const task = await this.#submit(current, from, to, item.settings);
+        const task = await this.#submit(current, from, to, { ...settings, ...item.settings });
         if (item === items[0] && (legacy.pausedReason || legacy.pendingResumeTask))
           await this.#ports.tasks.cancel(current.spaceId, task.runId, "chat-changed");
       }

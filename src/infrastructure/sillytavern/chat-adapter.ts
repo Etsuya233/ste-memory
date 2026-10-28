@@ -40,6 +40,14 @@ import type { MemoryView } from "../../features/macros/memory-views.ts";
  * 与监听器 Promise 交给自动召回，其余数据按需重读当前快照。
  */
 export interface StContext {
+  /** ST 公开命令注册表；/hide 回调同步更新消息后保存聊天。 */
+  SlashCommandParser?: {
+    readonly commands: {
+      readonly hide?: {
+        readonly callback: (args: Record<string, never>, value: string) => Promise<unknown>;
+      };
+    };
+  };
   /** 当前对话文件名（无 .jsonl）；临时/未保存对话为 undefined */
   stopGeneration?: () => boolean;
   chatId?: string;
@@ -245,6 +253,16 @@ export class StChatAdapter {
 
   constructor(getContext: () => StContext) {
     this.#getContext = getContext;
+  }
+
+  /** 直接调用 ST /hide 回调；身份检查与消息更新之间没有异步等待。 */
+  async hideFloors(identity: string, to: number): Promise<void> {
+    if (!Number.isInteger(to) || to < 0) throw new Error("隐藏终点须为非负整数");
+    if (chatIdentityKey(this.getChatSnapshot()) !== identity) return;
+    if (to >= this.chatMessageCount()) throw new Error("隐藏范围已超出当前对话");
+    const hide = this.#getContext().SlashCommandParser?.commands.hide;
+    if (!hide) throw new Error("当前 ST 未提供 /hide 命令");
+    await hide.callback({}, `0-${to}`);
   }
 
   get autoFillStore(): AutoFillChatStore {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MemorySpaceId } from "../memory/index.ts";
-import type { FillTaskView, FloorLedgerEntry } from "./fill-task.ts";
+import type { FillTask, FillTaskView, FloorLedgerEntry } from "./fill-task.ts";
 import type { FillTaskSubmitInput } from "./fill-task-service.ts";
 import { AutoFillService } from "./auto-fill-service.ts";
 import {
@@ -13,7 +13,13 @@ import {
 function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFillChatState) {
   let settings = { ...DEFAULT_AUTO_FILL_SETTINGS, mode: "auto" as const, ...overrides };
   let state: AutoFillChatState = initialState ?? { overrides: {}, pausedReason: null };
-  let current = { identity: "a", spaceId: "space" as MemorySpaceId, chatLength: 32, aiFloor: 31 };
+  let current = {
+    identity: "a",
+    chatId: "a",
+    spaceId: "space" as MemorySpaceId,
+    chatLength: 32,
+    aiFloor: 31,
+  };
   let ledger: readonly FloorLedgerEntry[] = [{ floor: 20, status: "processed" }];
   let pending: FillTaskView[] = [];
   const recent: FillTaskView[] = [];
@@ -67,6 +73,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
   const confirmResume = vi.fn(async () => false);
   const reportError = vi.fn();
   const dismissReminder = vi.fn();
+  const hideFloors = vi.fn(async (_identity: string, _to: number) => {});
   const service = new AutoFillService({
     tasks,
     chatStore: {
@@ -81,6 +88,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
     confirmResume,
     reportError,
     dismissReminder,
+    hideFloors,
   });
   return {
     service,
@@ -89,6 +97,7 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
     confirmResume,
     reportError,
     dismissReminder,
+    hideFloors,
     state: () => state,
     setSettings: (value: Partial<AutoFillSettings>) => {
       settings = { ...settings, ...value };
@@ -234,6 +243,9 @@ describe("自动填表入队", () => {
   });
   it("旧暂存列表首次载入转入共享队列，删除旧状态并保留每项参数", async () => {
     const settings = { ...DEFAULT_AUTO_FILL_SETTINGS, mode: "auto" as const, blockSize: 4 };
+    // 模拟新增自动隐藏选项之前保存的聊天暂存快照。
+    Reflect.deleteProperty(settings, "hideAfterSuccess");
+    Reflect.deleteProperty(settings, "keepRecentFloors");
     const spaceId = "space" as MemorySpaceId;
     const h = setup(
       {},
@@ -262,5 +274,117 @@ describe("自动填表入队", () => {
     expect(h.state().stagedTasks).toBeUndefined();
     await check(h);
     expect(h.tasks.submit).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("自动填表成功后隐藏", () => {
+  const task: FillTask = {
+    runId: "completed-run",
+    memorySpaceId: "space" as MemorySpaceId,
+    kind: "floor",
+    initText: null,
+    automatic: true,
+    chatId: "a",
+    from: 0,
+    to: 80,
+    blockSize: 20,
+    status: "succeeded",
+    errorMessage: null,
+    createdAt: "now",
+    updatedAt: "now",
+  };
+
+  it.each([
+    { keep: 10, processed: 95, end: 90 },
+    { keep: 10, processed: 80, end: 80 },
+    { keep: 0, processed: 100, end: 100 },
+    { keep: 101, processed: 100, end: undefined },
+    { keep: 0, processed: -1, end: undefined },
+  ])("保留 $keep 层、最大已填 $processed 时隐藏至 $end", async ({ keep, processed, end }) => {
+    const h = setup({ hideAfterSuccess: true, keepRecentFloors: keep });
+    h.setCurrent({ chatLength: 101, aiFloor: 99 });
+    h.setLedger([
+      ...(processed >= 0 ? [{ floor: processed, status: "processed" as const }] : []),
+      { floor: 100, status: "error" },
+    ]);
+    await h.service.taskSucceeded(task);
+    if (end === undefined) expect(h.hideFloors).not.toHaveBeenCalled();
+    else expect(h.hideFloors).toHaveBeenCalledExactlyOnceWith("a", end);
+  });
+
+  it("默认关闭，且仅整次自动楼层填表成功触发", async () => {
+    const h = setup();
+    await h.service.taskSucceeded(task);
+    h.setSettings({ hideAfterSuccess: true });
+    await h.service.taskSucceeded({ ...task, automatic: false });
+    await h.service.taskSucceeded({ ...task, kind: "init", initText: "初始化" });
+    await h.service.taskSucceeded({ ...task, status: "failed" });
+    await h.service.taskSucceeded({ ...task, status: "interrupted" });
+    await h.service.taskSucceeded({ ...task, status: "running" });
+    h.setSettings({ mode: "remind" });
+    await h.service.taskSucceeded(task);
+    expect(h.hideFloors).not.toHaveBeenCalled();
+  });
+
+  it("对话覆盖可关闭全局隐藏，也可单独覆盖保留层数", async () => {
+    const h = setup(
+      { hideAfterSuccess: true },
+      {
+        overrides: { hideAfterSuccess: false },
+        pausedReason: null,
+      },
+    );
+    await h.service.taskSucceeded(task);
+    expect(h.hideFloors).not.toHaveBeenCalled();
+    h.service.saveOverrides({ keepRecentFloors: 30 });
+    await h.service.taskSucceeded(task);
+    expect(h.hideFloors).toHaveBeenCalledExactlyOnceWith("a", 1);
+  });
+
+  it("读取台账时切换空间，或切走后返回同一对话，均跳过隐藏", async () => {
+    const h = setup({ hideAfterSuccess: true });
+    h.tasks.ledgerStatuses.mockImplementationOnce(async () => {
+      h.setCurrent({ spaceId: "other-space" as MemorySpaceId });
+      return [{ floor: 20, status: "processed" }];
+    });
+    await h.service.taskSucceeded(task);
+    h.setCurrent({ spaceId: task.memorySpaceId });
+    h.tasks.ledgerStatuses.mockImplementationOnce(async () => {
+      await h.service.chatChanged();
+      h.service.chatReady();
+      return [{ floor: 20, status: "processed" }];
+    });
+    await h.service.taskSucceeded(task);
+    expect(h.hideFloors).not.toHaveBeenCalled();
+  });
+
+  it("读取台账期间关闭隐藏，不再执行", async () => {
+    const h = setup({ hideAfterSuccess: true });
+    h.tasks.ledgerStatuses.mockImplementationOnce(async () => {
+      h.setSettings({ hideAfterSuccess: false });
+      return [{ floor: 20, status: "processed" }];
+    });
+    await h.service.taskSucceeded(task);
+    expect(h.hideFloors).not.toHaveBeenCalled();
+  });
+
+  it("隐藏失败单独提示填表成功，后续完成轮询不覆盖失败提示", async () => {
+    const h = setup({ hideAfterSuccess: true });
+    await check(h);
+    const submitted = h.tasks.submit.mock.results[0]!;
+    const queued = await submitted.value;
+    const error = new Error("聊天保存失败");
+    h.hideFloors.mockRejectedValueOnce(error);
+    h.finish("succeeded");
+    await h.service.taskSucceeded({ ...queued, status: "succeeded" });
+    await check(h);
+    expect(h.reportError).toHaveBeenCalledWith(error);
+    expect(h.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: "failed",
+        message: "自动填表已成功，隐藏楼层失败：聊天保存失败",
+      }),
+    );
+    expect(h.tasks.retry).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { Input } from "../kit/controls.tsx";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { AutoFillService } from "../../features/fill-tasks/auto-fill-service.ts";
 import type { AutoFillSettings } from "../../features/fill-tasks/auto-fill-settings.ts";
 import { reportError } from "../shell/ui-helpers.tsx";
@@ -10,6 +10,7 @@ const NUMERIC_FIELDS = [
   ["blockSize", "每批楼层数", 1],
   ["retries", "每次 API 请求额外重试次数", 0],
   ["retryDelaySeconds", "首次重试等待（秒，后续翻倍）", 1],
+  ["keepRecentFloors", "隐藏时保留最近楼层数", 0],
 ] as const;
 
 export function AutoFillFields(props: {
@@ -17,11 +18,12 @@ export function AutoFillFields(props: {
   readonly defaults?: AutoFillSettings;
   readonly onChange: (values: Partial<AutoFillSettings>) => void;
 }) {
+  const hideDescriptionId = useId();
   function change(key: keyof AutoFillSettings, value: string): void {
     const next = { ...props.values };
     if (value === "") delete next[key];
     else if (key === "mode") next.mode = value as AutoFillSettings["mode"];
-    else if (key === "includeCurrent") next.includeCurrent = value === "true";
+    else if (key === "includeCurrent" || key === "hideAfterSuccess") next[key] = value === "true";
     else Object.assign(next, { [key]: Number(value) });
     props.onChange(next);
   }
@@ -62,6 +64,24 @@ export function AutoFillFields(props: {
           <option value="true">是</option>
         </select>
       </label>
+      <label className="stm-task-field">
+        <span>成功后自动隐藏楼层</span>
+        <select
+          className="stm-select"
+          data-auto-fill="hideAfterSuccess"
+          aria-describedby={hideDescriptionId}
+          value={
+            props.values.hideAfterSuccess === undefined ? "" : String(props.values.hideAfterSuccess)
+          }
+          onChange={(event) => change("hideAfterSuccess", event.target.value)}
+        >
+          {props.defaults && (
+            <option value="">{props.defaults.hideAfterSuccess ? "开启" : "关闭"}（全局）</option>
+          )}
+          <option value="false">关闭</option>
+          <option value="true">开启</option>
+        </select>
+      </label>
       {NUMERIC_FIELDS.map(([key, label, min]) => (
         <label className="stm-task-field" key={key}>
           <span>{label}</span>
@@ -70,6 +90,7 @@ export function AutoFillFields(props: {
             min={min}
             step="1"
             data-auto-fill={key}
+            aria-describedby={key === "keepRecentFloors" ? hideDescriptionId : undefined}
             key={`${key}:${props.values[key] ?? ""}`}
             defaultValue={props.values[key] ?? ""}
             placeholder={props.defaults ? String(props.defaults[key]) : undefined}
@@ -85,6 +106,10 @@ export function AutoFillFields(props: {
           />
         </label>
       ))}
+      <p id={hideDescriptionId} className="stm-task-hint stm-task-field--grow">
+        整次自动填表成功并保存后，隐藏 #0 至 min(当前楼层 − 保留数, 最大已填楼层)。 用户和 AI
+        消息均计数，范围包含两端；关闭后已隐藏楼层保持原样，可通过 ST unhide 恢复。
+      </p>
     </div>
   );
 }

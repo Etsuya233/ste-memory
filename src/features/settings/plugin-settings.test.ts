@@ -305,3 +305,17 @@ it("旧设置补齐自动填表默认值，保存后保留显式关闭和 false"
   });
   expect(() => mergeSettings({ autoFill: { interval: 0 } })).toThrow("正整数");
 });
+
+it("自动隐藏设置兼容旧配置并校验非负保留数", () => {
+  expect(mergeSettings({ autoFill: { mode: "auto" } }).autoFill).toMatchObject({
+    hideAfterSuccess: false,
+    keepRecentFloors: 10,
+  });
+  expect(
+    mergeSettings({ autoFill: { hideAfterSuccess: true, keepRecentFloors: 0 } }).autoFill,
+  ).toMatchObject({ hideAfterSuccess: true, keepRecentFloors: 0 });
+  for (const keepRecentFloors of [-1, 1.5, "10", null]) {
+    expect(() => mergeSettings({ autoFill: { keepRecentFloors } })).toThrow("非负整数");
+  }
+  expect(() => mergeSettings({ autoFill: { hideAfterSuccess: "true" } })).toThrow("楼层选项无效");
+});

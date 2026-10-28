@@ -34,6 +34,7 @@ import {
   FillTaskRangeError,
   FillTaskStateError,
   type FillTaskSource,
+  type FillTask,
 } from "./fill-task.ts";
 import { FillTaskService, type FillTaskPromptContext } from "./fill-task-service.ts";
 import type { composePresetMessages } from "../agent-presets/preset-composer.ts";
@@ -207,6 +208,7 @@ async function createHarness(
     readonly failLedgerMarkProcessed?: boolean;
     readonly onSave?: () => Promise<void>;
     readonly saveError?: boolean;
+    readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
@@ -341,6 +343,7 @@ async function createHarness(
     createPromptContext: options.createPromptContext,
     readCleaningRule: options.readCleaningRule,
     logError: options.logError,
+    onAutomaticSuccess: options.onAutomaticSuccess,
   });
   return { service, db, services, spaceId, tasks, ledger, logs };
 }
@@ -2763,5 +2766,110 @@ describe("统一填表队列", () => {
     h.service.kick(h.spaceId);
     expect((await waitForTerminal(h, later.runId)).status).toBe("succeeded");
     expect(await h.ledger.processedCount(h.spaceId, 0, 5)).toBe(6);
+  });
+});
+
+describe("自动填表成功后续动作", () => {
+  it("整次多批提交与台账更新成功后只调用一次，手动及初始化跳过", async () => {
+    const onSave = vi.fn(async () => {});
+    let completed:
+      | { status: string; saves: number; processed: number; persistedStatus: string | undefined }
+      | undefined;
+    const onAutomaticSuccess = vi.fn(async (task: FillTask) => {
+      completed = {
+        status: task.status,
+        saves: onSave.mock.calls.length,
+        processed: await h.ledger.processedCount(h.spaceId, 0, 3),
+        persistedStatus: (await h.tasks.find(task.runId))?.status,
+      };
+    });
+    const h = await createHarness({ onSave, onAutomaticSuccess, streamFn: emptyProposalAgent() });
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 3,
+      blockSize: 2,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    await waitForTerminal(h, task.runId);
+    await vi.waitFor(() =>
+      expect(completed).toEqual({
+        status: "succeeded",
+        saves: 2,
+        processed: 4,
+        persistedStatus: "succeeded",
+      }),
+    );
+    const manual = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    const init = await h.service.submitInit({ memorySpaceId: h.spaceId, text: "设定" });
+    await waitForTerminal(h, init.runId);
+    expect(await h.tasks.find(manual.runId)).toMatchObject({ status: "succeeded" });
+    expect(onAutomaticSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("保存失败不触发隐藏，原任务重试成功后触发", async () => {
+    let fail = true;
+    const onAutomaticSuccess = vi.fn(async () => {});
+    const h = await createHarness({
+      streamFn: emptyProposalAgent(),
+      onAutomaticSuccess,
+      onSave: async () => {
+        if (fail) throw new Error("保存失败");
+      },
+    });
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    expect((await waitForTerminal(h, task.runId)).status).toBe("failed");
+    expect(onAutomaticSuccess).not.toHaveBeenCalled();
+    fail = false;
+    const retried = await h.service.retry(h.spaceId, task.runId);
+    await waitForTerminal(h, retried.runId);
+    await vi.waitFor(() => expect(onAutomaticSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("隐藏动作失败保留成功状态，后续队列继续执行", async () => {
+    const error = new Error("隐藏失败");
+    const onAutomaticSuccess = vi.fn(async () => {
+      throw error;
+    });
+    const logError = vi.fn();
+    const h = await createHarness({ streamFn: emptyProposalAgent(), onAutomaticSuccess, logError });
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    const next = await h.service.submit({ memorySpaceId: h.spaceId, from: 2, to: 3 });
+    expect((await waitForTerminal(h, next.runId)).status).toBe("succeeded");
+    expect(await h.tasks.find(task.runId)).toMatchObject({
+      status: "succeeded",
+      errorMessage: null,
+    });
+    expect(onAutomaticSuccess).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("后续自动隐藏失败"), error);
+  });
+
+  it("取消运行中的自动任务不触发隐藏", async () => {
+    const streamFn = gatedStreamFn(emptyProposalAgent().respond, 1);
+    const onAutomaticSuccess = vi.fn(async () => {});
+    const h = await createHarness({ streamFn, onAutomaticSuccess });
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 3,
+      blockSize: 2,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    await vi.waitFor(() => expect(streamFn.calls.count).toBe(1));
+    const cancelled = h.service.cancel(h.spaceId, task.runId);
+    streamFn.gate.open();
+    await cancelled;
+    expect((await waitForTerminal(h, task.runId)).status).toBe("interrupted");
+    expect(onAutomaticSuccess).not.toHaveBeenCalled();
   });
 });
