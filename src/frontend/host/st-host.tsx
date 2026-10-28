@@ -10,6 +10,10 @@ import { TablesWorkspace } from "../pages/tables/tables-workspace.ts";
 import { TasksWorkspace } from "../pages/tasks/tasks-workspace.ts";
 import { WorkbenchApp } from "../workbench.tsx";
 import { FrontendPanel } from "./panel.tsx";
+import { testAgentConnection } from "../../infrastructure/sillytavern/llm/st-backends-status.ts";
+import { createPresetSettingsServices } from "./preset-settings.ts";
+import { createMaintenanceServices } from "./maintenance-services.ts";
+import { QueryChatStore, queryChatHistoryKey } from "../../features/query-chat/query-chat-state.ts";
 
 export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const host = document.createElement("div");
@@ -68,7 +72,13 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
     assertContext,
   });
   createRoot(host).render(
-    <StFrontend runtime={runtime} workspace={workspace} tables={tables} tasks={tasks} />,
+    <StFrontend
+      runtime={runtime}
+      workspace={workspace}
+      tables={tables}
+      tasks={tasks}
+      assertContext={assertContext}
+    />,
   );
 }
 
@@ -77,13 +87,16 @@ function StFrontend({
   workspace,
   tables,
   tasks,
+  assertContext,
 }: {
   runtime: SteMemoryRuntime;
   workspace: RecordsWorkspace;
   tables: TablesWorkspace;
   tasks: TasksWorkspace;
+  assertContext: (context: RecordsContext) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [queryStore] = useState(() => new QueryChatStore());
   const [tone, setTone] = useState<"light" | "dark">(() =>
     matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   );
@@ -119,12 +132,82 @@ function StFrontend({
     () => ({
       settings: runtime.settingsService,
       version: runtime.version,
+      testAgentConnection,
       onChanged: () => {
         synchronize();
         refreshSettings((value) => value + 1);
       },
     }),
     [runtime, synchronize],
+  );
+  const macros = useMemo(
+    () => ({
+      settings: runtime.settingsService,
+      readChatMacros: () => runtime.cleaning.readChatScopeMacros(),
+      macro: runtime.macro,
+      overview: () => runtime.macroOverview(),
+      tables: runtime.tables,
+      fields: runtime.fields,
+      assertContext,
+    }),
+    [runtime, assertContext],
+  );
+  const presets = useMemo(
+    () =>
+      createPresetSettingsServices(
+        runtime,
+        async (context) => {
+          queryStore.clearSpaceHistory(context.spaceId);
+          if (chatIdentityKey(runtime.adapter.getChatSnapshot()) === context.chatIdentity) {
+            await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
+          }
+        },
+        (id) => {
+          queryStore.cancel(queryChatHistoryKey(id, "query"));
+          queryStore.cancel(queryChatHistoryKey(id, "fill"));
+        },
+      ),
+    [runtime, workspace, tables, tasks, queryStore],
+  );
+  const tools = useMemo(() => {
+    const refresh = async () => {
+      if (runtime.manager.getStatus()?.kind === "active")
+        await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
+    };
+    return {
+      logs: runtime.logs,
+      maintenance: createMaintenanceServices(runtime, refresh, (id) =>
+        queryStore.clearSpaceHistory(id),
+      ),
+      query: {
+        store: queryStore,
+        service: runtime.queryChat,
+        assertContext,
+        onDataChanged: async (context: RecordsContext) => {
+          assertContext(context);
+          await refresh();
+        },
+      },
+      sql: {
+        console: runtime.sqlConsole,
+        assertContext,
+        onExecuted: async (context: RecordsContext) => {
+          assertContext(context);
+          runtime.retrieval.invalidate(context.spaceId);
+          await refresh();
+        },
+      },
+    };
+  }, [runtime, workspace, tables, tasks, queryStore, assertContext]);
+  const autoFill = useMemo(
+    () => ({
+      read: () => runtime.autoFill.read(),
+      settings: () => runtime.autoFill.settings(),
+      saveOverrides: (overrides: Parameters<typeof runtime.autoFill.saveOverrides>[0]) =>
+        runtime.autoFill.saveOverrides(overrides),
+      assertContext,
+    }),
+    [runtime, assertContext],
   );
   return (
     <>
@@ -143,6 +226,12 @@ function StFrontend({
           workspace={workspace}
           tables={tables}
           tasks={tasks}
+          autoFill={autoFill}
+          search={{ service: runtime.retrieval, assertContext }}
+          cleaning={runtime.cleaning}
+          macros={macros}
+          presets={presets}
+          tools={tools}
           settings={settings}
           active={open}
           status={status}

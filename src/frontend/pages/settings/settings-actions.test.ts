@@ -26,7 +26,12 @@ function harness() {
     getChatScopeMacros: () => [],
     getChatContext: () => "chat",
   });
-  const services = { settings: service, onChanged: vi.fn(async () => {}), version: "test" };
+  const services = {
+    settings: service,
+    onChanged: vi.fn(async () => {}),
+    version: "test",
+    testAgentConnection: vi.fn(async () => ({ ok: true as const, models: [] })),
+  };
   return { service, services, refreshMirror };
 }
 

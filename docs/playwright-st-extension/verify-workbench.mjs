@@ -189,6 +189,14 @@ try {
     "320px settings page no overflow",
     await page.locator("#ste-memory-app").evaluate((el) => el.scrollWidth <= el.clientWidth),
   );
+  await action("nav-tasks").click();
+  const taskLog = action("open-task-log");
+  const taskKey = await taskLog.getAttribute("data-task-key");
+  await taskLog.click();
+  check(
+    "task log action opens the exact task key",
+    (await page.getByLabel("任务 Key", { exact: true }).inputValue()) === taskKey,
+  );
   check("no browser exceptions", errors.length === 0);
 } finally {
   if (errors.length) console.error(errors);

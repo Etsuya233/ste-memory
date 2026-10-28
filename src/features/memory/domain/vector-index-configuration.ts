@@ -18,7 +18,7 @@ export interface VectorIndexConfiguration {
 
 export function effectiveVectorIndexGroups(
   configuration: VectorIndexConfiguration | undefined,
-  fields: readonly MemoryField[],
+  fields: readonly Pick<MemoryField, "id" | "enabled" | "position">[],
 ): readonly VectorIndexGroup[] {
   if (!configuration) return [];
   if (configuration.source === "preset") return configuration.presetGroups ?? [];

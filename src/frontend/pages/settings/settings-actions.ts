@@ -1,8 +1,19 @@
 import type { PluginSettings } from "../../../features/settings/plugin-settings.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
+import type { AgentConnection } from "../../../features/settings/agent-connections.ts";
+import type { ConnectionTestResult } from "../../../infrastructure/sillytavern/llm/st-backends-status.ts";
 
 export interface SettingsServices {
-  settings: Pick<SettingsService, "read" | "setPluginEnabled" | "setMirrorEnabled" | "save">;
+  settings: Pick<
+    SettingsService,
+    | "read"
+    | "setPluginEnabled"
+    | "setMirrorEnabled"
+    | "save"
+    | "setEmbeddingConnection"
+    | "setRerankSettings"
+  >;
+  testAgentConnection: (connection: AgentConnection) => Promise<ConnectionTestResult>;
   onChanged: () => void | Promise<void>;
   version: string;
 }

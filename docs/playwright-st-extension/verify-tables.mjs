@@ -252,6 +252,83 @@ try {
     "records usable after schema changes",
     (await page.locator('[data-action="open-record"]:visible').count()) === 20,
   );
+  // Seed through the actual workspace/services, then exercise long pages through
+  // the UI. This catches inherited offsets even when the normal fixture is short.
+  await page.reload();
+  await action("nav-tables").click();
+  await action("open-table").waitFor();
+  await page.evaluate(async () => {
+    const workspace = window.frontendPreview.tablesWorkspace;
+    for (let index = 0; index < 12; index++) {
+      await workspace.selectTable(null);
+      workspace.begin("table");
+      const editor = workspace.getSnapshot().editor;
+      workspace.change({
+        ...editor,
+        draft: {
+          ...editor.draft,
+          name: `滚动表 ${index}`,
+          key: `scroll_${index}`,
+          description: index === 11 ? "长表说明\n".repeat(80) : "",
+        },
+      });
+      await workspace.save();
+    }
+    await workspace.selectTable(null);
+    workspace.begin("table");
+    workspace.discard();
+  });
+  const scrollArea = () => page.locator('[data-page-scroll="tables"]');
+  async function scrollTo(top) {
+    await scrollArea().evaluate((element, top) => (element.scrollTop = top), top);
+    // Wait for native scroll events to be delivered before changing views.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    return scrollArea().evaluate((element) => element.scrollTop);
+  }
+  async function expectScroll(top) {
+    await page.waitForFunction(
+      (top) => Math.abs(document.querySelector('[data-page-scroll="tables"]').scrollTop - top) < 2,
+      top,
+    );
+  }
+  const listOffset = await scrollTo(10000);
+  check("long table list scrolls", listOffset > 500);
+  await page.locator('[data-action="open-table"]').filter({ hasText: "滚动表 11" }).click();
+  await button("编辑表格").waitFor();
+  await expectScroll(0);
+  check("opening table starts at top", true);
+  const detailOffset = await scrollTo(400);
+  await action("nav-tasks").click();
+  await action("nav-tables").click();
+  await expectScroll(detailOffset);
+  check("bottom navigation restores table offset", true);
+  await action("page-back").click();
+  await action("open-table").waitFor();
+  await expectScroll(listOffset);
+  check("table back restores list offset after loading", true);
+  await page.locator('[data-action="open-table"]').filter({ hasText: "滚动表 11" }).click();
+  await expectScroll(0);
+  check("reopening table starts at top", true);
+  await action("page-back").click();
+  await page.locator('[data-action="open-table"]').filter({ hasText: "人物" }).click();
+  await page.waitForFunction(() => !window.frontendPreview.tablesWorkspace.getSnapshot().loading);
+  const displayButton = page.getByRole("button", { name: /显示策略/ });
+  await displayButton.scrollIntoViewIfNeeded();
+  const fieldsOffset = await scrollTo(await scrollArea().evaluate((element) => element.scrollTop));
+  await displayButton.click();
+  await expectScroll(0);
+  check("opening editor starts at top", true);
+  await action("cancel-edit").click();
+  await expectScroll(fieldsOffset);
+  check("editor back restores table detail offset", true);
+  await switchChat("b");
+  await action("open-table").waitFor();
+  await expectScroll(0);
+  check("different chat has independent offset", true);
+  await switchChat("a");
+  await button("编辑表格").waitFor();
+  await expectScroll(fieldsOffset);
+  check("chat return restores table detail offset", true);
   check("no browser exceptions", errors.length === 0);
 } finally {
   if (errors.length) console.error(errors);

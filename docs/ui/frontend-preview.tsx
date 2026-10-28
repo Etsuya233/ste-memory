@@ -2,15 +2,43 @@
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { WorkbenchApp } from "../../src/frontend/workbench.tsx";
+import { createToolsFixture } from "./frontend-tools-fixture.ts";
+import {
+  validateAutoFillSettings,
+  type AutoFillChatState,
+  type AutoFillSettings,
+} from "../../src/features/fill-tasks/auto-fill-settings.ts";
 import {
   TasksWorkspace,
   type TasksServices,
 } from "../../src/frontend/pages/tasks/tasks-workspace.ts";
 import type { FillTaskView } from "../../src/features/fill-tasks/fill-task.ts";
-import type { VectorTask } from "../../src/features/vector-index/types.ts";
+import type {
+  VectorTask,
+  RecordVector,
+  VectorIndexRepository,
+  VectorEmbeddingPort,
+} from "../../src/features/vector-index/types.ts";
+import { VectorIndexService } from "../../src/features/vector-index/vector-index-service.ts";
+import { VectorRetrievalService } from "../../src/features/vector-retrieval/vector-retrieval-service.ts";
 import { DEFAULT_SETTINGS } from "../../src/features/settings/plugin-settings.ts";
 import { SettingsService } from "../../src/features/settings/settings-service.ts";
 import type { SettingsServices } from "../../src/frontend/pages/settings/SettingsPage.tsx";
+import type { MacroServices } from "../../src/frontend/pages/settings/macros-page.tsx";
+import type { CleaningServices } from "../../src/frontend/pages/settings/cleaning-rules-page.tsx";
+import type {
+  PresetSettingsServices,
+  PresetContext,
+} from "../../src/frontend/pages/settings/preset-settings-services.ts";
+import type { MemoryMacro } from "../../src/features/macros/macro-expression.ts";
+import { validateMemoryMacro } from "../../src/features/macros/macro-expression.ts";
+import { captureSpaceStructure } from "../../src/features/table-presets/space-structure-capture.ts";
+import { instantiateTablePreset } from "../../src/features/table-presets/preset-instantiation.ts";
+import {
+  parseTablePresetExport,
+  serializeTablePresetExport,
+} from "../../src/features/table-presets/preset-transfer.ts";
+import { EMPTY_PREVIEW_SNAPSHOT } from "../../src/features/agent-presets/preset-preview-model.ts";
 import { TablesWorkspace } from "../../src/frontend/pages/tables/tables-workspace.ts";
 import { FrontendPanel } from "../../src/frontend/host/panel.tsx";
 import { RecordsWorkspace } from "../../src/frontend/pages/records-workspace.ts";
@@ -450,6 +478,8 @@ const tablesWorkspace = new TablesWorkspace({
   retryMemorySave: async () => {},
 });
 let settingsValue = structuredClone(DEFAULT_SETTINGS);
+const chatMacros = new Map<string, readonly MemoryMacro[]>();
+const cleaningSelections = new Map<string, string>();
 let notifySettingsChanged: () => Promise<void> = async () => {};
 const settingsService = new SettingsService({
   store: {
@@ -462,17 +492,266 @@ const settingsService = new SettingsService({
   refreshMemoryMacros: async () => {},
   refreshAgentMacros: async () => {},
   refreshMirror: async () => {},
-  writeChatScopeMacros: () => {},
+  writeChatScopeMacros: (macros) => {
+    chatMacros.set(contexts[current].chatKey, structuredClone(macros));
+  },
   refreshVectorIndex: async () => {},
   validateMacros: async (macros) => macros,
-  getChatScopeMacros: () => [],
+  getChatScopeMacros: () => chatMacros.get(contexts[current].chatKey) ?? [],
   getChatContext: () => contexts[current].chatKey,
 });
 const settingsServices: SettingsServices = {
   settings: settingsService,
+  testAgentConnection: async () => ({ ok: true, models: ["preview-chat", "preview-reasoning"] }),
   onChanged: () => notifySettingsChanged(),
   version: "preview",
 };
+const cleaningServices: CleaningServices = {
+  readSelection: () => cleaningSelections.get(contexts[current].chatKey),
+  writeSelection: (id) => {
+    if (id) cleaningSelections.set(contexts[current].chatKey, id);
+    else cleaningSelections.delete(contexts[current].chatKey);
+  },
+  readRecentMessages: () => [
+    {
+      floor: 10,
+      name: "爱丽丝",
+      content: "<think>AI秘密</think>雨后的书店",
+      isUser: false,
+      options: { needCleaning: true },
+    },
+    {
+      floor: 11,
+      name: "旅人",
+      content: "<think>用户原文</think>带上地图",
+      isUser: true,
+      options: { needCleaning: false },
+    },
+  ],
+};
+const macroResults: ReturnType<MacroServices["macro"]["getRecentResults"]> = [];
+let macroTestDelay = 0;
+const macroServices: MacroServices = {
+  settings: settingsService,
+  readChatMacros: () => chatMacros.get(contexts[current].chatKey) ?? [],
+  macro: {
+    getRecentResults: () => macroResults,
+    subscribe: () => () => {},
+    testMacro: async ({ macro, scope }) => {
+      if (macroTestDelay) await new Promise((resolve) => setTimeout(resolve, macroTestDelay));
+      validateMemoryMacro(macro);
+      return {
+        id: macro.id,
+        name: macro.name,
+        scope,
+        status: "success",
+        text: "预览模拟输出：雨后书店",
+        error: null,
+        startedAt: date,
+        elapsedMs: 1,
+        resultRows: 1,
+        outputRows: 1,
+        truncated: false,
+        diagnostics: [],
+      };
+    },
+  },
+  overview: () => [{ name: "{{ste}}", text: "预览模拟快照：雨后书店" }],
+  tables: tableService,
+  fields: fieldService,
+  assertContext,
+};
+const presetIds = {
+  table: () => `preset-table-${++serial}` as MemoryTable["id"],
+  field: () => `preset-field-${++serial}` as MemoryField["id"],
+  group: () => `preset-group-${++serial}`,
+};
+let presetBackupCancelled = false;
+const assertPresetContext = (context: PresetContext) =>
+  assertContext({ chatKey: context.chatIdentity, spaceId: context.spaceId, title: context.title });
+const presetServices: PresetSettingsServices = {
+  agentPreview: {
+    getPromptSnapshot: () => ({
+      ...EMPTY_PREVIEW_SNAPSHOT,
+      names: { char: "爱丽丝", user: "旅人" },
+    }),
+    readSpaceId: () => (ready ? contexts[current].spaceId : undefined),
+    readDigest: async (memorySpaceId) => ({ memorySpaceId, tables: [] }),
+    scanWorldbook: async () => ({ text: "预览世界书", status: "scanned" }),
+  },
+  currentContext: () =>
+    ready
+      ? {
+          spaceId: contexts[current].spaceId,
+          chatIdentity: contexts[current].chatKey,
+          title: contexts[current].title,
+        }
+      : null,
+  readCurrentStructure: async (context) => {
+    assertPresetContext(context);
+    return captureSpaceStructure(
+      {
+        listTables: (id) => tableService.list(id),
+        listFields: (spaceId, tableId) => fieldService.list(spaceId, tableId),
+      },
+      context.spaceId,
+    );
+  },
+  validateTablePreset: async (preset) => {
+    parseTablePresetExport(serializeTablePresetExport(preset, date));
+    instantiateTablePreset(preset, contexts[current].spaceId, presetIds, date);
+    return preset;
+  },
+  backupCurrentSpace: async (context) => {
+    assertPresetContext(context);
+    return !presetBackupCancelled;
+  },
+  applyTablePreset: async (context, preset) => {
+    assertPresetContext(context);
+    const structure = instantiateTablePreset(preset, context.spaceId, presetIds, date);
+    tables = [
+      ...tables.filter((table) => table.memorySpaceId !== context.spaceId),
+      ...structure.tables,
+    ];
+    fields = [
+      ...fields.filter((field) => field.memorySpaceId !== context.spaceId),
+      ...structure.fields,
+    ];
+    records = records.filter((record) => record.memorySpaceId !== context.spaceId);
+    chatMacros.delete(context.chatIdentity);
+    await Promise.all([workspace.refresh(), tablesWorkspace.refresh(), tasksWorkspace.refresh()]);
+    return { kind: "applied" };
+  },
+};
+let searchDelay = 10;
+let searchFailure = false;
+const searchVectors: RecordVector[] = [];
+const searchRepository: VectorIndexRepository = {
+  listTasks: async () => [],
+  listVectors: async (scope) =>
+    searchVectors.filter(
+      (vector) =>
+        vector.memorySpaceId === scope.memorySpaceId &&
+        (!scope.tableId || vector.tableId === scope.tableId),
+    ),
+  saveVector: async (vector) => {
+    searchVectors.push(vector);
+  },
+  getVector: async (id) => searchVectors.find((vector) => vector.id === id),
+  deleteVector: async (id) => {
+    const i = searchVectors.findIndex((vector) => vector.id === id);
+    if (i >= 0) searchVectors.splice(i, 1);
+  },
+  deleteVectors: async (scope) => {
+    for (let i = searchVectors.length - 1; i >= 0; i--) {
+      const vector = searchVectors[i]!;
+      if (
+        vector.memorySpaceId === scope.memorySpaceId &&
+        (!scope.tableId || vector.tableId === scope.tableId)
+      )
+        searchVectors.splice(i, 1);
+    }
+  },
+  saveTask: async () => {
+    throw new Error("检索预览不写入索引任务");
+  },
+  getTask: async () => undefined,
+  deleteTasks: async () => {},
+  saveSuppression: async () => {
+    throw new Error("检索预览不写入抑制条目");
+  },
+  getSuppression: async () => undefined,
+  deleteSuppression: async () => {},
+  deleteSuppressions: async () => {},
+  listSuppressions: async () => [],
+};
+const searchEmbedding: VectorEmbeddingPort = {
+  getProfile: () =>
+    settingsValue.embeddingConnection
+      ? {
+          model: settingsValue.embeddingConnection.model,
+          version: "preview-v1",
+          maxInputChars: 8000,
+          dimensions: 2,
+        }
+      : null,
+  embed: async (_input, signal) => {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, searchDelay);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    });
+    if (searchFailure) {
+      searchFailure = false;
+      throw new Error("预览模拟：embedding连接失败");
+    }
+    return [1, 0];
+  },
+};
+const searchIndex = new VectorIndexService(
+  tableRepository,
+  fieldRepository,
+  recordRepository,
+  searchEmbedding,
+  searchRepository,
+  () => (ready ? contexts[current].spaceId : null),
+  () => settingsValue.enabled,
+);
+const searchService = new VectorRetrievalService(
+  tableRepository,
+  fieldRepository,
+  searchIndex,
+  searchRepository,
+  searchEmbedding,
+  () => (ready ? contexts[current].chatKey : ""),
+);
+function syncSearchContext() {
+  searchService.setContext(
+    ready ? contexts[current].chatKey : "",
+    ready ? contexts[current].spaceId : null,
+  );
+}
+async function seedSearch() {
+  settingsService.save({
+    ...settingsService.read(),
+    embeddingConnection: {
+      baseUrl: "https://preview.invalid/v1",
+      apiKey: "preview",
+      model: "preview-embedding",
+      maxInputChars: 8000,
+      timeoutSeconds: 120,
+    },
+  });
+  const table = tables.find((table) => table.memorySpaceId === contexts[current].spaceId)!;
+  await tableService.update(contexts[current].spaceId, table.id, {
+    vectorIndex: { enabled: true, source: "automatic", updateMode: "manual", groups: [] },
+  });
+  searchVectors.length = 0;
+  for (const target of await searchIndex.targets({
+    memorySpaceId: contexts[current].spaceId,
+    tableId: table.id,
+  })) {
+    searchVectors.push({
+      id: `${target.table.id}-${target.record.id}-${target.groupId}`,
+      memorySpaceId: contexts[current].spaceId,
+      tableId: target.table.id,
+      recordId: target.record.id,
+      groupId: target.groupId,
+      fingerprint: target.fingerprint,
+      values: [1, 0],
+      model: "preview-embedding",
+      version: "preview-v1",
+      updatedAt: date,
+    });
+  }
+  await notifySettingsChanged();
+}
 const fillTasks: FillTaskView[] = Object.values(contexts).map((context) => ({
   runId: `${context.spaceId}-failed-fill`,
   memorySpaceId: context.spaceId,
@@ -643,6 +922,36 @@ const taskServices: TasksServices = {
   assertContext,
 };
 const tasksWorkspace = new TasksWorkspace(taskServices);
+const autoFillOverrides = new Map<string, Partial<AutoFillSettings>>();
+const autoFillServices = {
+  read: (): AutoFillChatState => ({
+    overrides: autoFillOverrides.get(contexts[current].chatKey) ?? {},
+    pausedReason: null,
+  }),
+  settings: () => ({
+    ...settingsValue.autoFill,
+    ...autoFillOverrides.get(contexts[current].chatKey),
+  }),
+  saveOverrides: (value: Partial<AutoFillSettings>) => {
+    validateAutoFillSettings({ ...settingsValue.autoFill, ...value });
+    autoFillOverrides.set(contexts[current].chatKey, structuredClone(value));
+  },
+  assertContext,
+};
+const toolsFixture = createToolsFixture({
+  contexts: Object.values(contexts),
+  current: () => (ready ? contexts[current] : null),
+  read: () => ({ tables, fields, records }),
+  write: (data) => {
+    tables = data.tables;
+    fields = data.fields;
+    records = data.records;
+  },
+  changed: async () => {
+    await Promise.all([workspace.refresh(), tablesWorkspace.refresh(), tasksWorkspace.refresh()]);
+  },
+  assertContext,
+});
 function activeStatus(): SpaceContextStatus {
   const context = contexts[current];
   return {
@@ -662,6 +971,7 @@ function Preview() {
   const [, setSettingsRevision] = useState(0);
   notifySettingsChanged = async () => {
     ready = settingsValue.enabled;
+    syncSearchContext();
     setStatus(ready ? activeStatus() : undefined);
     const context = ready ? contexts[current] : null;
     await Promise.all([
@@ -673,6 +983,7 @@ function Preview() {
   };
   async function switchChat(next: "a" | "b") {
     ready = false;
+    syncSearchContext();
     setStatus(undefined);
     await Promise.all([
       workspace.setContext(null),
@@ -681,6 +992,7 @@ function Preview() {
     ]);
     current = next;
     ready = settingsValue.enabled;
+    syncSearchContext();
     setStatus(ready ? activeStatus() : undefined);
     const context = ready ? contexts[next] : null;
     await Promise.all([
@@ -693,9 +1005,30 @@ function Preview() {
     frontendPreview: {
       switchChat,
       workspace,
+      queryStore: toolsFixture.queryStore,
+      queryInputs: toolsFixture.queryInputs,
+      delayQuery: toolsFixture.delayQuery,
+      delaySQL: toolsFixture.delaySQL,
+      failNextQuery: toolsFixture.failNextQuery,
       snapshot: () => structuredClone(records),
       tablesWorkspace,
       tasksWorkspace,
+      autoFillSnapshot: () => structuredClone([...autoFillOverrides]),
+      searchService,
+      seedSearch,
+      delaySearch: (ms: number) => {
+        searchDelay = ms;
+      },
+      failNextSearch: () => {
+        searchFailure = true;
+      },
+      cancelPresetBackup: (cancelled: boolean) => {
+        presetBackupCancelled = cancelled;
+      },
+      chatMacrosSnapshot: () => structuredClone([...chatMacros]),
+      delayMacroTest: (ms: number) => {
+        macroTestDelay = ms;
+      },
       settingsSnapshot: () => structuredClone(settingsValue),
       tasksSnapshot: () => structuredClone({ fillTasks, vectorTasks }),
       delayNextSchemaSave: (ms: number) => {
@@ -742,7 +1075,13 @@ function Preview() {
               active={open}
               tables={tablesWorkspace}
               tasks={tasksWorkspace}
+              autoFill={autoFillServices}
               settings={settingsServices}
+              search={{ service: searchService, assertContext }}
+              cleaning={cleaningServices}
+              macros={macroServices}
+              presets={presetServices}
+              tools={toolsFixture.tools}
               workspace={workspace}
               status={status}
               mirror={
@@ -775,4 +1114,5 @@ await Promise.all([
   tablesWorkspace.setContext(contexts.a),
   tasksWorkspace.setContext(contexts.a),
 ]);
+syncSearchContext();
 createRoot(document.getElementById("root")!).render(<Preview />);

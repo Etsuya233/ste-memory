@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ListTodo } from "lucide-react";
+import { ListTodo, Settings2 } from "lucide-react";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../../ui/primitives/tabs.tsx";
 import { Card } from "../../../ui/primitives/card.tsx";
@@ -20,6 +20,7 @@ import {
 import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
 import type { TasksWorkspace, TasksSnapshot } from "./tasks-workspace.ts";
+import { AutoFillOverrides, type AutoFillServices } from "./auto-fill-overrides.tsx";
 
 const vectorLabels: Record<VectorTaskStatus, string> = {
   queued: "等待中",
@@ -31,23 +32,37 @@ const vectorLabels: Record<VectorTaskStatus, string> = {
   interrupted: "已中断",
 };
 const card = "ste:space-y-3 ste:rounded-xl ste:border ste:border-border ste:p-4";
-export function TasksPage({
+interface TasksPageProps {
+  workspace: TasksWorkspace;
+  autoFill: AutoFillServices;
+  onOpenLog: (key: string) => void;
+  controls: PageControls;
+  registerLeaveGuard?: RegisterLeaveGuard;
+  active?: boolean;
+}
+export function TasksPage(props: TasksPageProps) {
+  const [overrides, setOverrides] = useState(false);
+  return overrides ? (
+    <AutoFillOverrides {...props} onBack={() => setOverrides(false)} />
+  ) : (
+    <TasksMain {...props} onAutoFill={() => setOverrides(true)} />
+  );
+}
+
+function TasksMain({
   workspace,
   controls,
   registerLeaveGuard,
   active = true,
-}: {
-  workspace: TasksWorkspace;
-  controls: PageControls;
-  registerLeaveGuard?: RegisterLeaveGuard;
-  active?: boolean;
-}) {
+  onAutoFill,
+  onOpenLog,
+}: TasksPageProps & { onAutoFill: () => void }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const scope = JSON.stringify([state.context?.chatKey, state.context?.spaceId]);
   const [range, setRange] = useState({ from: "", to: "", block: "20" });
   useEffect(() => (active ? workspace.startPolling() : undefined), [workspace, active]);
   useEffect(() => setRange({ from: "", to: "", block: "20" }), [scope]);
-  const { confirmation } = usePageLeave({
+  const { requestLeave, confirmation } = usePageLeave({
     dirty: !!state.draft,
     busy: state.busy,
     scope,
@@ -73,6 +88,17 @@ export function TasksPage({
         icon={ListTodo}
         busy={state.busy}
         {...controls}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="配置对话自动填表"
+            disabled={!state.context || state.busy}
+            onClick={() => requestLeave(onAutoFill)}
+          >
+            <Settings2 />
+          </Button>
+        }
       />
       <PageContent className="ste:space-y-4">
         {!state.context ? (
@@ -177,13 +203,26 @@ export function TasksPage({
                   提交初始化任务
                 </Button>
               </form>
-              <FillList title="当前任务" items={running} workspace={workspace} busy={state.busy} />
-              <FillList title="排队任务" items={queued} workspace={workspace} busy={state.busy} />
+              <FillList
+                title="当前任务"
+                items={running}
+                workspace={workspace}
+                busy={state.busy}
+                onOpenLog={onOpenLog}
+              />
+              <FillList
+                title="排队任务"
+                items={queued}
+                workspace={workspace}
+                busy={state.busy}
+                onOpenLog={onOpenLog}
+              />
               <FillList
                 title="最近历史（最多 100 条）"
                 items={history}
                 workspace={workspace}
                 busy={state.busy}
+                onOpenLog={onOpenLog}
               />
             </TabsContent>
             <TabsContent value="vector">
@@ -201,11 +240,13 @@ function FillList({
   items,
   workspace,
   busy,
+  onOpenLog,
 }: {
   title: string;
   items: readonly FillTaskView[];
   workspace: TasksWorkspace;
   busy: boolean;
+  onOpenLog: (key: string) => void;
 }) {
   return (
     <section className="ste:space-y-3">
@@ -232,7 +273,17 @@ function FillList({
               {task.blocksQueue && (
                 <StatusNotice>队列已暂停，重试或取消此任务后继续。</StatusNotice>
               )}
-              <div className="ste:flex ste:gap-2">
+              <div className="ste:flex ste:flex-wrap ste:gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  data-action="open-task-log"
+                  data-task-key={task.runId}
+                  onClick={() => onOpenLog(task.runId)}
+                >
+                  查看日志
+                </Button>
                 {(task.status === "queued" || task.status === "running" || task.blocksQueue) && (
                   <Button
                     variant="outline"

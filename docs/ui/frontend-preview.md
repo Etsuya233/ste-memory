@@ -4,14 +4,23 @@
 搜索与分页、详情及证据、编辑和新建、保存失败重试、修订冲突与切对话草稿保留。
 移动与桌面采用同一套页面导航，旧前端源码保留且不进入默认 bundle 或样式。
 表格页支持表与字段管理、显示策略预览、向量配置与补建/重算/清除。
-任务页支持楼层填表、初始化、队列与历史、取消重试，以及向量任务筛选和批量取消；
+任务页支持楼层填表、初始化、队列与历史、取消重试、对话自动填表覆盖，以及向量任务筛选和批量取消；
 离开任务页、关闭工作台或隐藏浏览器后停止轮询，后台任务继续执行。
-设置页支持插件和对话文件同步开关、超时保存，其他配置展示只读摘要。
-检索、高级设置编辑、从预设库导入向量分组及逐记录向量输入预览仍待迁移。
+检索页支持选择表与分组、Top K 与最低分、覆盖诊断、取消和跳转记录证据。
+设置支持 Agent 连接及请求头、Embedding、重排、全局自动填表、Agent 与表格预设、清洗规则、
+全局与对话宏的编辑和测试。表格预设可编辑结构和排序，向量分组可从预设库按 Key 导入。
+设置的工具区提供查询/填写问答、日志、备份/恢复、空间记录清除和 SQL 控制台。
+问答历史按空间与模式保存在页面内存中，后台 run 在切页时继续，切空间后填写提交仍受服务校验。
+
+本轮按优先级完成：滚动与返回位置 → 连接及检索闭环 → 预设/规则/宏配置 → 问答与维护工具。
+后续细化项仍包括预设增量比较更新、逐记录向量输入预览，以及记录排序等旧入口的交互整合。
 
 页面共享 `src/frontend/components/` 中的页头、内容区、保存栏、确认弹窗、
-离开保护、开关字段与状态提示；`workbench.tsx` 统一管理底部导航和关闭操作。
+离开保护、开关字段与状态提示；表格与预设共用 `SchemaEditorFields`，全局与对话自动填表共用
+`AutoFillFields`，设置编辑共用 `SettingsEditor`。`workbench.tsx` 统一管理底部导航和关闭操作。
 记录、表格与任务各自的工作区负责当前对话状态和异步请求归属，设置保持全局作用域。
+`usePageScroll` 按工作区、对话与视图缓存滚动位置；异步加载完成再恢复，进入详情/编辑使用独立容器。
+这部分状态不依赖整页保活，也不写入用户设置。
 
 ## 独立预览
 
@@ -39,6 +48,17 @@ $env:CHROME='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 node verify-frontend.mjs
 node verify-tables.mjs
 node verify-workbench.mjs
+node verify-connections.mjs
+node verify-search.mjs
+node verify-cleaning.mjs
+node verify-macros.mjs
+node verify-presets.mjs
+node verify-preset-structure.mjs
+node verify-query.mjs
+node verify-sql.mjs
+node verify-logs.mjs
+node verify-maintenance.mjs
+node verify-auto-fill.mjs
 ```
 
 `FRONTEND_URL` 可更改地址，`FRONTEND_SCREENSHOTS` 可更改截图目录。
@@ -58,9 +78,12 @@ node verify-workbench.mjs
 
 ## 本轮验证（2026-10-28）
 
-全仓 Vitest 149 文件、1631 项通过，随后新增的两项任务提交竞态回归也通过。
+全仓 Vitest 160 文件、1686 项通过，含真实 SQLite/IndexedDB 的恢复、重建与提交后失败边界。
 生产构建、类型检查、ESLint 与格式检查通过。
-Edge 中记录流程 22 项、表格流程 29 项、任务与设置流程 23 项通过，
+Edge 中 14 组浏览器流程共 274 项通过，覆盖记录、表格滚动、任务与日志跳转、连接、
+检索、预设结构编辑、清洗、宏、问答、SQL、维护和自动填表，
 含 320px、390px 移动布局、桌面同流程及宿主样式隔离检查。
+Windows 粗调度下的万条记忆语义查询采用 8ms 时间片检查点，保留真实宏任务、取消与截止时间检查；
+强化调度回归沿用原 10 秒预算，避免固定每百行等待一次计时器带来的累计调度延迟。
 真实 ST 仅做无数据写入的接入检查：入口、面板开关、焦点恢复及 Worker/WASM 资源加载通过，
 没有插件页面异常；未对用户聊天执行记录写入或文件重载验收。

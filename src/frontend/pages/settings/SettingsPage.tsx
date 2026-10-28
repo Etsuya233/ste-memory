@@ -1,11 +1,21 @@
 import { useEffect, useState } from "react";
-import { Settings } from "lucide-react";
+import { ChevronRight, Settings } from "lucide-react";
 import type { ChatMirrorStatus } from "../../../features/chat-mirror/chat-metadata-mirror-sync.ts";
-import {
-  SYSTEM_TABLE_PRESET_ID,
-  SYSTEM_TABLE_PRESET_NAME,
-} from "../../../features/table-presets/preset-model.ts";
-import { STORY_MEMORY_PRESET } from "../../../features/table-presets/story-memory-preset.ts";
+import { AutoFillSettingsPage } from "./auto-fill-settings-page.tsx";
+import { ConnectionsPage } from "./connections-page.tsx";
+import { EmbeddingSettingsPage } from "./embedding-settings-page.tsx";
+import { RerankSettingsPage } from "./rerank-settings-page.tsx";
+import { CleaningRulesPage, type CleaningServices } from "./cleaning-rules-page.tsx";
+import { MacrosPage, type MacroServices } from "./macros-page.tsx";
+import { AgentPresetsPage } from "./agent-presets-page.tsx";
+import { TablePresetsPage } from "./table-presets-page.tsx";
+import type { PresetSettingsServices } from "./preset-settings-services.ts";
+import type { RecordsContext } from "../records-workspace.ts";
+import { LogsPage } from "../activity/logs-page.tsx";
+import { MaintenancePage, type MaintenanceServices } from "../maintenance/maintenance-page.tsx";
+import { QueryPage, type QueryServices } from "../query/query-page.tsx";
+import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
+import type { LogRepository } from "../../../features/logging/log.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import {
@@ -15,17 +25,12 @@ import {
   CardDescription,
   CardContent,
 } from "../../../ui/primitives/card.tsx";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
 import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
 import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { usePageLeave, type RegisterLeaveGuard } from "../../components/confirmation.tsx";
+import { usePageScroll } from "../../components/use-page-scroll.ts";
 import {
   saveFillTimeout,
   setSettingToggle,
@@ -35,24 +40,111 @@ import {
 
 export type { SettingsServices } from "./settings-actions.ts";
 
-export function SettingsPage({
-  services,
-  controls,
-  registerLeaveGuard,
-  mirror,
-}: {
+export type SettingsSection =
+  | "overview"
+  | "connections"
+  | "embedding"
+  | "rerank"
+  | "auto-fill"
+  | "cleaning"
+  | "macros"
+  | "agent-presets"
+  | "table-presets"
+  | "logs"
+  | "maintenance"
+  | "query"
+  | "sql";
+
+export interface SettingsTools {
+  logs: Pick<LogRepository, "recent" | "byKey" | "clearAll">;
+  maintenance: MaintenanceServices;
+  query: QueryServices;
+  sql: SqlServices;
+}
+
+type SettingsPageProps = {
   services: SettingsServices;
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
   mirror: ChatMirrorStatus;
-}) {
+  cleaning: CleaningServices;
+  macros: MacroServices;
+  presets: PresetSettingsServices;
+  context: RecordsContext | null;
+  tools: SettingsTools;
+  active: boolean;
+};
+
+export function SettingsPage(
+  props: SettingsPageProps & { initialSection?: SettingsSection; initialLogKey?: string },
+) {
+  const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "overview");
+  const detailProps = { ...props, onBack: () => setSection("overview") };
+  if (section === "logs")
+    return (
+      <LogsPage
+        logs={props.tools.logs}
+        controls={props.controls}
+        onBack={detailProps.onBack}
+        initialKey={props.initialLogKey}
+      />
+    );
+  if (section === "maintenance")
+    return <MaintenancePage {...detailProps} services={props.tools.maintenance} />;
+  if (section === "query")
+    return (
+      <QueryPage
+        {...props.tools.query}
+        context={props.context}
+        controls={props.controls}
+        onBack={detailProps.onBack}
+        registerLeaveGuard={props.registerLeaveGuard}
+      />
+    );
+  if (section === "sql")
+    return (
+      <SqlPage
+        {...props.tools.sql}
+        context={props.context}
+        controls={props.controls}
+        onBack={detailProps.onBack}
+        active={props.active}
+      />
+    );
+  if (section === "cleaning")
+    return (
+      <CleaningRulesPage
+        {...detailProps}
+        contextKey={
+          props.context ? JSON.stringify([props.context.chatKey, props.context.spaceId]) : null
+        }
+      />
+    );
+  if (section === "macros") return <MacrosPage {...detailProps} macroServices={props.macros} />;
+  if (section === "agent-presets") return <AgentPresetsPage {...detailProps} />;
+  if (section === "table-presets") return <TablePresetsPage {...detailProps} />;
+  if (section === "connections") return <ConnectionsPage {...detailProps} />;
+  if (section === "embedding") return <EmbeddingSettingsPage {...detailProps} />;
+  if (section === "rerank") return <RerankSettingsPage {...detailProps} />;
+  if (section === "auto-fill") return <AutoFillSettingsPage {...detailProps} />;
+  return <SettingsOverview {...props} onOpen={setSection} />;
+}
+
+function SettingsOverview({
+  services,
+  controls,
+  registerLeaveGuard,
+  mirror,
+  onOpen,
+}: SettingsPageProps & { onOpen: (section: SettingsSection) => void }) {
+  const scroll = usePageScroll(services, "settings-overview", true);
   const [settings, setSettings] = useState(() => services.settings.read());
   const [timeout, setTimeoutValue] = useState(() => String(settings.fillAgentTimeoutSeconds));
   const [savedTimeout, setSavedTimeout] = useState(timeout);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const dirty = timeout !== savedTimeout;
-  const { confirmation } = usePageLeave({
+  const { requestLeave, confirmation } = usePageLeave({
     dirty,
     busy,
     scope: "global-settings",
@@ -93,73 +185,6 @@ export function SettingsPage({
     }
   }
 
-  const connectionSummary = (id: string | undefined) => {
-    if (id === undefined) return "跟随 SillyTavern 当前连接";
-    const connection = settings.agentConnections.find((item) => item.id === id);
-    return connection ? `${connection.name} · ${connection.model}` : "所选连接已不存在";
-  };
-  const agentPreset = settings.agentPresets.presets.find(
-    (item) => item.id === settings.agentPresets.activePresetId,
-  );
-  const tablePreset = settings.tablePresets.userPresets.find(
-    (item) => item.id === settings.tablePresets.defaultPresetId,
-  );
-  const tablePresetName =
-    settings.tablePresets.defaultPresetId === SYSTEM_TABLE_PRESET_ID
-      ? SYSTEM_TABLE_PRESET_NAME
-      : settings.tablePresets.defaultPresetId === STORY_MEMORY_PRESET.id
-        ? STORY_MEMORY_PRESET.name
-        : (tablePreset?.name ?? "所选预设已不存在");
-  const summaries = [
-    {
-      title: "Agent 连接与模型",
-      summary: `${settings.agentConnections.length} 个独立连接`,
-      details: [
-        `表格填写 Agent：${connectionSummary(settings.fillTaskConnectionId)}`,
-        `查询 Agent：${connectionSummary(settings.queryChatConnectionId)}`,
-      ],
-    },
-    {
-      title: "Embedding 与重排",
-      summary: `向量连接${settings.embeddingConnection ? "已配置" : "未配置"} · 重排${settings.rerank.enabled ? "已开启" : "已关闭"}`,
-      details: [
-        `Embedding 模型：${settings.embeddingConnection?.model ?? "未配置"}`,
-        `重排模型：${settings.rerank.connection?.model ?? "未配置"}`,
-        `重排候选数：${settings.rerank.candidateLimit}`,
-      ],
-    },
-    {
-      title: "Agent 提示词预设",
-      summary: `活动预设：${agentPreset?.name ?? "系统默认"}`,
-      details: [
-        `自定义预设：${settings.agentPresets.presets.length} 份`,
-        `活动预设消息：${agentPreset ? agentPreset.messages.length : "使用系统内置提示词"}`,
-      ],
-    },
-    {
-      title: "表格预设",
-      summary: `新空间默认：${tablePresetName}`,
-      details: [
-        `用户预设：${settings.tablePresets.userPresets.length} 份`,
-        "默认预设用于之后创建的记忆空间。",
-      ],
-    },
-    {
-      title: "清洗规则",
-      summary: `${settings.cleaningRules.length} 份规则 · ${settings.cleaningRules.filter((item) => item.enabled).length} 份启用`,
-      details: ["每个对话独立选择清洗规则，只影响填表输入中的 AI 输出消息。"],
-    },
-    {
-      title: "记忆宏",
-      summary: `${settings.macros.length} 个全局宏 · ${settings.macros.filter((item) => item.enabled).length} 个启用`,
-      details: [
-        `全局前缀：${settings.macroName}`,
-        `输出上限：${settings.macroLimit} 字符`,
-        "对话宏随各自绑定的记忆空间保存。",
-      ],
-    },
-  ];
-
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
@@ -169,7 +194,7 @@ export function SettingsPage({
         {...controls}
         busy={busy}
       />
-      <PageContent className="ste:space-y-4">
+      <PageContent ref={scroll.ref} onScroll={scroll.onScroll} className="ste:space-y-4">
         {notice ? (
           <StatusNotice variant={notice.error ? "destructive" : "default"}>
             {notice.text}
@@ -246,6 +271,52 @@ export function SettingsPage({
             </form>
           </CardContent>
         </Card>
+        {(
+          [
+            {
+              label: "连接与填写",
+              items: [
+                ["connections", "Agent 连接与模型"],
+                ["embedding", "Embedding 连接"],
+                ["rerank", "重排设置"],
+                ["auto-fill", "自动填表"],
+              ],
+            },
+            {
+              label: "预设与规则",
+              items: [
+                ["agent-presets", "Agent 提示词预设"],
+                ["table-presets", "表格预设"],
+                ["cleaning", "清洗规则"],
+                ["macros", "记忆宏"],
+              ],
+            },
+            {
+              label: "工具与维护",
+              items: [
+                ["query", "记忆问答"],
+                ["logs", "运行日志"],
+                ["maintenance", "备份与空间维护"],
+                ["sql", "SQL 控制台"],
+              ],
+            },
+          ] as const
+        ).map((group) => (
+          <section key={group.label} className="ste:flex ste:flex-col ste:gap-2">
+            <h2 className="ste:mt-2 ste:text-sm ste:font-semibold">{group.label}</h2>
+            {group.items.map(([id, label]) => (
+              <Button
+                key={id}
+                variant="outline"
+                className="ste:h-auto ste:justify-between ste:py-4"
+                onClick={() => requestLeave(() => onOpen(id))}
+              >
+                {label}
+                <ChevronRight />
+              </Button>
+            ))}
+          </section>
+        ))}
         <Card size="sm">
           <CardHeader>
             <CardTitle>外观</CardTitle>
@@ -257,33 +328,6 @@ export function SettingsPage({
             </Button>
           </CardContent>
         </Card>
-        <div className="ste:space-y-2">
-          <p className="ste:text-sm ste:text-muted-foreground">
-            以下展示已保存配置，当前页面暂不支持编辑。
-          </p>
-          <Accordion>
-            {summaries.map((group) => (
-              <AccordionItem key={group.title}>
-                <AccordionTrigger>
-                  <span className="ste:min-w-0 ste:break-words">
-                    <span className="ste:block">{group.title}</span>
-                    <span className="ste:mt-1 ste:block ste:text-xs ste:font-normal ste:text-muted-foreground">
-                      {group.summary}
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="ste:space-y-2 ste:break-words">
-                    {group.details.map((detail) => (
-                      <p key={detail}>{detail}</p>
-                    ))}
-                    <p className="ste:text-xs ste:text-muted-foreground">只读摘要 · 暂不可编辑</p>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
       </PageContent>
       {confirmation}
     </div>

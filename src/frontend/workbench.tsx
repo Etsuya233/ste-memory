@@ -1,25 +1,48 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, TableProperties, ListTodo, Settings } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { BookOpen, TableProperties, ListTodo, Settings, Search } from "lucide-react";
 import { Button } from "../ui/primitives/button.tsx";
 import { RecordsApp, type RecordsAppProps } from "./app.tsx";
 import type { NavigationGuard } from "./components/confirmation.tsx";
 import { TablesPage } from "./pages/tables/tables-page.tsx";
 import type { TablesWorkspace } from "./pages/tables/tables-workspace.ts";
 import type { TasksWorkspace } from "./pages/tasks/tasks-workspace.ts";
+import type { AutoFillServices } from "./pages/tasks/auto-fill-overrides.tsx";
 import { TasksPage } from "./pages/tasks/tasks-page.tsx";
-import { SettingsPage, type SettingsServices } from "./pages/settings/SettingsPage.tsx";
+import {
+  SettingsPage,
+  type SettingsServices,
+  type SettingsSection,
+} from "./pages/settings/SettingsPage.tsx";
+import { SearchPage, type SearchServices } from "./pages/search/search-page.tsx";
+import type { CleaningServices } from "./pages/settings/cleaning-rules-page.tsx";
+import type { MacroServices } from "./pages/settings/macros-page.tsx";
+import type { PresetSettingsServices } from "./pages/settings/preset-settings-services.ts";
+import type { SettingsTools } from "./pages/settings/SettingsPage.tsx";
+import { listTablePresets } from "../features/table-presets/preset-model.ts";
+import { SYSTEM_TABLE_PRESET } from "../features/table-presets/system-preset.ts";
 import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
 
 export interface WorkbenchProps extends RecordsAppProps {
   tables: TablesWorkspace;
   tasks: TasksWorkspace;
+  autoFill: AutoFillServices;
   settings: SettingsServices;
+  search: SearchServices;
+  cleaning: CleaningServices;
+  macros: MacroServices;
+  presets: PresetSettingsServices;
+  tools: SettingsTools;
   active?: boolean;
 }
 
 export function WorkbenchApp(props: WorkbenchProps) {
-  const [page, setPage] = useState<"records" | "tables" | "tasks" | "settings">("records");
+  const [page, setPage] = useState<"records" | "tables" | "tasks" | "search" | "settings">(
+    "records",
+  );
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview");
+  const [logKey, setLogKey] = useState("");
+  const { context } = useSyncExternalStore(props.workspace.subscribe, props.workspace.getSnapshot);
   const leaveGuard = useRef<NavigationGuard | null>(null);
   const registerLeaveGuard = useCallback((guard: NavigationGuard | null) => {
     leaveGuard.current = guard;
@@ -60,12 +83,47 @@ export function WorkbenchApp(props: WorkbenchProps) {
         ) : page === "tables" ? (
           <TablesPage
             workspace={props.tables}
+            presets={listTablePresets(
+              props.settings.settings.read().tablePresets,
+              SYSTEM_TABLE_PRESET,
+            )}
             controls={controls}
             registerLeaveGuard={registerLeaveGuard}
+          />
+        ) : page === "search" ? (
+          <SearchPage
+            {...props.search}
+            context={context}
+            controls={controls}
+            active={props.active ?? true}
+            connection={props.settings.settings.read().embeddingConnection}
+            onRecord={async (tableId, recordId) => {
+              if (!context) throw new Error("请先打开对话");
+              const epoch = props.search.service.getState().epoch;
+              props.search.assertContext(context);
+              await props.workspace.selectTable(tableId);
+              props.search.assertContext(context);
+              if (epoch !== props.search.service.getState().epoch) return;
+              await props.workspace.openRecord(recordId);
+              if (epoch === props.search.service.getState().epoch) setPage("records");
+            }}
+            onIndex={() => setPage("tables")}
+            onSettings={() => {
+              setSettingsSection("embedding");
+              setPage("settings");
+            }}
           />
         ) : page === "tasks" ? (
           <TasksPage
             workspace={props.tasks}
+            autoFill={props.autoFill}
+            onOpenLog={(key) =>
+              navigate(() => {
+                setLogKey(key);
+                setSettingsSection("logs");
+                setPage("settings");
+              })
+            }
             controls={controls}
             registerLeaveGuard={registerLeaveGuard}
             active={props.active ?? true}
@@ -76,6 +134,14 @@ export function WorkbenchApp(props: WorkbenchProps) {
             controls={controls}
             registerLeaveGuard={registerLeaveGuard}
             mirror={props.mirror}
+            initialSection={settingsSection}
+            initialLogKey={logKey}
+            cleaning={props.cleaning}
+            macros={props.macros}
+            presets={props.presets}
+            context={context}
+            tools={props.tools}
+            active={props.active ?? true}
           />
         )}
       </div>
@@ -88,6 +154,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
             { id: "records", label: "记录", icon: BookOpen },
             { id: "tables", label: "表格", icon: TableProperties },
             { id: "tasks", label: "任务", icon: ListTodo },
+            { id: "search", label: "检索", icon: Search },
             { id: "settings", label: "设置", icon: Settings },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
@@ -98,7 +165,14 @@ export function WorkbenchApp(props: WorkbenchProps) {
             aria-current={page === id ? "page" : undefined}
             data-action={`nav-${id}`}
             onClick={() => {
-              if (page !== id) navigate(() => setPage(id));
+              if (page !== id)
+                navigate(() => {
+                  if (id === "settings") {
+                    setSettingsSection("overview");
+                    setLogKey("");
+                  }
+                  setPage(id);
+                });
             }}
           >
             <Icon />
