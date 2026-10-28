@@ -34,6 +34,50 @@ async function switchChat(key) {
 try {
   await page.goto(url);
   await action("open-record").waitFor();
+  // Match ST's universal text shadow, loaded after the plugin stylesheet.
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after { text-shadow: 0 0 6px rgb(255, 0, 0); }
+      select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath fill='gray' d='M0 0h8L4 5z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 6px center;
+        background-size: 8px 5px;
+      }
+    `,
+  });
+  check(
+    "native select shows only its component arrow under ST host styling",
+    await page.locator('[data-slot="native-select-wrapper"]').evaluateAll((wrappers) =>
+      wrappers.every((wrapper) => {
+        const select = wrapper.querySelector("select");
+        return (
+          getComputedStyle(select).backgroundImage === "none" &&
+          getComputedStyle(select).appearance === "none" &&
+          wrapper.querySelectorAll('[data-slot="native-select-icon"]').length === 1
+        );
+      }),
+    ),
+  );
+  check(
+    "plugin clears host text shadows on its surface, descendants and pseudo elements",
+    await page
+      .locator("#ste-memory-app")
+      .evaluate((surface) =>
+        [surface, ...surface.querySelectorAll("*")].every((element) =>
+          [null, "::before", "::after"].every(
+            (pseudo) => getComputedStyle(element, pseudo).textShadow === "none",
+          ),
+        ),
+      ),
+  );
+  check(
+    "host text shadows remain unchanged outside the plugin",
+    (await page
+      .locator("#host-control")
+      .evaluate((element) => getComputedStyle(element).textShadow)) !== "none",
+  );
   check(
     "20 records on first page",
     (await page.locator('[data-action="open-record"]:visible').count()) === 20,
@@ -56,6 +100,12 @@ try {
   await page.getByRole("button", { name: "查看楼层 7 的证据" }).hover();
   await page.getByRole("tooltip").waitFor();
   check(
+    "portaled tooltip clears host text shadow",
+    (await page
+      .getByRole("tooltip")
+      .evaluate((element) => getComputedStyle(element).textShadow)) === "none",
+  );
+  check(
     "evidence tooltip has accessible description",
     await page
       .getByRole("tooltip")
@@ -66,8 +116,16 @@ try {
   await action("edit-record").click();
   const name = page.getByRole("textbox", { name: "名称", exact: true });
   await name.fill("保留的草稿");
+  const inputShadow = await name.evaluate((element) => getComputedStyle(element).textShadow);
   await action("cancel-edit").click();
   await page.getByRole("alertdialog").waitFor();
+  check(
+    "edit controls and confirmation dialog clear host text shadow",
+    inputShadow === "none" &&
+      (await page
+        .getByRole("alertdialog")
+        .evaluate((element) => getComputedStyle(element).textShadow)) === "none",
+  );
   check(
     "leave dialog focuses keep editing",
     await page

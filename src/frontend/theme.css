@@ -2,6 +2,16 @@
 @import "../ui/primitives/theme.css";
 @source "./";
 
+/* ST applies text shadows globally, including directly to form controls. */
+.stm-luma,
+.stm-luma::before,
+.stm-luma::after,
+.stm-luma *,
+.stm-luma *::before,
+.stm-luma *::after {
+  text-shadow: none !important;
+}
+
 /* The application surface is a native top-layer popover. */
 #ste-memory-app {
   margin: 0;
