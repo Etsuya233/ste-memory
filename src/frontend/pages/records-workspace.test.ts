@@ -136,6 +136,86 @@ async function edit(workspace: RecordsWorkspace) {
 }
 
 describe("RecordsWorkspace", () => {
+  it("opens a fresh record directly in the editor and preserves the current query", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    workspace.setViewMode("table");
+    await workspace.setSearch("原文");
+    await workspace.setPage(2);
+    records.find.mockResolvedValueOnce(record(contextA.spaceId, "最新内容", "v2"));
+    await workspace.openRecord(recordId, "edit");
+    expect(workspace.getSnapshot()).toMatchObject({
+      viewMode: "table",
+      page: 2,
+      search: "原文",
+      editor: {
+        original: { revisionId: "v2" },
+        draft: { values: { name: "最新内容" } },
+        dirty: false,
+      },
+    });
+    workspace.closeDetail();
+    expect(workspace.getSnapshot()).toMatchObject({
+      viewMode: "table",
+      page: 2,
+      search: "原文",
+      editor: null,
+    });
+  });
+
+  it("retains the view mode across chats and isolates chats sharing a space", async () => {
+    const { workspace } = setup();
+    await workspace.setContext(contextA);
+    workspace.setViewMode("table");
+    await workspace.setContext({ ...contextB, spaceId: contextA.spaceId });
+    expect(workspace.getSnapshot().viewMode).toBe("list");
+    await workspace.setContext(contextA);
+    expect(workspace.getSnapshot().viewMode).toBe("table");
+  });
+
+  it.each(["resolve", "reject"])(
+    "ignores obsolete direct-edit %s after A → B → A",
+    async (outcome) => {
+      const { workspace, records } = setup();
+      await workspace.setContext(contextA);
+      const slow = deferred<MemoryRecord | undefined>();
+      records.find.mockReturnValueOnce(slow.promise);
+      const pending = workspace.openRecord(recordId, "edit");
+      await workspace.setContext(contextB);
+      expect(workspace.getSnapshot().editor).toBeNull();
+      await workspace.setContext(contextA);
+      if (outcome === "resolve") slow.resolve(record(contextA.spaceId, "过期内容"));
+      else slow.reject(new Error("过期失败"));
+      await pending;
+      expect(workspace.getSnapshot()).toMatchObject({ editor: null, detailError: null });
+      expect(workspace.getSnapshot().detail?.displayText).toBe("原文");
+    },
+  );
+
+  it("does not open an editor after returning to records during loading", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    const slow = deferred<MemoryRecord | undefined>();
+    records.find.mockReturnValueOnce(slow.promise);
+    const pending = workspace.openRecord(recordId, "edit");
+    workspace.closeDetail();
+    slow.resolve(record());
+    await pending;
+    expect(workspace.getSnapshot()).toMatchObject({ editor: null, detailId: null, detail: null });
+  });
+
+  it("reports a deleted record without opening a stale editor", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    records.find.mockResolvedValueOnce(undefined);
+    await workspace.openRecord(recordId, "edit");
+    expect(workspace.getSnapshot()).toMatchObject({
+      editor: null,
+      detail: null,
+      detailError: "记录已不存在，已有草稿仍保留",
+    });
+  });
+
   it("loads the persisted sort before fetching the first page", async () => {
     const { workspace, records, sortStorage } = setup();
     saveRecordSort(contextA.spaceId, tableId, { fieldId, direction: "desc" }, sortStorage);

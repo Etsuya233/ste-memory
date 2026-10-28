@@ -68,6 +68,7 @@ export interface RecordsSnapshot {
   readonly page: number;
   readonly pageSize: number;
   readonly search: string;
+  readonly viewMode: "list" | "table";
   readonly order: MemoryRecordListOrder;
   readonly records: MemoryRecordPage | null;
   readonly listLoading: boolean;
@@ -104,6 +105,7 @@ function initialSnapshot(context: RecordsContext | null): RecordsSnapshot {
     page: 1,
     pageSize: 20,
     search: "",
+    viewMode: "list",
     order: DEFAULT_RECORD_LIST_ORDER,
     records: null,
     listLoading: false,
@@ -278,12 +280,16 @@ export class RecordsWorkspace {
     await this.#loadList(session);
   }
 
-  async openRecord(detailId: MemoryRecordId): Promise<void> {
+  setViewMode(viewMode: RecordsSnapshot["viewMode"]): void {
+    this.#update(this.#requireSession(), { viewMode });
+  }
+
+  async openRecord(detailId: MemoryRecordId, mode: "detail" | "edit" = "detail"): Promise<void> {
     const session = this.#requireSession();
     if (session.state.saving) throw new Error("记录正在保存，请等待完成");
     session.editorGeneration++;
     this.#update(session, { detailId, detail: null, history: [], editor: null, notice: null });
-    await this.#loadDetail(session);
+    await this.#loadDetail(session, mode);
   }
 
   closeDetail(): void {
@@ -546,7 +552,7 @@ export class RecordsWorkspace {
     }
   }
 
-  async #loadDetail(session: Session): Promise<void> {
+  async #loadDetail(session: Session, mode: "detail" | "edit" = "detail"): Promise<void> {
     const { context, tableId, detailId } = session.state;
     if (!context || !tableId || !detailId) return;
     const epoch = this.#epoch;
@@ -575,6 +581,7 @@ export class RecordsWorkspace {
             }
           : {}),
       });
+      if (mode === "edit") this.startEdit();
     } catch (error) {
       if (epoch !== this.#epoch || request !== session.detailRequest) return;
       const editor = session.state.editor;

@@ -21,6 +21,9 @@
 表格详情和向量编辑页可分页查找记录，查看已保存配置或未保存草稿的最终分组输入；
 预览不写配置、不提交索引、不请求 Embedding，切回页面或重开工作台会刷新当前记录状态。
 记录列表搜索框旁提供统一排序菜单，由记录服务对全部匹配结果排序后分页；偏好按空间与表保存，字段失效恢复默认。
+记录页可切换列表与只读表格，表格内点击直接编辑记录；三行预览、固定表头和行号，返回恢复横纵位置及焦点。
+两种视图共用搜索、排序与分页，视图模式按对话和空间保留在工作区内存中。
+表格选择旁提供图标视图切换，表格带圆角和固定在右侧的铅笔编辑列；整格均可 hover 和点击。
 
 页面共享 `src/frontend/components/` 中的页头、内容区、保存栏、确认弹窗、
 离开保护、开关字段与状态提示；表格与预设共用 `SchemaEditorFields`，全局与对话自动填表共用
@@ -73,6 +76,7 @@ node verify-auto-fill.mjs
 node verify-preset-update.mjs
 node verify-vector-preview.mjs
 node verify-record-sorting.mjs
+node verify-record-table.mjs
 node verify-desktop-window.mjs
 ```
 
