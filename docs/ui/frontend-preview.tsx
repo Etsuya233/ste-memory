@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { WorkbenchApp } from "../../src/frontend/workbench.tsx";
 import { createToolsFixture } from "./frontend-tools-fixture.ts";
+import { createPresetUpdateFixture } from "./frontend-preset-update-fixture.ts";
 import {
   validateAutoFillSettings,
   type AutoFillChatState,
@@ -136,7 +137,7 @@ let records = Object.values(contexts).flatMap((context) =>
       active: true,
       role: "旅人",
       tags: ["朋友"],
-      count: 3,
+      count: index === 0 ? 3 : index === 24 ? null : index,
       date: "2026-10-27",
       place: index === 25 ? null : `${context.spaceId}-record-25`,
       legacy: "这段停用字段内容应始终保留",
@@ -166,8 +167,8 @@ let records = Object.values(contexts).flatMap((context) =>
     source: { type: "manual" },
     revisionId: `revision-${context.spaceId}-${index}`,
     revisionSource: "user",
-    createdAt: date,
-    updatedAt: date,
+    createdAt: new Date(Date.parse(date) + index * 1000).toISOString(),
+    updatedAt: new Date(Date.parse(date) + (26 - index) * 1000).toISOString(),
   })),
 ) as unknown as MemoryRecord[];
 const history: MemoryRecordHistory[] = [];
@@ -334,33 +335,22 @@ const recordService = new MemoryRecordService(
   () => new Date().toISOString(),
 );
 const assertContext = (context: RecordsContext) => {
-  if (!ready || context.chatKey !== contexts[current].chatKey)
+  if (
+    !ready ||
+    context.chatKey !== contexts[current].chatKey ||
+    context.spaceId !== contexts[current].spaceId
+  )
     throw new Error("对话已切换，请返回原对话保存");
 };
 const workspace = new RecordsWorkspace({
+  sortStorage: localStorage,
   tables: { list: async (spaceId) => tables.filter((table) => table.memorySpaceId === spaceId) },
   fields: {
     list: async (spaceId, tableId) =>
       fields.filter((field) => field.memorySpaceId === spaceId && field.tableId === tableId),
   },
   records: {
-    list: async (spaceId, tableId, options) => {
-      const filtered = records.filter(
-        (record) =>
-          record.memorySpaceId === spaceId &&
-          record.tableId === tableId &&
-          (!options.search || JSON.stringify(record.payload).includes(options.search)),
-      );
-      const page = options.page ?? 1,
-        pageSize = options.pageSize ?? 20;
-      return {
-        records: structuredClone(filtered.slice((page - 1) * pageSize, page * pageSize)),
-        page,
-        pageSize,
-        total: filtered.length,
-        totalPages: Math.ceil(filtered.length / pageSize),
-      };
-    },
+    list: (spaceId, tableId, options) => recordService.list(spaceId, tableId, options),
     find: async (spaceId, tableId, id) =>
       structuredClone(
         records.find(
@@ -435,10 +425,7 @@ const workspace = new RecordsWorkspace({
       return structuredClone(created);
     },
   },
-  assertContext: (context) => {
-    if (!ready || context.chatKey !== contexts[current].chatKey)
-      throw new Error("对话已切换，请返回原对话保存");
-  },
+  assertContext,
   onSaved: async () => {},
 });
 const tablesWorkspace = new TablesWorkspace({
@@ -446,6 +433,8 @@ const tablesWorkspace = new TablesWorkspace({
   fields: fieldService,
   records: recordService,
   vectorIndex: {
+    preview: (scope) => searchIndex.preview(scope),
+    previewDraft: (scope, configuration) => searchIndex.previewDraft(scope, configuration),
     submit: async () => ({ created: 1, reused: 0, promoted: 0, skipped: 0 }),
     clear: async () => {},
     getTableSummary: async (scope) => ({
@@ -569,7 +558,43 @@ const presetIds = {
 let presetBackupCancelled = false;
 const assertPresetContext = (context: PresetContext) =>
   assertContext({ chatKey: context.chatIdentity, spaceId: context.spaceId, title: context.title });
+const presetUpdateFixture = createPresetUpdateFixture({
+  read: (spaceId) => {
+    const ownRecords = records.filter((record) => record.memorySpaceId === spaceId);
+    const ownHistory = history.filter((record) => record.memorySpaceId === spaceId);
+    const evidence = new Map(
+      [...ownRecords, ...ownHistory]
+        .flatMap((record) => Object.values(record.fieldEvidence).flat())
+        .map((entry) => [entry.evidence_id, entry]),
+    );
+    return structuredClone({
+      space: spaces.find((space) => space.id === spaceId)!,
+      tables: tables.filter((table) => table.memorySpaceId === spaceId),
+      fields: fields.filter((field) => field.memorySpaceId === spaceId),
+      records: ownRecords,
+      history: ownHistory,
+      evidence: [...evidence.values()],
+    });
+  },
+  write: (unit) => {
+    spaces[spaces.findIndex((space) => space.id === unit.space.id)] = structuredClone(unit.space);
+    tables = [...tables.filter((table) => table.memorySpaceId !== unit.space.id), ...unit.tables];
+    fields = [...fields.filter((field) => field.memorySpaceId !== unit.space.id), ...unit.fields];
+    records = [
+      ...records.filter((record) => record.memorySpaceId !== unit.space.id),
+      ...unit.records,
+    ];
+    const retained = history.filter((record) => record.memorySpaceId !== unit.space.id);
+    history.splice(0, history.length, ...retained, ...unit.history);
+  },
+  assert: (spaceId, chatIdentity) => assertPresetContext({ spaceId, chatIdentity, title: "" }),
+  changed: async () => {
+    await Promise.all([workspace.refresh(), tablesWorkspace.refresh(), tasksWorkspace.refresh()]);
+  },
+  ids: presetIds,
+});
 const presetServices: PresetSettingsServices = {
+  spaceUpdate: presetUpdateFixture.service,
   agentPreview: {
     getPromptSnapshot: () => ({
       ...EMPTY_PREVIEW_SNAPSHOT,
@@ -671,7 +696,7 @@ const searchEmbedding: VectorEmbeddingPort = {
       ? {
           model: settingsValue.embeddingConnection.model,
           version: "preview-v1",
-          maxInputChars: 8000,
+          maxInputChars: settingsValue.embeddingConnection.maxInputChars,
           dimensions: 2,
         }
       : null,
@@ -1025,6 +1050,53 @@ function Preview() {
       cancelPresetBackup: (cancelled: boolean) => {
         presetBackupCancelled = cancelled;
       },
+      presetUpdateState: presetUpdateFixture.state,
+      delayPresetCompare: presetUpdateFixture.delayPreview,
+      delayPresetUpdate: presetUpdateFixture.delayApply,
+      delayPresetUpdateResult: presetUpdateFixture.delayResult,
+      failNextPresetUpdateSync: presetUpdateFixture.failNextSync,
+      removeSortingField: async (id: string) => {
+        const context = contexts[current];
+        const removed = fields.filter(
+          (field) => field.id === id && field.memorySpaceId === context.spaceId,
+        );
+        fields = fields.filter((field) => !removed.includes(field));
+        records = records.map((record) =>
+          removed.some((field) => field.tableId === record.tableId)
+            ? {
+                ...record,
+                payload: Object.fromEntries(
+                  Object.entries(record.payload).filter(([key]) => key !== id),
+                ),
+                fieldEvidence: Object.fromEntries(
+                  Object.entries(record.fieldEvidence).filter(([key]) => key !== id),
+                ),
+              }
+            : record,
+        );
+        await workspace.refresh();
+      },
+      patchSortingRecords: async (
+        updates: readonly {
+          id: string;
+          createdAt?: string;
+          updatedAt?: string;
+          payload?: MemoryRecord["payload"];
+        }[],
+      ) => {
+        records = records.map((record) => {
+          const update = updates.find((update) => update.id === record.id);
+          return update
+            ? {
+                ...record,
+                ...update,
+                payload: { ...record.payload, ...update.payload },
+                id: record.id,
+              }
+            : record;
+        });
+        await workspace.refresh();
+      },
       chatMacrosSnapshot: () => structuredClone([...chatMacros]),
       delayMacroTest: (ms: number) => {
         macroTestDelay = ms;
@@ -1045,8 +1117,9 @@ function Preview() {
         delaySave = ms;
       },
       changeRecord: () => {
-        records = records.map((record, index) =>
-          index === 0
+        const target = records.find((record) => record.memorySpaceId === contexts[current].spaceId);
+        records = records.map((record) =>
+          record.id === target?.id
             ? ({ ...record, revisionId: `external-${++serial}` } as MemoryRecord)
             : record,
         );

@@ -34,6 +34,7 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
       throw new Error("当前对话已切换，草稿已保留，请返回原对话后保存");
   };
   const workspace = new RecordsWorkspace({
+    sortStorage: localStorage,
     tables: runtime.tables,
     fields: runtime.fields,
     records: runtime.records,
@@ -165,6 +166,16 @@ function StFrontend({
         (id) => {
           queryStore.cancel(queryChatHistoryKey(id, "query"));
           queryStore.cancel(queryChatHistoryKey(id, "fill"));
+        },
+        async (context) => {
+          const current = runtime.manager.getStatus();
+          if (
+            current?.kind === "active" &&
+            current.space.id === context.spaceId &&
+            chatIdentityKey(runtime.adapter.getChatSnapshot()) === context.chatIdentity
+          ) {
+            await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
+          }
         },
       ),
     [runtime, workspace, tables, tasks, queryStore],

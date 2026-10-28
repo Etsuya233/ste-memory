@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRecordSaveError } from "../../features/memory/index.ts";
+import { loadRecordSort, saveRecordSort } from "../../ui/memory/record-sort-model.ts";
 import type {
   MemoryField,
   MemoryFieldId,
@@ -90,6 +91,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 function setup() {
+  const preferences = new Map<string, string>();
+  const sortStorage = {
+    getItem: (key: string) => preferences.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      preferences.set(key, value);
+    },
+    removeItem: (key: string) => {
+      preferences.delete(key);
+    },
+  };
   const tables = { list: vi.fn<RecordsServices["tables"]["list"]>().mockResolvedValue([table]) };
   const fields = { list: vi.fn<RecordsServices["fields"]["list"]>().mockResolvedValue([field]) };
   const records = {
@@ -107,8 +118,15 @@ function setup() {
   };
   const assertContext = vi.fn<RecordsServices["assertContext"]>();
   const onSaved = vi.fn<NonNullable<RecordsServices["onSaved"]>>().mockResolvedValue(undefined);
-  const workspace = new RecordsWorkspace({ tables, fields, records, assertContext, onSaved });
-  return { workspace, tables, fields, records, assertContext, onSaved };
+  const workspace = new RecordsWorkspace({
+    tables,
+    fields,
+    records,
+    assertContext,
+    onSaved,
+    sortStorage,
+  });
+  return { workspace, tables, fields, records, assertContext, onSaved, sortStorage };
 }
 async function edit(workspace: RecordsWorkspace) {
   await workspace.setContext(contextA);
@@ -118,6 +136,110 @@ async function edit(workspace: RecordsWorkspace) {
 }
 
 describe("RecordsWorkspace", () => {
+  it("loads the persisted sort before fetching the first page", async () => {
+    const { workspace, records, sortStorage } = setup();
+    saveRecordSort(contextA.spaceId, tableId, { fieldId, direction: "desc" }, sortStorage);
+    await workspace.setContext(contextA);
+    expect(records.list).toHaveBeenLastCalledWith(contextA.spaceId, tableId, {
+      page: 1,
+      pageSize: 20,
+      search: undefined,
+      order: { fieldId, direction: "desc" },
+    });
+    expect(workspace.getSnapshot().order).toEqual({ fieldId, direction: "desc" });
+  });
+  it("resets paging on a sort selection and keeps its direction for search", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    await workspace.setPage(2);
+    await workspace.setSort(fieldId);
+    expect(workspace.getSnapshot()).toMatchObject({
+      page: 1,
+      order: { fieldId, direction: "asc" },
+    });
+    await workspace.setSort(fieldId);
+    await workspace.setSearch("原文");
+    expect(records.list).toHaveBeenLastCalledWith(contextA.spaceId, tableId, {
+      page: 1,
+      pageSize: 20,
+      search: "原文",
+      order: { fieldId, direction: "desc" },
+    });
+  });
+  it("retains independent preferences per space and table", async () => {
+    const { workspace, tables } = setup();
+    const otherId = "other" as MemoryTableId;
+    tables.list.mockResolvedValue([table, { ...table, id: otherId }]);
+    await workspace.setContext(contextA);
+    await workspace.setSort(fieldId);
+    await workspace.selectTable(otherId);
+    expect(workspace.getSnapshot().order.fieldId).toBe("$created_at");
+    await workspace.setSort("$updated_at");
+    await workspace.selectTable(tableId);
+    expect(workspace.getSnapshot().order.fieldId).toBe(fieldId);
+    await workspace.setContext(contextB);
+    expect(workspace.getSnapshot().order.fieldId).toBe("$created_at");
+    await workspace.setContext(contextA);
+    expect(workspace.getSnapshot().order.fieldId).toBe(fieldId);
+  });
+  it.each(["deleted", "unsupported"])(
+    "resets a %s sort field before requesting records",
+    async (kind) => {
+      const { workspace, fields, records, sortStorage } = setup();
+      await workspace.setContext(contextA);
+      await workspace.setSort(fieldId);
+      await workspace.setPage(2);
+      fields.list.mockResolvedValue(kind === "deleted" ? [] : [{ ...field, type: "multi_select" }]);
+      await workspace.refresh();
+      expect(workspace.getSnapshot()).toMatchObject({
+        page: 1,
+        order: { fieldId: "$created_at", direction: "asc" },
+      });
+      expect(records.list).toHaveBeenLastCalledWith(
+        contextA.spaceId,
+        tableId,
+        expect.objectContaining({ page: 1, order: { fieldId: "$created_at", direction: "asc" } }),
+      );
+      expect(loadRecordSort(contextA.spaceId, tableId, [field], sortStorage).fieldId).toBe(
+        "$created_at",
+      );
+    },
+  );
+  it("ignores an obsolete sorted page after switching A → B → A", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    const slow = deferred<MemoryRecordPage>();
+    records.list.mockReturnValueOnce(slow.promise);
+    const pending = workspace.setSort(fieldId);
+    await Promise.resolve();
+    await workspace.setContext(contextB);
+    await workspace.setContext(contextA);
+    await workspace.setSort(fieldId);
+    slow.resolve(page([record(contextA.spaceId, "过期排序页")]));
+    await pending;
+    expect(workspace.getSnapshot()).toMatchObject({
+      order: { fieldId, direction: "desc" },
+      listLoading: false,
+    });
+    expect(workspace.getSnapshot().records?.records[0]?.displayText).toBe("原文");
+  });
+  it("does not invalidate a saved sort from an obsolete schema read", async () => {
+    const { workspace, fields, sortStorage } = setup();
+    await workspace.setContext(contextA);
+    await workspace.setSort(fieldId);
+    const slow = deferred<MemoryField[]>();
+    fields.list.mockReturnValueOnce(slow.promise);
+    const pending = workspace.setPage(2);
+    await workspace.setContext(contextB);
+    await workspace.setContext(contextA);
+    slow.resolve([]);
+    await pending;
+    expect(loadRecordSort(contextA.spaceId, tableId, [field], sortStorage)).toEqual({
+      fieldId,
+      direction: "asc",
+    });
+    expect(workspace.getSnapshot().order.fieldId).toBe(fieldId);
+  });
   it("ends creation after a committed write error and retries persistence without creating again", async () => {
     const { workspace, records } = setup();
     await workspace.setContext(contextA);
@@ -164,6 +286,7 @@ describe("RecordsWorkspace", () => {
     const slow = deferred<MemoryRecordPage>();
     records.list.mockReturnValueOnce(slow.promise);
     const first = workspace.setSearch("旧请求");
+    await Promise.resolve();
     await workspace.setContext(contextB);
     await workspace.setContext(contextA);
     slow.resolve(page([record(contextA.spaceId, "过期结果")]));

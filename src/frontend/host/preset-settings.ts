@@ -14,8 +14,9 @@ export function createPresetSettingsServices(
   runtime: SteMemoryRuntime,
   onRebuilt: (context: PresetContext) => Promise<void>,
   stopQueries: (spaceId: MemorySpaceId) => void,
+  onUpdated: (context: PresetContext) => Promise<void>,
 ): PresetSettingsServices {
-  function assertTarget(context: PresetContext) {
+  function assertTarget(context: Pick<PresetContext, "spaceId" | "chatIdentity">) {
     runtime.presetApply.assertCurrentChat(context.chatIdentity);
     const status = runtime.manager.getStatus();
     if (
@@ -27,6 +28,43 @@ export function createPresetSettingsServices(
     return status;
   }
   return {
+    spaceUpdate: {
+      preview: (spaceId, preset, chatIdentity) =>
+        runtime.presetUpdate.preview(spaceId, preset, chatIdentity),
+      apply: async (plan, selectedIds, chatIdentity) => {
+        const target = assertTarget({ spaceId: plan.spaceId, chatIdentity });
+        const context = { spaceId: plan.spaceId, chatIdentity, title: target.space.name };
+        stopQueries(plan.spaceId);
+        const outcome = await runtime.presetUpdate.apply(plan, selectedIds, chatIdentity);
+        try {
+          await onUpdated(context);
+          return outcome;
+        } catch (cause) {
+          return {
+            issues: [
+              ...outcome.issues,
+              `更新已提交，界面刷新失败：${cause instanceof Error ? cause.message : String(cause)}`,
+            ],
+          };
+        }
+      },
+      retrySave: async (spaceId, chatIdentity) => {
+        const target = assertTarget({ spaceId, chatIdentity });
+        const context = { spaceId, chatIdentity, title: target.space.name };
+        const outcome = await runtime.presetUpdate.retrySave(spaceId, chatIdentity);
+        try {
+          await onUpdated(context);
+          return outcome;
+        } catch (cause) {
+          return {
+            issues: [
+              ...outcome.issues,
+              `保存重试已结束，界面刷新失败：${cause instanceof Error ? cause.message : String(cause)}`,
+            ],
+          };
+        }
+      },
+    },
     agentPreview: runtime.presetPreview,
     currentContext: () => {
       const status = runtime.manager.getStatus();

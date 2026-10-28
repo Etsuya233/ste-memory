@@ -1,9 +1,10 @@
 import { SchemaEditorFields } from "../../components/schema-editor-fields.tsx";
 import type { ResolvedTablePreset } from "../../../features/table-presets/preset-model.ts";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Plus, Table2, Trash2 } from "lucide-react";
 import type { MemoryFieldId } from "../../../features/memory/index.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
+import { usePrimitivesActive } from "../../../ui/primitives/provider.tsx";
 import {
   Item,
   ItemContent,
@@ -26,6 +27,7 @@ import {
 } from "../../components/confirmation.tsx";
 import { displayStrategySummary } from "../../../ui/memory/display-strategy-model.ts";
 import type { TablesWorkspace } from "./tables-workspace.ts";
+import { VectorPreviewContent } from "./vector-preview-content.tsx";
 
 export function TablesPage({
   workspace,
@@ -39,14 +41,34 @@ export function TablesPage({
   registerLeaveGuard?: RegisterLeaveGuard;
 }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
+  const active = usePrimitivesActive();
+  useLayoutEffect(() => {
+    if (!active) return;
+    const preview = workspace.getSnapshot().vectorPreview;
+    if (preview?.record) void workspace.selectVectorRecord(preview.record.id);
+    else if (preview) void workspace.loadVectorRecords(preview.page);
+  }, [workspace, active]);
   const contextKey = [state.context?.chatKey, state.context?.spaceId];
   const viewKey = JSON.stringify([
     ...contextKey,
     state.tableId,
     state.editor?.kind ?? null,
     state.editor?.kind === "field" ? state.editor.original?.id : null,
+    ...(state.vectorPreview
+      ? [
+          "vector-preview",
+          state.vectorPreview.record?.id ?? null,
+          state.vectorPreview.page,
+          state.vectorPreview.search,
+        ]
+      : []),
   ]);
-  const scroll = usePageScroll(workspace, viewKey, !state.loading, !state.editor);
+  const scroll = usePageScroll(
+    workspace,
+    viewKey,
+    active && !state.loading && !state.vectorPreview?.loading,
+    !state.editor || state.editor.kind === "vector" || !!state.vectorPreview,
+  );
   const [deletion, setDeletion] = useState<{
     kind: "table" | "field" | "vectors";
     fieldId?: MemoryFieldId;
@@ -61,24 +83,40 @@ export function TablesPage({
     register: registerLeaveGuard,
   });
   const table = state.tables.find((item) => item.id === state.tableId);
-  const back = () =>
+  const back = () => {
+    if (state.vectorPreview) {
+      if (state.vectorPreview.record) void workspace.selectVectorRecord(null);
+      else workspace.closeVectorPreview();
+      return;
+    }
     requestLeave(() => {
       if (state.editor) workspace.discard();
       else void workspace.selectTable(null);
     });
-  const title = state.editor
-    ? {
-        table: state.editor.kind === "table" && !state.editor.original ? "创建表格" : "编辑表格",
-        field: "编辑字段",
-        display: "显示策略",
-        vector: "向量索引",
-      }[state.editor.kind]
-    : (table?.name ?? "表格");
+  };
+  const title = state.vectorPreview
+    ? state.vectorPreview.record
+      ? "向量输入预览"
+      : "选择预览记录"
+    : state.editor
+      ? {
+          table: state.editor.kind === "table" && !state.editor.original ? "创建表格" : "编辑表格",
+          field: "编辑字段",
+          display: "显示策略",
+          vector: "向量索引",
+        }[state.editor.kind]
+      : (table?.name ?? "表格");
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
         title={title}
-        subtitle={state.editor ? "修改后保存到当前对话" : state.context?.title}
+        subtitle={
+          state.vectorPreview
+            ? `${state.vectorPreview.configuration ? "当前草稿" : "已保存配置"} · ${state.context?.title}`
+            : state.editor
+              ? "修改后保存到当前对话"
+              : state.context?.title
+        }
         icon={Table2}
         onBack={state.tableId || state.editor ? back : undefined}
         {...controls}
@@ -127,7 +165,9 @@ export function TablesPage({
           ) : state.loading ? (
             <p role="status">正在加载表结构…</p>
           ) : null}
-          {state.editor ? (
+          {state.vectorPreview ? (
+            <VectorPreviewContent workspace={workspace} preview={state.vectorPreview} />
+          ) : state.editor ? (
             <form
               id="ste-table-editor"
               onSubmit={(event) => {
@@ -174,6 +214,16 @@ export function TablesPage({
                       </div>
                     ))}
                   </>
+                ) : null}
+                {state.editor.kind === "vector" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-action="preview-vector-records"
+                    onClick={() => void workspace.openVectorPreview()}
+                  >
+                    逐记录预览草稿输入
+                  </Button>
                 ) : null}
               </fieldset>
             </form>
@@ -265,10 +315,21 @@ export function TablesPage({
               <Button
                 variant="outline"
                 className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => workspace.begin("vector")}
+                onClick={() => {
+                  scroll.forget(JSON.stringify([...contextKey, state.tableId, "vector", null]));
+                  workspace.begin("vector");
+                }}
               >
                 <span>向量索引 · {table.vectorIndex?.enabled ? "已启用" : "未启用"}</span>
                 <ChevronRight />
+              </Button>
+              <Button
+                variant="outline"
+                data-action="preview-vector-records"
+                disabled={state.loading}
+                onClick={() => void workspace.openVectorPreview()}
+              >
+                逐记录向量预览
               </Button>
               <div className="ste:flex ste:flex-wrap ste:gap-2">
                 <Button
@@ -336,7 +397,7 @@ export function TablesPage({
           ) : null}
         </fieldset>
       </PageContent>
-      {state.editor ? (
+      {state.editor && !state.vectorPreview ? (
         <SaveActions
           formId="ste-table-editor"
           busy={state.saving}

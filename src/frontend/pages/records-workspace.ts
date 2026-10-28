@@ -7,12 +7,19 @@ import type {
   MemoryRecordId,
   MemoryRecordPage,
   MemoryRecordService,
+  MemoryRecordListOrder,
   MemorySpaceId,
   MemoryTable,
   MemoryTableId,
   MemoryTableService,
 } from "../../features/memory/index.ts";
-import { MemoryRecordSaveError } from "../../features/memory/index.ts";
+import { DEFAULT_RECORD_LIST_ORDER, MemoryRecordSaveError } from "../../features/memory/index.ts";
+import {
+  loadRecordSort,
+  nextRecordSort,
+  recordSortOptions,
+  saveRecordSort,
+} from "../../ui/memory/record-sort-model.ts";
 import {
   emptyRecordFormDraft,
   recordFormDraftFromPayload,
@@ -30,6 +37,7 @@ export interface RecordsContext {
 }
 
 export interface RecordsServices {
+  readonly sortStorage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
   readonly tables: Pick<MemoryTableService, "list">;
   readonly fields: Pick<MemoryFieldService, "list">;
   readonly records: Pick<
@@ -59,6 +67,7 @@ export interface RecordsSnapshot {
   readonly fields: readonly MemoryField[];
   readonly page: number;
   readonly search: string;
+  readonly order: MemoryRecordListOrder;
   readonly records: MemoryRecordPage | null;
   readonly listLoading: boolean;
   readonly listError: string | null;
@@ -93,6 +102,7 @@ function initialSnapshot(context: RecordsContext | null): RecordsSnapshot {
     fields: [],
     page: 1,
     search: "",
+    order: DEFAULT_RECORD_LIST_ORDER,
     records: null,
     listLoading: false,
     listError: null,
@@ -216,6 +226,7 @@ export class RecordsWorkspace {
       tableId,
       page: 1,
       search: "",
+      order: DEFAULT_RECORD_LIST_ORDER,
       records: null,
       fields: [],
       references: new Map(),
@@ -233,6 +244,19 @@ export class RecordsWorkspace {
   async setSearch(search: string): Promise<void> {
     const session = this.#requireSession();
     this.#update(session, { search, page: 1 });
+    await this.#loadList(session);
+  }
+
+  async setSort(fieldId: MemoryRecordListOrder["fieldId"]): Promise<void> {
+    const session = this.#requireSession();
+    const { context, tableId, fields, order } = session.state;
+    if (!tableId) throw new Error("请先选择记忆表格");
+    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (!recordSortOptions(fields).some((option) => option.fieldId === fieldId))
+      throw new Error("该字段不支持排序，请刷新字段列表");
+    const next = nextRecordSort(order, fieldId);
+    saveRecordSort(context!.spaceId, tableId, next, this.#services.sortStorage);
+    this.#update(session, { order: next, page: 1 });
     await this.#loadList(session);
   }
 
@@ -429,7 +453,7 @@ export class RecordsWorkspace {
   }
 
   async #loadList(session: Session): Promise<void> {
-    const { context, tableId, page, search } = session.state;
+    const { context, tableId, page, search, order: requestedOrder } = session.state;
     const epoch = this.#epoch;
     const request = ++session.listRequest;
     if (!context || !tableId) {
@@ -443,14 +467,19 @@ export class RecordsWorkspace {
     }
     this.#update(session, { listLoading: true, listError: null });
     try {
-      const [fields, records] = await Promise.all([
-        this.#services.fields.list(context.spaceId, tableId),
-        this.#services.records.list(context.spaceId, tableId, {
-          page,
-          pageSize: 20,
-          search: search.trim() || undefined,
-        }),
-      ]);
+      const fields = await this.#services.fields.list(context.spaceId, tableId);
+      if (epoch !== this.#epoch || request !== session.listRequest) return;
+      const order = loadRecordSort(context.spaceId, tableId, fields, this.#services.sortStorage);
+      const changedOrder =
+        order.fieldId !== requestedOrder.fieldId || order.direction !== requestedOrder.direction;
+      const queryPage = changedOrder ? 1 : page;
+      this.#update(session, { fields, order, page: queryPage });
+      const records = await this.#services.records.list(context.spaceId, tableId, {
+        page: queryPage,
+        pageSize: 20,
+        search: search.trim() || undefined,
+        order,
+      });
       if (!records) throw new Error("当前表格已不存在");
       const targetIds = [
         ...new Set(

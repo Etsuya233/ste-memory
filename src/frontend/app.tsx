@@ -18,6 +18,8 @@ import type { ChatMirrorStatus } from "../features/chat-mirror/chat-metadata-mir
 import type { StChatMessage, FloorJumpResult } from "../infrastructure/sillytavern/chat-adapter.ts";
 import type { RecordsWorkspace } from "./pages/records-workspace.ts";
 import { recordPreview, referenceLabels } from "./components/record-fields.tsx";
+import { RecordSortMenu } from "./components/record-sort-menu.tsx";
+import { recordSortOptions } from "../ui/memory/record-sort-model.ts";
 import { Button } from "../ui/primitives/button.tsx";
 import { Input } from "../ui/primitives/input.tsx";
 import { NativeSelect } from "../ui/primitives/native-select.tsx";
@@ -73,6 +75,8 @@ export function RecordsApp(props: RecordsAppProps) {
         state.tableId,
         state.page,
         state.search,
+        state.order.fieldId,
+        state.order.direction,
       ])
     : "";
   const showingDetail = state.detailId !== null || state.editor !== null;
@@ -310,23 +314,44 @@ export function RecordsApp(props: RecordsAppProps) {
                   新建
                 </Button>
               </div>
-              <Field>
-                <div className="ste:relative">
-                  <Search className="ste:pointer-events-none ste:absolute ste:top-1/2 ste:left-3 ste:size-4 ste:-translate-y-1/2 ste:text-muted-foreground" />
-                  <Input
-                    id="ste-record-search"
-                    type="search"
-                    className="ste:pl-9"
-                    aria-label="搜索记录"
-                    placeholder="搜索当前表的记录"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </div>
-              </Field>
-              <div className="ste:flex ste:items-center ste:justify-between ste:text-xs ste:text-muted-foreground">
-                <span>{state.records?.total ?? 0} 条记录</span>
-                <span>按创建时间排列</span>
+              <div className="ste:flex ste:items-end ste:gap-2">
+                <Field className="ste:min-w-0 ste:flex-1">
+                  <div className="ste:relative">
+                    <Search className="ste:pointer-events-none ste:absolute ste:top-1/2 ste:left-3 ste:size-4 ste:-translate-y-1/2 ste:text-muted-foreground" />
+                    <Input
+                      id="ste-record-search"
+                      type="search"
+                      className="ste:pl-9"
+                      aria-label="搜索记录"
+                      placeholder="搜索当前表的记录"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                  </div>
+                </Field>
+                <RecordSortMenu
+                  fields={state.fields}
+                  order={state.order}
+                  disabled={!state.tableId || state.listLoading || hostBusy}
+                  onSelect={(fieldId) =>
+                    navigate(() => {
+                      listRef.current!.scrollTop = 0;
+                      void runHost(() => workspace.setSort(fieldId));
+                    })
+                  }
+                />
+              </div>
+              <div className="ste:flex ste:items-center ste:justify-between ste:gap-3 ste:text-xs ste:text-muted-foreground">
+                <span className="ste:shrink-0">{state.records?.total ?? 0} 条记录</span>
+                <span className="ste:text-right ste:break-words">
+                  按
+                  {
+                    recordSortOptions(state.fields).find(
+                      (option) => option.fieldId === state.order.fieldId,
+                    )!.label
+                  }
+                  {state.order.direction === "asc" ? "升序" : "降序"}排列
+                </span>
               </div>
             </div>
             {state.listError ? (

@@ -5,6 +5,7 @@ import type {
   TablePresetStructure,
 } from "../../../features/table-presets/preset-model.ts";
 import type { ApplyTablePresetOutcome } from "../../../features/table-presets/table-preset-apply-service.ts";
+import type { PresetSpaceUpdateService } from "../../../features/table-presets/preset-space-update.ts";
 
 export interface PresetContext {
   spaceId: MemorySpaceId;
@@ -13,6 +14,7 @@ export interface PresetContext {
 }
 
 export interface PresetSettingsServices {
+  spaceUpdate: PresetSpaceUpdateService;
   agentPreview: AgentPresetPreviewPorts;
   currentContext: () => PresetContext | null;
   readCurrentStructure: (context: PresetContext) => Promise<TablePresetStructure>;

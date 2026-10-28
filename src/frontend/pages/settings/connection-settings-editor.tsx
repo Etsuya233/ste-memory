@@ -35,6 +35,7 @@ export function SettingsEditor({
   error,
   notice,
   children,
+  contentProps,
 }: Omit<SettingsSubpageProps, "services"> & {
   title: string;
   subtitle?: string;
@@ -47,6 +48,7 @@ export function SettingsEditor({
   error?: string | null;
   notice?: string | null;
   children: ReactNode;
+  contentProps?: Pick<ComponentProps<"div">, "ref" | "onScroll">;
 }) {
   const { requestLeave, confirmation } = usePageLeave({
     dirty: navigationDirty,
@@ -68,7 +70,7 @@ export function SettingsEditor({
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader title={title} subtitle={subtitle} {...controls} onBack={back} busy={busy} />
-      <PageContent>
+      <PageContent {...contentProps}>
         <form
           id={scope}
           className="ste:flex ste:flex-col ste:gap-5"

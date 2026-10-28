@@ -51,6 +51,7 @@ import { SettingsEditor, type SettingsSubpageProps } from "./connection-settings
 import { persistSettingsEdit } from "./connection-settings-model.ts";
 import type { PresetContext, PresetSettingsServices } from "./preset-settings-services.ts";
 import { TablePresetStructureEditor } from "./table-presets-structure-editor.tsx";
+import { PresetUpdatePage } from "./preset-update-page.tsx";
 
 type Props = SettingsSubpageProps & { presets: PresetSettingsServices };
 
@@ -381,10 +382,16 @@ function TablePresetDetail({
     context: PresetContext;
     preset: ResolvedTablePreset;
   } | null>(null);
+  const [updateTarget, setUpdateTarget] = useState<PresetContext | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
   const context = presets.currentContext();
+  const scroll = usePageScroll(
+    presets,
+    `table-preset-detail:${initial.id}`,
+    !structureOpen && !updateTarget,
+  );
   useEffect(() => {
     setApplying(null);
     setApplyError(null);
@@ -538,6 +545,18 @@ function TablePresetDetail({
       setBusy(false);
     }
   }
+  if (updateTarget)
+    return (
+      <PresetUpdatePage
+        services={services}
+        presets={presets}
+        controls={controls}
+        registerLeaveGuard={registerLeaveGuard}
+        target={updateTarget}
+        preset={structuredClone(baseline)}
+        onBack={() => setUpdateTarget(null)}
+      />
+    );
   if (structureOpen)
     return (
       <TablePresetStructureEditor
@@ -564,6 +583,7 @@ function TablePresetDetail({
       onSave={() => void save()}
       error={error}
       notice={notice}
+      contentProps={{ ref: scroll.ref, onScroll: scroll.onScroll }}
     >
       <div className="ste:flex ste:flex-wrap ste:gap-2">
         <Button type="button" variant="outline" onClick={() => void copy()}>
@@ -604,6 +624,15 @@ function TablePresetDetail({
           onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
         />
       </Field>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={dirty || !context}
+        data-action="open-preset-update"
+        onClick={() => setUpdateTarget(context!)}
+      >
+        比较并增量更新当前空间
+      </Button>
       {draft.builtIn ? (
         <p className="ste:text-xs ste:text-muted-foreground">
           内置结构只读；复制为用户预设后可以编辑。
