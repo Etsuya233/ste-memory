@@ -17,8 +17,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "release:st": "node scripts/release-st.mjs",
-    "preview:ui": "node --experimental-strip-types scripts/preview-ui.ts",
-    "preview:records": "node --experimental-strip-types scripts/preview-records.ts"
+    "preview:frontend": "node --experimental-strip-types scripts/preview-frontend.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

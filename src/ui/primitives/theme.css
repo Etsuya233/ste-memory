@@ -1,10 +1,9 @@
 /* Official Luma / zinc preset beEgoEQi, isolated for embedded hosts. */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme) prefix(ste);
-@import "tailwindcss/utilities.css" layer(utilities) prefix(ste) important;
+@import "tailwindcss/utilities.css" layer(utilities) prefix(ste) important source(none);
 @import "tw-animate-css";
 @source "./";
-@source "../memory";
 @custom-variant dark (&:where(.stm-luma[data-tone="dark"], .stm-luma[data-tone="dark"] *));
 @theme inline {
   --font-sans: "Inter Variable", system-ui, sans-serif;

@@ -42,6 +42,12 @@ describe("esbuild 构建链", () => {
         expect(css).toContain("data:font/woff2;base64,");
         expect(css).not.toMatch(/@(?:import|theme|source|custom-variant)\b/);
         expect(css).not.toMatch(/https?:\/\/fonts\.(?:googleapis|gstatic)\.com/);
+        expect(css).toContain("#ste-memory-app");
+        expect(css).not.toContain(".stm-record-toolbar");
+        expect(css).not.toContain(".ui-theme");
+        const bundle = readFileSync(path.join(outdir, "index.js"), "utf8");
+        expect(bundle).toContain("ste-memory-frontend-host");
+        expect(bundle).not.toContain("stm-record-toolbar");
         // The cancellation gate must run before interceptors that can abort(true).
         expect(manifest.loading_order).toBe(-1000);
         expect(manifest.generate_interceptor).toBe("steMemoryGenerationInterceptor");

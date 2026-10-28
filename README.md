@@ -30,7 +30,15 @@ pnpm typecheck    # tsc -p tsconfig.json
 pnpm lint         # eslint .
 pnpm format:check # prettier --check .
 pnpm test         # vitest run
+pnpm preview:frontend # 新前端独立预览，默认 http://127.0.0.1:18825/
 ```
+
+当前构建入口为 `src/frontend/index.ts`，采用移动端优先的记录列表 → 详情 → 编辑流程；
+桌面沿用同一套交互。旧 `src/index.ts`、面板与页面源码保留，构建不接入旧面板，
+`style.css` 仅包含新前端的 Tailwind / shadcn 样式。其他页面仍待迁移。
+记录编辑按对话身份和记忆空间保留内存草稿，切换对话后返回可继续编辑；刷新页面前会提示未保存修改。
+保存沿用现有记录服务、修订冲突校验和对话文件写回，不另建数据存储。
+开发与验收见 [新前端说明](./docs/ui/frontend-preview.md)。
 
 真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
 通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。
@@ -177,6 +185,7 @@ SillyTavern 通过该分支安装/更新）。默认只更新本地分支，`--p
 
 ```text
 src/
+├── frontend/                              # 新前端入口、ST 挂载、记录浏览与编辑
 ├── index.ts / bootstrap.ts / runtime.ts   # 入口、ST 环境守卫、组合根
 ├── features/                              # 业务功能（直接函数/服务调用，无事件总线）
 │   ├── memory/                            # 共享记忆模型与写入规则（唯一来源）+ 公开入口

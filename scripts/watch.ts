@@ -1,12 +1,7 @@
 import { context, type Plugin } from "esbuild";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import {
-  copyStaticAssets,
-  createEsbuildOptions,
-  PACKAGE_ROOT,
-  STYLE_SOURCES,
-} from "./build-lib.ts";
+import { copyStaticAssets, createEsbuildOptions, PACKAGE_ROOT } from "./build-lib.ts";
 import { copyDistToTarget, tryResolveExtensionTarget } from "./extension-target.ts";
 
 /**
@@ -29,8 +24,8 @@ const distDir = path.join(PACKAGE_ROOT, "dist");
 // manifest + 全部样式源：不在 esbuild 依赖图中，单独 watch（改动只需重聚合，无需重建 bundle）
 const staticFiles = [
   path.join(PACKAGE_ROOT, "manifest.json"),
-  ...STYLE_SOURCES,
   path.join(PACKAGE_ROOT, "src/ui/primitives/theme.css"),
+  path.join(PACKAGE_ROOT, "src/frontend/theme.css"),
 ];
 
 /** 刷新 dist 静态资产；配了目标（且目标不是 dist 链接）时同步进 ST 扩展目录 */

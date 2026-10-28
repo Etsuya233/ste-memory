@@ -1,0 +1,27 @@
+/* This entry deliberately excludes the legacy kit and page styles. */
+@import "../ui/primitives/theme.css";
+@source "./";
+
+/* The application surface is a native top-layer popover. */
+#ste-memory-app {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.stm-luma :where(h1, h2, h3, p, ul, ol, dl, dd) {
+  margin: 0;
+}
+.stm-luma :where(button, input, select, textarea) {
+  font-family: inherit;
+}
+.stm-luma :where([hidden]) {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stm-luma *,
+  .stm-luma *::before,
+  .stm-luma *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -17,6 +17,10 @@ import {
   type MemoryTableId,
 } from "../domain/index.ts";
 import type { MemoryFieldRepository } from "../ports/memory-field-repository.ts";
+import {
+  MemoryCommitPersistenceError,
+  MemoryRecordSaveError,
+} from "../commit-persistence-error.ts";
 import type {
   MemoryRecordMutation,
   MemoryRecordRepository,
@@ -96,7 +100,8 @@ export interface MemoryRecordMutationContext {
 
 /**
  * 原子提交一批记录变更：create/update/delete 共享同一修订身份，统一写入
- * 当前记录、旧状态历史与字段证据。任何一步失败（校验、乐观锁、写库）整批回滚。
+ * 当前记录、旧状态历史与字段证据。提交前失败（校验、乐观锁、写库）整批回滚；
+ * 提交后的快照持久化失败通过明确错误返回，保留已提交的数据。
  */
 export async function commitMemoryRecordMutationBatch(
   context: MemoryRecordMutationContext,
@@ -240,9 +245,17 @@ export async function commitMemoryRecordMutationBatch(
     });
   }
   await validateFinalReferences(context, memorySpaceId, mutations);
-  if (mutations.length > 0 && !(await context.records.commit(mutations, evidence))) {
-    const first = mutations[0]!;
-    revisionConflict(first.kind === "create" ? first.current.id : first.previous.id);
+  try {
+    if (mutations.length > 0 && !(await context.records.commit(mutations, evidence))) {
+      const first = mutations[0]!;
+      revisionConflict(first.kind === "create" ? first.current.id : first.previous.id);
+    }
+  } catch (error) {
+    if (error instanceof MemoryCommitPersistenceError && mutations.length === 1) {
+      const record = mutations[0]!.current;
+      if (record) throw new MemoryRecordSaveError(record, error);
+    }
+    throw error;
   }
   return { revisionId, changed: mutations.length };
 }

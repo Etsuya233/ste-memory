@@ -1,5 +1,8 @@
 # 记录页独立验收
 
+此为旧前端的历史验收记录。默认构建已切换新入口，当前开发请使用
+[`pnpm preview:frontend`](./frontend-preview.md)，旧页面与预览源码继续保留。
+
 本地 fixture 渲染真实 `RecordsTab`、`PageLayout` 和通用组件，并以与生产相同的原生 `popover="manual"` 面板包裹。`PrimitivesProvider` 将 Base UI 浮层留在该 top-layer 与主题内。数据是 23 条内存记录、三个表格、六种字段场景（含停用字段）、字段证据及编辑生成的修订历史；刷新即可重置。不会访问 SillyTavern、IndexedDB、用户聊天、模型或任何远端业务接口。
 
 ```sh

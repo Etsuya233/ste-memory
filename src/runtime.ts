@@ -119,6 +119,8 @@ export interface SteMemoryRuntime {
   readonly fields: MemoryFieldService;
   /** 记忆记录（ticket 10/11）：显示文本预览、列表/搜索分页、手动增删改入口 */
   readonly records: MemoryRecordService;
+  /** Retry the committed snapshot's cache and file persistence without replaying edits. */
+  readonly retryMemorySave: () => Promise<void>;
   /** 全库备份（导出/导入，ticket 07）：快照读取与整体还原 */
   readonly backup: MemoryBackupRepository;
   /** Dexie 备份仓库（扩展方法：cloneSpace 用于分支对话分离） */
@@ -1185,6 +1187,11 @@ export async function startSteMemory(
   };
   return {
     manager,
+    retryMemorySave: async () => {
+      const status = manager.getStatus();
+      if (status?.kind !== "active") throw new Error("当前对话的记忆空间尚未就绪");
+      await memoryStore.write(status.space.id, async () => undefined);
+    },
     adapter,
     spaces,
     tables,
