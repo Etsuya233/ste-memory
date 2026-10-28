@@ -77,7 +77,11 @@ export class SqliteMemoryStore {
     try {
       await this.client.importSpace(snapshot);
       this.#loaded.set(id, Promise.resolve(true));
-      await this.cache(snapshot);
+      try {
+        await this.cache(snapshot);
+      } catch (cause) {
+        throw new MemoryCommitPersistenceError(cause);
+      }
     } finally {
       if (owner === undefined) this.releaseWriter(id);
     }
@@ -603,28 +607,32 @@ export class SqliteMemoryStore {
             },
             token,
           );
-          await this.#db.transaction(
-            "rw",
-            [
-              this.#db.memoryFillTasks,
-              this.#db.floorFillLedger,
-              this.#db.vectorTasks,
-              this.#db.recordVectors,
-              this.#db.vectorSuppressions,
-            ],
-            async () => {
-              for (const table of [
+          try {
+            await this.#db.transaction(
+              "rw",
+              [
                 this.#db.memoryFillTasks,
                 this.#db.floorFillLedger,
                 this.#db.vectorTasks,
                 this.#db.recordVectors,
                 this.#db.vectorSuppressions,
-              ])
-                await table.where("memorySpaceId").equals(id).delete();
-            },
-          );
-          await this.onCommitted((await this.snapshot(id))!);
-          return true;
+              ],
+              async () => {
+                for (const table of [
+                  this.#db.memoryFillTasks,
+                  this.#db.floorFillLedger,
+                  this.#db.vectorTasks,
+                  this.#db.recordVectors,
+                  this.#db.vectorSuppressions,
+                ])
+                  await table.where("memorySpaceId").equals(id).delete();
+              },
+            );
+            await this.onCommitted((await this.snapshot(id))!);
+            return true;
+          } catch (cause) {
+            throw new MemoryCommitPersistenceError(cause);
+          }
         } finally {
           this.releaseWriter(id);
         }

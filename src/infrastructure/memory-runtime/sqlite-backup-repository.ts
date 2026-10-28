@@ -1,5 +1,6 @@
 import type { MemoryBackupSnapshot } from "../../features/backup/backup-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
 import type { SteMemoryDatabase } from "../indexeddb/database.ts";
 import { DexieMemoryBackupRepository } from "../indexeddb/backup/memory-backup-repository.ts";
 import type { SqliteMemoryClient } from "../sqlite/types.ts";
@@ -32,9 +33,13 @@ export class SqliteMemoryBackupRepository extends DexieMemoryBackupRepository {
     await this.memory.exclusive(unit.space.id, async (token) => {
       await this.validate([unit]);
       await super.restoreSpace(unit);
-      await this.memory.unload(unit.space.id, token);
-      await this.memory.ensure(unit.space.id);
-      await this.memory.onCommitted(unit);
+      try {
+        await this.memory.unload(unit.space.id, token);
+        await this.memory.ensure(unit.space.id);
+        await this.memory.onCommitted(unit);
+      } catch (cause) {
+        throw new MemoryCommitPersistenceError(cause);
+      }
     });
   }
 
@@ -42,8 +47,12 @@ export class SqliteMemoryBackupRepository extends DexieMemoryBackupRepository {
     await this.memory.exclusiveAll(async (token) => {
       await this.validate(snapshot.spaces);
       await super.restoreSnapshot(snapshot);
-      await this.memory.discardLoaded(token);
-      for (const unit of snapshot.spaces) await this.memory.onCommitted(unit);
+      try {
+        await this.memory.discardLoaded(token);
+        for (const unit of snapshot.spaces) await this.memory.onCommitted(unit);
+      } catch (cause) {
+        throw new MemoryCommitPersistenceError(cause);
+      }
     });
   }
 }

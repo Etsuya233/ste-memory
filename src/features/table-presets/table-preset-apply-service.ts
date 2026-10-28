@@ -1,5 +1,6 @@
 import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
+import { MemoryCommitPersistenceError } from "../memory/index.ts";
 import type { SpaceStructureRebuild } from "../space-maintenance/space-structure-rebuild.ts";
 import {
   instantiateTablePreset,
@@ -110,12 +111,19 @@ export class TablePresetApplyService {
   ): Promise<ApplyTablePresetOutcome> {
     const chatIdentity = sync.chatIdentity;
     this.assertCurrentChat(chatIdentity);
-    const rebuilt = await this.#rebuildWithPreset(memorySpaceId, preset);
+    let rebuilt: boolean;
+    const issues: string[] = [];
+    try {
+      rebuilt = await this.#rebuildWithPreset(memorySpaceId, preset);
+    } catch (error) {
+      if (!(error instanceof MemoryCommitPersistenceError)) throw error;
+      rebuilt = true;
+      issues.push(`空间已重建，持久化或派生数据清理失败：${messageOf(error)}`);
+    }
     if (!rebuilt) {
       throw new Error(`记忆空间不存在，无法应用预设「${preset.name}」`);
     }
     // 以下为重建后的同步阶段：空间已重建并提交，失败只回报，不重复清空
-    const issues: string[] = [];
     if (this.#ports.currentChatIdentity() === chatIdentity) {
       try {
         this.#ports.clearChatScopeMacros();

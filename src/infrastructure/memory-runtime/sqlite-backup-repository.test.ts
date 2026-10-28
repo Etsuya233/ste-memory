@@ -3,6 +3,8 @@ import { createTestDatabase } from "../indexeddb/test-support.ts";
 import { createInProcessSqliteMemoryClient } from "../sqlite/node-client.ts";
 import { SqliteMemoryStore } from "./sqlite-memory-store.ts";
 import { SqliteMemoryBackupRepository } from "./sqlite-backup-repository.ts";
+import { DexieMemoryBackupRepository } from "../indexeddb/backup/memory-backup-repository.ts";
+import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
 import type { SqliteMemoryClient } from "../sqlite/types.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type { MemoryRecord, MemorySpaceId } from "../../features/memory/index.ts";
@@ -89,6 +91,7 @@ describe("SqliteMemoryBackupRepository restores live SQLite and local snapshots"
     backup = new SqliteMemoryBackupRepository(db, store, createInProcessSqliteMemoryClient);
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await client.close();
   });
   const replacement = (): MemorySpaceBackup => ({
@@ -125,6 +128,45 @@ describe("SqliteMemoryBackupRepository restores live SQLite and local snapshots"
     expect((await store.snapshot(incoming.space.id))!.records).toEqual(incoming.records);
     expect(await db.memoryRecords.toArray()).toEqual(incoming.records);
     expect(saved).toHaveBeenCalledWith(incoming);
+  });
+
+  it.each(["unload", "ensure", "onCommitted"] as const)(
+    "marks a single-space restore committed when %s fails after replacing the local snapshot",
+    async (stage) => {
+      const incoming = replacement();
+      const failure = new Error(`${stage} unavailable`);
+      const restored = vi.spyOn(DexieMemoryBackupRepository.prototype, "restoreSpace");
+      vi.spyOn(store, stage).mockRejectedValueOnce(failure);
+      const operation = backup.restoreSpace(incoming);
+      await expect(operation).rejects.toBeInstanceOf(MemoryCommitPersistenceError);
+      await expect(operation).rejects.toHaveProperty("cause", failure);
+      expect(await db.memoryRecords.toArray()).toEqual(incoming.records);
+      expect(restored).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["discardLoaded", "onCommitted"] as const)(
+    "marks a full restore committed when %s fails after replacing all local data",
+    async (stage) => {
+      const incoming = replacement();
+      const failure = new Error(`${stage} unavailable`);
+      const restored = vi.spyOn(DexieMemoryBackupRepository.prototype, "restoreSnapshot");
+      vi.spyOn(store, stage).mockRejectedValueOnce(failure);
+      const operation = backup.restoreSnapshot({ spaces: [incoming] });
+      await expect(operation).rejects.toBeInstanceOf(MemoryCommitPersistenceError);
+      await expect(operation).rejects.toHaveProperty("cause", failure);
+      expect(await db.memoryRecords.toArray()).toEqual(incoming.records);
+      expect(restored).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains the original transaction error when replacing local data never commits", async () => {
+    const before = await backup.loadSnapshot();
+    const failure = new Error("transaction unavailable");
+    vi.spyOn(DexieMemoryBackupRepository.prototype, "restoreSpace").mockRejectedValueOnce(failure);
+    await expect(backup.restoreSpace(replacement())).rejects.toBe(failure);
+    expect(await backup.loadSnapshot()).toEqual(before);
+    expect((await store.snapshot(original.space.id))!.records).toEqual(original.records);
   });
 
   it("restoreSpace rejects SQLite constraint violations before changing local or live data", async () => {

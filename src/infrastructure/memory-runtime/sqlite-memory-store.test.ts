@@ -112,6 +112,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await store.replace(unit);
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await client.close();
   });
 
@@ -689,6 +690,53 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await rebuild).toBe(true);
     const token = await store.begin(id());
     await store.finish(id(), token, false);
+  });
+
+  it.each(["cache", "cleanup", "onCommitted"] as const)(
+    "reports the committed rebuild without replaying it when %s fails",
+    async (stage) => {
+      await store.repositories().records.create(row("old", "重建前的记录"), []);
+      const failure = new Error(`${stage} unavailable`);
+      const imported = vi.spyOn(client, "importSpace");
+      if (stage === "cache") vi.spyOn(store, "cache").mockRejectedValueOnce(failure);
+      else if (stage === "onCommitted")
+        vi.spyOn(store, "onCommitted").mockRejectedValueOnce(failure);
+      else
+        vi.spyOn(db.memoryFillTasks, "where").mockImplementationOnce(() => {
+          throw failure;
+        });
+      const operation = store.structureRebuild().rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
+      });
+      await expect(operation).rejects.toBeInstanceOf(MemoryCommitPersistenceError);
+      await expect(operation).rejects.toHaveProperty("cause", failure);
+      const snapshot = (await store.snapshot(id()))!;
+      expect(snapshot.records).toEqual([]);
+      expect(snapshot.space.initializationSource?.presetId).toBe("replacement");
+      expect(imported).toHaveBeenCalledOnce();
+      if (stage !== "cache") expect(await db.memoryRecords.toArray()).toEqual([]);
+      const token = await store.begin(id());
+      await store.finish(id(), token, false);
+    },
+  );
+
+  it("retains an import transaction error when structure replacement does not commit", async () => {
+    await store.repositories().records.create(row("old", "保留记录"), []);
+    const before = await store.snapshot(id());
+    const failure = new Error("invalid replacement");
+    vi.spyOn(client, "importSpace").mockRejectedValueOnce(failure);
+    await expect(
+      store.structureRebuild().rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
+      }),
+    ).rejects.toBe(failure);
+    expect(await store.snapshot(id())).toEqual(before);
   });
 
   it("unload and reinitialization load the latest complete local snapshot", async () => {

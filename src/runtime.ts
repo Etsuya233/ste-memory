@@ -728,6 +728,7 @@ export async function startSteMemory(
     },
     createLlm: createQueryChatLlm,
     getCurrentSpaceId: () => {
+      if (!settings.read().enabled) return undefined;
       const status = manager.getStatus();
       return status?.kind === "active" ? status.space.id : undefined;
     },

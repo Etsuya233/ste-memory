@@ -20,6 +20,18 @@ export interface SpaceMaintenancePorts {
   readonly clearLedger: (id: MemorySpaceId) => Promise<void>;
 }
 
+export class RecordsClearCleanupError extends Error {
+  readonly memorySpaceId: MemorySpaceId;
+  constructor(memorySpaceId: MemorySpaceId, cause: unknown) {
+    super(
+      `记录已清除，任务与进度清理失败：${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+    this.name = "RecordsClearCleanupError";
+    this.memorySpaceId = memorySpaceId;
+  }
+}
+
 export class SpaceMaintenanceService {
   readonly #ports: SpaceMaintenancePorts;
 
@@ -31,12 +43,17 @@ export class SpaceMaintenanceService {
    * 清除空间记录：删除该空间全部记录派生数据（表格结构与初始化来源保留），并
    * 清空该空间的填表任务与楼层进度台账。空间不存在返回 false。通用日志保留。
    */
-  async clearRecords(id: MemorySpaceId): Promise<boolean> {
+  async clearRecords(id: MemorySpaceId, assertContext?: () => void): Promise<boolean> {
     await this.#ports.cancelActiveTask(id);
+    assertContext?.();
     const existed = await this.#ports.clearRecords(id);
     if (!existed) return false;
-    await this.#ports.clearTasks(id);
-    await this.#ports.clearLedger(id);
+    try {
+      await this.#ports.clearTasks(id);
+      await this.#ports.clearLedger(id);
+    } catch (cause) {
+      throw new RecordsClearCleanupError(id, cause);
+    }
     return true;
   }
 }
