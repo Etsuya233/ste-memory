@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PrimitivesProvider } from "../../ui/primitives/provider.tsx";
+import { usePanelWindow } from "./use-panel-window.ts";
 
 /** Native top layer keeps ST transforms from changing viewport positioning. */
 export function FrontendPanel({
@@ -13,6 +14,7 @@ export function FrontendPanel({
 }) {
   const [surface, setSurface] = useState<HTMLElement | null>(null);
   const launcher = useRef<HTMLElement | null>(null);
+  usePanelWindow(surface, open);
   useLayoutEffect(() => {
     if (
       open &&
@@ -35,9 +37,12 @@ export function FrontendPanel({
         aria-label="记忆工作台"
         aria-hidden={!open}
         data-tone={tone}
-        className="stm-luma ste:fixed ste:inset-0 ste:h-dvh ste:max-h-none ste:w-full ste:max-w-none ste:overflow-hidden ste:bg-background ste:text-foreground ste:outline-none ste:sm:inset-y-6 ste:sm:inset-x-auto ste:sm:left-1/2 ste:sm:h-[calc(100dvh-3rem)] ste:sm:w-[min(760px,calc(100vw-3rem))] ste:sm:-translate-x-1/2 ste:sm:rounded-3xl ste:sm:border ste:sm:border-border ste:sm:shadow-2xl"
+        className="stm-luma ste:fixed ste:inset-0 ste:box-border ste:h-dvh ste:max-h-none ste:w-full ste:max-w-none ste:overflow-hidden ste:bg-background ste:text-foreground ste:outline-none ste:md:top-[var(--stm-window-y)] ste:md:right-auto ste:md:bottom-auto ste:md:left-[var(--stm-window-x)] ste:md:h-[var(--stm-window-height)] ste:md:w-[var(--stm-window-width)] ste:md:rounded-3xl ste:md:border ste:md:border-border ste:md:shadow-2xl"
       >
         {children}
+        {(["n", "e", "s", "w", "ne", "se", "sw", "nw"] as const).map((edge) => (
+          <div key={edge} data-window-resize={edge} aria-hidden="true" />
+        ))}
       </aside>
     </PrimitivesProvider>
   );

@@ -68,8 +68,8 @@ export function WorkbenchApp(props: WorkbenchProps) {
   const controls = { onClose: () => navigate(props.onClose), onToggleTone: props.onToggleTone };
   const enabled = props.settings.settings.read().enabled;
   return (
-    <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
-      <div className="ste:min-h-0 ste:flex-1">
+    <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col ste:md:flex-row">
+      <div className="ste:min-h-0 ste:min-w-0 ste:flex-1">
         {!enabled && page !== "settings" ? (
           <div className="ste:flex ste:h-full ste:flex-col">
             <PageHeader title="记忆工作台" {...controls} />
@@ -147,7 +147,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
       </div>
       <nav
         aria-label="工作台页面"
-        className="ste:flex ste:shrink-0 ste:gap-1 ste:border-t ste:border-border ste:bg-background ste:px-3 ste:pt-2 ste:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="ste:flex ste:shrink-0 ste:gap-1 ste:border-t ste:border-border ste:bg-background ste:px-3 ste:pt-2 ste:pb-[max(0.5rem,env(safe-area-inset-bottom))] ste:md:order-first ste:md:w-20 ste:md:flex-col ste:md:justify-start ste:md:border-t-0 ste:md:border-r ste:md:p-2 ste:md:pt-4"
       >
         {(
           [
@@ -161,7 +161,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
           <Button
             key={id}
             variant={page === id ? "secondary" : "ghost"}
-            className="ste:h-auto ste:min-h-12 ste:flex-1 ste:flex-col ste:gap-1 ste:py-2"
+            className="ste:h-auto ste:min-h-12 ste:flex-1 ste:flex-col ste:gap-1 ste:py-2 ste:transition-colors ste:md:h-14 ste:md:flex-none"
             aria-current={page === id ? "page" : undefined}
             data-action={`nav-${id}`}
             onClick={() => {

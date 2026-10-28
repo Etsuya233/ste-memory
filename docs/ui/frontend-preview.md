@@ -21,7 +21,11 @@
 
 页面共享 `src/frontend/components/` 中的页头、内容区、保存栏、确认弹窗、
 离开保护、开关字段与状态提示；表格与预设共用 `SchemaEditorFields`，全局与对话自动填表共用
-`AutoFillFields`，设置编辑共用 `SettingsEditor`。`workbench.tsx` 统一管理底部导航和关闭操作。
+`AutoFillFields`，设置编辑共用 `SettingsEditor`。`workbench.tsx` 统一管理导航和关闭操作，
+768px 以下使用底栏，桌面改为左侧紧凑纵列，页面与离开保护共用同一套逻辑。
+`host/use-panel-window.ts` 管理桌面拖动、八方向缩放、键盘操作和视口边界，
+通过 CSS 变量更新几何尺寸，拖动时不触发页面重绘；位置和大小保留到浏览器刷新前。
+公共页头提供拖动区域，按钮操作保持独立；双击页头或聚焦后按 Home 恢复初始窗口。
 记录、表格与任务各自的工作区负责当前对话状态和异步请求归属，设置保持全局作用域。
 `usePageScroll` 按工作区、对话与视图缓存滚动位置；异步加载完成再恢复，进入详情/编辑使用独立容器。
 这部分状态不依赖整页保活，也不写入用户设置。
@@ -66,6 +70,7 @@ node verify-auto-fill.mjs
 node verify-preset-update.mjs
 node verify-vector-preview.mjs
 node verify-record-sorting.mjs
+node verify-desktop-window.mjs
 ```
 
 `FRONTEND_URL` 可更改地址，`FRONTEND_SCREENSHOTS` 可更改截图目录。

@@ -39,7 +39,12 @@ export function PageHeader({
   busy?: boolean;
 }) {
   return (
-    <header className="ste:flex ste:shrink-0 ste:items-center ste:gap-3 ste:border-b ste:border-border ste:px-4 ste:py-3 ste:pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <header
+      data-window-drag=""
+      tabIndex={0}
+      aria-label="页头；桌面端可拖动，方向键移动窗口，Shift 加方向键调整大小，Home 或双击还原"
+      className="ste:flex ste:shrink-0 ste:items-center ste:gap-3 ste:border-b ste:border-border ste:px-4 ste:py-3 ste:pt-[max(0.75rem,env(safe-area-inset-top))]"
+    >
       {onBack ? (
         <Button
           variant="ghost"

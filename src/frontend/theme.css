@@ -8,6 +8,66 @@
   padding: 0;
   border: 0;
 }
+#ste-memory-app [data-window-resize] {
+  display: none;
+}
+@media (min-width: 768px) {
+  #ste-memory-app [data-window-drag] {
+    cursor: grab;
+    touch-action: none;
+  }
+  #ste-memory-app [data-window-drag]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -3px;
+  }
+  #ste-memory-app[data-window-gesture] {
+    user-select: none;
+  }
+  #ste-memory-app [data-window-resize] {
+    display: block;
+    position: absolute;
+    z-index: 10;
+    touch-action: none;
+  }
+  #ste-memory-app [data-window-resize="n"],
+  #ste-memory-app [data-window-resize="s"] {
+    height: 6px;
+    left: 18px;
+    right: 18px;
+    cursor: ns-resize;
+  }
+  #ste-memory-app [data-window-resize="e"],
+  #ste-memory-app [data-window-resize="w"] {
+    width: 6px;
+    top: 18px;
+    bottom: 18px;
+    cursor: ew-resize;
+  }
+  #ste-memory-app [data-window-resize*="n"] {
+    top: 0;
+  }
+  #ste-memory-app [data-window-resize*="e"] {
+    right: 0;
+  }
+  #ste-memory-app [data-window-resize*="s"] {
+    bottom: 0;
+  }
+  #ste-memory-app [data-window-resize*="w"] {
+    left: 0;
+  }
+  #ste-memory-app [data-window-resize="ne"],
+  #ste-memory-app [data-window-resize="sw"] {
+    width: 18px;
+    height: 18px;
+    cursor: nesw-resize;
+  }
+  #ste-memory-app [data-window-resize="nw"],
+  #ste-memory-app [data-window-resize="se"] {
+    width: 18px;
+    height: 18px;
+    cursor: nwse-resize;
+  }
+}
 .stm-luma :where(h1, h2, h3, p, ul, ol, dl, dd) {
   margin: 0;
 }
