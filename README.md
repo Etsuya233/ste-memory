@@ -44,7 +44,8 @@ pnpm preview:frontend # 新前端独立预览，默认 http://127.0.0.1:18825/
 表格列表、详情和编辑分别管理滚动位置，进入子页从顶部开始，返回列表或详情恢复之前的位置。
 记录编辑按对话身份和记忆空间保留内存草稿，切换对话后返回可继续编辑；刷新页面前会提示未保存修改。
 保存沿用现有记录服务、修订冲突校验和对话文件写回，不另建数据存储。
-开发与验收见 [新前端说明](./docs/ui/frontend-preview.md)。
+架构边界、公共组件复用、移动端交互与 ST 样式隔离见 [前端开发规范](./docs/ui/frontend-development.md)；
+预览与页面验收命令见 [新前端说明](./docs/ui/frontend-preview.md)。
 
 真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
 通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。

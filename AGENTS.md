@@ -6,6 +6,12 @@
 
 我们正在开发 SillyTavern 插件。
 
+### 前端开发
+
+修改新前端页面、公共组件、工作区状态、ST 接线或样式时，先阅读
+[前端开发规范](docs/ui/frontend-development.md)，按其中的代码入口、复用约定和验收规则实施。
+预览环境与各页面验证命令见 [前端开发与验收](docs/ui/frontend-preview.md)。
+
 ## Worktree
 
 新建 Git Worktree 时，统一放在主仓库根目录的 `.worktrees/<名称>/` 下；在已有 Worktree 中操作时，仍使用主仓库的该目录。
