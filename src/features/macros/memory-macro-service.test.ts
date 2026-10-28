@@ -99,6 +99,163 @@ function harness(timeoutMs = 1000) {
 }
 
 describe("生成时统一求值", () => {
+  it.each(["full", "events"])("内置 %s 宏将单引用和多引用渲染为当前显示文本", async (name) => {
+    const h = harness();
+    const stamp = "2026-10-28T00:00:00.000Z";
+    const table = {
+      memorySpaceId: "space",
+      enabled: true,
+      description: "",
+      prompt: "",
+      position: 0,
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const field = {
+      memorySpaceId: "space",
+      required: false,
+      enabled: true,
+      position: 0,
+      prompt: "",
+      options: [],
+      referenceTableId: null,
+      maxChars: null,
+      valuePattern: null,
+      valuePatternMessage: null,
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const record = {
+      memorySpaceId: "space",
+      fieldEvidence: {},
+      source: { type: "manual" },
+      revisionId: "revision",
+      revisionSource: "user",
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const snapshot = {
+      ...(await h.capture()),
+      tables: [
+        {
+          ...table,
+          id: "people",
+          key: "people",
+          name: "人物",
+          displayStrategy: { type: "template", template: "{person-name}（{title}）" },
+        },
+        {
+          ...table,
+          id: "events",
+          key: "events",
+          name: "事件",
+          displayStrategy: { type: "field", fieldId: "event-name" },
+        },
+      ],
+      fields: [
+        {
+          ...field,
+          id: "person-name",
+          tableId: "people",
+          key: "name",
+          name: "姓名",
+          type: "short_text",
+        },
+        {
+          ...field,
+          id: "title",
+          tableId: "people",
+          key: "title",
+          name: "身份",
+          type: "short_text",
+        },
+        {
+          ...field,
+          id: "event-name",
+          tableId: "events",
+          key: "name",
+          name: "名称",
+          type: "short_text",
+        },
+        {
+          ...field,
+          id: "owner",
+          tableId: "events",
+          key: "owner",
+          name: "负责人",
+          type: "single_reference",
+          referenceTableId: "people",
+        },
+        {
+          ...field,
+          id: "cast",
+          tableId: "events",
+          key: "cast",
+          name: "参与者",
+          type: "multi_reference",
+          referenceTableId: "people",
+        },
+        {
+          ...field,
+          id: "tags",
+          tableId: "events",
+          key: "tags",
+          name: "标签",
+          type: "short_text_list",
+        },
+      ],
+      records: [
+        {
+          ...record,
+          id: "person-1",
+          tableId: "people",
+          displayText: "旧名称一",
+          payload: { "person-name": "林舟", title: "船长" },
+        },
+        {
+          ...record,
+          id: "person-2",
+          tableId: "people",
+          displayText: "旧名称二",
+          payload: { "person-name": "苏月", title: "医师" },
+        },
+        {
+          ...record,
+          id: "event-1",
+          tableId: "events",
+          displayText: "出航",
+          payload: {
+            "event-name": "出航",
+            owner: "person-1",
+            cast: ["person-2", "person-1"],
+            tags: ["person-1", "海上"],
+          },
+        },
+        {
+          ...record,
+          id: "event-2",
+          tableId: "events",
+          displayText: "休整",
+          payload: { "event-name": "休整", owner: null, cast: [], tags: [] },
+        },
+      ],
+    } as unknown as MemorySpaceBackup;
+    h.capture.mockResolvedValue(snapshot);
+    await h.service.start();
+    try {
+      h.service.started("regenerate", {}, false);
+      await h.service.afterCommands("regenerate", {}, false, "测试");
+      expect(h.expand(name)).toContain(
+        "| 出航 | 林舟（船长） | 苏月（医师）、林舟（船长） | person-1、海上 |",
+      );
+      expect(h.expand(name)).toContain("| 休整 |  |  |  |");
+      expect(snapshot.records[2]!.payload.owner).toBe("person-1");
+      expect(snapshot.records[2]!.payload.cast).toEqual(["person-2", "person-1"]);
+    } finally {
+      h.service.stop();
+    }
+  });
+
   it("保留超限前实际请求与准备轮数诊断，测试结果不覆盖真实结果", async () => {
     const h = harness();
     h.statistics.mockReturnValue({
