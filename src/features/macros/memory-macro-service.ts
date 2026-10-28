@@ -609,10 +609,28 @@ export class MemoryMacroService {
         .map((field) => ({ id: field.id, name: field.name })),
       records: records
         .filter((record) => record.tableId === table.id)
-        .map((record) => ({
-          payload: new Map(Object.entries(record.payload)),
-          displayText: record.displayText,
-        })),
+        .map((record) => {
+          const payload = new Map(Object.entries(record.payload));
+          for (const field of snapshot.fields) {
+            if (
+              field.tableId !== table.id ||
+              !field.enabled ||
+              (field.type !== "single_reference" && field.type !== "multi_reference")
+            )
+              continue;
+            const value = payload.get(field.id);
+            if (value === null || value === undefined) continue;
+            const ids = field.type === "multi_reference" ? (value as readonly string[]) : [value];
+            const names = ids.map(
+              (id) =>
+                records.find(
+                  (target) => target.tableId === field.referenceTableId && target.id === id,
+                )!.displayText,
+            );
+            payload.set(field.id, field.type === "multi_reference" ? names : names[0]!);
+          }
+          return { payload, displayText: record.displayText };
+        }),
     }));
     const texts = new Map<string, string>([
       [
