@@ -103,7 +103,12 @@ export function recordFormPatchFromDraft(
   const payload = recordPayloadFromDraft(fields, draft);
   const patch: Record<string, unknown> = {};
   for (const field of fields) {
-    const left = record.payload[field.id] ?? null;
+    // 原值也经过表单转换：空文本会转为 null，未填写布尔值会转为 false。
+    // 比较同一表示，避免仅回填草稿就产生修改补丁或覆盖原字段证据。
+    const left = payloadValueFromForm(
+      field,
+      formValueFromPayload(field, record.payload[field.id] ?? null),
+    );
     const right = payload[field.id] ?? null;
     // datetime 表单只能编辑到分钟精度：未编辑的秒级差异不算变化，避免无关编辑
     // 把存量记录的秒静默清零（草稿回填即截秒，见 formValueFromPayload）

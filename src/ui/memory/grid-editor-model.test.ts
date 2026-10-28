@@ -177,6 +177,27 @@ describe("列宽：持久化", () => {
 });
 
 describe("网格行草稿", () => {
+  it("仅查看含空文本和未填写布尔值的 Agent 记录，不触发未保存保护", () => {
+    const viewFields = [
+      field({ key: "text", type: "short_text" }),
+      field({ key: "flag", type: "boolean" }),
+    ];
+    const current = record({
+      payload: { [viewFields[0]!.id]: "", [viewFields[1]!.id]: null },
+      source: { type: "source", sourceTime: null, sourceLocation: null },
+    });
+    const originals = new Map([[current.id, current]]);
+    const rows = gridRowsFromRecords(viewFields, [current]);
+    expect(hasUnsavedGridChanges(viewFields, rows, originals)).toBe(false);
+    expect(planGridSave(viewFields, rows, originals).changed).toBe(false);
+
+    const edited = [withValue(rows[0]!, viewFields[0]!.id, "手动修改")];
+    expect(hasUnsavedGridChanges(viewFields, edited, originals)).toBe(true);
+    expect(planGridSave(viewFields, edited, originals).updates[0]!.patch).toEqual({
+      [viewFields[0]!.id]: "手动修改",
+    });
+  });
+
   it("从记录构造：payload 回填草稿（datetime 截秒语义走 record-form-model）", () => {
     const rows = gridRowsFromRecords(fields, [
       record({ id: "r1", payload: { [nameId]: "阿尔法", [countId]: 3, [tagsId]: ["a", "b"] } }),
