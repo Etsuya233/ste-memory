@@ -139,6 +139,10 @@ export function AutoFillOverrides({
                 : "自动填表"}{" "}
             · 每 {session.effective.interval} 层触发 · 每批 {session.effective.blockSize} 层。
           </p>
+          <p className="ste:text-xs ste:text-muted-foreground">
+            已保存的隐藏设置：{session.effective.hideAfterSuccess ? "开启" : "关闭"}
+            ，保留最近 {session.effective.keepRecentFloors} 层。
+          </p>
         </>
       ) : !error ? (
         <PageEmpty

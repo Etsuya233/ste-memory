@@ -15,6 +15,8 @@ const keys = [
   "blockSize",
   "retries",
   "retryDelaySeconds",
+  "hideAfterSuccess",
+  "keepRecentFloors",
 ] as const;
 export function overridesDirty(saved: Partial<AutoFillSettings>, draft: Partial<AutoFillSettings>) {
   return keys.some((key) => !Object.is(saved[key], draft[key]));
