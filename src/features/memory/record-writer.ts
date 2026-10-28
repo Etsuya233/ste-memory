@@ -41,6 +41,11 @@ import type { MemoryRecordHistoryId } from "./domain/index.ts";
 import { createMemoryCommitContext } from "./internal/commit-context.ts";
 import { commitMemoryProposalBatch } from "./internal/proposal-commit.ts";
 import type { MemoryProposalSubmission } from "./internal/proposal-preview.ts";
+import {
+  compareRecordListRows,
+  DEFAULT_RECORD_LIST_ORDER,
+  type MemoryRecordListOrder,
+} from "./record-list-order.ts";
 
 export interface CreateMemoryRecordInput {
   readonly payload: Readonly<Record<string, unknown>>;
@@ -296,7 +301,12 @@ export class MemoryRecordService {
   async list(
     memorySpaceId: MemorySpaceId,
     tableId: MemoryTableId,
-    query: { readonly page: number; readonly pageSize: number; readonly search?: string },
+    query: {
+      readonly page: number;
+      readonly pageSize: number;
+      readonly search?: string;
+      readonly order?: MemoryRecordListOrder;
+    },
   ): Promise<MemoryRecordPage | undefined> {
     const table = await this.tables.find(memorySpaceId, tableId);
     if (!table) return undefined;
@@ -335,6 +345,8 @@ export class MemoryRecordService {
         .flatMap((value) => (Array.isArray(value) ? value : [value]))
         .some((value) => String(value).toLocaleLowerCase().includes(search));
     });
+    const order = query.order ?? DEFAULT_RECORD_LIST_ORDER;
+    matches.sort((left, right) => compareRecordListRows(left, right, order));
     const offset = (query.page - 1) * query.pageSize;
     return {
       records: matches.slice(offset, offset + query.pageSize),

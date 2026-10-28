@@ -2,11 +2,14 @@ import { useId, useRef, useState, type ComponentProps, type ReactNode } from "re
 
 export interface MenuAction {
   readonly label: string;
+  readonly ariaLabel?: string;
+  readonly trailing?: ReactNode;
   readonly id: string;
   readonly dataAction?: string;
   readonly onSelect: () => void;
   readonly disabled?: boolean;
   readonly danger?: boolean;
+  readonly checked?: boolean;
 }
 
 /** Native auto popovers handle outside presses and Escape in the panel's top layer. */
@@ -86,7 +89,9 @@ export function ActionMenu(props: {
           <button
             key={action.id}
             type="button"
-            role="menuitem"
+            role={action.checked === undefined ? "menuitem" : "menuitemradio"}
+            aria-checked={action.checked}
+            aria-label={action.ariaLabel}
             data-action={action.dataAction}
             disabled={action.disabled}
             className={action.danger ? "ui-menu-danger" : undefined}
@@ -95,7 +100,8 @@ export function ActionMenu(props: {
               action.onSelect();
             }}
           >
-            {action.label}
+            <span className="ui-menu-label">{action.label}</span>
+            {action.trailing ? <span className="ui-menu-trailing">{action.trailing}</span> : null}
           </button>
         ))}
       </div>
