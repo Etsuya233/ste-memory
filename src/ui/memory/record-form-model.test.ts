@@ -237,6 +237,25 @@ describe("recordPayloadFromDraft（草稿 → payload 转换）", () => {
 });
 
 describe("recordFormPatchFromDraft（编辑补丁差异）", () => {
+  it.each([
+    { type: "short_text" as const, value: "", edited: "新值" },
+    { type: "long_text" as const, value: "", edited: "新值" },
+    { type: "boolean" as const, value: null, edited: true },
+    { type: "boolean" as const, value: undefined, edited: true },
+  ])("$type 原值为 $value，回填不产生补丁，实际编辑仍被识别", ({ type, value, edited }) => {
+    const fields = [field({ type })];
+    const current = record(value === undefined ? {} : { "field-1": value });
+    const draft = recordFormDraftFromPayload(fields, current.payload);
+    expect(recordFormPatchFromDraft(fields, current, draft)).toEqual({
+      changed: false,
+      patch: {},
+    });
+    expect(recordFormPatchFromDraft(fields, current, { values: { "field-1": edited } })).toEqual({
+      changed: true,
+      patch: { "field-1": edited },
+    });
+  });
+
   it("无变化 → changed=false，patch 为空", () => {
     const fields = [
       field({ id: "f1" as MemoryField["id"], type: "short_text" }),
