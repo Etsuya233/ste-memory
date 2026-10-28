@@ -18,7 +18,7 @@ Wrap the consumer in `.stm-luma` with `data-tone="light"` or `data-tone="dark"`.
 
 `theme.css` omits global Tailwind preflight. Its minimal baseline only affects `.stm-luma`; utility classes and generated theme tokens are prefixed. Font bytes are bundled by the build, with no runtime font/CDN request. `cn` uses `tailwind-merge` configured for the `ste` prefix.
 
-Composition uses Base UI `render`, **not Radix `asChild`**. `NativeSelect` adds `htmlSize` (native numeric `size`) and `selectClassName`, while keeping shadcn's `size="sm" | "default"` and wrapper `className`. Multiple selects omit the decorative arrow.
+Composition uses Base UI `render`, **not Radix `asChild`**. `NativeSelect` adds `htmlSize` (native numeric `size`) and `selectClassName`, while keeping shadcn's `size="sm" | "default"` and wrapper `className`. Multiple selects omit the decorative arrow. `PaginationLink` renders a native button for this app's client-side paging, and `PaginationContent` restores the list resets that the official preflight would otherwise provide.
 
 Do not overwrite these adaptations by blindly re-running `shadcn add --overwrite`. Fetch and review upstream diffs, preserve the prefix and portal contract, and rerun type/build/interaction checks.
 

@@ -148,6 +148,19 @@ describe("RecordsWorkspace", () => {
     });
     expect(workspace.getSnapshot().order).toEqual({ fieldId, direction: "desc" });
   });
+  it("applies a page size and returns to the first page", async () => {
+    const { workspace, records } = setup();
+    await workspace.setContext(contextA);
+    await workspace.setPage(2);
+    await workspace.setPageSize(50);
+    expect(workspace.getSnapshot()).toMatchObject({ page: 1, pageSize: 50 });
+    expect(records.list).toHaveBeenLastCalledWith(
+      contextA.spaceId,
+      tableId,
+      expect.objectContaining({ page: 1, pageSize: 50 }),
+    );
+    await expect(workspace.setPageSize(0)).rejects.toThrow("每页条数");
+  });
   it("resets paging on a sort selection and keeps its direction for search", async () => {
     const { workspace, records } = setup();
     await workspace.setContext(contextA);

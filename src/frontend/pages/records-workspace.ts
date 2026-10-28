@@ -66,6 +66,7 @@ export interface RecordsSnapshot {
   readonly tableId: MemoryTableId | null;
   readonly fields: readonly MemoryField[];
   readonly page: number;
+  readonly pageSize: number;
   readonly search: string;
   readonly order: MemoryRecordListOrder;
   readonly records: MemoryRecordPage | null;
@@ -101,6 +102,7 @@ function initialSnapshot(context: RecordsContext | null): RecordsSnapshot {
     tableId: null,
     fields: [],
     page: 1,
+    pageSize: 20,
     search: "",
     order: DEFAULT_RECORD_LIST_ORDER,
     records: null,
@@ -264,6 +266,15 @@ export class RecordsWorkspace {
     if (!Number.isInteger(page) || page < 1) throw new Error("页码必须是正整数");
     const session = this.#requireSession();
     this.#update(session, { page });
+    await this.#loadList(session);
+  }
+
+  async setPageSize(pageSize: number): Promise<void> {
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)
+      throw new Error("每页条数必须是 1–100 的整数");
+    const session = this.#requireSession();
+    if (session.state.pageSize === pageSize) return;
+    this.#update(session, { pageSize, page: 1 });
     await this.#loadList(session);
   }
 
@@ -453,7 +464,7 @@ export class RecordsWorkspace {
   }
 
   async #loadList(session: Session): Promise<void> {
-    const { context, tableId, page, search, order: requestedOrder } = session.state;
+    const { context, tableId, page, pageSize, search, order: requestedOrder } = session.state;
     const epoch = this.#epoch;
     const request = ++session.listRequest;
     if (!context || !tableId) {
@@ -476,7 +487,7 @@ export class RecordsWorkspace {
       this.#update(session, { fields, order, page: queryPage });
       const records = await this.#services.records.list(context.spaceId, tableId, {
         page: queryPage,
-        pageSize: 20,
+        pageSize,
         search: search.trim() || undefined,
         order,
       });

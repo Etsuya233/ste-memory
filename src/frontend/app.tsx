@@ -4,7 +4,7 @@ import { RecordDetailPage } from "./pages/record-detail.tsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId } from "react";
 import {
   BookOpen,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   FileText,
   LoaderCircle,
@@ -41,6 +41,14 @@ import {
   ItemDescription,
   ItemActions,
 } from "../ui/primitives/item.tsx";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "../ui/primitives/pagination.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/primitives/popover.tsx";
 
 export interface RecordsAppProps {
   registerLeaveGuard?: RegisterLeaveGuard;
@@ -63,6 +71,8 @@ export function RecordsApp(props: RecordsAppProps) {
   const [hostBusy, setHostBusy] = useState(false);
   const hostOperation = useRef(0);
   const [search, setSearch] = useState(state.search);
+  const [pageInput, setPageInput] = useState(String(state.page));
+  const [paginationOpen, setPaginationOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -73,6 +83,7 @@ export function RecordsApp(props: RecordsAppProps) {
         state.context.spaceId,
         state.tableId,
         state.page,
+        state.pageSize,
         state.search,
         state.order.fieldId,
         state.order.direction,
@@ -80,11 +91,15 @@ export function RecordsApp(props: RecordsAppProps) {
     : "";
   const showingDetail = state.detailId !== null || state.editor !== null;
   const labels = referenceLabels(state.references);
+  const totalPages = Math.max(1, state.records?.totalPages ?? 1);
   const formId = useId();
 
   useEffect(() => {
     setSearch(state.search);
   }, [state.context?.chatKey, state.context?.spaceId, state.tableId]);
+  useEffect(() => {
+    setPageInput(String(state.page));
+  }, [state.page]);
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (state.context && search.trim() !== state.search) void workspace.setSearch(search.trim());
@@ -143,6 +158,10 @@ export function RecordsApp(props: RecordsAppProps) {
     listPosition.current.set(viewKey, { top: listRef.current?.scrollTop ?? 0, recordId: id });
     navigate(() => void workspace.openRecord(id));
   }
+  function changePage(page: number) {
+    listRef.current?.scrollTo({ top: 0 });
+    void workspace.setPage(page);
+  }
 
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col ste:text-sm">
@@ -178,30 +197,30 @@ export function RecordsApp(props: RecordsAppProps) {
         }
       />
 
-      <div
-        className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:text-muted-foreground"
-        aria-live="polite"
-      >
-        {props.mirror.kind === "saving" ? (
-          "正在写入对话文件…"
-        ) : props.mirror.kind === "failed" ? (
-          <span className="ste:text-destructive">
-            对话文件尚未保存：{props.mirror.error}{" "}
-            <Button
-              variant="link"
-              size="xs"
-              disabled={hostBusy || !state.context}
-              onClick={() => void runHost(() => workspace.retryPersistence(props.onRetrySave))}
-            >
-              重试写回
-            </Button>
-          </span>
-        ) : props.mirror.kind === "disabled" ? (
-          "本地记忆 · 对话文件同步已关闭"
-        ) : (
-          "记忆随当前对话保存"
-        )}
-      </div>
+      {props.mirror.kind !== "idle" ? (
+        <div
+          className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:text-muted-foreground"
+          aria-live="polite"
+        >
+          {props.mirror.kind === "saving" ? (
+            "正在写入对话文件…"
+          ) : props.mirror.kind === "failed" ? (
+            <span className="ste:text-destructive">
+              对话文件尚未保存：{props.mirror.error}{" "}
+              <Button
+                variant="link"
+                size="xs"
+                disabled={hostBusy || !state.context}
+                onClick={() => void runHost(() => workspace.retryPersistence(props.onRetrySave))}
+              >
+                重试写回
+              </Button>
+            </span>
+          ) : (
+            "本地记忆 · 对话文件同步已关闭"
+          )}
+        </div>
+      ) : null}
 
       {hostError ? (
         <Alert variant="destructive" className="ste:shrink-0">
@@ -373,19 +392,7 @@ export function RecordsApp(props: RecordsAppProps) {
                       onClick={() => openRecord(record.id)}
                     >
                       <ItemContent>
-                        <div className="ste:flex ste:items-baseline ste:gap-3">
-                          <ItemTitle className="ste:min-w-0 ste:flex-1">
-                            {record.displayText}
-                          </ItemTitle>
-                          <time
-                            className="ste:shrink-0 ste:text-xs ste:font-normal ste:text-muted-foreground"
-                            dateTime={record.updatedAt}
-                            aria-label={`更新于 ${record.updatedAt.slice(0, 16).replace("T", " ")}`}
-                            title={`更新于 ${record.updatedAt.slice(0, 16).replace("T", " ")}`}
-                          >
-                            {record.updatedAt.slice(5, 10)}
-                          </time>
-                        </div>
+                        <ItemTitle>{record.displayText}</ItemTitle>
                         <ItemDescription className="ste:line-clamp-1">
                           {recordPreview(record, state.fields, labels) || "暂无更多内容"}
                         </ItemDescription>
@@ -429,36 +436,118 @@ export function RecordsApp(props: RecordsAppProps) {
             />
           ) : null}
           {!showingDetail ? (
-            <PageFooter
-              className="ste:flex ste:shrink-0 ste:items-center ste:justify-between ste:border-t ste:border-border ste:p-3"
-              aria-label="记录分页"
-            >
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="上一页"
-                disabled={state.listLoading || state.page <= 1}
-                onClick={() => void workspace.setPage(state.page - 1)}
-              >
-                <ChevronLeft />
-                上一页
-              </Button>
-              <span className="ste:text-xs ste:text-muted-foreground">
-                第 {state.page} / {Math.max(1, state.records?.totalPages ?? 1)} 页 ·{" "}
-                {state.records?.total ?? 0} 条
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="下一页"
-                disabled={
-                  state.listLoading || !state.records || state.page >= state.records.totalPages
-                }
-                onClick={() => void workspace.setPage(state.page + 1)}
-              >
-                下一页
-                <ChevronRight />
-              </Button>
+            <PageFooter className="ste:px-3 ste:py-2">
+              <Pagination aria-label="记录分页" className="ste:mx-0 ste:w-full">
+                <PaginationContent className="ste:w-full ste:flex-nowrap ste:justify-between">
+                  <PaginationItem>
+                    <PaginationPrevious
+                      text=""
+                      size="icon"
+                      aria-label="上一页"
+                      disabled={state.listLoading || state.page <= 1}
+                      onClick={() => changePage(state.page - 1)}
+                    />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <Popover
+                      open={paginationOpen}
+                      onOpenChange={(open) => {
+                        setPaginationOpen(open);
+                        if (open) setPageInput(String(state.page));
+                      }}
+                    >
+                      <PopoverTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ste:bg-muted/50 ste:px-2.5 ste:text-xs ste:font-normal ste:hover:bg-muted"
+                          />
+                        }
+                        aria-label={`分页设置，第 ${state.page}/${totalPages} 页，共 ${state.records?.total ?? 0} 条`}
+                      >
+                        <span className="ste:whitespace-nowrap">
+                          {state.page}/{totalPages} · {state.records?.total ?? 0} 条
+                        </span>
+                        <ChevronDown className="ste:size-3 ste:opacity-70" aria-hidden />
+                      </PopoverTrigger>
+                      <PopoverContent aria-label="分页设置" side="top" className="ste:w-64">
+                        <div className="ste:flex ste:flex-col ste:gap-2">
+                          <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
+                            每页条数
+                          </span>
+                          <NativeSelect
+                            size="sm"
+                            aria-label="每页条数"
+                            className="ste:w-full"
+                            value={String(state.pageSize)}
+                            disabled={state.listLoading || !state.records}
+                            onChange={(event) => {
+                              listRef.current?.scrollTo({ top: 0 });
+                              void workspace.setPageSize(Number(event.target.value));
+                            }}
+                          >
+                            {[10, 20, 50, 100].map((size) => (
+                              <option key={size} value={size}>
+                                {size} 条/页
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </div>
+                        <form
+                          className="ste:flex ste:flex-col ste:gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const requested = Number.parseInt(pageInput, 10);
+                            const target = Number.isInteger(requested)
+                              ? Math.min(Math.max(requested, 1), totalPages)
+                              : state.page;
+                            setPageInput(String(target));
+                            setPaginationOpen(false);
+                            if (target !== state.page) changePage(target);
+                          }}
+                        >
+                          <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
+                            跳转页码
+                          </span>
+                          <div className="ste:flex ste:items-center ste:gap-2">
+                            <Input
+                              aria-label="跳转页码"
+                              className="ste:h-8 ste:min-w-0 ste:flex-1 ste:text-center"
+                              inputMode="numeric"
+                              placeholder={`1–${totalPages}`}
+                              value={pageInput}
+                              disabled={state.listLoading || totalPages <= 1}
+                              onChange={(event) =>
+                                setPageInput(event.target.value.replace(/\D/g, ""))
+                              }
+                              onBlur={() => {
+                                if (pageInput === "") setPageInput(String(state.page));
+                              }}
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              disabled={state.listLoading || totalPages <= 1}
+                            >
+                              跳转
+                            </Button>
+                          </div>
+                        </form>
+                      </PopoverContent>
+                    </Popover>
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationNext
+                      text=""
+                      size="icon"
+                      aria-label="下一页"
+                      disabled={state.listLoading || !state.records || state.page >= totalPages}
+                      onClick={() => changePage(state.page + 1)}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
             </PageFooter>
           ) : null}
         </>

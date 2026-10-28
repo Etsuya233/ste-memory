@@ -82,6 +82,46 @@ try {
     "20 records on first page",
     (await page.locator('[data-action="open-record"]:visible').count()) === 20,
   );
+  const paginationSettings = page.getByRole("button", { name: /分页设置/ });
+  await paginationSettings.click();
+  await page.locator('[data-slot="popover-content"]').waitFor();
+  const pageSizeSelect = page.getByRole("combobox", { name: "每页条数", exact: true });
+  const jumpInput = page.getByRole("textbox", { name: "跳转页码", exact: true });
+  await pageSizeSelect.selectOption("10");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-action="open-record"]').length === 10 &&
+      document.querySelector("footer")?.textContent?.includes("1/3 · 25 条"),
+  );
+  check("page size switches to 10", true);
+  await jumpInput.fill("99");
+  await jumpInput.press("Enter");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-action="open-record"]').length === 5 &&
+      document.querySelector("footer")?.textContent?.includes("3/3 · 25 条"),
+  );
+  check("jump clamps to the last page", true);
+  await paginationSettings.click();
+  await page.locator('[data-slot="popover-content"]').waitFor();
+  await jumpInput.fill("1");
+  await jumpInput.press("Enter");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-action="open-record"]').length === 10 &&
+      document.querySelector("footer")?.textContent?.includes("1/3 · 25 条"),
+  );
+  await paginationSettings.click();
+  await page.locator('[data-slot="popover-content"]').waitFor();
+  await pageSizeSelect.selectOption("20");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-action="open-record"]').length === 20 &&
+      document.querySelector("footer")?.textContent?.includes("1/2 · 25 条"),
+  );
+  await page.keyboard.press("Escape");
+  await page.locator('[data-slot="popover-content"]').waitFor({ state: "hidden" });
+  check("jump returns to the first page and page size restores", true);
   check(
     "host CSS unchanged",
     (await page.locator("#host-control").evaluate((el) => getComputedStyle(el).backgroundColor)) ===
