@@ -4,7 +4,10 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
-  "include": ["src", "scripts", "tests", "vitest.config.ts"]
+  "include": ["src", "scripts", "tests", "vitest.config.ts", "docs/ui/frontend-preview.tsx"]
 }

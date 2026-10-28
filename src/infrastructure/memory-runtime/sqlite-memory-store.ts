@@ -1,4 +1,5 @@
 import { parseMemoryMacros } from "../../features/macros/macro-expression.ts";
+import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
 import type { Table } from "dexie";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type {
@@ -76,7 +77,11 @@ export class SqliteMemoryStore {
     try {
       await this.client.importSpace(snapshot);
       this.#loaded.set(id, Promise.resolve(true));
-      await this.cache(snapshot);
+      try {
+        await this.cache(snapshot);
+      } catch (cause) {
+        throw new MemoryCommitPersistenceError(cause);
+      }
     } finally {
       if (owner === undefined) this.releaseWriter(id);
     }
@@ -211,6 +216,7 @@ export class SqliteMemoryStore {
       return result;
     } catch (error) {
       if (!committed) await this.client.rollback(spaceId);
+      else throw new MemoryCommitPersistenceError(error);
       throw error;
     } finally {
       this.releaseWriter(spaceId);
@@ -527,27 +533,42 @@ export class SqliteMemoryStore {
       commit: async (mutations, evidence) => {
         if (mutations.length === 0) return true;
         const id = spaceOf(mutations[0]!);
-        return this.write(
-          id,
-          async () => {
-            for (const mutation of mutations) {
-              if (spaceOf(mutation) !== id) throw new Error("一个记忆批次不能跨空间");
-              if (mutation.kind === "replace") {
-                const current = await client.getEntity(id, "record", mutation.previous.id, "write");
-                if (current?.revisionId !== mutation.previous.revisionId) return false;
+        let applied = false;
+        try {
+          return await this.write(
+            id,
+            async () => {
+              for (const mutation of mutations) {
+                if (spaceOf(mutation) !== id) throw new Error("一个记忆批次不能跨空间");
+                if (mutation.kind === "replace") {
+                  const current = await client.getEntity(
+                    id,
+                    "record",
+                    mutation.previous.id,
+                    "write",
+                  );
+                  if (current?.revisionId !== mutation.previous.revisionId) return false;
+                }
               }
-            }
-            for (const item of evidence) await client.putEntity(id, "evidence", item);
-            for (const mutation of mutations) {
-              if (mutation.kind === "replace")
-                await client.putEntity(id, "history", mutation.history);
-              if (mutation.current) await client.putEntity(id, "record", mutation.current);
-              else if (mutation.kind === "replace") await erase(id, "record", mutation.previous.id);
-            }
-            return true;
-          },
-          token,
-        );
+              for (const item of evidence) await client.putEntity(id, "evidence", item);
+              for (const mutation of mutations) {
+                if (mutation.kind === "replace")
+                  await client.putEntity(id, "history", mutation.history);
+                if (mutation.current) await client.putEntity(id, "record", mutation.current);
+                else if (mutation.kind === "replace")
+                  await erase(id, "record", mutation.previous.id);
+              }
+              applied = true;
+              return true;
+            },
+            token,
+          );
+        } catch (error) {
+          // A rejected optimistic lock committed no record changes. Preserve that result
+          // even if persisting the unchanged snapshot also failed.
+          if (!applied && error instanceof MemoryCommitPersistenceError) return false;
+          throw error;
+        }
       },
       listHistory: async (query) =>
         (await list(query.memorySpaceId, "history"))
@@ -586,28 +607,32 @@ export class SqliteMemoryStore {
             },
             token,
           );
-          await this.#db.transaction(
-            "rw",
-            [
-              this.#db.memoryFillTasks,
-              this.#db.floorFillLedger,
-              this.#db.vectorTasks,
-              this.#db.recordVectors,
-              this.#db.vectorSuppressions,
-            ],
-            async () => {
-              for (const table of [
+          try {
+            await this.#db.transaction(
+              "rw",
+              [
                 this.#db.memoryFillTasks,
                 this.#db.floorFillLedger,
                 this.#db.vectorTasks,
                 this.#db.recordVectors,
                 this.#db.vectorSuppressions,
-              ])
-                await table.where("memorySpaceId").equals(id).delete();
-            },
-          );
-          await this.onCommitted((await this.snapshot(id))!);
-          return true;
+              ],
+              async () => {
+                for (const table of [
+                  this.#db.memoryFillTasks,
+                  this.#db.floorFillLedger,
+                  this.#db.vectorTasks,
+                  this.#db.recordVectors,
+                  this.#db.vectorSuppressions,
+                ])
+                  await table.where("memorySpaceId").equals(id).delete();
+              },
+            );
+            await this.onCommitted((await this.snapshot(id))!);
+            return true;
+          } catch (cause) {
+            throw new MemoryCommitPersistenceError(cause);
+          }
         } finally {
           this.releaseWriter(id);
         }

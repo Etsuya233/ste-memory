@@ -105,6 +105,21 @@ export interface ChatSpaceManagerPorts {
 
 export const BRANCH_CLONE_MISSING_PORTS = "克隆空间需要 backup 端口和 createId 工厂";
 
+/** The imported space already exists; retrying the import would create another copy. */
+export class ImportedSpaceSyncError extends Error {
+  readonly spaceId: MemorySpaceId;
+  readonly bound: boolean;
+  constructor(spaceId: MemorySpaceId, bound: boolean, cause: unknown) {
+    super(
+      `导入空间已创建${bound ? "并绑定" : "，尚未绑定"}，后续同步失败：${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+    this.name = "ImportedSpaceSyncError";
+    this.spaceId = spaceId;
+    this.bound = bound;
+  }
+}
+
 export type SpaceContextStatus =
   | {
       readonly kind: "active";
@@ -422,22 +437,32 @@ export class ChatSpaceManager {
       task: () => id("task"),
       group: () => id("vector-group"),
     });
-    // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
-    await this.#ports.spaces.rename(newSpaceId, newSpaceName);
+    let bound = false;
+    try {
+      if (chatIdentityKey(this.#ports.getChat()) !== currentIdentity)
+        throw new Error("当前对话已切换，未修改新对话的绑定");
+      // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
+      await this.#ports.spaces.rename(newSpaceId, newSpaceName);
+      if (chatIdentityKey(this.#ports.getChat()) !== currentIdentity)
+        throw new Error("当前对话已切换，未修改新对话的绑定");
 
-    // 写入新绑定（覆盖原绑定；原空间数据保留，符合 ADR 0012「保留原空间」）
-    const newBinding: ChatSpaceBindingV2 = {
-      version: 2,
-      spaceId: newSpaceId,
-      chatIdentity: currentIdentity,
-    };
-    this.#ports.bindingStore.write(newBinding);
-    this.#ports.log?.info(
-      `已导入记忆空间「${newSpaceName}」（${newSpaceId}）并绑定到当前对话「${chat.chatId}」`,
-    );
+      // 写入新绑定（覆盖原绑定；原空间数据保留，符合 ADR 0012「保留原空间」）
+      const newBinding: ChatSpaceBindingV2 = {
+        version: 2,
+        spaceId: newSpaceId,
+        chatIdentity: currentIdentity,
+      };
+      this.#ports.bindingStore.write(newBinding);
+      bound = true;
+      this.#ports.log?.info(
+        `已导入记忆空间「${newSpaceName}」（${newSpaceId}）并绑定到当前对话「${chat.chatId}」`,
+      );
 
-    // 重新同步收敛到 active
-    return this.syncToCurrentChat();
+      // 重新同步收敛到 active
+      return await this.syncToCurrentChat();
+    } catch (cause) {
+      throw new ImportedSpaceSyncError(newSpaceId, bound, cause);
+    }
   }
 
   #publish(status: SpaceContextStatus): SpaceContextStatus {

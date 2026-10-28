@@ -22,7 +22,7 @@ import {
   DexieFloorLedgerRepository,
 } from "../../infrastructure/indexeddb/fill-tasks/fill-task-repository.ts";
 import { DexieLogRepository } from "../../infrastructure/indexeddb/logs/log-repository.ts";
-import { SpaceMaintenanceService } from "./space-maintenance-service.ts";
+import { RecordsClearCleanupError, SpaceMaintenanceService } from "./space-maintenance-service.ts";
 
 /** 出厂 characters 表字段数（system-memory-table-definitions）。 */
 const CHARACTERS_DEFAULT_FIELD_COUNT = 7;
@@ -104,6 +104,36 @@ async function setup() {
 }
 
 describe("SpaceMaintenanceService（清除空间记录）", () => {
+  it("checks the host identity after awaiting cancellation and before deleting records", async () => {
+    const clearRecords = vi.fn(async () => true);
+    const service = new SpaceMaintenanceService({
+      clearRecords,
+      cancelActiveTask: async () => {},
+      clearTasks: async () => {},
+      clearLedger: async () => {},
+    });
+    await expect(
+      service.clearRecords("space" as MemorySpaceId, () => {
+        throw new Error("chat changed");
+      }),
+    ).rejects.toThrow("chat changed");
+    expect(clearRecords).not.toHaveBeenCalled();
+  });
+  it("identifies cleanup failure after the record deletion has committed", async () => {
+    const clearRecords = vi.fn(async () => true);
+    const service = new SpaceMaintenanceService({
+      clearRecords,
+      cancelActiveTask: async () => {},
+      clearTasks: async () => {
+        throw new Error("tasks unavailable");
+      },
+      clearLedger: async () => {},
+    });
+    await expect(service.clearRecords("space" as MemorySpaceId)).rejects.toBeInstanceOf(
+      RecordsClearCleanupError,
+    );
+    expect(clearRecords).toHaveBeenCalledOnce();
+  });
   it("清除空间记录：记录/历史/证据消失，表格结构保留，任务与台账清空，空间保留", async () => {
     const { db, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
       await setup();

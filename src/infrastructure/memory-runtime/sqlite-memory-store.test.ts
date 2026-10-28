@@ -6,6 +6,8 @@ import type { SqliteMemoryClient } from "../sqlite/types.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import {
   MemoryRecordService,
+  MemoryRecordSaveError,
+  MemoryCommitPersistenceError,
   type MemoryRecord,
   type MemoryEvidenceId,
   type MemoryRecordId,
@@ -110,6 +112,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await store.replace(unit);
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await client.close();
   });
 
@@ -274,6 +277,116 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     ]);
     const next = await store.begin(id());
     await store.finish(id(), next, false);
+  });
+
+  it("retries snapshot persistence without replaying a committed record write", async () => {
+    store.onCommitted = async () => {
+      throw new Error("文件写回失败");
+    };
+    await expect(
+      writer(store.repositories()).create(id(), tableId(), { payload: { name: "只创建一次" } }),
+    ).rejects.toThrow("文件写回失败");
+    const before = (await store.snapshot(id()))!;
+    const persist = vi.fn(async () => {});
+    store.onCommitted = persist;
+    await store.write(id(), async () => undefined);
+    const after = (await store.snapshot(id()))!;
+    expect(after.records).toEqual(before.records);
+    expect(after.history).toEqual(before.history);
+    expect(after.records).toHaveLength(1);
+    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledWith(after);
+  });
+
+  it("record creation exposes its exact committed record when file persistence fails", async () => {
+    const records = writer(store.repositories());
+    const failure = new Error("对话文件不可写");
+    store.onCommitted = async () => {
+      throw failure;
+    };
+    let caught: unknown;
+    try {
+      await records.create(id(), tableId(), { payload: { name: "已创建" } });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(MemoryRecordSaveError);
+    const saved = caught as MemoryRecordSaveError;
+    expect(saved.message).toBe(failure.message);
+    expect(saved.cause).toBeInstanceOf(MemoryCommitPersistenceError);
+    expect((saved.cause as Error).cause).toBe(failure);
+    expect((await store.snapshot(id()))!.records).toEqual([saved.record]);
+    expect(saved.record.payload).toEqual({ name: "已创建" });
+    // Retrying persistence uses the committed snapshot and creates no second record.
+    store.onCommitted = async () => {};
+    await store.onCommitted((await store.snapshot(id()))!);
+    expect(await store.repositories().records.list(id(), tableId())).toHaveLength(1);
+  });
+
+  it("record update carries its committed revision without reading after writer release", async () => {
+    const repositories = store.repositories();
+    const records = writer(repositories);
+    const original = (await records.create(id(), tableId(), { payload: { name: "修改前" } }))!;
+    const find = vi.spyOn(repositories.records, "find");
+    store.onCommitted = async () => {
+      // The host may unload this chat immediately after the writer is released.
+      find.mockRejectedValue(new Error("原对话已卸载，禁止回查"));
+      throw new Error("对话文件写回失败");
+    };
+    let caught: unknown;
+    try {
+      await records.update(id(), tableId(), original.id, {
+        expectedRevisionId: original.revisionId,
+        revisionSource: "user",
+        patch: { name: "修改后" },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(MemoryRecordSaveError);
+    const saved = caught as MemoryRecordSaveError;
+    expect(saved.message).toBe("对话文件写回失败");
+    expect(saved.record.id).toBe(original.id);
+    expect(saved.record.revisionId).not.toBe(original.revisionId);
+    expect(saved.record.payload).toEqual({ name: "修改后" });
+    const snapshot = (await store.snapshot(id()))!;
+    expect(snapshot.records).toEqual([saved.record]);
+    expect(snapshot.history).toHaveLength(1);
+    await store.unload(id());
+    expect(saved.record.payload).toEqual({ name: "修改后" });
+  });
+
+  it("a rejected optimistic lock stays a conflict when saving the unchanged snapshot fails", async () => {
+    const repositories = store.repositories();
+    const records = writer(repositories);
+    const original = (await records.create(id(), tableId(), { payload: { name: "原值" } }))!;
+    const commit = repositories.records.commit.bind(repositories.records);
+    vi.spyOn(repositories.records, "commit").mockImplementation((mutations, evidence) =>
+      commit(
+        mutations.map((mutation) =>
+          mutation.kind === "replace"
+            ? {
+                ...mutation,
+                previous: { ...mutation.previous, revisionId: "stale" as MemoryRevisionId },
+              }
+            : mutation,
+        ),
+        evidence,
+      ),
+    );
+    store.onCommitted = async () => {
+      throw new Error("对话文件写回失败");
+    };
+    await expect(
+      records.update(id(), tableId(), original.id, {
+        expectedRevisionId: original.revisionId,
+        revisionSource: "user",
+        patch: { name: "未写入" },
+      }),
+    ).rejects.toMatchObject({ type: "memory_record_revision_conflict" });
+    const snapshot = (await store.snapshot(id()))!;
+    expect(snapshot.records).toEqual([original]);
+    expect(snapshot.history).toHaveLength(0);
   });
 
   it("active task excludes ordinary writes, competing tasks, source replacement and unload", async () => {
@@ -577,6 +690,53 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await rebuild).toBe(true);
     const token = await store.begin(id());
     await store.finish(id(), token, false);
+  });
+
+  it.each(["cache", "cleanup", "onCommitted"] as const)(
+    "reports the committed rebuild without replaying it when %s fails",
+    async (stage) => {
+      await store.repositories().records.create(row("old", "重建前的记录"), []);
+      const failure = new Error(`${stage} unavailable`);
+      const imported = vi.spyOn(client, "importSpace");
+      if (stage === "cache") vi.spyOn(store, "cache").mockRejectedValueOnce(failure);
+      else if (stage === "onCommitted")
+        vi.spyOn(store, "onCommitted").mockRejectedValueOnce(failure);
+      else
+        vi.spyOn(db.memoryFillTasks, "where").mockImplementationOnce(() => {
+          throw failure;
+        });
+      const operation = store.structureRebuild().rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
+      });
+      await expect(operation).rejects.toBeInstanceOf(MemoryCommitPersistenceError);
+      await expect(operation).rejects.toHaveProperty("cause", failure);
+      const snapshot = (await store.snapshot(id()))!;
+      expect(snapshot.records).toEqual([]);
+      expect(snapshot.space.initializationSource?.presetId).toBe("replacement");
+      expect(imported).toHaveBeenCalledOnce();
+      if (stage !== "cache") expect(await db.memoryRecords.toArray()).toEqual([]);
+      const token = await store.begin(id());
+      await store.finish(id(), token, false);
+    },
+  );
+
+  it("retains an import transaction error when structure replacement does not commit", async () => {
+    await store.repositories().records.create(row("old", "保留记录"), []);
+    const before = await store.snapshot(id());
+    const failure = new Error("invalid replacement");
+    vi.spyOn(client, "importSpace").mockRejectedValueOnce(failure);
+    await expect(
+      store.structureRebuild().rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
+      }),
+    ).rejects.toBe(failure);
+    expect(await store.snapshot(id())).toEqual(before);
   });
 
   it("unload and reinitialization load the latest complete local snapshot", async () => {

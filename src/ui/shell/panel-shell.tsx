@@ -1,3 +1,4 @@
+import { PrimitivesProvider } from "../primitives/provider.tsx";
 import { Tabs } from "../kit/tabs.tsx";
 import type { PresetSpaceUpdateService } from "../../features/table-presets/preset-space-update.ts";
 import { PageHeaderActions, PageLayout } from "./page-layout.tsx";
@@ -413,6 +414,11 @@ export function PanelShell(props: {
 
   // ---- 桌面浮动窗口：几何（CSS 变量）由本组件直接写面板元素，不经过 React state ----
   const panelRef = useRef<HTMLElement | null>(null);
+  const [primitivesContainer, setPrimitivesContainer] = useState<HTMLElement | null>(null);
+  const setPanelElement = useCallback((element: HTMLElement | null) => {
+    panelRef.current = element;
+    setPrimitivesContainer(element);
+  }, []);
 
   // 导航是否常驻跟随面板自身宽度（桌面窗口可被缩到手机大小）；窗口隐藏时忽略 0 宽读数。
   useEffect(() => {
@@ -625,372 +631,377 @@ export function PanelShell(props: {
   }
 
   return (
-    <aside
-      id="stm-panel"
-      data-style={appearance.style}
-      data-tone={presentation.tone}
-      data-theme={appearance.theme}
-      data-accent={appearance.accent}
-      data-font={appearance.font}
-      data-size={appearance.size}
-      data-nav-docked={isWidePanel ? navDocked : undefined}
-      data-nav-open={navOpen}
-      style={presentation.variables as CSSProperties}
-      onKeyDown={(event) => {
-        if (!navVisible) return;
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          closeNavigation();
-        }
-        if (event.key === "Tab" && navOpen && !isWidePanel) {
-          const buttons = navRef.current!.querySelectorAll<HTMLButtonElement>("button");
-          const first = buttons[0]!;
-          const last = buttons[buttons.length - 1]!;
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-          }
-        }
-      }}
-      ref={panelRef}
-      popover="manual"
-      className={state.open ? "ui-theme stm-panel stm-panel--open" : "ui-theme stm-panel"}
-      aria-hidden={!state.open}
+    <PrimitivesProvider
+      container={primitivesContainer}
+      active={state.open && state.tab === "records"}
     >
-      {navOpen && !isWidePanel && (
-        <button
-          type="button"
-          className="stm-drawer-scrim"
-          aria-label="关闭导航"
-          tabIndex={-1}
-          onClick={closeNavigation}
-        />
-      )}
-      <nav
-        id="stm-navigation"
-        ref={navRef}
-        className="stm-navigation"
-        data-open={navVisible}
-        inert={!navVisible}
-        aria-hidden={!navVisible}
-        aria-label="记忆面板导航"
+      <aside
+        id="stm-panel"
+        data-style={appearance.style}
+        data-tone={presentation.tone}
+        data-theme={appearance.theme}
+        data-accent={appearance.accent}
+        data-font={appearance.font}
+        data-size={appearance.size}
+        data-nav-docked={isWidePanel ? navDocked : undefined}
+        data-nav-open={navOpen}
+        style={presentation.variables as CSSProperties}
+        onKeyDown={(event) => {
+          if (!navVisible) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            closeNavigation();
+          }
+          if (event.key === "Tab" && navOpen && !isWidePanel) {
+            const buttons = navRef.current!.querySelectorAll<HTMLButtonElement>("button");
+            const first = buttons[0]!;
+            const last = buttons[buttons.length - 1]!;
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
+        ref={setPanelElement}
+        popover="manual"
+        className={`ui-theme stm-panel${state.open ? " stm-panel--open" : ""}${state.tab === "records" ? " stm-luma" : ""}`}
+        aria-hidden={!state.open}
       >
-        <div className="stm-navigation-heading">
-          <span>{PLUGIN_DISPLAY_NAME}</span>
+        {navOpen && !isWidePanel && (
           <button
             type="button"
-            className="stm-header-nav"
-            aria-label="收起导航"
+            className="stm-drawer-scrim"
+            aria-label="关闭导航"
+            tabIndex={-1}
             onClick={closeNavigation}
-          >
-            <i className="fa-solid fa-xmark" aria-hidden="true" />
-          </button>
-        </div>
-        <div className="stm-navigation-context">
-          <strong>{info.title}</strong>
-          {info.detail && <span>{info.detail}</span>}
-        </div>
-        {[
-          { label: "日常使用", tabs: ["records", "retrieval", "query", "tasks"] as const },
-          { label: "管理", tabs: ["tables", "settings", "logs"] as const },
-        ].map((group) => (
-          <div className="stm-navigation-group" key={group.label}>
-            <div className="stm-section-label">{group.label}</div>
-            <div role="tablist" aria-label={group.label}>
-              {group.tabs.map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className="stm-tab"
-                  role="tab"
-                  data-tab={tab}
-                  data-action="tab"
-                  aria-selected={tab === state.tab}
-                  onClick={() => {
-                    if (tab !== state.tab && !confirmLeaveTab()) return;
-                    props.model.setTab(tab);
-                    if (!isWidePanel) setNavOpen(false);
-                  }}
-                >
-                  <i
-                    className={
-                      "fa-solid " +
-                      {
-                        records: "fa-book-open",
-                        retrieval: "fa-magnifying-glass",
-                        query: "fa-comment",
-                        tasks: "fa-list-check",
-                        tables: "fa-table",
-                        settings: "fa-sliders",
-                        logs: "fa-clock-rotate-left",
-                      }[tab]
-                    }
-                    aria-hidden="true"
-                  />
-                  <span>{PANEL_TAB_LABELS[tab]}</span>
-                </button>
-              ))}
-            </div>
+          />
+        )}
+        <nav
+          id="stm-navigation"
+          ref={navRef}
+          className="stm-navigation"
+          data-open={navVisible}
+          inert={!navVisible}
+          aria-hidden={!navVisible}
+          aria-label="记忆面板导航"
+        >
+          <div className="stm-navigation-heading">
+            <span>{PLUGIN_DISPLAY_NAME}</span>
+            <button
+              type="button"
+              className="stm-header-nav"
+              aria-label="收起导航"
+              onClick={closeNavigation}
+            >
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
           </div>
-        ))}
-      </nav>
-      <PageLayout
-        header={
-          <PanelBar
-            dataAction="drag-panel"
-            onPointerDown={beginHeaderDrag}
-            inert={navOpen && !isWidePanel}
-            title={PANEL_TAB_LABELS[state.tab]}
-            subtitle={
-              <span
-                className="stm-space-title"
-                title={[info.title, info.detail].filter(Boolean).join(" · ")}
-              >
-                {info.title}
-              </span>
-            }
-            leading={
-              <PanelBarAction
-                icon="fa-bars"
-                label={navVisible ? "收起导航" : "显示导航"}
-                ref={navTriggerRef}
-                aria-expanded={navVisible}
-                aria-controls="stm-navigation"
-                data-action="open-navigation"
-                data-active={navVisible ? "true" : undefined}
-                onClick={() => {
-                  if (isWidePanel) setNavDocked((docked) => !docked);
-                  else setNavOpen((open) => !open);
-                }}
-              />
-            }
-            trailing={
-              <>
-                <PageHeaderActions />
+          <div className="stm-navigation-context">
+            <strong>{info.title}</strong>
+            {info.detail && <span>{info.detail}</span>}
+          </div>
+          {[
+            { label: "日常使用", tabs: ["records", "retrieval", "query", "tasks"] as const },
+            { label: "管理", tabs: ["tables", "settings", "logs"] as const },
+          ].map((group) => (
+            <div className="stm-navigation-group" key={group.label}>
+              <div className="stm-section-label">{group.label}</div>
+              <div role="tablist" aria-label={group.label}>
+                {group.tabs.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className="stm-tab"
+                    role="tab"
+                    data-tab={tab}
+                    data-action="tab"
+                    aria-selected={tab === state.tab}
+                    onClick={() => {
+                      if (tab !== state.tab && !confirmLeaveTab()) return;
+                      props.model.setTab(tab);
+                      if (!isWidePanel) setNavOpen(false);
+                    }}
+                  >
+                    <i
+                      className={
+                        "fa-solid " +
+                        {
+                          records: "fa-book-open",
+                          retrieval: "fa-magnifying-glass",
+                          query: "fa-comment",
+                          tasks: "fa-list-check",
+                          tables: "fa-table",
+                          settings: "fa-sliders",
+                          logs: "fa-clock-rotate-left",
+                        }[tab]
+                      }
+                      aria-hidden="true"
+                    />
+                    <span>{PANEL_TAB_LABELS[tab]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+        <PageLayout
+          header={
+            <PanelBar
+              dataAction="drag-panel"
+              onPointerDown={beginHeaderDrag}
+              inert={navOpen && !isWidePanel}
+              title={PANEL_TAB_LABELS[state.tab]}
+              subtitle={
+                <span
+                  className="stm-space-title"
+                  title={[info.title, info.detail].filter(Boolean).join(" · ")}
+                >
+                  {info.title}
+                </span>
+              }
+              leading={
                 <PanelBarAction
-                  icon="fa-xmark"
-                  label="收起面板"
-                  data-action="close-panel"
+                  icon="fa-bars"
+                  label={navVisible ? "收起导航" : "显示导航"}
+                  ref={navTriggerRef}
+                  aria-expanded={navVisible}
+                  aria-controls="stm-navigation"
+                  data-action="open-navigation"
+                  data-active={navVisible ? "true" : undefined}
                   onClick={() => {
-                    if (!confirmLeaveTab()) return;
-                    props.model.close();
+                    if (isWidePanel) setNavDocked((docked) => !docked);
+                    else setNavOpen((open) => !open);
                   }}
                 />
-              </>
-            }
-          />
-        }
-        contentClassName="stm-panel-body"
-        contentAs="main"
-        inert={navOpen && !isWidePanel}
-      >
-        {info.tone === "warning" && (
-          <div className="stm-context-warning" role="status">
-            {info.detail || info.title}
-          </div>
-        )}
-        {state.tab === "tables" && (
-          <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
-            <TablesTab
-              registerLeaveGuard={registerLeaveGuard}
-              vector={props.runtime.vector}
-              tables={props.runtime.tables}
-              fields={props.runtime.fields}
-              records={props.runtime.records}
-              macro={props.runtime.macro}
-              status={status}
-              settings={settings}
-              dataVersion={dataVersion}
+              }
+              trailing={
+                <>
+                  <PageHeaderActions />
+                  <PanelBarAction
+                    icon="fa-xmark"
+                    label="收起面板"
+                    data-action="close-panel"
+                    onClick={() => {
+                      if (!confirmLeaveTab()) return;
+                      props.model.close();
+                    }}
+                  />
+                </>
+              }
             />
-          </section>
-        )}
-        {state.tab === "records" && (
-          <section className="stm-tab-section" data-stm-section="records" role="tabpanel">
-            <RecordsTab
-              runtime={props.runtime}
-              focusRecord={recordFocus}
-              onFocusConsumed={() => setRecordFocus(null)}
-              status={status}
-              settings={settings}
-              dataVersion={dataVersion}
-              registerLeaveGuard={registerLeaveGuard}
-            />
-          </section>
-        )}
-        {state.tab === "tasks" && (
-          <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
+          }
+          contentClassName="stm-panel-body"
+          contentAs="main"
+          inert={navOpen && !isWidePanel}
+        >
+          {info.tone === "warning" && (
+            <div className="stm-context-warning" role="status">
+              {info.detail || info.title}
+            </div>
+          )}
+          {state.tab === "tables" && (
+            <section className="stm-tab-section" data-stm-section="tables" role="tabpanel">
+              <TablesTab
+                registerLeaveGuard={registerLeaveGuard}
+                vector={props.runtime.vector}
+                tables={props.runtime.tables}
+                fields={props.runtime.fields}
+                records={props.runtime.records}
+                macro={props.runtime.macro}
+                status={status}
+                settings={settings}
+                dataVersion={dataVersion}
+              />
+            </section>
+          )}
+          {state.tab === "records" && (
+            <section className="stm-tab-section" data-stm-section="records" role="tabpanel">
+              <RecordsTab
+                runtime={props.runtime}
+                focusRecord={recordFocus}
+                onFocusConsumed={() => setRecordFocus(null)}
+                status={status}
+                settings={settings}
+                dataVersion={dataVersion}
+                registerLeaveGuard={registerLeaveGuard}
+              />
+            </section>
+          )}
+          {state.tab === "tasks" && (
+            <section className="stm-tab-section" data-stm-section="tasks" role="tabpanel">
+              <Tabs
+                label="任务类型"
+                className="stm-task-kind"
+                value={taskKind}
+                options={[
+                  {
+                    value: "fill",
+                    label: "填表任务",
+                    panelId: "stm-fill-tasks",
+                    dataAction: "task-kind-fill",
+                  },
+                  {
+                    value: "vector",
+                    label: "向量任务",
+                    panelId: "stm-vector-tasks",
+                    dataAction: "task-kind-vector",
+                  },
+                ]}
+                onChange={(kind) => {
+                  setTaskKind(kind);
+                  panelRef.current!.querySelector(".stm-panel-body")!.scrollTop = 0;
+                }}
+              />
+              <div
+                id="stm-fill-tasks"
+                role="tabpanel"
+                aria-label="填表任务"
+                hidden={taskKind !== "fill"}
+              >
+                <TasksTab
+                  autoFillFocus={autoFillFocus}
+                  active={taskKind === "fill"}
+                  runtime={props.runtime}
+                  status={status}
+                  settings={settings}
+                  onSettingsChange={setSettings}
+                  onViewLogs={(runId) => {
+                    setLogFocusRunId(runId);
+                    props.model.setTab("logs");
+                  }}
+                />
+              </div>
+              <div
+                id="stm-vector-tasks"
+                role="tabpanel"
+                aria-label="向量任务"
+                hidden={taskKind !== "vector"}
+              >
+                <VectorTasks
+                  active={taskKind === "vector"}
+                  vector={props.runtime.vector}
+                  spaces={props.runtime.spaces}
+                  tables={props.runtime.tables}
+                  currentSpaceId={status?.kind === "active" ? status.space.id : undefined}
+                />
+              </div>
+            </section>
+          )}
+          <section
+            hidden={state.tab !== "retrieval"}
+            className="stm-tab-section"
+            data-stm-section="retrieval"
+            role="tabpanel"
+          >
             <Tabs
-              label="任务类型"
-              className="stm-task-kind"
-              value={taskKind}
+              label="检索方式"
+              value={retrievalMode}
+              onChange={setRetrievalMode}
               options={[
-                {
-                  value: "fill",
-                  label: "填表任务",
-                  panelId: "stm-fill-tasks",
-                  dataAction: "task-kind-fill",
-                },
-                {
-                  value: "vector",
-                  label: "向量任务",
-                  panelId: "stm-vector-tasks",
-                  dataAction: "task-kind-vector",
-                },
+                { value: "vector", label: "向量", panelId: "stm-retrieval-vector" },
+                { value: "sql", label: "SQL", panelId: "stm-retrieval-sql" },
               ]}
-              onChange={(kind) => {
-                setTaskKind(kind);
-                panelRef.current!.querySelector(".stm-panel-body")!.scrollTop = 0;
-              }}
             />
             <div
-              id="stm-fill-tasks"
+              id="stm-retrieval-vector"
               role="tabpanel"
-              aria-label="填表任务"
-              hidden={taskKind !== "fill"}
+              aria-label="向量"
+              hidden={retrievalMode !== "vector"}
             >
-              <TasksTab
-                autoFillFocus={autoFillFocus}
-                active={taskKind === "fill"}
+              <RetrievalTab
+                active={state.tab === "retrieval" && retrievalMode === "vector"}
+                key={props.runtime.retrieval.getState().epoch}
+                service={props.runtime.retrieval}
+                connection={settings.embeddingConnection}
+                spaceId={status?.kind === "active" ? status.space.id : null}
+                onRecord={(tableId, recordId) => {
+                  setRecordFocus({ tableId, recordId });
+                  props.model.setTab("records");
+                }}
+                onIndex={() => props.model.setTab("tables")}
+                onSettings={() => props.model.setTab("settings")}
+              />
+            </div>
+            <div
+              id="stm-retrieval-sql"
+              role="tabpanel"
+              aria-label="SQL"
+              hidden={retrievalMode !== "sql"}
+            >
+              <SqlPanel
+                key={props.runtime.retrieval.getState().epoch}
+                console={props.runtime.sqlConsole}
+                active={state.tab === "retrieval" && retrievalMode === "sql"}
+                spaceId={status?.kind === "active" ? status.space.id : null}
+                dataVersion={dataVersion}
+                onExecuted={() => setDataVersion((version) => version + 1)}
+              />
+            </div>
+          </section>
+          {state.tab === "query" && (
+            <section className="stm-tab-section" data-stm-section="query" role="tabpanel">
+              <QueryChatTab
                 runtime={props.runtime}
                 status={status}
                 settings={settings}
-                onSettingsChange={setSettings}
-                onViewLogs={(runId) => {
-                  setLogFocusRunId(runId);
-                  props.model.setTab("logs");
-                }}
+                store={queryChatStore}
+                onDataChanged={() => setDataVersion((version) => version + 1)}
               />
-            </div>
-            <div
-              id="stm-vector-tasks"
-              role="tabpanel"
-              aria-label="向量任务"
-              hidden={taskKind !== "vector"}
-            >
-              <VectorTasks
-                active={taskKind === "vector"}
-                vector={props.runtime.vector}
-                spaces={props.runtime.spaces}
+            </section>
+          )}
+          {state.tab === "logs" && (
+            <section className="stm-tab-section" data-stm-section="logs" role="tabpanel">
+              <LogTab
+                runtime={props.runtime}
+                settings={settings}
+                focusRunId={logFocusRunId}
+                onFocusConsumed={() => setLogFocusRunId(null)}
+              />
+            </section>
+          )}
+          {state.tab === "settings" && (
+            <section className="stm-tab-section" data-stm-section="settings" role="tabpanel">
+              <SettingsTab
+                registerLeaveGuard={registerLeaveGuard}
+                settingsService={props.runtime.settingsService}
+                normalizeImportedSpace={props.runtime.normalizeImportedSpace}
                 tables={props.runtime.tables}
-                currentSpaceId={status?.kind === "active" ? status.space.id : undefined}
+                fields={props.runtime.fields}
+                manager={props.runtime.manager}
+                backup={props.runtime.backup}
+                mirror={props.runtime.mirror}
+                macro={props.runtime.macro}
+                spaceMaintenance={props.runtime.spaceMaintenance}
+                presetApply={props.runtime.presetApply}
+                presetUpdate={props.runtime.presetUpdate}
+                cleaning={props.runtime.cleaning}
+                presetPreview={props.runtime.presetPreview}
+                macroOverview={props.runtime.macroOverview}
+                entryMount={props.runtime.entryMount}
+                version={props.runtime.version}
+                status={status}
+                settings={settings}
+                mirrorStatus={mirrorStatus}
+                queryChatStore={queryChatStore}
+                panelElementRef={panelRef}
+                onSettingsChange={setSettings}
+                onDataChanged={() => setDataVersion((version) => version + 1)}
               />
-            </div>
-          </section>
-        )}
-        <section
-          hidden={state.tab !== "retrieval"}
-          className="stm-tab-section"
-          data-stm-section="retrieval"
-          role="tabpanel"
-        >
-          <Tabs
-            label="检索方式"
-            value={retrievalMode}
-            onChange={setRetrievalMode}
-            options={[
-              { value: "vector", label: "向量", panelId: "stm-retrieval-vector" },
-              { value: "sql", label: "SQL", panelId: "stm-retrieval-sql" },
-            ]}
-          />
-          <div
-            id="stm-retrieval-vector"
-            role="tabpanel"
-            aria-label="向量"
-            hidden={retrievalMode !== "vector"}
-          >
-            <RetrievalTab
-              active={state.tab === "retrieval" && retrievalMode === "vector"}
-              key={props.runtime.retrieval.getState().epoch}
-              service={props.runtime.retrieval}
-              connection={settings.embeddingConnection}
-              spaceId={status?.kind === "active" ? status.space.id : null}
-              onRecord={(tableId, recordId) => {
-                setRecordFocus({ tableId, recordId });
-                props.model.setTab("records");
-              }}
-              onIndex={() => props.model.setTab("tables")}
-              onSettings={() => props.model.setTab("settings")}
-            />
-          </div>
-          <div
-            id="stm-retrieval-sql"
-            role="tabpanel"
-            aria-label="SQL"
-            hidden={retrievalMode !== "sql"}
-          >
-            <SqlPanel
-              key={props.runtime.retrieval.getState().epoch}
-              console={props.runtime.sqlConsole}
-              active={state.tab === "retrieval" && retrievalMode === "sql"}
-              spaceId={status?.kind === "active" ? status.space.id : null}
-              dataVersion={dataVersion}
-              onExecuted={() => setDataVersion((version) => version + 1)}
-            />
-          </div>
-        </section>
-        {state.tab === "query" && (
-          <section className="stm-tab-section" data-stm-section="query" role="tabpanel">
-            <QueryChatTab
-              runtime={props.runtime}
-              status={status}
-              settings={settings}
-              store={queryChatStore}
-              onDataChanged={() => setDataVersion((version) => version + 1)}
-            />
-          </section>
-        )}
-        {state.tab === "logs" && (
-          <section className="stm-tab-section" data-stm-section="logs" role="tabpanel">
-            <LogTab
-              runtime={props.runtime}
-              settings={settings}
-              focusRunId={logFocusRunId}
-              onFocusConsumed={() => setLogFocusRunId(null)}
-            />
-          </section>
-        )}
-        {state.tab === "settings" && (
-          <section className="stm-tab-section" data-stm-section="settings" role="tabpanel">
-            <SettingsTab
-              registerLeaveGuard={registerLeaveGuard}
-              settingsService={props.runtime.settingsService}
-              normalizeImportedSpace={props.runtime.normalizeImportedSpace}
-              tables={props.runtime.tables}
-              fields={props.runtime.fields}
-              manager={props.runtime.manager}
-              backup={props.runtime.backup}
-              mirror={props.runtime.mirror}
-              macro={props.runtime.macro}
-              spaceMaintenance={props.runtime.spaceMaintenance}
-              presetApply={props.runtime.presetApply}
-              presetUpdate={props.runtime.presetUpdate}
-              cleaning={props.runtime.cleaning}
-              presetPreview={props.runtime.presetPreview}
-              macroOverview={props.runtime.macroOverview}
-              entryMount={props.runtime.entryMount}
-              version={props.runtime.version}
-              status={status}
-              settings={settings}
-              mirrorStatus={mirrorStatus}
-              queryChatStore={queryChatStore}
-              panelElementRef={panelRef}
-              onSettingsChange={setSettings}
-              onDataChanged={() => setDataVersion((version) => version + 1)}
-            />
-          </section>
-        )}
-      </PageLayout>
-      {/* 桌面浮动窗口：右下角缩放手柄（移动端隐藏；data-action 为验收脚本契约） */}
-      <div
-        className="stm-panel-resize"
-        data-action="resize-panel"
-        aria-hidden="true"
-        onPointerDown={beginPanelResize}
-      />
-    </aside>
+            </section>
+          )}
+        </PageLayout>
+        {/* 桌面浮动窗口：右下角缩放手柄（移动端隐藏；data-action 为验收脚本契约） */}
+        <div
+          className="stm-panel-resize"
+          data-action="resize-panel"
+          aria-hidden="true"
+          onPointerDown={beginPanelResize}
+        />
+      </aside>
+    </PrimitivesProvider>
   );
 }

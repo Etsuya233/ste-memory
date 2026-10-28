@@ -3,3 +3,5 @@ allowBuilds:
   "@google/genai": false
   esbuild: true
   protobufjs: false
+
+  "@parcel/watcher": false

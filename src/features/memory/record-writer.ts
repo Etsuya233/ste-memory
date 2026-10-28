@@ -17,6 +17,7 @@ import {
   type MemoryTableId,
 } from "./domain/index.ts";
 import type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
+import { MemoryCommitPersistenceError, MemoryRecordSaveError } from "./commit-persistence-error.ts";
 import type {
   MemoryRecordHistoryQuery,
   MemoryRecordRepository,
@@ -150,7 +151,13 @@ export class MemoryRecordService {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    await this.records.create(record, resolvedEvidence.createdEvidence);
+    try {
+      await this.records.create(record, resolvedEvidence.createdEvidence);
+    } catch (error) {
+      if (error instanceof MemoryCommitPersistenceError)
+        throw new MemoryRecordSaveError(record, error);
+      throw error;
+    }
     return record;
   }
 

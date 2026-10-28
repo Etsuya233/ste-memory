@@ -1,7 +1,7 @@
 import { getStContext } from "./infrastructure/sillytavern/context.ts";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { startSteMemory } from "./runtime.ts";
-import { mountPanel } from "./ui/shell/st-panel-host.tsx";
+import type { SteMemoryRuntime } from "./runtime.ts";
 
 export { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 
@@ -21,6 +21,8 @@ export interface BootstrapOptions {
   /** 运行时启动器；缺省 = 真实 runtime（bootstrap 测试注入 fake）；
    *   getContext 为可重复调用的工厂（切对话后需重取 ST 上下文） */
   start?: (getContext: () => unknown, log: PluginLog) => Promise<unknown>;
+  /** Each frontend owns its mount and styles; only one entry is loaded by ST. */
+  mount?: (runtime: SteMemoryRuntime) => void;
 }
 
 export type BootstrapStatus = "loaded" | "unavailable";
@@ -46,7 +48,7 @@ export function bootstrap(options: BootstrapOptions): BootstrapStatus {
         // 暴露运行时与 LLM 端口工厂，供 docs/playwright-st-extension 验收脚本调用
         (globalThis as Record<string, unknown>).__STE_MEMORY_RUNTIME__ = runtime;
         // 面板挂载（非浏览器环境内部自守卫）；runtime 已含设置存储/服务/版本
-        mountPanel(runtime);
+        options.mount?.(runtime);
         return runtime;
       }));
   void start(getContext, log).catch((error) => {

@@ -26,6 +26,7 @@ export type {
 } from "./field-service.ts";
 export type { MemoryFieldRepository } from "./ports/memory-field-repository.ts";
 export { MemoryRecordService } from "./record-writer.ts";
+export { MemoryCommitPersistenceError, MemoryRecordSaveError } from "./commit-persistence-error.ts";
 export { DEFAULT_RECORD_LIST_ORDER, isRecordListSortField } from "./record-list-order.ts";
 export type { MemoryRecordListOrder } from "./record-list-order.ts";
 export type {
