@@ -1,18 +1,16 @@
+import { PageHeader, PageContent, PageFooter } from "./components/page-layout.tsx";
+import { usePageLeave, type RegisterLeaveGuard } from "./components/confirmation.tsx";
 import { RecordDetailPage } from "./pages/record-detail.tsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId } from "react";
 import {
-  ArrowLeft,
   BookOpen,
   ChevronLeft,
   ChevronRight,
   FileText,
   LoaderCircle,
-  Moon,
   Plus,
   RefreshCw,
   Search,
-  Sun,
-  X,
 } from "lucide-react";
 import type { MemoryRecordId, MemoryTableId } from "../features/memory/index.ts";
 import type { SpaceContextStatus } from "../features/chat-binding/chat-space-manager.ts";
@@ -42,18 +40,9 @@ import {
   ItemDescription,
   ItemActions,
 } from "../ui/primitives/item.tsx";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "../ui/primitives/alert-dialog.tsx";
 
 export interface RecordsAppProps {
+  registerLeaveGuard?: RegisterLeaveGuard;
   workspace: RecordsWorkspace;
   status: SpaceContextStatus | undefined;
   mirror: ChatMirrorStatus;
@@ -69,7 +58,6 @@ export interface RecordsAppProps {
 export function RecordsApp(props: RecordsAppProps) {
   const { workspace } = props;
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
-  const [pending, setPending] = useState<(() => void) | null>(null);
   const [hostError, setHostError] = useState<string | null>(null);
   const [hostBusy, setHostBusy] = useState(false);
   const hostOperation = useRef(0);
@@ -77,7 +65,6 @@ export function RecordsApp(props: RecordsAppProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
   const listPosition = useRef(new Map<string, { top: number; recordId: MemoryRecordId | null }>());
   const viewKey = state.context
     ? JSON.stringify([
@@ -102,21 +89,11 @@ export function RecordsApp(props: RecordsAppProps) {
     return () => clearTimeout(timeout);
   }, [search, state.context, state.search, workspace]);
   useEffect(() => {
-    setPending(null);
     setHostError(null);
     setHostBusy(false);
     hostOperation.current++;
   }, [state.context?.chatKey, state.context?.spaceId]);
-  useEffect(() => {
-    const onUnload = (event: BeforeUnloadEvent) => {
-      if (workspace.hasUnsavedChanges()) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
-  }, [workspace]);
+
   useLayoutEffect(() => {
     if (showingDetail) {
       if (state.editor)
@@ -138,11 +115,13 @@ export function RecordsApp(props: RecordsAppProps) {
       formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [state.editor?.errors]);
 
-  function navigate(action: () => void) {
-    if (state.saving) return;
-    if (state.editor?.dirty) setPending(() => action);
-    else action();
-  }
+  const { requestLeave: navigate, confirmation } = usePageLeave({
+    dirty: !!state.editor?.dirty,
+    busy: state.saving,
+    scope: JSON.stringify([state.context?.chatKey, state.context?.spaceId]),
+    discard: () => workspace.cancelEdit(),
+    register: props.registerLeaveGuard,
+  });
   async function runHost(action: () => Promise<unknown>) {
     if (hostBusy) return;
     const operation = ++hostOperation.current;
@@ -164,64 +143,37 @@ export function RecordsApp(props: RecordsAppProps) {
 
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col ste:text-sm">
-      <header className="ste:flex ste:shrink-0 ste:items-center ste:gap-3 ste:border-b ste:border-border ste:px-4 ste:py-3 ste:pt-[max(0.75rem,env(safe-area-inset-top))]">
-        {showingDetail ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="返回记录"
-            data-action="back-to-records"
-            disabled={state.saving}
-            onClick={() => navigate(() => workspace.closeDetail())}
-          >
-            <ArrowLeft />
-          </Button>
-        ) : (
-          <BookOpen className="ste:size-5 ste:shrink-0" />
-        )}
-        <div className="ste:min-w-0 ste:flex-1">
-          <h1 className="ste:text-sm ste:font-semibold">
-            {state.editor
-              ? state.editor.original
-                ? "编辑记录"
-                : "新建记录"
-              : showingDetail
-                ? "记录详情"
-                : "记忆记录"}
-          </h1>
-          <p
-            data-testid="chat-title"
-            className="ste:truncate ste:text-xs ste:text-muted-foreground"
-          >
-            {state.context?.title ?? "当前对话"}
-          </p>
-        </div>
-        {!showingDetail && state.context ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="刷新记录"
-            disabled={state.listLoading}
-            onClick={() => void workspace.refresh()}
-          >
-            <RefreshCw />
-          </Button>
-        ) : null}
-        <Button variant="ghost" size="icon" aria-label="切换亮暗色" onClick={props.onToggleTone}>
-          <Sun className="ste:dark:hidden" />
-          <Moon className="ste:hidden ste:dark:block" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="收起工作台"
-          data-action="close-frontend"
-          disabled={state.saving}
-          onClick={() => navigate(props.onClose)}
-        >
-          <X />
-        </Button>
-      </header>
+      <PageHeader
+        title={
+          state.editor
+            ? state.editor.original
+              ? "编辑记录"
+              : "新建记录"
+            : showingDetail
+              ? "记录详情"
+              : "记忆记录"
+        }
+        subtitle={state.context?.title ?? "当前对话"}
+        busy={state.saving}
+        onBack={showingDetail ? () => navigate(() => workspace.closeDetail()) : undefined}
+        backLabel="返回记录"
+        backAction="back-to-records"
+        onClose={props.onClose}
+        onToggleTone={props.onToggleTone}
+        actions={
+          !showingDetail && state.context ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="刷新记录"
+              disabled={state.listLoading}
+              onClick={() => void workspace.refresh()}
+            >
+              <RefreshCw />
+            </Button>
+          ) : null
+        }
+      />
 
       <div
         className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:text-muted-foreground"
@@ -318,7 +270,7 @@ export function RecordsApp(props: RecordsAppProps) {
                 `其他对话有 ${state.retainedDraftCount} 份未保存修改，返回原对话后可继续。本次打开期间保留。`}
             </p>
           ) : null}
-          <div
+          <PageContent
             ref={listRef}
             hidden={showingDetail}
             className="ste:min-h-0 ste:flex-1 ste:overflow-y-auto ste:overscroll-contain ste:p-4"
@@ -434,7 +386,7 @@ export function RecordsApp(props: RecordsAppProps) {
                 </EmptyHeader>
               </Empty>
             ) : null}
-          </div>
+          </PageContent>
 
           {showingDetail ? (
             <RecordDetailPage
@@ -451,8 +403,8 @@ export function RecordsApp(props: RecordsAppProps) {
             />
           ) : null}
           {!showingDetail ? (
-            <footer
-              className="ste:flex ste:shrink-0 ste:items-center ste:justify-between ste:border-t ste:border-border ste:p-3 ste:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+            <PageFooter
+              className="ste:flex ste:shrink-0 ste:items-center ste:justify-between ste:border-t ste:border-border ste:p-3"
               aria-label="记录分页"
             >
               <Button
@@ -480,39 +432,11 @@ export function RecordsApp(props: RecordsAppProps) {
                 下一页
                 <ChevronRight />
               </Button>
-            </footer>
+            </PageFooter>
           ) : null}
         </>
       )}
-      <AlertDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPending(null);
-        }}
-      >
-        <AlertDialogContent initialFocus={cancelRef}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>放弃这次修改？</AlertDialogTitle>
-            <AlertDialogDescription>
-              尚未保存的内容会被丢弃。你也可以保留编辑，完成后再离开。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel ref={cancelRef}>保留编辑</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                const action = pending;
-                setPending(null);
-                workspace.cancelEdit();
-                action?.();
-              }}
-            >
-              放弃修改并继续
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirmation}
     </div>
   );
 }

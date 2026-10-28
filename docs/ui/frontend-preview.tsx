@@ -1,18 +1,38 @@
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
-import { RecordsApp } from "../../src/frontend/app.tsx";
+import { WorkbenchApp } from "../../src/frontend/workbench.tsx";
+import {
+  TasksWorkspace,
+  type TasksServices,
+} from "../../src/frontend/pages/tasks/tasks-workspace.ts";
+import type { FillTaskView } from "../../src/features/fill-tasks/fill-task.ts";
+import type { VectorTask } from "../../src/features/vector-index/types.ts";
+import { DEFAULT_SETTINGS } from "../../src/features/settings/plugin-settings.ts";
+import { SettingsService } from "../../src/features/settings/settings-service.ts";
+import type { SettingsServices } from "../../src/frontend/pages/settings/SettingsPage.tsx";
+import { TablesWorkspace } from "../../src/frontend/pages/tables/tables-workspace.ts";
 import { FrontendPanel } from "../../src/frontend/host/panel.tsx";
 import { RecordsWorkspace } from "../../src/frontend/pages/records-workspace.ts";
 import type { RecordsContext } from "../../src/frontend/pages/records-workspace.ts";
 import type { SpaceContextStatus } from "../../src/features/chat-binding/chat-space-manager.ts";
 import type {
   MemoryField,
+  MemoryTableRepository,
+  MemoryFieldRepository,
+  MemoryRecordRepository,
+  MemorySpaceRepository,
+  MemorySpace,
   MemoryRecord,
   MemoryRecordHistory,
   MemoryTable,
 } from "../../src/features/memory/index.ts";
-import { MemoryRecordSaveError } from "../../src/features/memory/index.ts";
+import {
+  MemoryTableService,
+  MemoryFieldService,
+  MemoryRecordService,
+  MemoryRecordSaveError,
+} from "../../src/features/memory/index.ts";
 import { Button } from "../../src/ui/primitives/button.tsx";
 import { NativeSelect } from "../../src/ui/primitives/native-select.tsx";
 
@@ -21,7 +41,7 @@ const contexts = {
   a: { chatKey: "char:1:bookshop", spaceId: "space-a", title: "雨后书店 · 爱丽丝" },
   b: { chatKey: "char:2:harbour", spaceId: "space-b", title: "旧港来信 · 林舟" },
 } as unknown as Record<"a" | "b", RecordsContext>;
-const tables = Object.values(contexts).flatMap((context) =>
+let tables = Object.values(contexts).flatMap((context) =>
   ["人物", "地点", "纪要"].map((name, index) => ({
     id: `${context.spaceId}-table-${index}`,
     memorySpaceId: context.spaceId,
@@ -36,7 +56,7 @@ const tables = Object.values(contexts).flatMap((context) =>
     updatedAt: date,
   })),
 ) as unknown as MemoryTable[];
-const fields = tables.flatMap((table) =>
+let fields = tables.flatMap((table) =>
   [
     { id: "name", name: "名称", type: "short_text", required: true },
     { id: "notes", name: "描述", type: "long_text" },
@@ -129,6 +149,166 @@ let serial = 100;
 let failSave = false;
 let failPersistence = false;
 let delaySave = 0;
+let delaySchemaSave = 0;
+const tableRepository: MemoryTableRepository = {
+  list: async (spaceId) =>
+    structuredClone(tables.filter((table) => table.memorySpaceId === spaceId)),
+  find: async (spaceId, id) =>
+    structuredClone(tables.find((table) => table.memorySpaceId === spaceId && table.id === id)),
+  findByKey: async (spaceId, key) =>
+    structuredClone(tables.find((table) => table.memorySpaceId === spaceId && table.key === key)),
+  create: async (table) => {
+    tables.push(structuredClone(table));
+  },
+  update: async (table) => {
+    const delay = delaySchemaSave;
+    delaySchemaSave = 0;
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    const index = tables.findIndex((item) => item.id === table.id);
+    if (index < 0) return false;
+    tables[index] = structuredClone(table);
+    return true;
+  },
+  delete: async (spaceId, id) => {
+    const exists = tables.some((table) => table.memorySpaceId === spaceId && table.id === id);
+    tables = tables.filter((table) => table.memorySpaceId !== spaceId || table.id !== id);
+    fields = fields.filter((field) => field.memorySpaceId !== spaceId || field.tableId !== id);
+    records = records.filter((record) => record.memorySpaceId !== spaceId || record.tableId !== id);
+    return exists;
+  },
+};
+const fieldRepository: MemoryFieldRepository = {
+  list: async (spaceId, tableId) =>
+    structuredClone(
+      fields.filter((field) => field.memorySpaceId === spaceId && field.tableId === tableId),
+    ),
+  find: async (spaceId, tableId, id) =>
+    structuredClone(
+      fields.find(
+        (field) => field.memorySpaceId === spaceId && field.tableId === tableId && field.id === id,
+      ),
+    ),
+  findByKey: async (spaceId, tableId, key) =>
+    structuredClone(
+      fields.find(
+        (field) =>
+          field.memorySpaceId === spaceId && field.tableId === tableId && field.key === key,
+      ),
+    ),
+  create: async (field) => {
+    fields.push(structuredClone(field));
+  },
+  update: async (field) => {
+    const index = fields.findIndex(
+      (item) =>
+        item.memorySpaceId === field.memorySpaceId &&
+        item.tableId === field.tableId &&
+        item.id === field.id,
+    );
+    if (index < 0) return false;
+    fields[index] = structuredClone(field);
+    return true;
+  },
+  delete: async (spaceId, tableId, id) => {
+    const index = fields.findIndex(
+      (field) => field.memorySpaceId === spaceId && field.tableId === tableId && field.id === id,
+    );
+    if (index < 0) return false;
+    fields.splice(index, 1);
+    return true;
+  },
+};
+const recordRepository: MemoryRecordRepository = {
+  list: async (spaceId, tableId) =>
+    structuredClone(
+      records.filter((record) => record.memorySpaceId === spaceId && record.tableId === tableId),
+    ),
+  find: async (spaceId, tableId, id) =>
+    structuredClone(
+      records.find(
+        (record) =>
+          record.memorySpaceId === spaceId && record.tableId === tableId && record.id === id,
+      ),
+    ),
+  create: async (record) => {
+    records.push(structuredClone(record));
+  },
+  commit: async (mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.kind === "create") records.push(structuredClone(mutation.current));
+      else {
+        history.push(structuredClone(mutation.history));
+        records = records.filter((record) => record.id !== mutation.previous.id);
+        if (mutation.current) records.push(structuredClone(mutation.current));
+      }
+    }
+    return true;
+  },
+  listHistory: async (query) =>
+    structuredClone(
+      history.filter(
+        (entry) =>
+          entry.memorySpaceId === query.memorySpaceId &&
+          (!query.tableId || entry.tableId === query.tableId) &&
+          (!query.recordId || entry.recordId === query.recordId),
+      ),
+    ),
+};
+const spaces: MemorySpace[] = Object.values(contexts).map((context) => ({
+  id: context.spaceId,
+  name: context.title,
+  initializationSource: null,
+  createdAt: date,
+  updatedAt: date,
+}));
+const spaceRepository: MemorySpaceRepository = {
+  find: async (id) => structuredClone(spaces.find((space) => space.id === id)),
+  list: async () => structuredClone(spaces),
+  create: async (space) => {
+    spaces.push(space);
+  },
+  delete: async () => {
+    throw new Error("预览不提供空间删除");
+  },
+  rename: async () => {
+    throw new Error("预览不提供空间改名");
+  },
+  setMacros: async () => {
+    throw new Error("预览不提供宏配置");
+  },
+  clearRecords: async () => {
+    throw new Error("预览不提供清空空间");
+  },
+  deleteAllTables: async () => {
+    throw new Error("预览不提供重建空间");
+  },
+};
+const tableService = new MemoryTableService(
+  spaceRepository,
+  tableRepository,
+  () => `table-${++serial}` as MemoryTable["id"],
+  () => new Date().toISOString(),
+  fieldRepository,
+);
+const fieldService = new MemoryFieldService(
+  tableRepository,
+  fieldRepository,
+  () => `field-${++serial}` as MemoryField["id"],
+  () => new Date().toISOString(),
+);
+const recordService = new MemoryRecordService(
+  tableRepository,
+  fieldRepository,
+  recordRepository,
+  () => `record-${++serial}` as MemoryRecord["id"],
+  () => `history-${++serial}` as MemoryRecordHistory["id"],
+  () => `revision-${++serial}` as MemoryRecord["revisionId"],
+  () => new Date().toISOString(),
+);
+const assertContext = (context: RecordsContext) => {
+  if (!ready || context.chatKey !== contexts[current].chatKey)
+    throw new Error("对话已切换，请返回原对话保存");
+};
 const workspace = new RecordsWorkspace({
   tables: { list: async (spaceId) => tables.filter((table) => table.memorySpaceId === spaceId) },
   fields: {
@@ -233,6 +413,236 @@ const workspace = new RecordsWorkspace({
   },
   onSaved: async () => {},
 });
+const tablesWorkspace = new TablesWorkspace({
+  tables: tableService,
+  fields: fieldService,
+  records: recordService,
+  vectorIndex: {
+    submit: async () => ({ created: 1, reused: 0, promoted: 0, skipped: 0 }),
+    clear: async () => {},
+    getTableSummary: async (scope) => ({
+      records: (await recordRepository.list(scope.memorySpaceId, scope.tableId)).length,
+      ready: 0,
+      stale: 0,
+      errors: 0,
+      empty: 0,
+      queued: 0,
+    }),
+    previewDraftSummary: async (scope, configuration) => {
+      const count = (await recordRepository.list(scope.memorySpaceId, scope.tableId)).length;
+      const vectors = configuration.enabled ? count * Math.max(1, configuration.groups.length) : 0;
+      return {
+        records: count,
+        vectors,
+        ready: 0,
+        pending: vectors,
+        empty: 0,
+        invalid: 0,
+        tooLong: 0,
+        unavailable: 0,
+      };
+    },
+  },
+  assertContext,
+  onChanged: async (context) => {
+    if (workspace.getSnapshot().context?.chatKey === context.chatKey) await workspace.refresh();
+  },
+  retryMemorySave: async () => {},
+});
+let settingsValue = structuredClone(DEFAULT_SETTINGS);
+let notifySettingsChanged: () => Promise<void> = async () => {};
+const settingsService = new SettingsService({
+  store: {
+    read: () => structuredClone(settingsValue),
+    write: (value) => {
+      settingsValue = structuredClone(value);
+    },
+  },
+  syncToCurrentChat: async () => {},
+  refreshMemoryMacros: async () => {},
+  refreshAgentMacros: async () => {},
+  refreshMirror: async () => {},
+  writeChatScopeMacros: () => {},
+  refreshVectorIndex: async () => {},
+  validateMacros: async (macros) => macros,
+  getChatScopeMacros: () => [],
+  getChatContext: () => contexts[current].chatKey,
+});
+const settingsServices: SettingsServices = {
+  settings: settingsService,
+  onChanged: () => notifySettingsChanged(),
+  version: "preview",
+};
+const fillTasks: FillTaskView[] = Object.values(contexts).map((context) => ({
+  runId: `${context.spaceId}-failed-fill`,
+  memorySpaceId: context.spaceId,
+  from: 4,
+  to: 7,
+  blockSize: 4,
+  chatId: context.chatKey,
+  status: "failed",
+  errorMessage: "预览模拟：连接临时失败",
+  createdAt: date,
+  updatedAt: date,
+  kind: "floor",
+  initText: null,
+  processedCount: 0,
+  totalCount: 4,
+  blocksQueue: true,
+}));
+const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
+  (["queued", "failed"] as const).map((status, index) => ({
+    id: `${context.spaceId}-vector-${status}`,
+    memorySpaceId: context.spaceId,
+    tableId: `${context.spaceId}-table-0` as MemoryTable["id"],
+    recordId: `${context.spaceId}-record-${index}` as MemoryRecord["id"],
+    recordDisplayText: index ? "旅人 01" : "爱丽丝",
+    groupId: "automatic",
+    groupName: "全部字段",
+    fingerprint: `fixture-${index}`,
+    input: "预览向量文本",
+    model: "fixture-embedding",
+    version: "fixture",
+    dimensions: 3,
+    source: index ? "automatic" : "manual",
+    force: false,
+    predecessorId: null,
+    status,
+    waitReason: null,
+    error: index ? "预览模拟：向量连接失败" : null,
+    createdAt: date,
+    startedAt: null,
+    endedAt: null,
+  })),
+);
+const taskServices: TasksServices = {
+  tasks: {
+    pendingTasks: async (spaceId) =>
+      structuredClone(
+        fillTasks.filter(
+          (task) =>
+            task.memorySpaceId === spaceId &&
+            (task.status === "queued" || task.status === "running" || task.blocksQueue),
+        ),
+      ),
+    recentTasks: async (spaceId, limit) =>
+      structuredClone(
+        fillTasks
+          .filter((task) => task.memorySpaceId === spaceId)
+          .slice(-limit)
+          .reverse(),
+      ),
+    ledgerStatuses: async (_spaceId, from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => ({
+        floor: from + i,
+        status: from + i < 4 ? ("processed" as const) : ("untracked" as const),
+      })),
+    submit: async (input) => {
+      const task: FillTaskView = {
+        runId: `fill-${++serial}`,
+        memorySpaceId: input.memorySpaceId,
+        kind: "floor",
+        initText: null,
+        from: input.from,
+        to: input.to,
+        blockSize: input.blockSize ?? 20,
+        chatId: contexts[current].chatKey,
+        status: "queued",
+        errorMessage: null,
+        createdAt: date,
+        updatedAt: date,
+        processedCount: 0,
+        totalCount: input.to - input.from + 1,
+      };
+      fillTasks.push(task);
+      return structuredClone(task);
+    },
+    submitInit: async (input) => {
+      const task: FillTaskView = {
+        runId: `init-${++serial}`,
+        memorySpaceId: input.memorySpaceId,
+        kind: "init",
+        initText: input.text,
+        from: 0,
+        to: 0,
+        blockSize: 1,
+        chatId: contexts[current].chatKey,
+        status: "queued",
+        errorMessage: null,
+        createdAt: date,
+        updatedAt: date,
+        processedCount: 0,
+        totalCount: 1,
+      };
+      fillTasks.push(task);
+      return structuredClone(task);
+    },
+    cancel: async (spaceId, id) => {
+      const index = fillTasks.findIndex(
+        (task) => task.memorySpaceId === spaceId && task.runId === id,
+      );
+      if (index < 0) throw new Error("任务不存在");
+      const task = { ...fillTasks[index]!, status: "interrupted" as const, blocksQueue: false };
+      fillTasks[index] = task;
+      return structuredClone(task);
+    },
+    retry: async (spaceId, id) => {
+      const index = fillTasks.findIndex(
+        (task) => task.memorySpaceId === spaceId && task.runId === id,
+      );
+      if (index < 0) throw new Error("任务不存在");
+      const task = {
+        ...fillTasks[index]!,
+        status: "queued" as const,
+        errorMessage: null,
+        blocksQueue: false,
+      };
+      fillTasks[index] = task;
+      return structuredClone(task);
+    },
+  },
+  vector: {
+    listTasks: async (filters = {}) => {
+      const matches = vectorTasks.filter(
+        (task) =>
+          (!filters.memorySpaceId || task.memorySpaceId === filters.memorySpaceId) &&
+          (!filters.statuses || filters.statuses.includes(task.status)) &&
+          (!filters.source || task.source === filters.source),
+      );
+      const offset = filters.offset ?? 0;
+      return {
+        items: structuredClone(matches.slice(offset, offset + (filters.limit ?? 30))),
+        total: matches.length,
+        queued: matches.filter((task) => task.status === "queued").length,
+        running: matches.filter((task) => task.status === "running").length,
+        blocked: 0,
+      };
+    },
+    cancel: async (id) => {
+      const index = vectorTasks.findIndex((task) => task.id === id);
+      if (index < 0) throw new Error("向量任务不存在");
+      vectorTasks[index] = { ...vectorTasks[index]!, status: "cancelled" };
+      return true;
+    },
+    cancelMany: async (ids) => {
+      for (const id of ids) {
+        const index = vectorTasks.findIndex((task) => task.id === id);
+        if (index < 0) throw new Error("向量任务不存在");
+        vectorTasks[index] = { ...vectorTasks[index]!, status: "cancelled" };
+      }
+      return ids.length;
+    },
+    retry: async (id) => {
+      const index = vectorTasks.findIndex((task) => task.id === id);
+      if (index < 0) throw new Error("向量任务不存在");
+      vectorTasks[index] = { ...vectorTasks[index]!, status: "queued", error: null };
+      return { created: 1, reused: 0, promoted: 0, skipped: 0 };
+    },
+  },
+  messageCount: () => 12,
+  assertContext,
+};
+const tasksWorkspace = new TasksWorkspace(taskServices);
 function activeStatus(): SpaceContextStatus {
   const context = contexts[current];
   return {
@@ -249,20 +659,49 @@ function Preview() {
     location.search.includes("dark") ? "dark" : "light",
   );
   const [open, setOpen] = useState(true);
+  const [, setSettingsRevision] = useState(0);
+  notifySettingsChanged = async () => {
+    ready = settingsValue.enabled;
+    setStatus(ready ? activeStatus() : undefined);
+    const context = ready ? contexts[current] : null;
+    await Promise.all([
+      workspace.setContext(context),
+      tablesWorkspace.setContext(context),
+      tasksWorkspace.setContext(context),
+    ]);
+    setSettingsRevision((value) => value + 1);
+  };
   async function switchChat(next: "a" | "b") {
     ready = false;
     setStatus(undefined);
-    await workspace.setContext(null);
+    await Promise.all([
+      workspace.setContext(null),
+      tablesWorkspace.setContext(null),
+      tasksWorkspace.setContext(null),
+    ]);
     current = next;
-    ready = true;
-    setStatus(activeStatus());
-    await workspace.setContext(contexts[next]);
+    ready = settingsValue.enabled;
+    setStatus(ready ? activeStatus() : undefined);
+    const context = ready ? contexts[next] : null;
+    await Promise.all([
+      workspace.setContext(context),
+      tablesWorkspace.setContext(context),
+      tasksWorkspace.setContext(context),
+    ]);
   }
   Object.assign(window, {
     frontendPreview: {
       switchChat,
       workspace,
       snapshot: () => structuredClone(records),
+      tablesWorkspace,
+      tasksWorkspace,
+      settingsSnapshot: () => structuredClone(settingsValue),
+      tasksSnapshot: () => structuredClone({ fillTasks, vectorTasks }),
+      delayNextSchemaSave: (ms: number) => {
+        delaySchemaSave = ms;
+      },
+      schemaSnapshot: () => structuredClone({ tables, fields }),
       failNextSave: () => {
         failSave = true;
       },
@@ -299,10 +738,18 @@ function Preview() {
             </NativeSelect>
           </div>
           <div className="ste:min-h-0 ste:flex-1">
-            <RecordsApp
+            <WorkbenchApp
+              active={open}
+              tables={tablesWorkspace}
+              tasks={tasksWorkspace}
+              settings={settingsServices}
               workspace={workspace}
               status={status}
-              mirror={{ kind: "idle", lastWrittenAt: date, sizeBytes: 1000 }}
+              mirror={
+                settingsValue.enabled && settingsValue.mirror.enabled
+                  ? { kind: "idle", lastWrittenAt: date, sizeBytes: 1000 }
+                  : { kind: "disabled" }
+              }
               onClose={() => setOpen(false)}
               onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
               onRetryContext={() => switchChat(current)}
@@ -323,5 +770,9 @@ function Preview() {
     </>
   );
 }
-await workspace.setContext(contexts.a);
+await Promise.all([
+  workspace.setContext(contexts.a),
+  tablesWorkspace.setContext(contexts.a),
+  tasksWorkspace.setContext(contexts.a),
+]);
 createRoot(document.getElementById("root")!).render(<Preview />);

@@ -1,5 +1,6 @@
+import { PageFooter, SaveActions } from "../components/page-layout.tsx";
 import { useId, useState, type RefObject } from "react";
-import { Check, LoaderCircle, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import type {
   StChatMessage,
   FloorJumpResult,
@@ -228,37 +229,17 @@ export function RecordDetailPage({
           </Alert>
         ) : null}
       </div>
-      <footer className="ste:flex ste:shrink-0 ste:items-center ste:justify-between ste:gap-3 ste:border-t ste:border-border ste:bg-background ste:p-4 ste:pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {state.editor ? (
-          <>
-            <p role="status" className="ste:text-xs ste:text-muted-foreground">
-              {state.saving ? "正在保存…" : state.editor.dirty ? "有未保存修改" : "尚未修改"}
-            </p>
-            <div className="ste:flex ste:gap-2">
-              <Button
-                variant="outline"
-                data-action="cancel-edit"
-                disabled={state.saving}
-                onClick={() => navigate(() => workspace.cancelEdit())}
-              >
-                取消
-              </Button>
-              <Button
-                type="submit"
-                form={formId}
-                data-action="save-record"
-                disabled={state.saving || !state.editor.dirty || state.editor.conflict}
-              >
-                {state.saving ? (
-                  <LoaderCircle data-icon="inline-start" className="ste:animate-spin" />
-                ) : (
-                  <Check data-icon="inline-start" />
-                )}
-                保存
-              </Button>
-            </div>
-          </>
-        ) : (
+      {state.editor ? (
+        <SaveActions
+          formId={formId}
+          saveAction="save-record"
+          busy={state.saving}
+          dirty={state.editor.dirty}
+          disabled={state.editor.conflict}
+          onCancel={() => navigate(() => workspace.cancelEdit())}
+        />
+      ) : (
+        <PageFooter>
           <>
             <span className="ste:text-xs ste:text-muted-foreground">
               {state.detail?.source.type === "manual" ? "手动记录" : "来源于对话"}
@@ -278,8 +259,8 @@ export function RecordDetailPage({
               编辑记录
             </Button>
           </>
-        )}
-      </footer>
+        </PageFooter>
+      )}
     </section>
   );
 }
