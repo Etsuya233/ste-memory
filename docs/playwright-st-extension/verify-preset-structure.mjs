@@ -120,7 +120,6 @@ try {
   await page.getByText("预设已保存，不影响已有空间。", { exact: true }).waitFor();
   const preset = (await settings()).tablePresets.userPresets[0];
   const people = preset.tables.find((item) => item.key === "table_0");
-  const place = preset.tables.find((item) => item.key === "places_renamed");
   check(
     "table and field sorting persist",
     preset.tables[0].key === "places_renamed" && people.fields[2].key === "notes_ext",
@@ -144,36 +143,7 @@ try {
   await back();
   await action("nav-tables").click();
   await page.locator('[data-action="open-table"]').filter({ hasText: "人物" }).click();
-  await page.getByRole("button", { name: /向量索引 ·/ }).click();
-  await field("配置来源").selectOption("custom");
-  await button("新增分组").click();
-  await field("分组名称").fill("原自定义快照");
-  await field("分组 Key").fill("original_custom");
-  await page.getByRole("checkbox", { name: "名称", exact: true }).click();
-  await field("配置来源").selectOption("preset");
-  await field("表格预设").selectOption(preset.id);
-  await field("来源表格").selectOption("table_0");
-  await button("导入预设分组").click();
-  await page.getByText(/字段「notes_ext」不存在/).waitFor();
-  check("vector import rejects unmatched field keys", true);
-  await field("来源表格").selectOption(place.key);
-  await button("导入预设分组").click();
-  await field("分组名称").waitFor();
-  check(
-    "vector import maps field keys to current table ids",
-    (await field("分组名称").inputValue()) === "名称摘要",
-  );
-  await page.getByRole("switch", { name: "启用向量索引", exact: true }).click();
-  await action("save-vector").click();
-  await page.getByRole("button", { name: /向量索引 ·/ }).waitFor();
-  const config = (await schema()).tables.find((item) => item.id === "space-a-table-0").vectorIndex;
-  check(
-    "import preserves independent custom groups and preset snapshot",
-    config.source === "preset" &&
-      config.presetGroups[0].key === "name_summary" &&
-      config.presetGroups[0].fieldIds[0] === "name" &&
-      config.groups[0].key === "original_custom",
-  );
+  await page.getByRole("button", { name: /向量索引/ }).click();
   await page.setViewportSize({ width: 320, height: 720 });
   check(
     "320px schema page has no horizontal overflow",
@@ -181,7 +151,7 @@ try {
       .locator("#ste-memory-app")
       .evaluate((element) => element.scrollWidth <= element.clientWidth),
   );
-  await page.screenshot({ path: `${screenshots}/preset-structure-mobile-320.png` });
+  await page.screenshot({ path: `${screenshots}/tables-vector-mobile-320.png` });
   check("no browser exceptions", errors.length === 0);
 } finally {
   if (errors.length) console.error(errors);

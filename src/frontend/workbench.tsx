@@ -18,8 +18,6 @@ import type { CleaningServices } from "./pages/settings/cleaning-rules-page.tsx"
 import type { MacroServices } from "./pages/settings/macros-page.tsx";
 import type { PresetSettingsServices } from "./pages/settings/preset-settings-services.ts";
 import type { SettingsTools } from "./pages/settings/SettingsPage.tsx";
-import { listTablePresets } from "../features/table-presets/preset-model.ts";
-import { SYSTEM_TABLE_PRESET } from "../features/table-presets/system-preset.ts";
 import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
 
@@ -83,10 +81,6 @@ export function WorkbenchApp(props: WorkbenchProps) {
         ) : page === "tables" ? (
           <TablesPage
             workspace={props.tables}
-            presets={listTablePresets(
-              props.settings.settings.read().tablePresets,
-              SYSTEM_TABLE_PRESET,
-            )}
             controls={controls}
             registerLeaveGuard={registerLeaveGuard}
           />

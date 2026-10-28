@@ -33,16 +33,13 @@ async function openFirstRecord() {
 try {
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825");
   await openTable();
+  await page.getByRole("button", { name: /向量索引/ }).click();
   await action("preview-vector-records").click();
   await action("open-vector-record").waitFor();
   check(
     "preview choices use paginated records",
     (await page.locator('[data-action="open-vector-record"]').count()) === 20,
   );
-  await openFirstRecord();
-  await page.getByText("没有向量分组", { exact: true }).waitFor();
-  check("disabled saved index explains missing groups", true);
-  await back();
   await back();
   await page.evaluate(async () => {
     await window.frontendPreview.seedSearch();
@@ -52,7 +49,7 @@ try {
   await openFirstRecord();
   const input = await page.getByTestId("vector-preview-input").first().textContent();
   check(
-    "saved preview uses final field labels and values",
+    "preview uses final field labels and values",
     input.includes("名称：爱丽丝") && input.includes("描述："),
   );
   check("reference fields render target display text", input.includes("常去地点：雨巷书店"));
@@ -113,7 +110,6 @@ try {
   );
   await back();
   await back();
-  await page.getByRole("button", { name: /向量索引 ·/ }).click();
   await label("配置来源").selectOption("custom");
   await button("新增分组").click();
   await label("分组名称").fill("草稿姓名");
@@ -189,10 +185,10 @@ try {
   );
   await page.reload();
   await openTable();
-  await page.getByRole("button", { name: /向量索引 ·/ }).click();
+  await page.getByRole("button", { name: /向量索引/ }).click();
   await page.getByRole("switch", { name: "启用向量索引", exact: true }).click();
   await action("save-vector").click();
-  await action("preview-vector-records").waitFor();
+  await page.getByRole("button", { name: /向量索引/ }).click();
   await action("preview-vector-records").click();
   await openFirstRecord();
   check(

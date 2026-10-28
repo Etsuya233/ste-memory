@@ -1,17 +1,18 @@
 import { SchemaEditorFields } from "../../components/schema-editor-fields.tsx";
-import type { ResolvedTablePreset } from "../../../features/table-presets/preset-model.ts";
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChevronRight, Plus, Table2, Trash2 } from "lucide-react";
 import type { MemoryFieldId } from "../../../features/memory/index.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { usePrimitivesActive } from "../../../ui/primitives/provider.tsx";
 import {
   Item,
+  ItemGroup,
   ItemContent,
   ItemTitle,
   ItemDescription,
   ItemActions,
 } from "../../../ui/primitives/item.tsx";
+import { cn } from "../../../ui/primitives/utils.ts";
 import {
   PageHeader,
   PageContent,
@@ -26,6 +27,7 @@ import {
   type RegisterLeaveGuard,
 } from "../../components/confirmation.tsx";
 import { displayStrategySummary } from "../../../ui/memory/display-strategy-model.ts";
+import { FIELD_TYPE_LABELS } from "../../../ui/memory/table-list-model.ts";
 import type { TablesWorkspace } from "./tables-workspace.ts";
 import { VectorPreviewContent } from "./vector-preview-content.tsx";
 
@@ -33,10 +35,8 @@ export function TablesPage({
   workspace,
   controls,
   registerLeaveGuard,
-  presets = [],
 }: {
   workspace: TablesWorkspace;
-  presets?: readonly ResolvedTablePreset[];
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
 }) {
@@ -83,6 +83,7 @@ export function TablesPage({
     register: registerLeaveGuard,
   });
   const table = state.tables.find((item) => item.id === state.tableId);
+  const listing = !state.editor && !state.tableId && !state.vectorPreview;
   const back = () => {
     if (state.vectorPreview) {
       if (state.vectorPreview.record) void workspace.selectVectorRecord(null);
@@ -142,7 +143,10 @@ export function TablesPage({
       >
         <fieldset
           disabled={state.saving}
-          className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-5 ste:border-0 ste:p-0"
+          className={cn(
+            "ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:flex-col ste:border-0 ste:p-0",
+            listing ? "ste:gap-4" : "ste:max-w-3xl ste:gap-5",
+          )}
         >
           {state.error ? (
             <PageError
@@ -181,7 +185,6 @@ export function TablesPage({
               >
                 <SchemaEditorFields
                   state={state}
-                  presets={presets}
                   editor={
                     state.editor.kind === "table" || state.editor.kind === "field"
                       ? { ...state.editor, original: !!state.editor.original }
@@ -203,7 +206,7 @@ export function TablesPage({
                       variant="outline"
                       onClick={() => void workspace.preview()}
                     >
-                      预览当前草稿
+                      {state.editor.kind === "vector" ? "向量状态" : "预览当前草稿"}
                     </Button>
                     {state.previews.map((preview, index) => (
                       <div
@@ -228,168 +231,223 @@ export function TablesPage({
               </fieldset>
             </form>
           ) : table ? (
-            <>
-              <section className="ste:space-y-3">
-                <div className="ste:flex ste:items-start ste:justify-between ste:gap-3">
-                  <div>
-                    <p className="ste:font-mono ste:text-sm ste:text-muted-foreground">
-                      {table.key} · {table.enabled ? "已启用" : "已停用"}
+            <div className="ste:flex ste:min-w-0 ste:flex-col ste:gap-6">
+              <section className="ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+                <div className="ste:flex ste:items-start ste:justify-between ste:gap-3 ste:p-4">
+                  <div className="ste:min-w-0 ste:flex-1">
+                    <p className="ste:font-mono ste:text-xs ste:text-muted-foreground">
+                      {table.key} · {table.enabled ? "已开启" : "已关闭"}
                     </p>
-                    <p className="ste:mt-2 ste:whitespace-pre-wrap ste:break-words">
+                    <p className="ste:mt-2 ste:whitespace-pre-wrap ste:break-words ste:text-sm">
                       {table.description || "暂无描述"}
                     </p>
                   </div>
-                  <Button variant="outline" onClick={() => workspace.begin("table")}>
+                  <Button variant="outline" size="sm" onClick={() => workspace.begin("table")}>
                     编辑表格
                   </Button>
                 </div>
                 {table.prompt ? (
-                  <p className="ste:whitespace-pre-wrap ste:rounded-xl ste:bg-muted ste:p-3 ste:text-sm">
-                    {table.prompt}
-                  </p>
+                  <details className="ste:border-t ste:border-border ste:p-4">
+                    <summary className="ste:cursor-pointer ste:text-xs ste:font-medium ste:text-muted-foreground ste:hover:text-foreground">
+                      Prompt
+                    </summary>
+                    <p className="ste:mt-2 ste:whitespace-pre-wrap ste:break-words ste:text-sm">
+                      {table.prompt}
+                    </p>
+                  </details>
                 ) : null}
               </section>
-              <section className="ste:space-y-3">
-                <div className="ste:flex ste:items-center ste:justify-between">
-                  <h2 className="ste:text-lg ste:font-semibold">
-                    字段 <span className="ste:text-muted-foreground">{state.fields.length}</span>
-                  </h2>
-                  <Button variant="outline" onClick={() => workspace.begin("field")}>
+
+              <TableSection
+                title={
+                  <>
+                    字段{" "}
+                    <span className="ste:font-normal ste:text-muted-foreground">
+                      {state.fields.length}
+                    </span>
+                  </>
+                }
+                action={
+                  <Button variant="outline" size="sm" onClick={() => workspace.begin("field")}>
                     <Plus />
                     新增字段
                   </Button>
-                </div>
+                }
+              >
                 {state.fields.length ? (
-                  state.fields.map((field) => (
-                    <div
-                      key={field.id}
-                      className="ste:flex ste:items-center ste:gap-2 ste:rounded-2xl ste:border ste:p-3"
-                    >
-                      <Button
-                        variant="ghost"
-                        className="ste:h-auto ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-1 ste:p-0 ste:text-left ste:whitespace-normal"
-                        onClick={() => workspace.begin("field", field)}
+                  <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+                    {state.fields.map((field) => (
+                      <div
+                        key={field.id}
+                        role="listitem"
+                        className="ste:flex ste:items-center ste:gap-2 ste:px-4 ste:py-2.5 ste:transition-colors ste:hover:bg-muted/60 ste:focus-within:bg-muted/60"
                       >
-                        <span className="ste:font-medium">
-                          {field.name}
-                          {field.required ? " *" : ""}
+                        <button
+                          type="button"
+                          className="ste:flex ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-0.5 ste:appearance-none ste:rounded-sm ste:border-0 ste:bg-transparent ste:p-0 ste:text-left ste:text-foreground ste:outline-none ste:focus-visible:ring-[3px] ste:focus-visible:ring-ring/50 ste:focus-visible:ring-inset"
+                          onClick={() => workspace.begin("field", field)}
+                        >
+                          <span className="ste:text-sm ste:font-medium">
+                            {field.name}
+                            {field.required ? " *" : ""}
+                          </span>
+                          <span className="ste:text-xs ste:text-muted-foreground ste:break-all">
+                            {FIELD_TYPE_LABELS[field.type]} · {field.key}
+                          </span>
+                        </button>
+                        <span className="ste:shrink-0 ste:text-xs ste:text-muted-foreground">
+                          {field.enabled ? "启用" : "停用"}
                         </span>
-                        <span className="ste:text-xs ste:text-muted-foreground ste:break-all">
-                          {field.key} · {field.type} · {field.enabled ? "启用" : "停用"}
-                        </span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`删除字段 ${field.name}`}
-                        disabled={state.saving}
-                        onClick={() =>
-                          setDeletion({ kind: "field", fieldId: field.id, name: field.name })
-                        }
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  ))
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`删除字段 ${field.name}`}
+                          disabled={state.saving}
+                          onClick={() =>
+                            setDeletion({ kind: "field", fieldId: field.id, name: field.name })
+                          }
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    ))}
+                  </ItemGroup>
                 ) : (
                   <PageEmpty
                     title="尚未添加字段"
                     description="先创建字段，再配置记录的显示方式。"
                   />
                 )}
-              </section>
-              <Button
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4 ste:whitespace-normal ste:text-left"
-                onClick={() => workspace.begin("display")}
-              >
-                <span>
-                  显示策略
-                  <br />
-                  <span className="ste:text-xs ste:text-muted-foreground">
-                    {displayStrategySummary(table.displayStrategy, state.fields)}
-                  </span>
-                </span>
-                <ChevronRight />
-              </Button>
-              <Button
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => {
-                  scroll.forget(JSON.stringify([...contextKey, state.tableId, "vector", null]));
-                  workspace.begin("vector");
-                }}
-              >
-                <span>向量索引 · {table.vectorIndex?.enabled ? "已启用" : "未启用"}</span>
-                <ChevronRight />
-              </Button>
-              <Button
-                variant="outline"
-                data-action="preview-vector-records"
-                disabled={state.loading}
-                onClick={() => void workspace.openVectorPreview()}
-              >
-                逐记录向量预览
-              </Button>
-              <div className="ste:flex ste:flex-wrap ste:gap-2">
+              </TableSection>
+
+              <TableSection title="显示与检索">
+                <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+                  <div role="listitem">
+                    <Item
+                      render={<button type="button" />}
+                      onClick={() => workspace.begin("display")}
+                      className="ste:rounded-none ste:px-4 ste:py-3 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    >
+                      <ItemContent>
+                        <ItemTitle>显示策略</ItemTitle>
+                        <ItemDescription className="ste:line-clamp-1">
+                          {displayStrategySummary(table.displayStrategy, state.fields)}
+                        </ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                      </ItemActions>
+                    </Item>
+                  </div>
+                  <div role="listitem">
+                    <Item
+                      render={<button type="button" />}
+                      onClick={() => {
+                        scroll.forget(
+                          JSON.stringify([...contextKey, state.tableId, "vector", null]),
+                        );
+                        workspace.begin("vector");
+                      }}
+                      className="ste:rounded-none ste:px-4 ste:py-3 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    >
+                      <ItemContent>
+                        <ItemTitle>向量索引</ItemTitle>
+                        <ItemDescription className="ste:line-clamp-1">
+                          {table.vectorIndex?.enabled ? "已启用" : "未启用"}
+                        </ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                      </ItemActions>
+                    </Item>
+                  </div>
+                </ItemGroup>
+              </TableSection>
+
+              {table.vectorIndex?.enabled ? (
+                <TableSection title="索引维护">
+                  <div className="ste:flex ste:flex-wrap ste:gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={state.saving}
+                      onClick={() => void workspace.index("build").catch(() => {})}
+                    >
+                      补建索引
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={state.saving}
+                      onClick={() => void workspace.index("rebuild").catch(() => {})}
+                    >
+                      强制重算
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={state.saving}
+                      onClick={() => setDeletion({ kind: "vectors", name: table.name })}
+                    >
+                      清除向量
+                    </Button>
+                  </div>
+                </TableSection>
+              ) : null}
+
+              <TableSection title={<span className="ste:text-destructive">危险操作</span>}>
                 <Button
-                  variant="outline"
+                  variant="destructive"
+                  size="sm"
                   disabled={state.saving}
-                  onClick={() => void workspace.index("build").catch(() => {})}
+                  className="ste:self-start"
+                  onClick={() => setDeletion({ kind: "table", name: table.name })}
                 >
-                  补建索引
+                  <Trash2 />
+                  删除表格
                 </Button>
-                <Button
-                  variant="outline"
-                  disabled={state.saving}
-                  onClick={() => void workspace.index("rebuild").catch(() => {})}
-                >
-                  强制重算
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={state.saving}
-                  onClick={() => setDeletion({ kind: "vectors", name: table.name })}
-                >
-                  清除向量
-                </Button>
-              </div>
-              <Button
-                variant="destructive"
-                disabled={state.saving}
-                onClick={() => setDeletion({ kind: "table", name: table.name })}
-              >
-                <Trash2 />
-                删除表格
-              </Button>
-            </>
+              </TableSection>
+            </div>
           ) : !state.loading && state.context ? (
             <>
               {state.tables.length ? (
-                state.tables.map((item) => (
-                  <Item
-                    key={item.id}
-                    render={<button type="button" />}
-                    variant="outline"
-                    data-action="open-table"
-                    onClick={() => {
-                      scroll.forget(JSON.stringify([...contextKey, item.id, null, null]));
-                      void workspace.selectTable(item.id);
-                    }}
-                    className="ste:cursor-pointer ste:text-left ste:hover:bg-muted"
+                <section className="ste:flex ste:flex-col ste:gap-3">
+                  <p className="ste:text-xs ste:text-muted-foreground">
+                    共 {state.tables.length} 张表 ·{" "}
+                    {state.tables.filter((item) => item.enabled).length} 张已开启
+                  </p>
+                  <ItemGroup
+                    aria-label="表格列表"
+                    className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border"
                   >
-                    <Table2 className="ste:size-5 ste:shrink-0 ste:text-muted-foreground" />
-                    <ItemContent>
-                      <ItemTitle>{item.name}</ItemTitle>
-                      <ItemDescription>
-                        {item.key} · {item.enabled ? "启用" : "停用"}
-                      </ItemDescription>
-                    </ItemContent>
-                    <ItemActions>
-                      <ChevronRight className="ste:size-4 ste:shrink-0" />
-                    </ItemActions>
-                  </Item>
-                ))
+                    {state.tables.map((item) => (
+                      <div key={item.id} role="listitem">
+                        <Item
+                          render={<button type="button" />}
+                          data-action="open-table"
+                          onClick={() => {
+                            scroll.forget(JSON.stringify([...contextKey, item.id, null, null]));
+                            void workspace.selectTable(item.id);
+                          }}
+                          className="ste:cursor-pointer ste:rounded-none ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                        >
+                          <ItemContent>
+                            <ItemTitle>{item.name}</ItemTitle>
+                            <ItemDescription className="ste:line-clamp-1">
+                              {[item.key, item.description].filter(Boolean).join(" · ")}
+                            </ItemDescription>
+                          </ItemContent>
+                          <ItemActions>
+                            <span className="ste:text-xs ste:text-muted-foreground">
+                              {item.enabled ? "开启" : "关闭"}
+                            </span>
+                            <ChevronRight className="ste:size-4 ste:shrink-0 ste:text-muted-foreground" />
+                          </ItemActions>
+                        </Item>
+                      </div>
+                    ))}
+                  </ItemGroup>
+                </section>
               ) : (
                 <PageEmpty title="还没有表格" description="创建一张表，定义需要保存的记忆结构。" />
               )}
@@ -429,5 +487,25 @@ export function TablesPage({
         }}
       />
     </div>
+  );
+}
+
+function TableSection({
+  title,
+  action,
+  children,
+}: {
+  title: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="ste:flex ste:min-w-0 ste:flex-col ste:gap-3">
+      <div className="ste:flex ste:min-h-8 ste:items-center ste:justify-between ste:gap-3">
+        <h2 className="ste:text-sm ste:font-semibold">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
   );
 }

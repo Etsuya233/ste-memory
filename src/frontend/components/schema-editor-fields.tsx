@@ -1,9 +1,6 @@
 import { Plus } from "lucide-react";
-import { useState } from "react";
 import type { MemoryField, VectorIndexConfiguration } from "../../features/memory/index.ts";
 import { effectiveVectorIndexGroups } from "../../features/memory/index.ts";
-import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
-import { importPresetVectorIndexGroups } from "../../features/table-presets/preset-vector-index.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { Input } from "../../ui/primitives/input.tsx";
 import { Textarea } from "../../ui/primitives/textarea.tsx";
@@ -20,7 +17,6 @@ import {
   type DisplayStrategyDraft,
 } from "../../ui/memory/display-strategy-model.ts";
 import type { TableDraft, FieldEditorDraft } from "../pages/tables/tables-workspace.ts";
-import { StatusNotice } from "./page-state.tsx";
 
 export type SchemaField = Pick<
   MemoryField,
@@ -40,20 +36,15 @@ export function SchemaEditorFields({
   state,
   editor,
   onChange,
-  presets = [],
   allowVectorSources = true,
   templatePreviewHint = "点击字段插入引用；预览使用表内前五条真实记录。",
 }: {
   state: SchemaFieldsState;
   editor: SchemaEditor;
   onChange: (editor: SchemaEditor) => void;
-  presets?: readonly ResolvedTablePreset[];
   allowVectorSources?: boolean;
   templatePreviewHint?: string;
 }) {
-  const [presetId, setPresetId] = useState("");
-  const [presetTableKey, setPresetTableKey] = useState("");
-  const [importError, setImportError] = useState<string | null>(null);
   if (editor.kind === "table")
     return (
       <>
@@ -364,7 +355,6 @@ export function SchemaEditorFields({
   const draft = editor.draft,
     groups = effectiveVectorIndexGroups(draft, state.fields);
   const groupProperty = draft.source === "preset" ? "presetGroups" : "groups";
-  const selectedPreset = presets.find((preset) => preset.id === presetId);
   return (
     <>
       <Field orientation="horizontal">
@@ -398,73 +388,6 @@ export function SchemaEditorFields({
             </FieldDescription>
           ) : null}
         </Field>
-      ) : null}
-      {allowVectorSources && draft.source === "preset" ? (
-        <section className="ste:flex ste:flex-col ste:gap-3">
-          <Field>
-            <FieldLabel htmlFor="vector-library-preset">表格预设</FieldLabel>
-            <NativeSelect
-              id="vector-library-preset"
-              className="ste:w-full"
-              value={presetId}
-              onChange={(event) => {
-                setPresetId(event.target.value);
-                setPresetTableKey("");
-                setImportError(null);
-              }}
-            >
-              <option value="">选择预设</option>
-              {presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="vector-library-table">来源表格</FieldLabel>
-            <NativeSelect
-              id="vector-library-table"
-              className="ste:w-full"
-              disabled={!selectedPreset}
-              value={presetTableKey}
-              onChange={(event) => {
-                setPresetTableKey(event.target.value);
-                setImportError(null);
-              }}
-            >
-              <option value="">选择来源表</option>
-              {selectedPreset?.tables.map((table) => (
-                <option key={table.key} value={table.key}>
-                  {table.name}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!presetTableKey}
-            onClick={() => {
-              try {
-                const table = selectedPreset?.tables.find(
-                  (candidate) => candidate.key === presetTableKey,
-                );
-                if (!table) throw new Error("所选预设表已不存在，请重新选择");
-                const imported = importPresetVectorIndexGroups(table, state.fields, () =>
-                  crypto.randomUUID(),
-                );
-                onChange({ ...editor, draft: { ...draft, presetGroups: imported } });
-                setImportError(null);
-              } catch (cause) {
-                setImportError(cause instanceof Error ? cause.message : String(cause));
-              }
-            }}
-          >
-            导入预设分组
-          </Button>
-          {importError ? <StatusNotice variant="destructive">{importError}</StatusNotice> : null}
-        </section>
       ) : null}
       <Field>
         <FieldLabel htmlFor="vector-update">更新方式</FieldLabel>

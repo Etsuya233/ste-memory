@@ -206,9 +206,9 @@ try {
   await page.getByText("角色：爱丽丝", { exact: true }).waitFor();
   check("display preview uses real records", true);
   await save("display");
-  await page.getByRole("button", { name: /向量索引 ·/ }).click();
+  await page.getByRole("button", { name: /向量索引/ }).click();
   await page.getByRole("switch", { name: "启用向量索引", exact: true }).click();
-  await button("预览当前草稿").click();
+  await button("向量状态").click();
   await page.getByText("25 条记录 · 25 个向量目标 · 0 就绪 · 25 待建", { exact: true }).waitFor();
   await save("vector");
   check(
