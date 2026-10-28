@@ -795,16 +795,41 @@ it("large ordinary and rerank-disabled Query macros avoid the candidate scope pr
       updatedAt: stamp,
     },
   ]);
-  const semantic = await batch.evaluate({
-    language: "query",
-    query: {
-      table: "facts",
-      semantic: { groups: ["facts"], query: { text: "问题" }, options: { rerank: false } },
-      conditions: [{ field: "content", op: "contains", value: "内容" }],
-      fields: ["content"],
-      limit: 1,
-    },
-  });
+  // Model coarse macrotask scheduling without actually sleeping 100ms per yield.
+  // The session retains its original 10s total budget, including setup and SQL.
+  const nativeNow = performance.now.bind(performance);
+  const nativeTimer = globalThis.setTimeout;
+  let schedulingDelay = 0;
+  const clock = vi
+    .spyOn(performance, "now")
+    .mockImplementation(() => nativeNow() + schedulingDelay);
+  const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    callback: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay !== 0) return nativeTimer(callback, delay, ...args);
+    return nativeTimer(() => {
+      schedulingDelay += 100;
+      callback(...args);
+    }, delay);
+  }) as typeof setTimeout);
+  let semantic: Awaited<ReturnType<typeof batch.evaluate>>;
+  try {
+    semantic = await batch.evaluate({
+      language: "query",
+      query: {
+        table: "facts",
+        semantic: { groups: ["facts"], query: { text: "问题" }, options: { rerank: false } },
+        conditions: [{ field: "content", op: "contains", value: "内容" }],
+        fields: ["content"],
+        limit: 1,
+      },
+    });
+  } finally {
+    timer.mockRestore();
+    clock.mockRestore();
+  }
   expect(semantic.rows).toEqual([["内容0"]]);
   expect(semantic.sources[0]!.coverage.records).toBe(10001);
   expect(rerank).not.toHaveBeenCalled();

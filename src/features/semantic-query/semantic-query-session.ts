@@ -1,4 +1,5 @@
 import type { RerankPort } from "./rerank.ts";
+import { createExecutionCheckpoint } from "./execution-checkpoint.ts";
 import type { RerankSettings } from "../settings/rerank-settings.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import {
@@ -59,10 +60,7 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
     if (closed) throw new DOMException("语义查询会话已关闭", "AbortError");
     if (performance.now() >= deadline) throw new DOMException("语义查询超时", "TimeoutError");
   };
-  const yieldExecution = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    check();
-  };
+  const yieldExecution = createExecutionCheckpoint(check);
   check();
   const display = createReadTimeDisplayTextResolver({
     getTable: async (id) => snapshot.tables.find((table) => table.id === id),

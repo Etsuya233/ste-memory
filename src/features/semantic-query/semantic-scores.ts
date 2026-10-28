@@ -1,4 +1,5 @@
 import { parseSemanticOptions } from "./semantic-options.ts";
+import { createExecutionCheckpoint } from "./execution-checkpoint.ts";
 import { validateRerankScores, type RerankPort } from "./rerank.ts";
 import { DEFAULT_RERANK_SETTINGS, type RerankSettings } from "../settings/rerank-settings.ts";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
@@ -79,10 +80,7 @@ export function createSemanticScores(input: {
     signal.throwIfAborted();
     if (performance.now() >= deadline) throw new DOMException("语义评分超时", "TimeoutError");
   };
-  const yieldExecution = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    check();
-  };
+  const yieldExecution = createExecutionCheckpoint(check);
   const stored = new Map<string, Promise<RecordVector[]>>();
   const scores = new Map<string, Promise<SemanticScoreResult>>();
   function sourceMetadata(source: Pick<SemanticSqlSourceRequest, "table" | "groups">) {
