@@ -89,22 +89,19 @@ export function QueryPage(props: QueryPageProps) {
   const currentKey = useRef(key);
   currentKey.current = key;
   const scroll = usePageScroll(store, key, !!context && !list);
-  const busy = session?.status === "running" || session?.status === "committing";
+  const executing = useSyncExternalStore(
+    subscribe,
+    () => !!session && store.isExecuting(session.id),
+    () => false,
+  );
+  const busy = executing || session?.status === "running" || session?.status === "committing";
+  const runningElsewhere = !!session && busy && !executing;
   useEffect(() => {
     setDeleting(null);
     setDiscarding(false);
     setEditing(null);
     setList(false);
   }, [scope]);
-  useEffect(() => {
-    if (!unsaved && !storageError) return;
-    const unload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", unload);
-    return () => window.removeEventListener("beforeunload", unload);
-  }, [unsaved, storageError]);
   useLayoutEffect(() => {
     const element = scroll.ref.current;
     if (!element) return;
@@ -447,13 +444,15 @@ export function QueryPage(props: QueryPageProps) {
             </Field>
             <div className="ste:flex ste:items-center ste:justify-between ste:gap-3">
               <p className="ste:text-xs ste:text-muted-foreground" role="status">
-                {busy
-                  ? "可切换会话，结果会保留。"
-                  : unsaved
-                    ? "正在保存会话…"
-                    : "会话保存在当前浏览器。"}
+                {runningElsewhere
+                  ? "会话正在其他标签页处理。"
+                  : busy
+                    ? "可切换会话，结果会保留。"
+                    : unsaved
+                      ? "正在保存会话…"
+                      : "会话保存在当前浏览器。"}
               </p>
-              {session.status === "running" ? (
+              {executing && session.status !== "committing" ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -497,9 +496,7 @@ export function QueryPage(props: QueryPageProps) {
         description="清除这份未提交修改，保留聊天记录。"
         confirmLabel="放弃提案"
         destructive
-        onConfirm={() => {
-          props.service.discard(session!.id);
-        }}
+        onConfirm={() => props.service.discard(session!.id)}
       />
     </section>
   );

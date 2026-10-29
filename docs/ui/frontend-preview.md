@@ -71,6 +71,7 @@ node verify-macros.mjs
 node verify-presets.mjs
 node verify-preset-structure.mjs
 node verify-query.mjs
+node verify-assistant-concurrency.mjs
 node verify-sql.mjs
 node verify-logs.mjs
 node verify-maintenance.mjs
@@ -115,3 +116,5 @@ Windows 粗调度下的万条记忆语义查询采用 8ms 时间片检查点，�
 Edge 独立预览完成助手 21 项、维护工具 13 项检查，覆盖多会话 CRUD、输入与提案刷新恢复、工具消息、明确确认、取消、对话隔离与 320/390px、桌面布局。
 类型检查、ESLint、格式检查与生产构建通过。全仓并发回归期间出现宏查询预算、构建时限及队列等待失败，三个用例单独串行复跑通过，未改动这些阈值。
 本轮仅使用独立预览的模拟记忆与模型，未对真实 ST 聊天执行写入验收。
+
+记忆助手审查修复追加验证：35 项会话回归和 13 项真实多标签页浏览器检查通过，覆盖同提案仅提交一次、活跃请求不被误恢复、原页退出后恢复、排队取消、旧快照拒绝、v9 升级及切页/收起面板后的刷新保护。单条写入的保存错误测试从实际 repository 提交路径抛错，验证领域包装后的已提交语义。

@@ -169,6 +169,16 @@ export class SteMemoryDatabase extends Dexie {
           });
       });
     this.version(9).stores({ assistantSessions: "id, spaceId, [chatKey+spaceId], updatedAt" });
+    this.version(10)
+      .stores({})
+      .upgrade(async (transaction) => {
+        await transaction
+          .table("assistantSessions")
+          .toCollection()
+          .modify((session) => {
+            session.storageRevision = 0;
+          });
+      });
     this.version(8)
       .stores({})
       .upgrade(async (transaction) => {

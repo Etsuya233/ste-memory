@@ -265,3 +265,5 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 提交按钮只对当前有效预览开放，任何新一轮交互都会使旧预览失效。删除会话中断请求，迟到事件不能重建会话。
 验收覆盖多会话切换、同空间不同对话隔离、刷新恢复、工具调用配对、重复确认、版本冲突和提交后同步失败。
 会话仅在本地浏览器保存，聊天文件镜像、空间备份及其他设备不携带会话。
+
+会话跨标签页使用 Web Locks 和持久化版本校验协调，原页面仍持锁时不得恢复其运行状态。会话保存错误与待写入状态由工作台的全局 beforeunload 监听读取，页面不单独承担刷新保护。并发与刷新保护验收命令为 `verify-assistant-concurrency.mjs`。

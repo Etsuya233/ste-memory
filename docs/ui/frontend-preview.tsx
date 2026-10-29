@@ -1044,6 +1044,7 @@ function Preview() {
       switchChat,
       workspace,
       queryStore: toolsFixture.queryStore,
+      assistantService: toolsFixture.tools.query.service,
       queryInputs: toolsFixture.queryInputs,
       delayQuery: toolsFixture.delayQuery,
       delaySQL: toolsFixture.delaySQL,

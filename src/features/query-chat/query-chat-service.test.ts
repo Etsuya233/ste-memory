@@ -91,20 +91,9 @@ async function createHarness(
   const currentSpace = { value: spaceId, generation: 0 };
   const store = new QueryChatStore(new IndexedDbAssistantSessions(db));
   await store.ready;
-  const runInTransaction = (work: () => Promise<void>): Promise<void> =>
-    db.transaction(
-      "rw",
-      [
-        db.memoryTables,
-        db.memoryFields,
-        db.memoryRecords,
-        db.memoryRecordHistory,
-        db.memoryEvidence,
-      ],
-      async () => {
-        await work();
-      },
-    );
+  const runInTransaction = async (work: () => Promise<void>): Promise<void> => {
+    await work();
+  };
   const buildService = (
     streamFn: StreamFn,
     sessionStore: QueryChatStore = store,
@@ -259,11 +248,11 @@ describe("记忆助手会话", () => {
     const h = await createHarness({ streamFn: draftScript() });
     const session = createSession(h);
     await h.service.run({ sessionId: session.id, text: "新增" });
-    const original = MemoryRecordService.prototype.commitProposal;
+    const original = h.services.recordRepository.commit.bind(h.services.recordRepository);
     const writer = vi
-      .spyOn(MemoryRecordService.prototype, "commitProposal")
-      .mockImplementationOnce(async function (this: MemoryRecordService, ...args) {
-        await original.apply(this, args);
+      .spyOn(h.services.recordRepository, "commit")
+      .mockImplementationOnce(async (...args) => {
+        await original(...args);
         throw new MemoryCommitPersistenceError(new Error("文件写回失败"));
       });
     try {
@@ -305,6 +294,62 @@ describe("记忆助手会话", () => {
     await next.run({ sessionId: session.id, text: "再新增一个" });
     expect(h.store.get(session.id).proposal.operations).toHaveLength(1);
     expect(h.store.get(session.id).preview?.valid).toBe(true);
+  });
+  it("两个标签页加载同一提案后只允许提交一次", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+    await second.ready;
+    const another = h.buildService(draftScript(), second);
+    const token = h.store.get(session.id).previewId!;
+    await h.service.confirm(session.id, token);
+    await expect(another.confirm(session.id, token)).rejects.toThrow("提案已变化");
+    expect(await h.db.memoryRecords.toArray()).toHaveLength(1);
+  });
+  it("另一个标签页启动不会把活跃请求恢复成中断", async () => {
+    const h = await createHarness({ streamFn: hangingStreamFn() });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "等待" });
+    try {
+      await vi.waitFor(() => expect(h.store.getRun(session.id)).toBeDefined());
+      await h.store.flush();
+      const second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+      await second.ready;
+      await second.flush();
+      expect(second.get(session.id).status).toBe("running");
+      expect((await h.db.assistantSessions.get(session.id))!.status).toBe("running");
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+    }
+  });
+  it("等待其他标签页的会话锁时可以取消，取消后不会发送排队消息", async () => {
+    const h = await createHarness({ streamFn: hangingStreamFn() });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "原页面请求" });
+    let second: QueryChatStore | undefined;
+    try {
+      await vi.waitFor(() => expect(h.store.getRun(session.id)).toBeDefined());
+      await h.store.flush();
+      second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+      await second.ready;
+      const another = h.buildService(draftScript(), second);
+      const queued = another.run({ sessionId: session.id, text: "排队消息" });
+      expect(second.isExecuting(session.id)).toBe(true);
+      second.cancel(session.id);
+      await expect(queued).rejects.toMatchObject({ name: "AbortError" });
+      expect(second.isExecuting(session.id)).toBe(false);
+      expect(
+        h.store
+          .get(session.id)
+          .messages.some((message) => message.kind === "user" && message.text === "排队消息"),
+      ).toBe(false);
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+      second?.dispose();
+    }
   });
   it("并行会话隔离，取消和删除不会串入其他会话", async () => {
     const h = await createHarness({ streamFn: hangingStreamFn() });
