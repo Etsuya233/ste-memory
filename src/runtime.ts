@@ -1,3 +1,5 @@
+import { QueryChatStore } from "./features/query-chat/session-store.ts";
+import { IndexedDbAssistantSessions } from "./infrastructure/indexeddb/assistant-session-repository.ts";
 import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
 import type { RerankPort } from "./features/semantic-query/rerank.ts";
 import type {
@@ -419,9 +421,9 @@ export async function startSteMemory(
   });
   const logs = new DexieLogRepository(logDb, { now });
   /**
-   * Dexie 原子事务运行器工厂：提交批次在单事务内（scope 必须声明为 async——
-   * Dexie expected-awaits 追踪，否则 PrematureCommit）。表集合 = 批次提交读写全集：
-   * 填表任务含台账表，问答面板不含。
+   * 填表任务台账使用 Dexie 原子事务；scope 必须声明为 async，
+   * 供 Dexie expected-awaits 追踪，避免 PrematureCommit。
+   * 记忆记录的提交事务由 MemoryRecordService 管理。
    */
   const runInTransaction = (tables: readonly Table[]) => (work: () => Promise<void>) =>
     db.transaction("rw", tables, async () => {
@@ -732,22 +734,29 @@ export async function startSteMemory(
     onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
   });
 
-  // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
-  // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
+  // 记忆助手共用持久化会话及查询/提案工具，提交前检查实时对话身份和代次。
+  const assistantStore = new QueryChatStore(new IndexedDbAssistantSessions(db), () =>
+    createId("assistant"),
+  );
+  let assistantContextGeneration = 0;
+  manager.onStatusChange(() => {
+    assistantContextGeneration++;
+  });
+  await assistantStore.ready;
   const queryChat = new QueryChatService({
+    store: assistantStore,
     semanticQuery,
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     recordWriter: records,
-    // 提交批次的事务作用域（不含台账表）：记录/历史/证据读写全集。
-    runInTransaction: async (work) => {
-      await work();
-    },
     createLlm: createQueryChatLlm,
-    getCurrentSpaceId: () => {
+    getCurrentContext: () => {
       if (!settings.read().enabled) return undefined;
       const status = manager.getStatus();
-      return status?.kind === "active" ? status.space.id : undefined;
+      const chatKey = chatIdentityKey(adapter.getChatSnapshot());
+      return status?.kind === "active" && chatKey
+        ? { chatKey, spaceId: status.space.id, generation: assistantContextGeneration }
+        : undefined;
     },
   });
 

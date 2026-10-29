@@ -1,23 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-import type { MemorySpaceId } from "../memory/index.ts";
+import { describe, expect, it } from "vitest";
 import {
-  QueryChatStore,
   applyQueryChatEvent,
   assistantPlainText,
-  chatHistoryMessages,
   createPendingAssistantMessage,
   createUserMessage,
   isTerminalQueryChatEvent,
-  queryChatHistoryKey,
   type QueryChatEvent,
   type QueryChatMessage,
 } from "./query-chat-state.ts";
-
-const SPACE_A = "space-a" as MemorySpaceId;
-const SPACE_B = "space-b" as MemorySpaceId;
-const KEY_A_QUERY = queryChatHistoryKey(SPACE_A, "query");
-const KEY_A_FILL = queryChatHistoryKey(SPACE_A, "fill");
-const KEY_B_QUERY = queryChatHistoryKey(SPACE_B, "query");
 
 function segmentsOf(messages: readonly QueryChatMessage[], index: number) {
   const message = messages[index]!;
@@ -25,13 +15,7 @@ function segmentsOf(messages: readonly QueryChatMessage[], index: number) {
   return message.segments;
 }
 
-describe("queryChatHistoryKey / 纯消息函数", () => {
-  it("历史键按（空间 × 模式）区分", () => {
-    expect(KEY_A_QUERY).not.toBe(KEY_A_FILL);
-    expect(KEY_A_QUERY).not.toBe(KEY_B_QUERY);
-    expect(queryChatHistoryKey(SPACE_A, "query")).toBe(KEY_A_QUERY);
-  });
-
+describe("纯消息函数", () => {
   it("createUserMessage / createPendingAssistantMessage 初始形状", () => {
     expect(createUserMessage("u1", "你好")).toEqual({ kind: "user", id: "u1", text: "你好" });
     expect(createPendingAssistantMessage("a1")).toEqual({
@@ -311,220 +295,5 @@ describe("assistantPlainText（聚合回答纯文本推导）", () => {
       segments: [{ kind: "thinking", text: "只有思考" }],
     };
     expect(assistantPlainText(withThinking)).toBe("");
-  });
-});
-
-describe("chatHistoryMessages（无状态多轮回传）", () => {
-  it("只回传 user 文本与 done 的 assistant 文本（纯文本 = 文本片段拼接）", () => {
-    const streaming = createPendingAssistantMessage("a2");
-    const errored = applyQueryChatEvent([createPendingAssistantMessage("a3")], "a3", {
-      type: "error",
-      message: "炸了",
-    })[0]!;
-    const doneWithText = applyQueryChatEvent([createPendingAssistantMessage("a5")], "a5", {
-      type: "message_delta",
-      text: "回答一",
-    });
-    const doneWithTextFinal = applyQueryChatEvent(doneWithText, "a5", {
-      type: "done",
-      stopReason: "stop",
-      errorMessage: null,
-    })[0]!;
-    // 思考片段与工具卡不跨轮回传：done 消息含思考+文本，回传的仍是纯文本
-    let withThinking: readonly QueryChatMessage[] = [createPendingAssistantMessage("a6")];
-    withThinking = applyQueryChatEvent(withThinking, "a6", {
-      type: "thinking_delta",
-      text: "思考一下",
-    });
-    withThinking = applyQueryChatEvent(withThinking, "a6", {
-      type: "message_delta",
-      text: "回答二",
-    });
-    const doneWithThinkingFinal = applyQueryChatEvent(withThinking, "a6", {
-      type: "done",
-      stopReason: "stop",
-      errorMessage: null,
-    })[0]!;
-    const messages = [
-      createUserMessage("u1", "第一条"),
-      doneWithTextFinal,
-      createUserMessage("u2", "第二条"),
-      streaming,
-      errored,
-      doneWithThinkingFinal,
-    ];
-    expect(chatHistoryMessages(messages)).toEqual([
-      { role: "user", text: "第一条" },
-      { role: "assistant", text: "回答一" },
-      { role: "user", text: "第二条" },
-      { role: "assistant", text: "回答二" },
-    ]);
-  });
-
-  it("无文本片段的 done assistant 不回传", () => {
-    const done = applyQueryChatEvent([createPendingAssistantMessage("a1")], "a1", {
-      type: "done",
-      stopReason: "stop",
-      errorMessage: null,
-    })[0]!;
-    expect(chatHistoryMessages([createUserMessage("u1", "问"), done])).toEqual([
-      { role: "user", text: "问" },
-    ]);
-  });
-});
-
-describe("QueryChatStore（按 key 历史 + run 状态）", () => {
-  it("无历史 key 的快照引用稳定（useSyncExternalStore 契约：getSnapshot 必须缓存）", () => {
-    const store = new QueryChatStore();
-    expect(store.getHistory(KEY_A_QUERY)).toBe(store.getHistory(KEY_A_QUERY));
-    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
-  });
-
-  it("模式初始为查询；setMode 通知监听者", () => {
-    const store = new QueryChatStore();
-    expect(store.getMode()).toBe("query");
-    const listener = vi.fn();
-    store.onStoreChange(listener);
-    store.setMode("fill");
-    expect(store.getMode()).toBe("fill");
-    expect(listener).toHaveBeenCalledTimes(1);
-    store.setMode("fill");
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it("beginRun 追加用户 + 待流式消息并记录可取消 run", () => {
-    const store = new QueryChatStore();
-    const controller = new AbortController();
-    store.beginRun(
-      KEY_A_QUERY,
-      createUserMessage("u1", "问"),
-      createPendingAssistantMessage("a1"),
-      controller,
-    );
-    expect(store.getHistory(KEY_A_QUERY).map((m) => m.id)).toEqual(["u1", "a1"]);
-    expect(store.getRun(KEY_A_QUERY)).toEqual({ pendingId: "a1", controller });
-  });
-
-  it("事件写到对应 key；done 终止 run；error 终止 run", () => {
-    const store = new QueryChatStore();
-    const controller = new AbortController();
-    store.beginRun(
-      KEY_A_QUERY,
-      createUserMessage("u1", "问"),
-      createPendingAssistantMessage("a1"),
-      controller,
-    );
-    store.applyEvent(KEY_A_QUERY, { type: "message_delta", text: "云烬" });
-    store.applyEvent(KEY_A_QUERY, { type: "done", stopReason: "stop", errorMessage: null });
-    const history = store.getHistory(KEY_A_QUERY);
-    expect(history).toHaveLength(2);
-    const assistant = history[1]!;
-    expect(assistant.kind === "assistant" && assistant.status).toBe("done");
-    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
-  });
-
-  it("各 key 历史独立；在途 run 不受切换影响（决策 7）", () => {
-    const store = new QueryChatStore();
-    const controllerA = new AbortController();
-    const controllerB = new AbortController();
-    store.beginRun(
-      KEY_A_QUERY,
-      createUserMessage("u1", "问 A"),
-      createPendingAssistantMessage("a1"),
-      controllerA,
-    );
-    store.setMode("fill");
-    store.beginRun(
-      KEY_A_FILL,
-      createUserMessage("u2", "记一下"),
-      createPendingAssistantMessage("a2"),
-      controllerB,
-    );
-
-    // A 的 run 在途时切换 key，事件继续写进 A 的历史
-    store.applyEvent(KEY_A_QUERY, { type: "message_delta", text: "回答 A" });
-    expect(store.getRun(KEY_A_QUERY)).toBeDefined();
-    expect(store.getRun(KEY_A_FILL)).toBeDefined();
-
-    const assistantA = store.getHistory(KEY_A_QUERY)[1]!;
-    expect(assistantA.kind === "assistant" && assistantA.segments).toEqual([
-      { kind: "text", text: "回答 A" },
-    ]);
-    const assistantB = store.getHistory(KEY_A_FILL)[1]!;
-    expect(assistantB.kind === "assistant" && assistantB.segments).toEqual([]);
-  });
-
-  it("无 run 时 applyEvent 是防御性 no-op（迟到事件不污染历史）", () => {
-    const store = new QueryChatStore();
-    store.applyEvent(KEY_A_QUERY, { type: "message_delta", text: "x" });
-    expect(store.getHistory(KEY_A_QUERY)).toEqual([]);
-  });
-
-  it("cancel 中止对应 run 的 controller；run 在终态事件前仍存在（停止后可见「已取消」）", () => {
-    const store = new QueryChatStore();
-    const controller = new AbortController();
-    const onAbort = vi.fn();
-    controller.signal.addEventListener("abort", onAbort);
-    store.beginRun(
-      KEY_A_QUERY,
-      createUserMessage("u1", "问"),
-      createPendingAssistantMessage("a1"),
-      controller,
-    );
-    expect(store.cancel(KEY_A_QUERY)).toBe(true);
-    expect(onAbort).toHaveBeenCalledTimes(1);
-    // 重复取消无害：run 仍在（等服务的「已取消」终态事件收尾）
-    expect(store.cancel(KEY_A_QUERY)).toBe(true);
-    store.applyEvent(KEY_A_QUERY, { type: "error", message: "已取消" });
-    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
-    expect(store.cancel(KEY_A_QUERY)).toBe(false);
-  });
-
-  it("clearSpaceHistory 清空该空间两种模式历史并中断在途 run，其他空间不受影响（spec reset-space）", () => {
-    const store = new QueryChatStore();
-    const controllerA = new AbortController();
-    const controllerB = new AbortController();
-    store.beginRun(
-      KEY_A_QUERY,
-      createUserMessage("u1", "问 A"),
-      createPendingAssistantMessage("a1"),
-      controllerA,
-    );
-    store.beginRun(
-      KEY_A_FILL,
-      createUserMessage("u2", "填 A"),
-      createPendingAssistantMessage("a2"),
-      controllerA,
-    );
-    store.beginRun(
-      KEY_B_QUERY,
-      createUserMessage("u3", "问 B"),
-      createPendingAssistantMessage("a3"),
-      controllerB,
-    );
-    const abortSpyA = vi.spyOn(controllerA, "abort");
-
-    store.clearSpaceHistory(SPACE_A);
-
-    expect(store.getHistory(KEY_A_QUERY)).toEqual([]);
-    expect(store.getHistory(KEY_A_FILL)).toEqual([]);
-    expect(store.getRun(KEY_A_QUERY)).toBeUndefined();
-    expect(store.getRun(KEY_A_FILL)).toBeUndefined();
-    expect(abortSpyA).toHaveBeenCalled();
-    // 其他空间历史与在途 run 不受影响
-    expect(store.getHistory(KEY_B_QUERY)).toHaveLength(2);
-    expect(store.getRun(KEY_B_QUERY)).toEqual({ pendingId: "a3", controller: controllerB });
-    expect(controllerB.signal.aborted).toBe(false);
-  });
-
-  it("订阅/退订（useSyncExternalStore 契约）", () => {
-    const store = new QueryChatStore();
-    const listener = vi.fn();
-    const unsubscribe = store.onStoreChange(listener);
-    store.setMode("fill");
-    expect(listener).toHaveBeenCalledTimes(1);
-    unsubscribe();
-    store.setMode("query");
-    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

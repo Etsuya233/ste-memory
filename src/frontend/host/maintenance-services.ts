@@ -24,7 +24,7 @@ import type {
 export function createMaintenanceServices(
   runtime: SteMemoryRuntime,
   onChanged: () => Promise<void>,
-  clearHistory: (id: MemorySpaceId) => void,
+  clearHistory: (id: MemorySpaceId) => void | Promise<void>,
 ): MaintenanceServices {
   const currentContext = (): RecordsContext | null => {
     const status = runtime.manager.getStatus();
@@ -122,7 +122,7 @@ export function createMaintenanceServices(
                 : [];
           for (const id of new Set([...affected, ...units.map((unit) => unit.space.id)])) {
             await runtime.presetApply.stopSpaceWrites(id);
-            clearHistory(id);
+            await clearHistory(id);
           }
           assertImportTarget();
           const normalize = async (
@@ -195,15 +195,15 @@ export function createMaintenanceServices(
       assertChat(target.chatKey, target.spaceId);
       let applied = false;
       try {
+        await clearHistory(target.spaceId);
         if (
           !(await runtime.spaceMaintenance.clearRecords(target.spaceId, () => {
             assertChat(target.chatKey, target.spaceId);
-            clearHistory(target.spaceId);
           }))
         )
           throw new Error("目标空间已不存在");
         applied = true;
-        clearHistory(target.spaceId);
+        await clearHistory(target.spaceId);
         await synchronize();
         return { kind: "done", message: `已清除「${target.title}」的记录、历史与证据。` };
       } catch (cause) {

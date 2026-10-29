@@ -1,3 +1,7 @@
+import {
+  QueryChatStore,
+  InMemoryAssistantSessions,
+} from "../../features/query-chat/session-store.ts";
 import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { SettingsService } from "../../features/settings/settings-service.ts";
@@ -142,12 +146,15 @@ function fakeRuntime(): PanelRuntime {
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },
     queryChat: {
-      run: vi.fn(async () => ({
-        stopReason: "stop" as const,
-        errorMessage: undefined,
-        answer: "",
-        commit: undefined,
+      store: new QueryChatStore(new InMemoryAssistantSessions()),
+      run: vi.fn(async () => undefined),
+      confirm: vi.fn(async () => ({
+        status: "committed" as const,
+        created: 0,
+        updated: 0,
+        deleted: 0,
       })),
+      discard: vi.fn(),
     },
     logs: {
       byKey: vi.fn(async () => []),

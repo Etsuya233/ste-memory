@@ -1,4 +1,5 @@
 import { Dexie, type Table } from "dexie";
+import type { AssistantSession } from "../../features/query-chat/session-store.ts";
 import { upgradeVectorIndexKeys } from "../../features/memory/index.ts";
 import type {
   MemoryEvidenceId,
@@ -91,6 +92,7 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
  *   身份字段 kind 一并清理（统一表格规则，不再区分系统表与自定义表）。
  */
 export class SteMemoryDatabase extends Dexie {
+  assistantSessions!: Table<AssistantSession, string>;
   memorySpaces!: Table<MemorySpace, MemorySpaceId>;
   memoryTables!: Table<MemoryTable, MemoryTableId>;
   memoryFields!: Table<MemoryField, MemoryFieldId>;
@@ -164,6 +166,17 @@ export class SteMemoryDatabase extends Dexie {
           .toCollection()
           .modify((table) => {
             table.vectorIndex = upgradeVectorIndexKeys(table.vectorIndex);
+          });
+      });
+    this.version(9).stores({ assistantSessions: "id, spaceId, [chatKey+spaceId], updatedAt" });
+    this.version(10)
+      .stores({})
+      .upgrade(async (transaction) => {
+        await transaction
+          .table("assistantSessions")
+          .toCollection()
+          .modify((session) => {
+            session.storageRevision = 0;
           });
       });
     this.version(8)

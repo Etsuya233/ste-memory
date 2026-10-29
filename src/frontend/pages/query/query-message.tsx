@@ -5,7 +5,6 @@ import { Copy } from "lucide-react";
 import {
   assistantPlainText,
   type QueryChatMessage,
-  type QueryChatMode,
   type QueryChatSegment,
   type QueryChatCommitResult,
 } from "../../../features/query-chat/query-chat-state.ts";
@@ -29,12 +28,10 @@ import { copyText } from "../../components/copy-text.ts";
 
 export function QueryMessage({
   message,
-  mode,
   onRefresh,
   refreshing,
 }: {
   message: QueryChatMessage;
-  mode: QueryChatMode;
   onRefresh: () => void;
   refreshing: boolean;
 }) {
@@ -69,14 +66,16 @@ export function QueryMessage({
       data-query-status={message.status}
     >
       <CardHeader>
-        <CardTitle>{mode === "query" ? "查询 Agent" : "填写 Agent"}</CardTitle>
+        <CardTitle>记忆助手</CardTitle>
         <CardAction>
           <Badge variant={message.status === "error" ? "destructive" : "secondary"}>
             {message.status === "streaming"
               ? "回答中"
               : message.status === "error"
                 ? "出错"
-                : "完成"}
+                : message.status === "interrupted"
+                  ? "已中断"
+                  : "完成"}
           </Badge>
         </CardAction>
       </CardHeader>
@@ -188,6 +187,7 @@ function CommitResult({
     return (
       <StatusNotice>
         已提交：创建 {commit.created} · 更新 {commit.updated} · 删除 {commit.deleted}。
+        {commit.warning}
         <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={refreshing}>
           刷新记录
         </Button>

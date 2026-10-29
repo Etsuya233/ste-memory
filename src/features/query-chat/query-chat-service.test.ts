@@ -1,13 +1,9 @@
-import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { Context } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 import {
-  MUTATE_TOOL_NAME,
-  PROPOSAL_PREVIEW_TOOL_NAME,
-  SUBMIT_PROPOSAL_TOOL_NAME,
-} from "../agent/index.ts";
-import {
+  MemoryCommitPersistenceError,
   MemoryRecordQueryService,
   MemoryRecordService,
   type MemoryRecordHistoryId,
@@ -23,80 +19,28 @@ import {
   type TestServices,
 } from "../../infrastructure/indexeddb/test-support.ts";
 import type { SteMemoryDatabase } from "../../infrastructure/indexeddb/database.ts";
+import { IndexedDbAssistantSessions } from "../../infrastructure/indexeddb/assistant-session-repository.ts";
 import {
   assistantMessage,
   fakeModel,
   hangingStreamFn,
   lastToolResult,
-  scriptedDeltaStreamFn,
   scriptedStreamFn,
   textMessage,
-  thinkingMessage,
   toolCallMessage,
 } from "../fill-tasks/stream-fn-support.ts";
-import {
-  QUERY_CHAT_SPACE_SWITCHED_NOTICE,
-  QueryChatService,
-  terminalQueryChatEvent,
-  toAgentMessages,
-  translateAgentEvent,
-} from "./query-chat-service.ts";
-import type { QueryChatEvent } from "./query-chat-state.ts";
-
+import { QueryChatStore } from "./session-store.ts";
+import { QueryChatService } from "./query-chat-service.ts";
 const NOW = "2026-07-30T01:02:03.000Z";
-
-/** 查询 Agent 脚本（增量流）：先 query_records，再思考 + 文本增量回答（两轮）。 */
-function scriptedQueryAgent() {
-  return scriptedDeltaStreamFn((context: Context) => {
-    if (!lastToolResult(context)) {
-      return assistantMessage(
-        [toolCallMessage("call-1", "query_records", { table: "characters" })],
-        "toolUse",
-      );
-    }
-    return assistantMessage([thinkingMessage("查完了"), textMessage("共 1 条记录。")], "stop");
-  });
-}
-
-/** 填写 Agent 脚本：mutate(create characters 云烬) → preview → submit → 自然结束。 */
-function scriptedFillAgent() {
-  return scriptedStreamFn((context: Context) => {
-    if (!lastToolResult(context)) {
-      return assistantMessage(
-        [
-          toolCallMessage("call-1", MUTATE_TOOL_NAME, {
-            op: "create",
-            table: "characters",
-            patch: { name: "云烬" },
-          }),
-          toolCallMessage("call-2", PROPOSAL_PREVIEW_TOOL_NAME, {}),
-          toolCallMessage("call-3", SUBMIT_PROPOSAL_TOOL_NAME, {}),
-        ],
-        "toolUse",
-      );
-    }
-    return assistantMessage([textMessage("已提交。")], "stop");
-  });
-}
-
-/** 用户不同意（软闸门）：Agent 陈述变更但不提交，自然结束。 */
-function scriptedDeclineAgent() {
-  return scriptedStreamFn(() => assistantMessage([textMessage("好的，未做任何变更。")], "stop"));
-}
-
-/** 模型失败：stopReason "error" + errorMessage。 */
-function scriptedFailingAgent() {
-  return scriptedStreamFn(() => assistantMessage([textMessage("模型炸了")], "error", "模型炸了"));
-}
-
 interface Harness {
   readonly service: QueryChatService;
+  readonly store: QueryChatStore;
   readonly db: SteMemoryDatabase;
   readonly services: TestServices;
   readonly spaceId: MemorySpaceId;
-  readonly currentSpace: { value: MemorySpaceId | undefined };
+  readonly currentSpace: { value: MemorySpaceId | undefined; generation: number };
   /** 组装第二个服务（多轮历史测试注入自定义 streamFn 用）。 */
-  readonly buildService: (streamFn: StreamFn) => QueryChatService;
+  readonly buildService: (streamFn: StreamFn, sessionStore?: QueryChatStore) => QueryChatService;
 }
 
 let harnessSeq = 0;
@@ -144,426 +88,429 @@ async function createHarness(
     () => `revision-${++revisionSeq}` as MemoryRevisionId,
     () => NOW,
   );
-  const currentSpace = { value: spaceId };
-  const runInTransaction = (work: () => Promise<void>): Promise<void> =>
-    db.transaction(
-      "rw",
-      [
-        db.memoryTables,
-        db.memoryFields,
-        db.memoryRecords,
-        db.memoryRecordHistory,
-        db.memoryEvidence,
-      ],
-      async () => {
-        await work();
-      },
-    );
-  const buildService = (streamFn: StreamFn): QueryChatService =>
+  const currentSpace = { value: spaceId, generation: 0 };
+  const store = new QueryChatStore(new IndexedDbAssistantSessions(db));
+  await store.ready;
+  const buildService = (
+    streamFn: StreamFn,
+    sessionStore: QueryChatStore = store,
+  ): QueryChatService =>
     new QueryChatService({
+      store: sessionStore,
       semanticQuery: options.semanticQuery,
       reader,
       ports,
       recordWriter,
-      runInTransaction,
       createLlm: () => {
         if (options.createLlmThrows)
           throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
         return { streamFn, model: fakeModel() };
       },
-      getCurrentSpaceId: () => options.currentSpace?.() ?? currentSpace.value,
+      getCurrentContext: () =>
+        currentSpace.value
+          ? {
+              chatKey: "chat-a",
+              spaceId: options.currentSpace?.() ?? currentSpace.value,
+              generation: currentSpace.generation,
+            }
+          : undefined,
     });
-  const service = buildService(options.streamFn ?? scriptedQueryAgent());
-  return { service, db, services, spaceId, currentSpace, buildService };
+  const service = buildService(
+    options.streamFn ?? scriptedStreamFn(() => assistantMessage([textMessage("你好")], "stop")),
+  );
+  return { service, store, db, services, spaceId, currentSpace, buildService };
 }
 
-/** 收集事件 + 返回 run 结果。 */
-async function run(
-  harness: Harness,
-  input: {
-    readonly mode: "query" | "fill";
-    readonly messages?: readonly { role: "user" | "assistant"; text: string }[];
-    readonly signal?: AbortSignal;
-  },
-) {
-  const events: QueryChatEvent[] = [];
-  const result = await harness.service.run({
-    mode: input.mode,
-    memorySpaceId: harness.spaceId,
-    messages: input.messages ?? [{ role: "user", text: "你好" }],
-    signal: input.signal ?? new AbortController().signal,
-    onEvent: (event) => events.push(event),
-  });
-  return { events, result };
+function createSession(h: Harness) {
+  return h.store.create({ chatKey: "chat-a", spaceId: h.spaceId });
 }
-
-describe("QueryChatService（问答双模式 run 编排，ticket 20）", () => {
-  it("查询模式：整循环（工具调用 → 回答）事件齐全，done 收尾", async () => {
-    const harness = await createHarness();
-    const { events, result } = await run(harness, {
-      mode: "query",
-      messages: [{ role: "user", text: "有多少角色？" }],
-    });
-
-    expect(events.map((e) => e.type)).toEqual([
-      "tool_start",
-      "tool_result",
-      "thinking_delta",
-      "message_delta",
-      "done",
-    ]);
-    expect(result.stopReason).toBe("stop");
-    expect(result.answer).toBe("共 1 条记录。");
-    expect(result.commit).toBeUndefined();
-
-    const done = events.at(-1)!;
-    expect(done).toEqual({
-      type: "done",
-      stopReason: "stop",
-      errorMessage: null,
-      commit: undefined,
-    });
-    expect(events[2]).toEqual({ type: "thinking_delta", text: "查完了" });
-    expect(events[3]).toEqual({ type: "message_delta", text: "共 1 条记录。" });
-    const toolResult = events[1]!;
-    expect(toolResult.type).toBe("tool_result");
-    if (toolResult.type !== "tool_result") throw new Error("unreachable");
-    expect(toolResult.isError).toBe(false);
-    // 测试空间还没有记录：query_records 如实返回 0（只读工具结果以 details 呈现）
-    expect(toolResult.result).toMatchObject({ table: "characters", total: 0 });
+function draftScript() {
+  return scriptedStreamFn((context: Context) => {
+    const last = lastToolResult(context);
+    const users = context.messages.filter((message) => message.role === "user");
+    if (users.length === 1 && !last)
+      return assistantMessage(
+        [
+          toolCallMessage("draft", "mutate", {
+            op: "create",
+            table: "characters",
+            patch: { name: "云烬" },
+          }),
+        ],
+        "toolUse",
+      );
+    if (users.length > 1 && context.messages.at(-1)?.role === "user")
+      return assistantMessage([toolCallMessage("preview", "proposal_preview", {})], "toolUse");
+    return assistantMessage([textMessage("请查看变更并确认。")], "stop");
   });
-
-  it("查询模式：多轮历史以 user/assistant 文本回传（思考与工具不跨轮）", async () => {
-    const harness = await createHarness();
-    const contexts: Context[] = [];
-    const streamFn = scriptedStreamFn((context) => {
-      contexts.push(context);
-      return assistantMessage([textMessage("好的。")], "stop");
-    });
-    const service = harness.buildService(streamFn);
-    await service.run({
-      mode: "query",
-      memorySpaceId: harness.spaceId,
-      messages: [
-        { role: "user", text: "第一问" },
-        { role: "assistant", text: "第一答" },
-        { role: "user", text: "第二问" },
-      ],
-      signal: new AbortController().signal,
-      onEvent: () => undefined,
-    });
-    expect(contexts).toHaveLength(1);
-    const contextMessages = contexts[0]!.messages.map((m) => m.role);
-    expect(contextMessages).toEqual(["user", "assistant", "user"]);
-  });
-
-  it("填写模式：提案提交直通 repository（revisionSource agent），done 携带已提交摘要", async () => {
-    const harness = await createHarness({ streamFn: scriptedFillAgent() });
-    const { events, result } = await run(harness, {
-      mode: "fill",
-      messages: [{ role: "user", text: "记一下：云烬" }],
-    });
-
-    const done = events.at(-1)!;
-    expect(done.type).toBe("done");
-    if (done.type !== "done") throw new Error("unreachable");
-    expect(done.commit).toEqual({ status: "committed", created: 1, updated: 0, deleted: 0 });
-    expect(result.commit).toEqual({ status: "committed", created: 1, updated: 0, deleted: 0 });
-
-    // 记录真实落库
-    const records = await harness.services.records.list(
-      harness.spaceId,
-      (await harness.services.tables.list(harness.spaceId)).find((t) => t.key === "characters")!.id,
-      { page: 1, pageSize: 10 },
+}
+describe("记忆助手会话", () => {
+  it("没有 Web Locks 和 randomUUID 的宿主仍能新建、跨轮保存并确认提案", async () => {
+    const h = await createHarness();
+    h.store.dispose();
+    let id = 0;
+    // 生产接线同样注入运行时的 ID 工厂，Store 无需依赖安全上下文 API。
+    const store = new QueryChatStore(
+      new IndexedDbAssistantSessions(h.db),
+      () => `assistant-${++id}`,
     );
-    expect(records?.records ?? []).toHaveLength(1);
-  });
-
-  it("填写模式：软闸门提示词进 system prompt（digest 摘要展开）", async () => {
-    let seenSystemPrompt: string | undefined;
-    const stream = scriptedStreamFn((context) => {
-      seenSystemPrompt = context.systemPrompt;
-      return assistantMessage([textMessage("好的，未做任何变更。")], "stop");
+    await store.ready;
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("宿主没有 randomUUID");
     });
-    const harness = await createHarness({ streamFn: stream });
-    await run(harness, {
-      mode: "fill",
-      messages: [{ role: "user", text: "你好" }],
-    });
-    // 编排：composeInteractiveProposalAgentSystemPrompt(digest) 单条 system 消息
-    // 合并进系统提示词；对话消息在 messages 里，不进 systemPrompt。
-    expect(seenSystemPrompt).toBeDefined();
-    expect(seenSystemPrompt!).toContain("只有用户明确同意后，才允许调用 submit_proposal"); // 软闸门
-    expect(seenSystemPrompt!).toContain("可用表与字段"); // digest 摘要展开
-    expect(seenSystemPrompt!).toContain("【characters｜人物】"); // 表在摘要中
-  });
-
-  it("填写模式：用户不同意 → Agent 不提交自然结束，无 commit", async () => {
-    const harness = await createHarness({ streamFn: scriptedDeclineAgent() });
-    const { events, result } = await run(harness, {
-      mode: "fill",
-      messages: [{ role: "user", text: "不同意" }],
-    });
-    const done = events.at(-1)!;
-    expect(done.type).toBe("done");
-    if (done.type !== "done") throw new Error("unreachable");
-    expect(done.commit).toBeUndefined();
-    expect(result.commit).toBeUndefined();
-  });
-
-  it("填写模式：提交前空间已切换 → 放弃提案（abandoned 提示）", async () => {
-    const harness = await createHarness({ streamFn: scriptedFillAgent() });
-    const otherSpace = "space-other" as MemorySpaceId;
-    harness.currentSpace.value = otherSpace;
-    const { events, result } = await run(harness, {
-      mode: "fill",
-      messages: [{ role: "user", text: "记一下：云烬" }],
-    });
-    const done = events.at(-1)!;
-    expect(done.type).toBe("done");
-    if (done.type !== "done") throw new Error("unreachable");
-    expect(done.commit).toEqual({ status: "abandoned", notice: QUERY_CHAT_SPACE_SWITCHED_NOTICE });
-    expect(result.commit).toEqual({
-      status: "abandoned",
-      notice: QUERY_CHAT_SPACE_SWITCHED_NOTICE,
-    });
-    // 未落库
-    const tables = await harness.services.tables.list(harness.spaceId);
-    const characters = tables.find((t) => t.key === "characters")!;
-    const records = await harness.services.records.list(harness.spaceId, characters.id, {
-      page: 1,
-      pageSize: 10,
-    });
-    expect(records?.records ?? []).toHaveLength(0);
-  });
-
-  it("取消：AbortController → 「已取消」终态，无提交", async () => {
-    const harness = await createHarness({ streamFn: hangingStreamFn() });
-    const controller = new AbortController();
-    const promise = run(harness, { mode: "query", signal: controller.signal });
-    // 等 run 进入挂起流再取消
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    controller.abort();
-    const { events, result } = await promise;
-    expect(events.at(-1)).toEqual({ type: "error", message: "已取消" });
-    expect(result.stopReason).toBe("aborted");
-  });
-
-  it("模型失败：stopReason error → error 终态（不阻塞继续操作）", async () => {
-    const harness = await createHarness({ streamFn: scriptedFailingAgent() });
-    const { events, result } = await run(harness, { mode: "query" });
-    expect(events.at(-1)).toEqual({ type: "error", message: "模型炸了" });
-    expect(result.errorMessage).toBe("模型炸了");
-  });
-
-  it("LLM 配置缺失：createLlm 抛错 → error 终态", async () => {
-    const harness = await createHarness({ createLlmThrows: true });
-    const { events, result } = await run(harness, { mode: "query" });
-    expect(events.at(-1)).toEqual({
-      type: "error",
-      message: "Chat Completion 源未知：请在 ST 中配置可用源",
-    });
-    expect(result.stopReason).toBe("error");
-  });
-
-  it("消息为空 / 末尾非 user / 启动前已取消 → error 终态，不抛异常", async () => {
-    const harness = await createHarness();
-    for (const messages of [[], [{ role: "assistant" as const, text: "答" }]]) {
-      const events: QueryChatEvent[] = [];
-      const result = await harness.service.run({
-        mode: "query",
-        memorySpaceId: harness.spaceId,
-        messages: messages as never,
-        signal: new AbortController().signal,
-        onEvent: (event) => events.push(event),
+    vi.stubGlobal("navigator", {});
+    try {
+      const session = store.create({ chatKey: "chat-a", spaceId: h.spaceId });
+      const service = h.buildService(draftScript(), store);
+      await service.run({ sessionId: session.id, text: "新增云烬" });
+      await service.run({ sessionId: session.id, text: "检查刚才的提案" });
+      expect(await service.confirm(session.id, store.get(session.id).previewId!)).toEqual({
+        status: "committed",
+        created: 1,
+        updated: 0,
+        deleted: 0,
       });
-      expect(events.at(-1)?.type).toBe("error");
-      expect(result.stopReason).toBe("error");
+      const saved = await h.db.assistantSessions.get(session.id);
+      expect(saved!.proposal.operations).toHaveLength(0);
+      expect(saved!.status).toBe("idle");
+      expect(saved!.messages.at(-1)).toMatchObject({ commit: { status: "committed" } });
+    } finally {
+      store.dispose();
+      uuid.mockRestore();
+      vi.unstubAllGlobals();
+      h.db.close();
     }
-    const controller = new AbortController();
-    controller.abort();
-    const events: QueryChatEvent[] = [];
-    await harness.service.run({
-      mode: "query",
-      memorySpaceId: harness.spaceId,
-      messages: [{ role: "user", text: "问" }],
-      signal: controller.signal,
-      onEvent: (event) => events.push(event),
-    });
-    expect(events.at(-1)).toEqual({ type: "error", message: "已取消" });
   });
-});
-
-describe("terminalQueryChatEvent（终态翻译）", () => {
-  const signal = new AbortController().signal;
-  const abortedSignal = (() => {
-    const c = new AbortController();
-    c.abort();
-    return c.signal;
-  })();
-
-  it("stop/length → done（携带 commit）", () => {
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: "stop", errorMessage: undefined, answer: "x" },
-        signal,
-        undefined,
-      ),
-    ).toEqual({
-      type: "done",
-      stopReason: "stop",
-      errorMessage: null,
-      commit: undefined,
-    });
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: "length", errorMessage: undefined, answer: "x" },
-        signal,
-        { status: "committed", created: 1, updated: 0, deleted: 0 },
-      ),
-    ).toEqual({
-      type: "done",
-      stopReason: "length",
-      errorMessage: null,
-      commit: { status: "committed", created: 1, updated: 0, deleted: 0 },
-    });
-  });
-
-  it("error → error（模型失败文案）", () => {
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: "error", errorMessage: "上游 500", answer: "" },
-        signal,
-        undefined,
-      ),
-    ).toEqual({
-      type: "error",
-      message: "上游 500",
-    });
-  });
-
-  it("aborted：调用方取消 = 已取消；超时 = 5 分钟提示", () => {
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: "aborted", errorMessage: "请求已取消", answer: "" },
-        abortedSignal,
-        undefined,
-      ),
-    ).toEqual({
-      type: "error",
-      message: "已取消",
-    });
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: "aborted", errorMessage: "请求已取消", answer: "" },
-        signal,
-        undefined,
-      ),
-    ).toEqual({
-      type: "error",
-      message: "Agent 运行超时（默认 5 分钟），请重试或缩小问题范围",
-    });
-  });
-
-  it("未知 stopReason → 未产生回答", () => {
-    expect(
-      terminalQueryChatEvent(
-        { stopReason: undefined, errorMessage: undefined, answer: "" },
-        signal,
-        undefined,
-      ),
-    ).toEqual({
-      type: "error",
-      message: "未产生回答",
-    });
-  });
-});
-
-describe("translateAgentEvent / toAgentMessages（历史组装）", () => {
-  it("translateAgentEvent 只透传思考/回答增量与工具调用，其余事件不产生噪音", () => {
-    expect(
-      translateAgentEvent({
-        type: "message_update",
-        assistantMessageEvent: { type: "thinking_delta", delta: "想想" },
-      } as never),
-    ).toEqual([{ type: "thinking_delta", text: "想想" }]);
-    expect(
-      translateAgentEvent({
-        type: "message_update",
-        assistantMessageEvent: { type: "text_delta", delta: "答" },
-      } as never),
-    ).toEqual([{ type: "message_delta", text: "答" }]);
-    expect(
-      translateAgentEvent({
-        type: "tool_execution_start",
-        toolCallId: "call-1",
-        toolName: "query_records",
-        args: { table: "characters" },
-      }),
-    ).toEqual([
-      {
-        type: "tool_start",
-        callId: "call-1",
-        name: "query_records",
-        args: { table: "characters" },
-      },
+  it("跨用户轮次保留草稿和工具上下文，刷新后继续检查并确认精确提案", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增云烬" });
+    expect(h.store.get(session.id).proposal.operations).toHaveLength(1);
+    expect(h.store.get(session.id).transcript.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "assistant",
     ]);
+    await h.service.run({ sessionId: session.id, text: "检查刚才的提案" });
+    const preview = h.store.get(session.id);
+    expect(preview.preview?.operations).toHaveLength(1);
+    expect(preview.transcript.filter((message) => message.role === "user")).toHaveLength(2);
+    const restored = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+    await restored.ready;
+    expect(restored.get(session.id).proposal).toEqual(preview.proposal);
+    const resumed = h.buildService(draftScript(), restored);
+    await resumed.run({ sessionId: session.id, text: "刷新后检查提案" });
+    const commit = await resumed.confirm(session.id, restored.get(session.id).previewId!);
+    expect(commit).toEqual({ status: "committed", created: 1, updated: 0, deleted: 0 });
+    expect(restored.get(session.id).proposal.operations).toHaveLength(0);
+    await expect(resumed.confirm(session.id, preview.previewId!)).rejects.toThrow("提案已变化");
+    const table = (await h.services.tables.list(h.spaceId)).find(
+      (table) => table.key === "characters",
+    )!;
     expect(
-      translateAgentEvent({
-        type: "tool_execution_end",
-        toolCallId: "call-1",
-        toolName: "query_records",
-        result: { details: { total: 1 } },
-        isError: false,
-      }),
-    ).toEqual([
-      {
-        type: "tool_result",
-        callId: "call-1",
-        name: "query_records",
-        result: { total: 1 },
-        isError: false,
-      },
-    ]);
-    expect(translateAgentEvent({ type: "agent_start" })).toEqual([]);
-    expect(translateAgentEvent({ type: "turn_start" })).toEqual([]);
+      (await h.services.records.list(h.spaceId, table.id, { page: 1, pageSize: 10 }))!.records,
+    ).toHaveLength(1);
   });
-
-  it("toAgentMessages：user 保留文本；assistant 补模型元数据与零用量", () => {
-    const messages = toAgentMessages(
-      [
-        { role: "user", text: "问" },
-        { role: "assistant", text: "答" },
-      ],
-      "gpt-4o",
+  it("连接配置失败后仍保留原始用户消息，修复连接可以继续", async () => {
+    const seen: Context[] = [];
+    const options = {
+      createLlmThrows: true,
+      streamFn: scriptedStreamFn((context) => {
+        seen.push(context);
+        return assistantMessage([textMessage("继续处理")], "stop");
+      }),
+    };
+    const h = await createHarness(options);
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "查询云烬的关系" });
+    expect(h.store.get(session.id).messages.at(-1)).toMatchObject({ status: "error" });
+    options.createLlmThrows = false;
+    await h.service.run({ sessionId: session.id, text: "连接已修好，继续" });
+    expect(seen[0]!.messages.filter((message) => message.role === "user")).toHaveLength(2);
+    expect(
+      h.store.get(session.id).transcript.filter((message) => message.role === "user"),
+    ).toHaveLength(2);
+  });
+  it("模型调用 submit_proposal 仅准备确认，不自动写入", async () => {
+    const stream = scriptedStreamFn((context) => {
+      const last = lastToolResult(context);
+      if (!last)
+        return assistantMessage(
+          [
+            toolCallMessage("m", "mutate", {
+              op: "create",
+              table: "characters",
+              patch: { name: "云烬" },
+            }),
+            toolCallMessage("s", "submit_proposal", {}),
+          ],
+          "toolUse",
+        );
+      return assistantMessage([textMessage("等待确认")], "stop");
+    });
+    const h = await createHarness({ streamFn: stream });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "记一下" });
+    expect(h.store.get(session.id).preview?.valid).toBe(true);
+    const table = (await h.services.tables.list(h.spaceId)).find(
+      (table) => table.key === "characters",
+    )!;
+    expect(
+      (await h.services.records.list(h.spaceId, table.id, { page: 1, pageSize: 10 }))!.records,
+    ).toHaveLength(0);
+  });
+  it("新一轮修改使旧确认失效，提交失败保留草稿", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const old = h.store.get(session.id).previewId!;
+    await h.service.run({ sessionId: session.id, text: "重新检查" });
+    await expect(h.service.confirm(session.id, old)).rejects.toThrow("提案已变化");
+    const writer = vi
+      .spyOn(MemoryRecordService.prototype, "commitProposal")
+      .mockRejectedValueOnce(new Error("版本冲突"));
+    const result = await h.service.confirm(session.id, h.store.get(session.id).previewId!);
+    expect(result).toMatchObject({ status: "failed", error: "版本冲突" });
+    expect(h.store.get(session.id).proposal.operations).toHaveLength(1);
+    expect(h.store.get(session.id).preview).toBeUndefined();
+    writer.mockRestore();
+  });
+  it("数据已提交但快照保存失败时清空提案，阻止重复写入", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const original = h.services.recordRepository.commit.bind(h.services.recordRepository);
+    const writer = vi
+      .spyOn(h.services.recordRepository, "commit")
+      .mockImplementationOnce(async (...args) => {
+        await original(...args);
+        throw new MemoryCommitPersistenceError(new Error("文件写回失败"));
+      });
+    try {
+      const result = await h.service.confirm(session.id, h.store.get(session.id).previewId!);
+      expect(result).toMatchObject({
+        status: "committed",
+        created: 1,
+        warning: expect.stringContaining("文件写回失败"),
+      });
+      expect(h.store.get(session.id).proposal.operations).toHaveLength(0);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+  it("提交成功后可在同一会话准备下一份提案，重复确认在途提交被拒绝", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const id = h.store.get(session.id).previewId!;
+    const first = h.service.confirm(session.id, id);
+    await expect(h.service.confirm(session.id, id)).rejects.toThrow("会话正在执行");
+    await first;
+    const next = h.buildService(
+      scriptedStreamFn((context) => {
+        if (context.messages.at(-1)?.role === "user")
+          return assistantMessage(
+            [
+              toolCallMessage("next", "mutate", {
+                op: "create",
+                table: "characters",
+                patch: { name: "第二个人" },
+              }),
+            ],
+            "toolUse",
+          );
+        return assistantMessage([textMessage("准备完成")], "stop");
+      }),
     );
-    expect(messages).toHaveLength(2);
-    expect(messages[0]).toMatchObject({ role: "user" });
-    expect(messages[1]).toMatchObject({ role: "assistant", model: "gpt-4o", stopReason: "stop" });
-    // 思考/工具块不跨轮回传：历史只含纯文本块
-    const assistantContent = (messages[1] as { content: unknown[] }).content;
-    expect(assistantContent).toEqual([{ type: "text", text: "答" }]);
+    await next.run({ sessionId: session.id, text: "再新增一个" });
+    expect(h.store.get(session.id).proposal.operations).toHaveLength(1);
+    expect(h.store.get(session.id).preview?.valid).toBe(true);
   });
-});
-
-it("query mode uses unified query_sql while interactive fill keeps its original SQL capability", async () => {
-  const query = vi.fn<SemanticQueryExecutor>();
-  const modes: string[][] = [];
-  const descriptions: string[] = [];
-  const harness = await createHarness({
-    semanticQuery: query,
-    streamFn: scriptedStreamFn((context) => {
-      modes.push((context.tools ?? []).map((tool) => tool.name));
-      descriptions.push((context.tools ?? []).map((tool) => tool.description).join("\n"));
-      return assistantMessage([textMessage("已完成")], "stop");
-    }),
+  it("两个标签页加载同一提案后只允许提交一次", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+    await second.ready;
+    const another = h.buildService(draftScript(), second);
+    const token = h.store.get(session.id).previewId!;
+    await h.service.confirm(session.id, token);
+    await expect(another.confirm(session.id, token)).rejects.toThrow("提案已变化");
+    expect(await h.db.memoryRecords.toArray()).toHaveLength(1);
   });
-  await run(harness, { mode: "query" });
-  await run(harness, { mode: "fill" });
-  expect(modes[0]!.filter((name) => name === "query_sql")).toHaveLength(1);
-  expect(modes.flat()).not.toContain("query_semantic_sql");
-  expect(descriptions[0]).toContain("semantic_scores");
-  expect(descriptions[1]).not.toContain("semantic_scores");
-  expect(modes[1]).toContain(MUTATE_TOOL_NAME);
-  expect(query).not.toHaveBeenCalled();
+  it("工具完成后取消仍保存提案与工具历史，刷新后可继续确认", async () => {
+    const draft = draftScript();
+    const waiting = hangingStreamFn();
+    let nextRequestStarted = false;
+    const h = await createHarness({
+      streamFn: (model, context, options) => {
+        if (!lastToolResult(context)) return draft(model, context, options);
+        nextRequestStarted = true;
+        return waiting(model, context, options);
+      },
+    });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "新增云烬" });
+    try {
+      await vi.waitFor(() => expect(nextRequestStarted).toBe(true));
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+    }
+    const restored = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+    await restored.ready;
+    try {
+      const saved = restored.get(session.id);
+      expect(saved.proposal.operations).toHaveLength(1);
+      expect(saved.messages.at(-1)).toMatchObject({ status: "error", error: "已取消" });
+      expect(saved.previewId).toBeUndefined();
+      expect(saved.transcript.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "toolResult",
+      ]);
+      const resumed = h.buildService(draftScript(), restored);
+      await resumed.run({ sessionId: session.id, text: "检查刚才的提案" });
+      expect(await resumed.confirm(session.id, restored.get(session.id).previewId!)).toEqual({
+        status: "committed",
+        created: 1,
+        updated: 0,
+        deleted: 0,
+      });
+    } finally {
+      restored.dispose();
+      h.store.dispose();
+    }
+  });
+  it("另一个标签页启动不会把活跃请求恢复成中断", async () => {
+    const h = await createHarness({ streamFn: hangingStreamFn() });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "等待" });
+    try {
+      await vi.waitFor(() => expect(h.store.getRun(session.id)).toBeDefined());
+      await h.store.flush();
+      const second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+      await second.ready;
+      await second.flush();
+      expect(second.get(session.id).status).toBe("running");
+      expect((await h.db.assistantSessions.get(session.id))!.status).toBe("running");
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+    }
+  });
+  it("等待其他标签页的会话锁时可以取消，取消后不会发送排队消息", async () => {
+    const h = await createHarness({ streamFn: hangingStreamFn() });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "原页面请求" });
+    let second: QueryChatStore | undefined;
+    try {
+      await vi.waitFor(() => expect(h.store.getRun(session.id)).toBeDefined());
+      await h.store.flush();
+      second = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+      await second.ready;
+      const another = h.buildService(draftScript(), second);
+      const queued = another.run({ sessionId: session.id, text: "排队消息" });
+      expect(second.isExecuting(session.id)).toBe(true);
+      second.cancel(session.id);
+      await expect(queued).rejects.toMatchObject({ name: "AbortError" });
+      expect(second.isExecuting(session.id)).toBe(false);
+      expect(
+        h.store
+          .get(session.id)
+          .messages.some((message) => message.kind === "user" && message.text === "排队消息"),
+      ).toBe(false);
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+      second?.dispose();
+    }
+  });
+  it("并行会话隔离，取消和删除不会串入其他会话", async () => {
+    const h = await createHarness({ streamFn: hangingStreamFn() });
+    const a = createSession(h),
+      b = createSession(h);
+    const running = h.service.run({ sessionId: a.id, text: "等待" });
+    await vi.waitFor(() => expect(h.store.getRun(a.id)).toBeDefined());
+    await expect(h.service.run({ sessionId: a.id, text: "重复" })).rejects.toThrow("会话正在执行");
+    await h.store.delete(a.id);
+    await running;
+    expect(h.store.get(b.id).messages).toHaveLength(0);
+    expect(h.store.getSessions().some((session) => session.id === a.id)).toBe(false);
+  });
+  it("同空间不同对话不能使用或确认另一个对话的会话", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const other = h.store.create({ chatKey: "chat-b", spaceId: h.spaceId });
+    await expect(h.service.run({ sessionId: other.id, text: "查询" })).rejects.toThrow(
+      "对话已切换",
+    );
+    h.currentSpace.value = undefined;
+    await expect(h.service.confirm(session.id, h.store.get(session.id).previewId!)).rejects.toThrow(
+      "对话已切换",
+    );
+  });
+  it("确认准备期间 A→B→A 的上下文切换使提交失效", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增" });
+    const original = h.services.tables.list.bind(h.services.tables);
+    const switched = vi.spyOn(h.services.tables, "list").mockImplementationOnce(async (...args) => {
+      h.currentSpace.generation += 2;
+      return original(...args);
+    });
+    const result = await h.service.confirm(session.id, h.store.get(session.id).previewId!);
+    expect(result).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("对话已切换"),
+    });
+    expect(h.store.get(session.id).proposal.operations).toHaveLength(1);
+    switched.mockRestore();
+  });
+  it("统一入口保留普通查询和语义 SQL 的覆盖、取消信号及结果", async () => {
+    const query = vi.fn<SemanticQueryExecutor>().mockResolvedValue({
+      execution: { sqlPasses: 1, sqlMs: 1 },
+      columns: ["name"],
+      rows: [["云烬"]],
+      sources: [],
+      diagnostics: {
+        sqlPasses: 1,
+        sqlMs: 1,
+        preparedSources: 1,
+        queryTexts: 1,
+        queryVectors: { requests: 1, executionHits: 0, sharedHits: 0 },
+      },
+      truncated: false,
+    });
+    const h = await createHarness({
+      semanticQuery: query,
+      streamFn: scriptedStreamFn((context) => {
+        if (!lastToolResult(context))
+          return assistantMessage(
+            [
+              toolCallMessage("q", "query_sql", {
+                sql: "SELECT * FROM semantic_scores('characters',json_array('main'),'云烬')",
+              }),
+            ],
+            "toolUse",
+          );
+        expect(lastToolResult(context)?.content).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ text: expect.stringContaining("云烬") }),
+          ]),
+        );
+        return assistantMessage([textMessage("查询完成")], "stop");
+      }),
+    });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "查询云烬" });
+    expect(query).toHaveBeenCalledWith(
+      h.spaceId,
+      expect.objectContaining({ signal: expect.any(AbortSignal), maxRows: 100 }),
+    );
+    expect(h.store.get(session.id).proposal.operations).toHaveLength(0);
+    expect(h.store.get(session.id).messages.at(-1)).toMatchObject({ status: "done" });
+  });
 });

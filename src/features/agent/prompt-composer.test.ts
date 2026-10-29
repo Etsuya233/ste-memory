@@ -3,7 +3,6 @@ import {
   composeInteractiveProposalAgentSystemPrompt,
   composeProposalAgentMessages,
   composeProposalAgentSystemPrompt,
-  composeQueryAgentSystemPrompt,
 } from "./prompt-composer.ts";
 import type { MemorySpaceTableDigest } from "./digest.ts";
 import type { MemoryFieldKey, MemorySpaceId, MemoryTableKey } from "../memory/index.ts";
@@ -47,8 +46,8 @@ const DIGEST: MemorySpaceTableDigest = {
 describe("composeInteractiveProposalAgentSystemPrompt", () => {
   it("要求提交前先陈述变更并征得用户明确同意", () => {
     const prompt = composeInteractiveProposalAgentSystemPrompt(DIGEST);
-    // 陈述 + 征询 + 同意后才提交：一条连续指令，避免被拆散
-    expect(prompt).toMatch(/陈述.*变更.*同意/s);
+    // 提交由界面确认，模型只准备提案。
+    expect(prompt).toContain("用户通过界面确认后宿主才提交");
     expect(prompt).toContain("submit_proposal");
     // 用户不同意 / 无需变更时不得提交
     expect(prompt).toContain("不同意");
@@ -73,12 +72,6 @@ describe("composeInteractiveProposalAgentSystemPrompt", () => {
     expect(interactive).not.toContain("确认无误后调用 submit_proposal");
     expect(interactive).toContain("用户");
   });
-
-  it("查询 prompt 不含任何填写指令（只读 Agent 无变更概念）", () => {
-    const query = composeQueryAgentSystemPrompt(DIGEST);
-    expect(query).not.toContain("submit_proposal");
-    expect(query).not.toContain("mutate");
-  });
 });
 
 describe("composeProposalAgentMessages（消息编排缺省组合器）", () => {
@@ -92,7 +85,7 @@ describe("composeProposalAgentMessages（消息编排缺省组合器）", () => 
   });
 });
 
-it("填写上下文携带通用、表级、字段级规则，查询上下文不接收填写指令", () => {
+it("填写上下文携带通用、表级、字段级规则", () => {
   const table = DIGEST.tables[0]!;
   const digest = {
     ...DIGEST,
@@ -108,6 +101,5 @@ it("填写上下文携带通用、表级、字段级规则，查询上下文不�
   const fill = composeProposalAgentSystemPrompt(digest);
   for (const rule of ["共用测试规则", "表级测试规则", "字段测试规则"]) {
     expect(fill.split(rule)).toHaveLength(2);
-    expect(composeQueryAgentSystemPrompt(digest)).not.toContain(rule);
   }
 });

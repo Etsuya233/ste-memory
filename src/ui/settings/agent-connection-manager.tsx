@@ -317,7 +317,7 @@ function ConnectionSelector(props: {
       data-stm-field="agent-connection-selector"
     >
       <label className="stm-setting-label" htmlFor={selectorId}>
-        {target === "fillTask" ? "表格填写 Agent" : "查询 Agent"}
+        {target === "fillTask" ? "表格填写 Agent" : "记忆助手"}
       </label>
       <Select
         id={selectorId}
@@ -594,9 +594,9 @@ export function AgentConnectionForm(props: {
       )}
       <Disclosure icon="fa-circle-info" title="连接与密钥存储">
         <div className="stm-setting-hint">
-          为表格填写 Agent / 查询 Agent 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走
-          ST 服务端转发，无 CORS。API Key 和请求头值以明文存于浏览器本地。未配置任何连接时 Agent
-          跟随 ST 当前连接。
+          为表格填写 Agent / 记忆助手 指定独立模型服务（Base URL + API Key + 模型名）； 请求仍走 ST
+          服务端转发，无 CORS。API Key 和请求头值以明文存于浏览器本地。未配置任何连接时 Agent 跟随
+          ST 当前连接。
         </div>
       </Disclosure>
     </form>

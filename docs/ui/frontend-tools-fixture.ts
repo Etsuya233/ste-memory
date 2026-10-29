@@ -14,7 +14,24 @@ import {
 } from "../../src/features/backup/backup-codec.ts";
 import { downloadTextFile } from "../../src/infrastructure/browser/download.ts";
 import { QueryChatStore } from "../../src/features/query-chat/query-chat-state.ts";
+import { QueryChatService } from "../../src/features/query-chat/query-chat-service.ts";
 import type { QueryChatHistoryMessage } from "../../src/features/query-chat/query-chat-state.ts";
+import type {
+  MemoryProposalPorts,
+  MemoryRecordService,
+  MemorySpaceReader,
+} from "../../src/features/memory/index.ts";
+import { SteMemoryDatabase } from "../../src/infrastructure/indexeddb/database.ts";
+import { IndexedDbAssistantSessions } from "../../src/infrastructure/indexeddb/assistant-session-repository.ts";
+import {
+  assistantMessage,
+  fakeModel,
+  lastToolResult,
+  scriptedDeltaStreamFn,
+  textMessage,
+  thinkingMessage,
+  toolCallMessage,
+} from "../../src/features/fill-tasks/stream-fn-support.ts";
 import type { LogEntry } from "../../src/features/logging/log.ts";
 
 interface FixtureData {
@@ -29,8 +46,13 @@ export function createToolsFixture(options: {
   write: (data: FixtureData) => void;
   changed: () => Promise<void>;
   assertContext: (context: RecordsContext) => void;
+  reader: MemorySpaceReader;
+  ports: MemoryProposalPorts;
+  recordWriter: Pick<MemoryRecordService, "commitProposal">;
 }) {
-  const queryStore = new QueryChatStore();
+  const queryStore = new QueryChatStore(
+    new IndexedDbAssistantSessions(new SteMemoryDatabase("ste-memory-assistant-preview")),
+  );
   let queryDelay = 30;
   let sqlDelay = 0;
   let queryFailure = false;
@@ -163,7 +185,7 @@ export function createToolsFixture(options: {
               ],
             });
             applied = true;
-            for (const id of ids) queryStore.clearSpaceHistory(id);
+            for (const id of ids) await queryStore.clearSpaceHistory(id);
             await options.changed();
             return { kind: "done", message: "预览备份已恢复。" };
           },
@@ -176,7 +198,7 @@ export function createToolsFixture(options: {
           ...data,
           records: data.records.filter((record) => record.memorySpaceId !== context.spaceId),
         });
-        queryStore.clearSpaceHistory(context.spaceId);
+        await queryStore.clearSpaceHistory(context.spaceId);
         await options.changed();
         return { kind: "done", message: "当前空间记录已清除。" };
       },
@@ -188,60 +210,78 @@ export function createToolsFixture(options: {
         options.assertContext(context);
         await options.changed();
       },
-      service: {
-        run: async (input) => {
-          queryInputs.push(structuredClone(input.messages));
-          input.onEvent({ type: "thinking_delta", text: "预览模拟：检查记忆…" });
-          input.onEvent({
-            type: "tool_start",
-            callId: "preview-call",
-            name: "query_records",
-            args: { table: "人物" },
-          });
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, queryDelay);
-            input.signal.addEventListener(
-              "abort",
-              () => {
-                clearTimeout(timer);
-                resolve();
-              },
-              { once: true },
-            );
-          });
-          if (input.signal.aborted) {
-            input.onEvent({ type: "done", stopReason: "aborted", errorMessage: "已取消" });
-            return { answer: "", stopReason: "aborted", errorMessage: "已取消", commit: undefined };
-          }
-          if (queryFailure) {
-            queryFailure = false;
-            input.onEvent({ type: "error", message: "预览模拟：连接失败" });
-            return {
-              answer: "",
-              stopReason: "error",
-              errorMessage: "预览模拟：连接失败",
-              commit: undefined,
-            };
-          }
-          input.onEvent({
-            type: "tool_result",
-            callId: "preview-call",
-            name: "query_records",
-            result: { records: 1 },
-            isError: false,
-          });
-          const answer = "预览模拟：**爱丽丝**在雨后书店寻找旧港手记。";
-          input.onEvent({ type: "message_delta", text: answer });
-          const commit =
-            input.mode === "fill"
-              ? options.current()?.spaceId === input.memorySpaceId
-                ? { status: "committed" as const, created: 1, updated: 0, deleted: 0 }
-                : { status: "abandoned" as const, notice: "对话已切换，变更未提交" }
-              : undefined;
-          input.onEvent({ type: "done", stopReason: "stop", errorMessage: null, commit });
-          return { answer, stopReason: "stop", errorMessage: undefined, commit };
-        },
-      },
+      service: new QueryChatService({
+        store: queryStore,
+        reader: options.reader,
+        ports: options.ports,
+        recordWriter: options.recordWriter,
+        getCurrentContext: () => options.current() ?? undefined,
+        createLlm: () => ({
+          model: fakeModel(),
+          streamFn: async (model, context, requestOptions) => {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, queryDelay);
+              requestOptions?.signal?.addEventListener(
+                "abort",
+                () => {
+                  clearTimeout(timer);
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+            if (requestOptions?.signal?.aborted)
+              return scriptedDeltaStreamFn(() => assistantMessage([], "aborted", "已取消"))(
+                model,
+                context,
+                requestOptions,
+              );
+            if (queryFailure) {
+              queryFailure = false;
+              return scriptedDeltaStreamFn(() =>
+                assistantMessage([], "error", "预览模拟：连接失败"),
+              )(model, context, requestOptions);
+            }
+            return scriptedDeltaStreamFn((current) => {
+              const last = current.messages.at(-1);
+              if (last?.role === "user") {
+                const text =
+                  typeof last.content === "string"
+                    ? last.content
+                    : last.content
+                        .filter((part) => part.type === "text")
+                        .map((part) => part.text)
+                        .join("");
+                queryInputs.push([{ role: "user", text }]);
+                if (text.includes("新增"))
+                  return assistantMessage(
+                    [
+                      toolCallMessage(crypto.randomUUID(), "mutate", {
+                        op: "create",
+                        table: "table_0",
+                        patch: { name: "预览新增人物" },
+                      }),
+                    ],
+                    "toolUse",
+                  );
+                return assistantMessage(
+                  [toolCallMessage(crypto.randomUUID(), "query_records", { table: "table_0" })],
+                  "toolUse",
+                );
+              }
+              if (lastToolResult(current))
+                return assistantMessage(
+                  [
+                    thinkingMessage("预览模拟：检查记忆…"),
+                    textMessage("预览模拟：**爱丽丝**在雨后书店寻找旧港手记。请查看待提交修改。"),
+                  ],
+                  "stop",
+                );
+              return assistantMessage([textMessage("查询完成")], "stop");
+            })(model, context, requestOptions);
+          },
+        }),
+      }),
     },
     sql: {
       assertContext: options.assertContext,

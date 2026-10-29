@@ -1,350 +1,217 @@
-import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 /**
- * QueryChatService：问答面板（ticket 20 / ADR 0009）的 run 编排（浏览器侧）。
+ * 记忆助手的应用编排：发送消息、确认提案、放弃提案。
  *
- * 本模块只做编排（Agent 装配 →
- * 事件翻译 → 终态 → 填写提交与空间校验），不感知 HTTP/SSE 与厂商协议（LLM
- * 经注入的 LlmPort，宿主以 includeReasoning: true 构造，ticket 19）。
+ * 会话模块负责一轮对话的消息、提案检查点与结束状态；这里负责调用 Agent、
+ * 准备可供用户确认的提案，以及通过 MemoryRecordService 执行记录变更。
+ * LLM 经宿主注入，不在这里处理 HTTP/SSE 或模型厂商协议。
  *
- * - 查询模式：QueryAgent 只读问答（Memory 固定提示词 composeQueryAgentSystemPrompt）；
- *   多轮历史由客户端回传（user/assistant 文本），工具结果与思考不跨轮；
- * - 填写模式：共享组装模块 runFillAgent（src/agent，ADR 0024）+
- *   composeInteractiveProposalAgentSystemPrompt（prompt 软闸门：Agent 陈述变更
- *   并征得用户明确同意后提交）；run 结束后冻结提案直通 repository
- *   （revisionSource "agent"，Memory 修订校验兜底并发），不经活动任务守卫（web 决策 8/10）；
- * - 空间切换守卫（决策 7）：提交前校验当前绑定空间 == run 起始空间，不一致
- *   放弃提案（abandoned，提示「对话已切换，变更未提交」）；查询模式继续跑完；
- * - 取消：AbortController；适配器以 stopReason "aborted" 收尾，本模块翻译为
- *   「已取消」；总超时 5 分钟（Memory 默认），超时按同一路径翻译；
- * - 契约：一切失败（LLM 网络/鉴权/超时/取消、digest 失败、提交失败）都以
- *   QueryChatEvent 的 error/done 终态编码，绝不抛异常（对齐 StreamFn 契约精神）。
+ * 三个入口都在会话独占锁内执行，回调拿到的是持久化的最新会话。
+ * 发送消息只准备提案；确认提交会再次检查对话归属、预览内容和记录修订。
+ * 模型失败以聊天错误展示；锁、会话加载和保存失败继续向调用方传播。
  */
-import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { StopReason } from "@earendil-works/pi-ai";
-import type {
-  MemoryProposalPorts,
-  MemoryProposalSubmission,
-  MemoryRecordService,
-  MemorySpaceId,
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
+import {
+  MemoryCommitPersistenceError,
+  MemoryRecordSaveError,
+  memoryProposalSubmission,
+  memoryProposalBatch,
+  validateProposalOperations,
+  previewProposal,
+  type MemoryProposalPorts,
+  type MemoryProposalSubmission,
+  type MemoryRecordService,
+  type MemorySpaceReader,
+  type MemorySpaceId,
 } from "../memory/index.ts";
 import {
-  QueryAgent,
   buildMemorySpaceTableDigest,
   composeInteractiveProposalAgentSystemPrompt,
-  type ComposedAgentMessage,
+  compileProposalOperations,
+  ProposalState,
   type LlmPort,
+  type ProposalPreviewToolResult,
 } from "../agent/index.ts";
-import type { MemorySpaceReader } from "../memory/index.ts";
 import { runFillAgent } from "../agent/fill-agent-runner.ts";
+import type { QueryChatStore, AssistantContext } from "./session-store.ts";
 import {
   errorMessage,
+  terminalQueryChatEvent,
   type QueryChatCommitResult,
   type QueryChatEvent,
-  type QueryChatHistoryMessage,
-  type QueryChatMode,
 } from "./query-chat-state.ts";
 
-/** 单次 run 总超时（对齐 QueryAgent/ProposalAgent Memory 默认 5 分钟）。 */
+/** 一轮 Agent 请求的总超时；取消和超时都保留已经完成的工具及提案检查点。 */
 export const QUERY_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** 空间切换放弃提案的提示（决策 7，对齐填表任务 chatId 安全点精神）。 */
 export const QUERY_CHAT_SPACE_SWITCHED_NOTICE = "对话已切换，变更未提交";
 
 export interface QueryChatServiceOptions {
+  readonly store: QueryChatStore;
+  /** 普通查询和语义 SQL 共用已有查询执行器。 */
   readonly semanticQuery?: SemanticQueryExecutor;
-  /** 记忆空间只读端口（digest 构建 + query_records 工具共用）。 */
+  /** 表和字段摘要、只读记录查询，与 Agent 工具共用。 */
   readonly reader: MemorySpaceReader;
-  /** 提案校验/预览/提交所需的领域访问端口（与填表任务共用同一组 repository）。 */
+  /** 提案校验和差异预览所需的领域访问，与写入使用相同的数据来源。 */
   readonly ports: MemoryProposalPorts;
-  /** 完整提案提交操作，与填表任务共用 Memory 写入规则。 */
+  /** 实际事务、引用与修订校验由 MemoryRecordService 管理。 */
   readonly recordWriter: Pick<MemoryRecordService, "commitProposal">;
-  /** 原子事务运行器（提交批次在单事务内；由组合根注入 Dexie 事务）。 */
-  readonly runInTransaction: (work: () => Promise<void>) => Promise<void>;
-  /** LLM 端口工厂：每次 run 构造一次（宿主以 includeReasoning: true 构造，ticket 19）。 */
+  /** 每轮创建连接快照，运行中不读取后续连接修改。 */
   readonly createLlm: () => LlmPort;
-  /** 当前绑定空间（填写提交前校验用）：读取活动空间 id；非 active 返回 undefined。 */
-  readonly getCurrentSpaceId: () => MemorySpaceId | undefined;
-  /** 单次 run 总超时（毫秒），默认 5 分钟。 */
+  /** generation 用来识别确认期间 A→B→A 的对话切换。 */
+  readonly getCurrentContext: () =>
+    (AssistantContext & { readonly generation?: number }) | undefined;
   readonly timeoutMs?: number;
 }
-
 export interface QueryChatRunInput {
-  readonly mode: QueryChatMode;
-  readonly memorySpaceId: MemorySpaceId;
-  /** 多轮历史 + 本轮用户消息（末尾一条必须是 user）。 */
-  readonly messages: readonly QueryChatHistoryMessage[];
-  readonly signal: AbortSignal;
-  /** 事件回调：增量（thinking/text/toolcall）后终态（done/error）必发一次。 */
-  readonly onEvent: (event: QueryChatEvent) => void;
+  readonly sessionId: string;
+  readonly text: string;
 }
-
-export interface QueryChatRunResult {
-  readonly stopReason: StopReason | undefined;
-  readonly errorMessage: string | undefined;
-  /** 最后一次助手消息的纯文本回答（供测试断言；UI 以流式增量为准）。 */
-  readonly answer: string;
-  /** 填写模式自动提交的结果；查询模式或未产生提案时为 undefined。 */
-  readonly commit: QueryChatCommitResult | undefined;
-}
-
-/** 零用量占位：历史 assistant 消息元数据不被 LLM 循环使用（convertToLlm 只按角色过滤）。 */
-const ZERO_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-} as const;
 
 export class QueryChatService {
-  readonly #semanticQuery: SemanticQueryExecutor | undefined;
-  readonly #reader: MemorySpaceReader;
-  readonly #ports: MemoryProposalPorts;
-  readonly #recordWriter: Pick<MemoryRecordService, "commitProposal">;
-  readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
-  readonly #createLlm: () => LlmPort;
-  readonly #getCurrentSpaceId: () => MemorySpaceId | undefined;
-  readonly #timeoutMs: number;
-
+  readonly store: QueryChatStore;
+  readonly #options: QueryChatServiceOptions;
   constructor(options: QueryChatServiceOptions) {
-    this.#semanticQuery = options.semanticQuery;
-    this.#reader = options.reader;
-    this.#ports = options.ports;
-    this.#recordWriter = options.recordWriter;
-    this.#runInTransaction = options.runInTransaction;
-    this.#createLlm = options.createLlm;
-    this.#getCurrentSpaceId = options.getCurrentSpaceId;
-    this.#timeoutMs = options.timeoutMs ?? QUERY_CHAT_TIMEOUT_MS;
+    this.#options = options;
+    this.store = options.store;
   }
 
-  /**
-   * 跑一次问答 run。返回结构化结果；所有失败都以 onEvent 的终态事件编码
-   * （绝不抛异常——UI 无需 try/catch，但仍容忍防御性 catch）。
-   */
-  async run(input: QueryChatRunInput): Promise<QueryChatRunResult> {
-    if (input.messages.length === 0) {
-      return this.#fail(input, "问答消息为空");
-    }
-    if (input.messages[input.messages.length - 1]!.role !== "user") {
-      return this.#fail(input, "本轮消息必须是用户消息");
-    }
-    if (input.signal.aborted) {
-      return this.#fail(input, "已取消");
-    }
-    try {
-      // LLM 配置缺失在 run 开始时立即失败（createLlm 读 ST 当前配置，缺失抛中文错误）。
-      const llm = this.#createLlm();
-      const messages = toAgentMessages(input.messages, llm.model.id);
-      if (input.mode === "fill") {
-        return await this.#runFill(input, llm, messages);
+  /** 接收消息后先保存输入，再运行模型；结束时统一保存本轮历史、提案和预览。 */
+  async run(input: QueryChatRunInput): Promise<void> {
+    return this.store.withExclusiveSession(input.sessionId, async (session, signal) => {
+      this.#assertContext(session);
+      if (!input.text.trim()) throw new Error("消息不能为空");
+      const run = this.store.startRun(session.id, input.text);
+      let terminal: QueryChatEvent;
+      let preview: ProposalPreviewToolResult | undefined;
+      try {
+        // 即使连接创建失败，用户刚发出的请求也已经保存在会话中。
+        await this.store.flush();
+        const llm = this.#options.createLlm();
+        const digest = await buildMemorySpaceTableDigest(this.#options.reader, session.spaceId);
+        if (signal.aborted) throw new Error("已取消");
+        const result = await runFillAgent({
+          llm,
+          reader: this.#options.reader,
+          ports: this.#options.ports,
+          memorySpaceId: session.spaceId,
+          digest,
+          state: run.proposal,
+          history: session.transcript,
+          semanticQuery: this.#options.semanticQuery,
+          confirmationRequired: true,
+          composedMessages: [
+            { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
+          ],
+          messages: [run.input],
+          // 交互消息不对应 ST 楼层，也不自动附加剧情证据。
+          messageRange: { from: 0, to: 0 },
+          evidence: [],
+          timeoutMs: this.#options.timeoutMs ?? QUERY_CHAT_TIMEOUT_MS,
+          signal,
+          onEvent: (event) => this.store.recordAgentEvent(session.id, run.pendingId, event),
+        });
+        terminal = terminalQueryChatEvent(result, signal);
+        if (run.proposal.operations.length && result.stopReason === "stop" && !signal.aborted)
+          preview = (await this.#prepareProposal(session.spaceId, run.proposal)).preview;
+      } catch (cause) {
+        terminal = { type: "error", message: errorMessage(cause) };
       }
-      return await this.#runQuery(input, llm, messages);
-    } catch (error) {
-      return this.#fail(input, errorMessage(error));
-    }
+      // 删除会话会撤销本轮归属；Store 会忽略迟到的结束事件，不重建已删除会话。
+      this.store.finishRun(session.id, run.pendingId, terminal, preview);
+    });
   }
 
-  /** 查询模式：QueryAgent（只读，Memory 固定提示词）。 */
-  async #runQuery(
-    input: QueryChatRunInput,
-    llm: LlmPort,
-    messages: readonly AgentMessage[],
-  ): Promise<QueryChatRunResult> {
-    const agent = new QueryAgent({
-      semanticQuery: this.#semanticQuery,
-      llm,
-      reader: this.#reader,
-      timeoutMs: this.#timeoutMs,
+  /** 确认绑定用户看过的预览；排队等待锁的时间也计入对话切换校验。 */
+  async confirm(id: string, previewId: string): Promise<QueryChatCommitResult> {
+    const origin = this.#assertContext(this.store.get(id));
+    return this.store.withExclusiveSession(id, async (session, signal) => {
+      this.#assertContext(session, origin.generation);
+      const reviewed = this.store.beginCommit(id, previewId);
+      let result: QueryChatCommitResult;
+      try {
+        // 在实际写入前留下 committing 检查点；页面退出后才能提示核对提交结果。
+        await this.store.flush();
+        const prepared = await this.#prepareProposal(
+          session.spaceId,
+          new ProposalState(session.proposal),
+        );
+        if (!prepared.preview.valid)
+          throw new Error(prepared.preview.errors.map((error) => error.message).join("；"));
+        if (JSON.stringify(prepared.preview.operations) !== JSON.stringify(reviewed.operations))
+          throw new Error("记录或表结构已变化，请让助手重新预览提案后确认");
+        signal.throwIfAborted();
+        this.#assertContext(session, origin.generation);
+        result = await this.#writeProposal(session.spaceId, prepared.proposal);
+      } catch (cause) {
+        result = { status: "failed", error: errorMessage(cause) };
+      }
+      // 提交回执、草稿清理与 idle 状态在一个会话快照中保存。
+      this.store.finishCommit(id, result);
+      return result;
     });
-    const result = await agent.run(
-      { memorySpaceId: input.memorySpaceId, messages },
-      { signal: input.signal, onEvent: this.#translate(input) },
-    );
-    const terminal = terminalQueryChatEvent(result, input.signal, undefined);
-    input.onEvent(terminal);
+  }
+
+  async discard(id: string): Promise<void> {
+    return this.store.withExclusiveSession(id, async () => {
+      this.store.discardProposal(id);
+    });
+  }
+
+  /** 应用编排直接使用领域校验与预览；Agent 工具是同一能力的另一个调用入口。 */
+  async #prepareProposal(spaceId: MemorySpaceId, state: ProposalState) {
+    const digest = await buildMemorySpaceTableDigest(this.#options.reader, spaceId);
+    const operations = compileProposalOperations(digest, state);
+    const errors = await validateProposalOperations(this.#options.ports, spaceId, operations);
+    const difference = await previewProposal(this.#options.ports, spaceId, operations);
     return {
-      stopReason: result.stopReason,
-      errorMessage: result.errorMessage,
-      answer: result.answer,
-      commit: undefined,
+      preview: {
+        ...difference,
+        valid: errors.length === 0,
+        errors: errors.map((error) => ({ mutationId: error.externalId, message: error.message })),
+      },
+      proposal: memoryProposalSubmission(
+        { from: 0, to: 0 },
+        [],
+        difference.operations,
+        memoryProposalBatch(operations),
+      ),
     };
   }
 
-  /**
-   * 填写模式：共享组装模块 + 交互式填写提示词（软闸门，ADR 0024）；run 结束后
-   * 冻结提案经空间一致性校验直通 repository。
-   */
-  async #runFill(
-    input: QueryChatRunInput,
-    llm: LlmPort,
-    messages: readonly AgentMessage[],
-  ): Promise<QueryChatRunResult> {
-    // digest 在 run 前构建一次，同时喂消息展开（软闸门提示词）与工具装配。
-    const digest = await buildMemorySpaceTableDigest(this.#reader, input.memorySpaceId);
-    const composed: readonly ComposedAgentMessage[] = [
-      { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
-    ];
-    const result = await runFillAgent({
-      llm,
-      reader: this.#reader,
-      ports: this.#ports,
-      memorySpaceId: input.memorySpaceId,
-      digest,
-      composedMessages: composed,
-      messages,
-      // 聊天无消息范围概念：合成占位（commit 不使用它，仅预览元数据，对齐 api）。
-      messageRange: { from: 0, to: 0 },
-      // v1 交互式填写不注入证据（零剧情注入，决策 2）。
-      evidence: [],
-      timeoutMs: this.#timeoutMs,
-      signal: input.signal,
-      onEvent: this.#translate(input),
-    });
-
-    // 自动落库（ADR 0019）：只有正常结束（非取消/超时）才提交冻结提案。
-    let commit: QueryChatCommitResult | undefined;
-    if (result.proposal && !input.signal.aborted && result.stopReason !== "aborted") {
-      commit = await this.#commitProposal(input.memorySpaceId, result.proposal);
-    }
-    const terminal = terminalQueryChatEvent(result, input.signal, commit);
-    input.onEvent(terminal);
-    return {
-      stopReason: result.stopReason,
-      errorMessage: result.errorMessage,
-      answer: result.answer,
-      commit,
-    };
-  }
-
-  /** 提交冻结提案：空间校验（决策 7）→ 单事务直通 repository（revisionSource "agent"）。 */
-  async #commitProposal(
-    startSpaceId: MemorySpaceId,
+  /** 只在实际写入处识别“已提交但快照保存失败”，避免把它当作可重试的变更。 */
+  async #writeProposal(
+    spaceId: MemorySpaceId,
     proposal: MemoryProposalSubmission,
   ): Promise<QueryChatCommitResult> {
-    // 运行中切换对话：提交前校验当前绑定空间 == run 起始空间，不一致放弃提案。
-    if (this.#getCurrentSpaceId() !== startSpaceId) {
-      return { status: "abandoned", notice: QUERY_CHAT_SPACE_SWITCHED_NOTICE };
-    }
+    let warning: string | undefined;
     try {
-      await this.#runInTransaction(async () => {
-        await this.#recordWriter.commitProposal(startSpaceId, proposal, "agent");
-      });
-      return {
-        status: "committed",
-        created: proposal.batch.create.length,
-        updated: proposal.batch.update.length,
-        deleted: proposal.batch.delete.length,
-      };
-    } catch (error) {
-      return { status: "failed", error: errorMessage(error) };
+      await this.#options.recordWriter.commitProposal(spaceId, proposal, "agent");
+    } catch (cause) {
+      // 单条 create/update 会被领域层包装为 MemoryRecordSaveError；批量写入保留原错误。
+      if (
+        !(cause instanceof MemoryCommitPersistenceError) &&
+        !(cause instanceof MemoryRecordSaveError)
+      )
+        throw cause;
+      warning = `记录已提交，快照保存失败：${cause.message}。请使用工作台的保存重试。`;
     }
-  }
-
-  /** Agent 事件翻译（对齐 api translateAgentEvent：只透传思考/回答增量与工具调用）。 */
-  #translate(input: QueryChatRunInput): (event: AgentEvent) => void {
-    return (event) => {
-      for (const chatEvent of translateAgentEvent(event)) input.onEvent(chatEvent);
+    return {
+      status: "committed",
+      created: proposal.batch.create.length,
+      updated: proposal.batch.update.length,
+      deleted: proposal.batch.delete.length,
+      ...(warning === undefined ? {} : { warning }),
     };
   }
 
-  /** 收口：终态 error 事件 + 结构化结果（校验失败/异常共用，绝不抛出）。 */
-  #fail(input: QueryChatRunInput, message: string): QueryChatRunResult {
-    input.onEvent({ type: "error", message });
-    return { stopReason: "error", errorMessage: message, answer: "", commit: undefined };
+  #assertContext(context: AssistantContext, generation?: number) {
+    const current = this.#options.getCurrentContext();
+    if (
+      !current ||
+      current.chatKey !== context.chatKey ||
+      current.spaceId !== context.spaceId ||
+      (generation !== undefined && generation !== current.generation)
+    )
+      throw new Error(QUERY_CHAT_SPACE_SWITCHED_NOTICE);
+    return current;
   }
-}
-
-/** pi AgentEvent → 问答事件（未映射的事件类型返回空数组，不产生噪音）。 */
-export function translateAgentEvent(event: AgentEvent): readonly QueryChatEvent[] {
-  switch (event.type) {
-    case "message_update": {
-      const delta = event.assistantMessageEvent;
-      if (delta.type === "text_delta") return [{ type: "message_delta", text: delta.delta }];
-      if (delta.type === "thinking_delta") return [{ type: "thinking_delta", text: delta.delta }];
-      return [];
-    }
-    case "tool_execution_start":
-      return [
-        { type: "tool_start", callId: event.toolCallId, name: event.toolName, args: event.args },
-      ];
-    case "tool_execution_end":
-      return [
-        {
-          type: "tool_result",
-          callId: event.toolCallId,
-          name: event.toolName,
-          result: toolResultDetails(event.result),
-          isError: event.isError,
-        },
-      ];
-    default:
-      return [];
-  }
-}
-
-/** 工具执行结果取结构化 details（query_records 的 QueryRecordsToolResult），没有则回退原值。 */
-function toolResultDetails(result: unknown): unknown {
-  if (typeof result === "object" && result !== null && "details" in result) {
-    return (result as { readonly details: unknown }).details;
-  }
-  return result;
-}
-
-/**
- * run 终态 → 终态事件（对齐 api terminalAgentRunEvent，补取消/超时区分）：
- * - stop/length：正常结束（done，可携带自动提交结果）；
- * - error：模型调用失败（网络/鉴权等，pi 以 stopReason "error" + errorMessage 编码）；
- * - aborted：调用方取消（「已取消」）或内部超时（5 分钟提示）。
- */
-export function terminalQueryChatEvent(
-  result: {
-    readonly stopReason: StopReason | undefined;
-    readonly errorMessage: string | undefined;
-    readonly answer: string;
-  },
-  signal: AbortSignal,
-  commit: QueryChatCommitResult | undefined,
-): QueryChatEvent {
-  switch (result.stopReason) {
-    case "stop":
-    case "length":
-      return {
-        type: "done",
-        stopReason: result.stopReason,
-        errorMessage: result.errorMessage ?? null,
-        commit,
-      };
-    case "error":
-      return { type: "error", message: result.errorMessage ?? "模型调用失败" };
-    case "aborted":
-      return {
-        type: "error",
-        message: signal.aborted ? "已取消" : "Agent 运行超时（默认 5 分钟），请重试或缩小问题范围",
-      };
-    default:
-      return { type: "error", message: "未产生回答" };
-  }
-}
-
-/** 客户端文本历史 → pi AgentMessage（无状态多轮：只回传 user/assistant 文本）。 */
-export function toAgentMessages(
-  messages: readonly QueryChatHistoryMessage[],
-  model: string,
-): readonly AgentMessage[] {
-  const timestamp = Date.now();
-  return messages.map((message) =>
-    message.role === "user"
-      ? { role: "user", content: [{ type: "text", text: message.text }], timestamp }
-      : {
-          role: "assistant",
-          content: [{ type: "text", text: message.text }],
-          api: "openai-completions",
-          provider: "sillytavern",
-          model,
-          usage: ZERO_USAGE,
-          stopReason: "stop",
-          timestamp,
-        },
-  );
 }

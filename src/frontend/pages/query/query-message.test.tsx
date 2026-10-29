@@ -7,7 +7,6 @@ function render(segments: Extract<QueryChatMessage, { kind: "assistant" }>["segm
   return renderToStaticMarkup(
     <QueryMessage
       message={{ kind: "assistant", id: "answer", status: "done", segments }}
-      mode="query"
       onRefresh={() => {}}
       refreshing={false}
     />,

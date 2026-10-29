@@ -1,3 +1,4 @@
+import { MemoryRecordQueryService } from "../../src/features/memory/index.ts";
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
@@ -1043,6 +1044,18 @@ const autoFillServices = {
   assertContext,
 };
 const toolsFixture = createToolsFixture({
+  ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
+  recordWriter: recordService,
+  reader: {
+    getSpace: (id) => spaceRepository.find(id),
+    listTables: (id) => tableRepository.list(id),
+    listFields: (id, tableId) => fieldRepository.list(id, tableId),
+    queryRecords: (id, query) =>
+      new MemoryRecordQueryService(tableRepository, fieldRepository, recordRepository).query(
+        id,
+        query,
+      ),
+  },
   contexts: Object.values(contexts),
   current: () => (ready ? contexts[current] : null),
   read: () => ({ tables, fields, records }),
@@ -1110,6 +1123,7 @@ function Preview() {
       switchChat,
       workspace,
       queryStore: toolsFixture.queryStore,
+      assistantService: toolsFixture.tools.query.service,
       queryInputs: toolsFixture.queryInputs,
       delayQuery: toolsFixture.delayQuery,
       delaySQL: toolsFixture.delaySQL,

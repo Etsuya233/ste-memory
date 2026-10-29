@@ -348,7 +348,7 @@ export function SettingsTab(props: {
     try {
       await props.spaceMaintenance.clearRecords(space.id);
       reportSuccess(`已清除「${space.name}」的全部记录`);
-      afterSpaceDataChange(space.id);
+      await afterSpaceDataChange(space.id);
     } catch (error) {
       reportError(error);
     }
@@ -420,7 +420,7 @@ export function SettingsTab(props: {
       syncMirror: () => props.mirror.flushRebuiltSpace(spaceId, chatIdentity),
     });
     // 页面内存问答历史按空间清理（不落库、不随备份）
-    props.queryChatStore.clearSpaceHistory(spaceId);
+    await props.queryChatStore.clearSpaceHistory(spaceId);
     // 重建已提交：立即重同步空间上下文，让初始化来源与空间展示更新
     try {
       await props.manager.syncToCurrentChat();
@@ -433,11 +433,11 @@ export function SettingsTab(props: {
   }
 
   /** 空间内容已变更（清除记录/应用预设）后的面板侧收尾。 */
-  function afterSpaceDataChange(spaceId: MemorySpaceId): void {
+  async function afterSpaceDataChange(spaceId: MemorySpaceId): Promise<void> {
     props.onDataChanged();
     void props.macro.kick().catch(reportError);
     void props.mirror.kick().catch(reportError);
-    props.queryChatStore.clearSpaceHistory(spaceId);
+    await props.queryChatStore.clearSpaceHistory(spaceId);
   }
 
   function updateMacroName(value: string): void {

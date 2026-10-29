@@ -56,7 +56,9 @@ export function WorkbenchApp(props: WorkbenchProps) {
       if (
         props.workspace.hasUnsavedChanges() ||
         props.tables.hasUnsavedChanges() ||
-        props.tasks.hasUnsavedChanges()
+        props.tasks.hasUnsavedChanges() ||
+        props.tools.query.store.hasPendingWrites() ||
+        props.tools.query.store.storageError() !== null
       ) {
         event.preventDefault();
         event.returnValue = "";
@@ -64,7 +66,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
     };
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
-  }, [props.workspace, props.tables, props.tasks]);
+  }, [props.workspace, props.tables, props.tasks, props.tools.query.store]);
   const controls = { onClose: () => navigate(props.onClose), onToggleTone: props.onToggleTone };
   const enabled = props.settings.settings.read().enabled;
   return (

@@ -101,7 +101,7 @@ const settingGroups = [
     label: "工具与维护",
     items: [
       ["logs", "运行日志"],
-      ["query", "记忆问答"],
+      ["query", "记忆助手"],
       ["maintenance", "备份与空间维护"],
       ["sql", "SQL 控制台"],
     ],

@@ -27,8 +27,15 @@ export interface ProposalStateDropResult {
   readonly summary: string;
 }
 
+export interface ProposalStateSnapshot {
+  readonly operations: readonly ProposalStateOperation[];
+  readonly mutationCounter: number;
+  readonly tempCounter: number;
+  readonly version: number;
+}
+
 /**
- * 提案会话 State（每 run 一个实例）：
+ * 提案 State（后台按 run 隔离，交互助手按会话隔离）：
  * - mutationId（M1/M2…）与 tempId（tmp:n）由引擎分配；
  * - 同表同记录连续 update 合并字段；create 重写与跨 op 操作替换，
  *   mutationId 保持不变（drop 依然有效），跨 op 也覆盖（delete 后 update = 取消删除）；
@@ -40,6 +47,25 @@ export class ProposalState {
   #tempCounter = 0;
   #submitted = false;
   #frozenProposal: MemoryProposalSubmission | undefined;
+  #version = 0;
+
+  constructor(snapshot?: ProposalStateSnapshot) {
+    if (snapshot) {
+      this.#operations = structuredClone([...snapshot.operations]);
+      this.#mutationCounter = snapshot.mutationCounter;
+      this.#tempCounter = snapshot.tempCounter;
+      this.#version = snapshot.version;
+    }
+  }
+
+  snapshot(): ProposalStateSnapshot {
+    return structuredClone({
+      operations: this.#operations,
+      mutationCounter: this.#mutationCounter,
+      tempCounter: this.#tempCounter,
+      version: this.#version,
+    });
+  }
 
   get operations(): readonly ProposalStateOperation[] {
     return this.#operations;
@@ -78,6 +104,7 @@ export class ProposalState {
   /** 累加或覆盖一个操作；覆盖时 mutationId 保持不变并返回 replaced 提示。 */
   apply(input: ProposalStateOperationInput): ProposalStateApplyResult {
     this.#assertMutable();
+    this.#version++;
     const identityKey = identityOf(input);
     const index = this.#operations.findIndex((operation) => identityOf(operation) === identityKey);
     if (index >= 0) {
@@ -107,6 +134,7 @@ export class ProposalState {
     this.#assertMutable();
     const index = this.#operations.findIndex((operation) => operation.mutationId === mutationId);
     if (index < 0) return undefined;
+    this.#version++;
     const [removed] = this.#operations.splice(index, 1);
     return {
       dropped: removed!.mutationId,
