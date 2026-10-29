@@ -8,15 +8,16 @@ import {
 } from "react";
 import {
   ArrowDown,
+  ChevronDown,
+  FileCheck,
   MessageCircle,
+  MessagesSquare,
+  Pencil,
+  Plus,
   RefreshCw,
   Send,
   Square,
-  Plus,
-  MessagesSquare,
-  Pencil,
   Trash2,
-  FileCheck,
 } from "lucide-react";
 import type { QueryChatService } from "../../../features/query-chat/query-chat-service.ts";
 import type { QueryChatStore } from "../../../features/query-chat/session-store.ts";
@@ -42,6 +43,16 @@ import { Badge } from "../../../ui/primitives/badge.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../../ui/primitives/dropdown-menu.tsx";
+import { cn } from "../../../ui/primitives/utils.ts";
+import {
   PageHeader,
   PageContent,
   PageFooter,
@@ -49,6 +60,7 @@ import {
 } from "../../components/page-layout.tsx";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";
 import { ConfirmAction, type RegisterLeaveGuard } from "../../components/confirmation.tsx";
+import { formatCompactTime } from "../../components/format-time.ts";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import { QueryMessage } from "./query-message.tsx";
@@ -65,6 +77,13 @@ export interface QueryPageProps extends QueryServices {
   onBack: () => void;
   registerLeaveGuard?: RegisterLeaveGuard;
 }
+
+const starterPrompts = [
+  "最近更新过哪些人物记录？",
+  "总结最近发生的事件",
+  "把某条记录的状态改一下",
+] as const;
+
 export function QueryPage(props: QueryPageProps) {
   const { store, context } = props;
   const subscribe = useCallback((listener: () => void) => store.onStoreChange(listener), [store]);
@@ -83,11 +102,6 @@ export function QueryPage(props: QueryPageProps) {
     () => store.storageError(),
     () => store.storageError(),
   );
-  const unsaved = useSyncExternalStore(
-    subscribe,
-    () => store.hasPendingWrites(),
-    () => store.hasPendingWrites(),
-  );
   const [selected, setSelected] = useState<Record<string, string>>({});
   const scope = context ? JSON.stringify([context.chatKey, context.spaceId]) : "unbound";
   const available = sessions.filter(
@@ -100,7 +114,12 @@ export function QueryPage(props: QueryPageProps) {
   const [name, setName] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState(false);
-  const [notice, setNotice] = useState<{ key: string; text: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    key: string;
+    text: string;
+    variant: "default" | "destructive";
+  } | null>(null);
+  const noticeTimeout = useRef<number | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [showLatest, setShowLatest] = useState(false);
   const following = useRef(true);
@@ -113,7 +132,9 @@ export function QueryPage(props: QueryPageProps) {
     () => false,
   );
   const busy = executing || session?.status === "running" || session?.status === "committing";
+  const committing = session?.status === "committing";
   const runningElsewhere = !!session && busy && !executing;
+  useEffect(() => () => window.clearTimeout(noticeTimeout.current), []);
   useEffect(() => {
     setDeleting(null);
     setDiscarding(false);
@@ -135,24 +156,49 @@ export function QueryPage(props: QueryPageProps) {
     try {
       await action();
     } catch (cause) {
-      if (captured === currentKey.current)
-        setNotice({ key: captured, text: cause instanceof Error ? cause.message : String(cause) });
+      if (captured === currentKey.current) {
+        window.clearTimeout(noticeTimeout.current);
+        setNotice({
+          key: captured,
+          text: cause instanceof Error ? cause.message : String(cause),
+          variant: "destructive",
+        });
+      }
     }
   }
-  function create() {
+  function flash(key: string, text: string) {
+    window.clearTimeout(noticeTimeout.current);
+    setNotice({ key, text, variant: "default" });
+    noticeTimeout.current = window.setTimeout(() => setNotice(null), 2500);
+  }
+  function selectSession(id: string) {
+    setSelected((current) => ({ ...current, [scope]: id }));
+    setList(false);
+  }
+  function create(text = "") {
     if (!context) return;
     props.assertContext(context);
     const created = store.create(context);
-    setSelected((current) => ({ ...current, [scope]: created.id }));
-    setList(false);
+    if (text) store.setDraft(created.id, text);
+    selectSession(created.id);
     following.current = true;
+  }
+  function pickStarter(prompt: string) {
+    if (!session) {
+      create(prompt);
+      return;
+    }
+    store.setDraft(session.id, prompt);
+    document.getElementById("query-chat-input")?.focus();
   }
   async function refresh() {
     if (!context) return;
+    const captured = key;
     setRefreshing(true);
     try {
       props.assertContext(context);
       await props.onDataChanged(context);
+      if (captured === currentKey.current) flash(captured, "记录已刷新");
     } finally {
       setRefreshing(false);
     }
@@ -165,25 +211,110 @@ export function QueryPage(props: QueryPageProps) {
     setNotice(null);
     return props.service.run({ sessionId: session.id, text: session.draft.trim() });
   }
+  const statusText = runningElsewhere ? "会话正在其他标签页处理。" : "";
+  const sessionMeta = (item: (typeof available)[number]) => {
+    const status =
+      item.status === "running"
+        ? "回答中"
+        : item.status === "committing"
+          ? "提交中"
+          : item.status === "interrupted"
+            ? "已中断"
+            : item.proposal.operations.length
+              ? "有待提交修改"
+              : `${item.messages.length} 条消息`;
+    return `${status} · ${formatCompactTime(item.updatedAt)}`;
+  };
   return (
     <section className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
-        title="记忆助手"
+        title={
+          list ? (
+            "会话"
+          ) : loaded && session ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ste:-ml-2 ste:h-7 ste:min-w-0 ste:max-w-full ste:justify-start ste:gap-1 ste:px-2 ste:font-semibold"
+                  />
+                }
+                aria-label={`切换会话：${session.title}`}
+                data-action="assistant-menu"
+              >
+                <span className="ste:min-w-0 ste:truncate">{session.title}</span>
+                <ChevronDown
+                  className="ste:size-3.5 ste:shrink-0 ste:text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="ste:w-64 ste:max-w-[calc(100vw-2rem)]">
+                <DropdownMenuRadioGroup value={session.id}>
+                  {available.map((item) => (
+                    <DropdownMenuRadioItem
+                      key={item.id}
+                      value={item.id}
+                      closeOnClick
+                      data-action="assistant-session-option"
+                      className="ste:items-start ste:whitespace-normal"
+                      onClick={() => selectSession(item.id)}
+                    >
+                      <span className="ste:flex ste:min-w-0 ste:flex-col ste:gap-0.5">
+                        <span className="ste:truncate ste:text-sm ste:font-medium">
+                          {item.title}
+                        </span>
+                        <span className="ste:text-xs ste:font-normal ste:text-muted-foreground">
+                          {sessionMeta(item)}
+                        </span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  data-action="assistant-new"
+                  onClick={() => void perform(() => create())}
+                >
+                  <Plus />
+                  新建会话
+                </DropdownMenuItem>
+                <DropdownMenuItem data-action="assistant-sessions" onClick={() => setList(true)}>
+                  <MessagesSquare />
+                  管理会话
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-action="query-refresh"
+                  disabled={refreshing}
+                  onClick={() => void perform(refresh)}
+                >
+                  <RefreshCw className={refreshing ? "ste:motion-safe:animate-spin" : undefined} />
+                  刷新记录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            "记忆助手"
+          )
+        }
         subtitle={context?.title}
         icon={MessageCircle}
         {...props.controls}
-        onBack={props.onBack}
+        onBack={list ? () => setList(false) : props.onBack}
+        backLabel={list ? "返回对话" : "返回"}
         actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="刷新记录"
-            disabled={!context || refreshing}
-            onClick={() => void perform(refresh)}
-            data-action="query-refresh"
-          >
-            <RefreshCw />
-          </Button>
+          list ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="新建会话"
+              onClick={() => void perform(() => create())}
+              data-action="assistant-new"
+            >
+              <Plus />
+            </Button>
+          ) : undefined
         }
       />
       {storageError ? (
@@ -194,316 +325,317 @@ export function QueryPage(props: QueryPageProps) {
           </Button>
         </StatusNotice>
       ) : null}
-      {context && loaded ? (
-        <div className="ste:flex ste:shrink-0 ste:items-center ste:gap-2 ste:border-b ste:px-4 ste:py-2">
-          <Button
-            variant="outline"
-            className="ste:min-w-0 ste:flex-1"
-            onClick={() => setList(!list)}
-            data-action="assistant-sessions"
-          >
-            <MessagesSquare data-icon="inline-start" />
-            <span className="ste:truncate">
-              {list ? "返回会话" : (session?.title ?? "会话列表")}
-            </span>
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="新建会话"
-            onClick={() => void perform(create)}
-            data-action="assistant-new"
-          >
-            <Plus />
-          </Button>
-        </div>
-      ) : null}
-      <PageContent
-        key={list ? `list:${scope}` : key}
-        ref={scroll.ref}
-        onScroll={(event) => {
-          scroll.onScroll(event);
-          const element = event.currentTarget;
-          following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 80;
-          setShowLatest(!following.current);
-        }}
-      >
-        {!context ? (
-          <PageEmpty title="请先打开对话" description="绑定记忆空间后，可以查询或修改记忆。" />
-        ) : !loaded ? (
-          <PageEmpty
-            title={storageError ? "会话加载失败" : "正在加载会话…"}
-            description="会话保存在当前浏览器。"
-          />
-        ) : list ? (
-          <section
-            aria-label="会话列表"
-            className="ste:mx-auto ste:flex ste:max-w-3xl ste:flex-col ste:gap-3"
-          >
-            {available.length ? (
-              available.map((item) => (
-                <div
-                  key={item.id}
-                  className="ste:flex ste:min-w-0 ste:flex-wrap ste:items-center ste:gap-2 ste:rounded-xl ste:border ste:p-3"
-                >
-                  {editing === item.id ? (
-                    <form
-                      className="ste:flex ste:w-full ste:gap-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void perform(() => {
-                          store.rename(item.id, name);
-                          setEditing(null);
-                        });
-                      }}
-                    >
-                      <Field>
-                        <FieldLabel htmlFor="assistant-session-name">会话名称</FieldLabel>
-                        <Input
-                          id="assistant-session-name"
-                          value={name}
-                          onChange={(event) => setName(event.target.value)}
-                          autoFocus
-                        />
-                      </Field>
-                      <Button type="submit" size="sm">
-                        保存
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditing(null)}
-                      >
-                        取消
-                      </Button>
-                    </form>
-                  ) : (
-                    <>
-                      <Button
-                        variant="ghost"
-                        className="ste:min-w-0 ste:flex-1 ste:justify-start"
-                        onClick={() => {
-                          setSelected((current) => ({ ...current, [scope]: item.id }));
-                          setList(false);
-                        }}
-                      >
-                        <span className="ste:truncate">{item.title}</span>
-                      </Button>
-                      <span className="ste:text-xs ste:text-muted-foreground">
-                        {item.status === "running"
-                          ? "回答中"
-                          : item.status === "committing"
-                            ? "提交中"
-                            : item.status === "interrupted"
-                              ? "已中断"
-                              : item.proposal.operations.length
-                                ? "有待提交修改"
-                                : `${item.messages.length} 条消息`}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`重命名 ${item.title}`}
-                        onClick={() => {
-                          setEditing(item.id);
-                          setName(item.title);
-                        }}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`删除 ${item.title}`}
-                        disabled={item.status === "committing"}
-                        onClick={() => setDeleting(item.id)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              ))
-            ) : (
-              <PageEmpty title="还没有会话" description="新建会话后，可以查询记忆或准备修改。" />
-            )}
-          </section>
-        ) : (
-          <section
-            aria-label="记忆助手消息"
-            className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-6"
-          >
-            {notice?.key === key ? (
-              <StatusNotice variant="destructive">{notice.text}</StatusNotice>
-            ) : null}
-            {session?.messages.length ? (
-              session.messages.map((message) => (
-                <QueryMessage
-                  key={message.id}
-                  message={message}
-                  onRefresh={() => void perform(refresh)}
-                  refreshing={refreshing}
-                />
-              ))
-            ) : (
-              <PageEmpty
-                title="想了解或修改哪段记忆？"
-                description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
-              />
-            )}
-            {session?.commitUncertain ? (
-              <StatusNotice variant="destructive">
-                上次提交被中断，结果待核对。请先查询记录，放弃旧提案后再准备新的修改。
-              </StatusNotice>
-            ) : null}
-            {session && !busy && session.proposal.operations.length ? (
-              <section aria-label="待提交修改" className="ste:min-w-0">
-                <Item variant="outline" size="sm">
-                  <ItemHeader>
-                    <ItemMedia variant="icon">
-                      <FileCheck />
-                    </ItemMedia>
-                    <ItemContent className="ste:min-w-0">
-                      <ItemTitle>待提交修改 · {session.proposal.operations.length} 项</ItemTitle>
-                      <ItemDescription>核对以下差异，确认后写入记忆。</ItemDescription>
-                    </ItemContent>
-                  </ItemHeader>
-                  <ItemGroup>
-                    {session.preview?.operations.map((operation, index) => (
-                      <Item key={index} variant="muted" size="sm" className="ste:min-w-0">
-                        <ItemContent className="ste:min-w-0">
-                          <div className="ste:flex ste:min-w-0 ste:flex-wrap ste:items-center ste:gap-2">
-                            <Badge
-                              variant={operation.op === "delete" ? "destructive" : "secondary"}
-                            >
-                              {{ create: "新增", update: "修改", delete: "删除" }[operation.op]}
-                            </Badge>
-                            <span className="ste:min-w-0 ste:break-words ste:font-medium">
-                              {operation.tableKey} · {operation.display}
-                            </span>
-                          </div>
-                          <dl className="ste:mt-2 ste:flex ste:min-w-0 ste:flex-col ste:gap-3">
-                            {operation.changes.map((change) => (
-                              <div
-                                key={change.field}
-                                className="ste:flex ste:min-w-0 ste:flex-col ste:gap-1 ste:text-xs"
-                              >
-                                <dt className="ste:break-all ste:font-medium">{change.field}</dt>
-                                <dd className="ste:m-0 ste:min-w-0 ste:break-all ste:text-muted-foreground">
-                                  <span>修改前：</span>
-                                  {JSON.stringify(change.old)}
-                                </dd>
-                                <dd className="ste:m-0 ste:min-w-0 ste:break-all">
-                                  <span>修改后：</span>
-                                  {JSON.stringify(change.new)}
-                                </dd>
-                              </div>
-                            ))}
-                          </dl>
-                        </ItemContent>
-                      </Item>
-                    ))}
-                  </ItemGroup>
-                  {session.preview?.errors.map((error, index) => (
-                    <StatusNotice key={index} variant="destructive">
-                      {error.message}
-                    </StatusNotice>
-                  ))}
-                  {!session.preview ? (
-                    <p className="ste:text-sm ste:text-muted-foreground">
-                      发送消息让助手重新检查提案后，可查看差异并确认。
-                    </p>
-                  ) : null}
-                  <ItemFooter>
-                    <ItemActions className="ste:flex-wrap">
-                      <Button
-                        disabled={
-                          !session.preview?.valid || !session.previewId || session.commitUncertain
-                        }
-                        data-action="assistant-confirm"
-                        onClick={() =>
+      <div className="ste:relative ste:flex ste:min-h-0 ste:flex-1 ste:flex-col">
+        <PageContent
+          key={list ? `list:${scope}` : key}
+          ref={scroll.ref}
+          onScroll={(event) => {
+            scroll.onScroll(event);
+            const element = event.currentTarget;
+            following.current =
+              element.scrollHeight - element.clientHeight - element.scrollTop <= 80;
+            setShowLatest(!following.current);
+          }}
+        >
+          {notice?.key === key ? (
+            <div className="ste:mx-auto ste:w-full ste:max-w-3xl ste:pb-4">
+              <StatusNotice variant={notice.variant}>{notice.text}</StatusNotice>
+            </div>
+          ) : null}
+          {!context ? (
+            <PageEmpty title="请先打开对话" description="绑定记忆空间后，可以查询或修改记忆。" />
+          ) : !loaded ? (
+            <PageEmpty
+              title={storageError ? "会话加载失败" : "正在加载会话…"}
+              description="会话保存在当前浏览器。"
+            />
+          ) : list ? (
+            <section
+              aria-label="会话列表"
+              className="ste:mx-auto ste:flex ste:w-full ste:max-w-3xl ste:flex-col ste:gap-2"
+            >
+              {available.map((item) => {
+                const active = item.id === session?.id;
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "ste:flex ste:min-w-0 ste:items-start ste:gap-1 ste:rounded-xl ste:border ste:border-border ste:p-1",
+                      active && "ste:bg-muted",
+                    )}
+                  >
+                    {editing === item.id ? (
+                      <form
+                        className="ste:flex ste:w-full ste:items-end ste:gap-2 ste:p-1"
+                        onSubmit={(event) => {
+                          event.preventDefault();
                           void perform(() => {
-                            props.assertContext(context!);
-                            return props.service.confirm(session.id, session.previewId!);
-                          })
-                        }
+                            store.rename(item.id, name);
+                            setEditing(null);
+                          });
+                        }}
                       >
-                        确认提交
-                      </Button>
-                      <Button variant="outline" onClick={() => setDiscarding(true)}>
-                        放弃提案
-                      </Button>
-                    </ItemActions>
-                  </ItemFooter>
-                </Item>
-              </section>
-            ) : null}
-            {!session ? (
-              <Button className="ste:self-start" onClick={() => void perform(create)}>
+                        <Field className="ste:min-w-0 ste:flex-1">
+                          <FieldLabel htmlFor="assistant-session-name">会话名称</FieldLabel>
+                          <Input
+                            id="assistant-session-name"
+                            value={name}
+                            onChange={(event) => setName(event.target.value)}
+                            autoFocus
+                          />
+                        </Field>
+                        <Button type="submit" size="sm">
+                          保存
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditing(null)}
+                        >
+                          取消
+                        </Button>
+                      </form>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          aria-current={active ? "true" : undefined}
+                          data-action="assistant-session"
+                          className="ste:h-auto ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-0.5 ste:px-2 ste:py-1.5 ste:text-left"
+                          onClick={() => selectSession(item.id)}
+                        >
+                          <span className="ste:line-clamp-2 ste:whitespace-normal ste:break-words ste:text-sm ste:font-medium">
+                            {item.title}
+                          </span>
+                          <span className="ste:text-xs ste:font-normal ste:text-muted-foreground">
+                            {sessionMeta(item)}
+                          </span>
+                        </Button>
+                        <div className="ste:flex ste:shrink-0 ste:items-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`重命名 ${item.title}`}
+                            onClick={() => {
+                              setEditing(item.id);
+                              setName(item.title);
+                            }}
+                          >
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`删除 ${item.title}`}
+                            disabled={item.status === "committing"}
+                            onClick={() => setDeleting(item.id)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {available.length ? null : (
+                <PageEmpty title="还没有会话" description="新建会话后，可以查询记忆或准备修改。">
+                  <Button onClick={() => void perform(() => create())} data-action="assistant-new">
+                    <Plus data-icon="inline-start" />
+                    新建会话
+                  </Button>
+                </PageEmpty>
+              )}
+            </section>
+          ) : !session ? (
+            <PageEmpty
+              icon={MessagesSquare}
+              title="想了解或修改哪段记忆？"
+              description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
+            >
+              <Button onClick={() => void perform(() => create())} data-action="assistant-new">
+                <Plus data-icon="inline-start" />
                 新建会话
               </Button>
-            ) : null}
-          </section>
-        )}
-      </PageContent>
+              <StarterPrompts onPick={pickStarter} />
+            </PageEmpty>
+          ) : (
+            <section
+              aria-label="记忆助手消息"
+              className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-6"
+            >
+              {session.messages.length ? (
+                session.messages.map((message) => (
+                  <QueryMessage
+                    key={message.id}
+                    message={message}
+                    onRefresh={() => void perform(refresh)}
+                    refreshing={refreshing}
+                  />
+                ))
+              ) : (
+                <PageEmpty
+                  title="想了解或修改哪段记忆？"
+                  description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
+                >
+                  <StarterPrompts onPick={pickStarter} />
+                </PageEmpty>
+              )}
+              {session.commitUncertain ? (
+                <StatusNotice variant="destructive">
+                  上次提交被中断，结果待核对。请先查询记录，放弃旧提案后再准备新的修改。
+                </StatusNotice>
+              ) : null}
+              {session.proposal.operations.length ? (
+                <section aria-label="待提交修改" className="ste:min-w-0">
+                  <Item variant="outline" size="sm">
+                    <ItemHeader>
+                      <ItemMedia variant="icon">
+                        <FileCheck />
+                      </ItemMedia>
+                      <ItemContent className="ste:min-w-0">
+                        <ItemTitle>待提交修改 · {session.proposal.operations.length} 项</ItemTitle>
+                        <ItemDescription>核对以下差异，确认后写入记忆。</ItemDescription>
+                      </ItemContent>
+                    </ItemHeader>
+                    <ItemGroup>
+                      {session.preview?.operations.map((operation, index) => (
+                        <Item key={index} variant="muted" size="sm" className="ste:min-w-0">
+                          <ItemContent className="ste:min-w-0">
+                            <div className="ste:flex ste:min-w-0 ste:flex-wrap ste:items-center ste:gap-2">
+                              <Badge
+                                variant={operation.op === "delete" ? "destructive" : "secondary"}
+                              >
+                                {{ create: "新增", update: "修改", delete: "删除" }[operation.op]}
+                              </Badge>
+                              <span className="ste:min-w-0 ste:break-words ste:font-medium">
+                                {operation.tableKey} · {operation.display}
+                              </span>
+                            </div>
+                            <dl className="ste:mt-2 ste:flex ste:min-w-0 ste:flex-col ste:gap-3">
+                              {operation.changes.map((change) => (
+                                <div
+                                  key={change.field}
+                                  className="ste:flex ste:min-w-0 ste:flex-col ste:gap-1 ste:text-xs"
+                                >
+                                  <dt className="ste:break-all ste:font-mono ste:font-medium">
+                                    {change.field}
+                                  </dt>
+                                  {operation.op === "create" ? null : (
+                                    <DiffRow label="修改前" value={change.old} />
+                                  )}
+                                  {operation.op === "delete" ? null : (
+                                    <DiffRow label="修改后" value={change.new} />
+                                  )}
+                                </div>
+                              ))}
+                            </dl>
+                          </ItemContent>
+                        </Item>
+                      ))}
+                    </ItemGroup>
+                    {session.preview?.errors.map((error, index) => (
+                      <StatusNotice key={index} variant="destructive">
+                        {error.message}
+                      </StatusNotice>
+                    ))}
+                    {!session.preview ? (
+                      <p className="ste:text-sm ste:text-muted-foreground">
+                        发送消息让助手重新检查提案后，可查看差异并确认。
+                      </p>
+                    ) : null}
+                    <ItemFooter>
+                      <ItemActions className="ste:flex-wrap">
+                        <Button
+                          disabled={
+                            !session.preview?.valid ||
+                            !session.previewId ||
+                            session.commitUncertain ||
+                            busy
+                          }
+                          data-action="assistant-confirm"
+                          onClick={() =>
+                            void perform(() => {
+                              props.assertContext(context!);
+                              return props.service.confirm(session.id, session.previewId!);
+                            })
+                          }
+                        >
+                          {committing ? "提交中…" : "确认提交"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => setDiscarding(true)}
+                        >
+                          放弃提案
+                        </Button>
+                      </ItemActions>
+                    </ItemFooter>
+                  </Item>
+                </section>
+              ) : null}
+            </section>
+          )}
+        </PageContent>
+        {showLatest && !list && session ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ste:absolute ste:bottom-3 ste:left-1/2 ste:z-10 ste:-translate-x-1/2 ste:shadow-md"
+            onClick={() => {
+              following.current = true;
+              scroll.ref.current!.scrollTop = scroll.ref.current!.scrollHeight;
+              setShowLatest(false);
+            }}
+          >
+            <ArrowDown data-icon="inline-start" />
+            最新消息
+          </Button>
+        ) : null}
+      </div>
       {context && session && !list ? (
         <PageFooter className="ste:block">
           <form
-            className="ste:flex ste:flex-col ste:gap-2"
+            className="ste:flex ste:flex-col ste:gap-1.5"
             onSubmit={(event) => {
               event.preventDefault();
               void perform(send);
             }}
           >
-            {showLatest ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="ste:self-center"
-                onClick={() => {
-                  following.current = true;
-                  scroll.ref.current!.scrollTop = scroll.ref.current!.scrollHeight;
-                  setShowLatest(false);
-                }}
+            {statusText ? (
+              <p
+                id="query-chat-status"
+                className="ste:min-w-0 ste:text-xs ste:font-normal ste:text-muted-foreground ste:wrap-break-word"
+                role="status"
               >
-                <ArrowDown data-icon="inline-start" />
-                最新消息
-              </Button>
+                {statusText}
+              </p>
             ) : null}
             <Field data-disabled={busy}>
               <FieldLabel htmlFor="query-chat-input" className="ste:sr-only">
                 消息内容
               </FieldLabel>
-              <InputGroup data-disabled={busy}>
+              <InputGroup data-disabled={busy} className="ste:overflow-hidden">
                 <InputGroupTextarea
                   id="query-chat-input"
                   aria-label="消息内容"
-                  aria-describedby="query-chat-status"
+                  aria-describedby={statusText ? "query-chat-status" : undefined}
                   data-action="query-chat-input"
                   rows={2}
-                  className="ste:max-h-40 ste:overflow-y-auto"
                   value={session.draft}
                   disabled={busy}
                   placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}
                   onChange={(event) => store.setDraft(session.id, event.target.value)}
                 />
-                <InputGroupAddon align="block-end" className="ste:justify-between ste:gap-3">
-                  <p
-                    id="query-chat-status"
-                    className="ste:min-w-0 ste:text-xs ste:font-normal ste:wrap-break-word"
-                    role="status"
-                  >
-                    {runningElsewhere
-                      ? "会话正在其他标签页处理。"
-                      : busy
-                        ? "可切换会话，结果会保留。"
-                        : unsaved
-                          ? "正在保存会话…"
-                          : "会话保存在当前浏览器。"}
-                  </p>
-                  {executing && session.status !== "committing" ? (
+                <InputGroupAddon
+                  align="inline-end"
+                  // 上游 inline-end 用负外边距收紧右侧留白，会溢出输入组 4px；收回外边距并用内边距补偿。
+                  className="ste:self-end ste:pr-2 ste:has-[>button]:mr-0"
+                >
+                  {executing && !committing ? (
                     <InputGroupButton
                       type="button"
                       size="sm"
@@ -556,4 +688,47 @@ export function QueryPage(props: QueryPageProps) {
       />
     </section>
   );
+}
+
+function StarterPrompts({ onPick }: { onPick: (prompt: string) => void }) {
+  return (
+    <div className="ste:flex ste:flex-wrap ste:justify-center ste:gap-2">
+      {starterPrompts.map((prompt) => (
+        <Button
+          key={prompt}
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onPick(prompt)}
+        >
+          {prompt}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function DiffRow({ label, value }: { label: string; value: unknown }) {
+  const empty = value === null || value === undefined || value === "";
+  return (
+    <dd className="ste:m-0 ste:grid ste:min-w-0 ste:grid-cols-[auto_1fr] ste:items-start ste:gap-2">
+      <span className="ste:text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "ste:min-w-0 ste:whitespace-pre-wrap ste:break-words ste:rounded ste:bg-muted ste:px-1.5 ste:py-0.5 ste:font-mono",
+          empty && "ste:text-muted-foreground",
+        )}
+      >
+        {formatDiffValue(value)}
+      </span>
+    </dd>
+  );
+}
+
+function formatDiffValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "空";
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (typeof value === "number") return String(value);
+  return JSON.stringify(value, null, 2);
 }

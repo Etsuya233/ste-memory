@@ -1,7 +1,7 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Brain, Check, Copy, LoaderCircle, Wrench, X } from "lucide-react";
+import { Check, Copy, LoaderCircle, MessageCircleMore, Wrench, X } from "lucide-react";
 import type {
   QueryRecordsToolResult,
   QuerySqlToolResult,
@@ -32,8 +32,19 @@ import {
   TraceCollapsibleTrigger,
   TraceCollapsibleContent,
 } from "../../../ui/primitives/trace.tsx";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "../../../ui/primitives/code-block.tsx";
+import { cn } from "../../../ui/primitives/utils.ts";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { copyText } from "../../components/copy-text.ts";
+
+type ToolSegment = Extract<QueryChatSegment, { kind: "tool" }>;
 
 export function QueryMessage({
   message,
@@ -46,11 +57,15 @@ export function QueryMessage({
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timeout);
+  }, [copied]);
   if (message.kind === "user")
     return (
       <Message align="end" data-query-message="user">
         <MessageContent>
-          <MessageHeader>你</MessageHeader>
           <Bubble variant="secondary">
             <BubbleContent className="ste:whitespace-pre-wrap">{message.text}</BubbleContent>
           </Bubble>
@@ -70,23 +85,23 @@ export function QueryMessage({
   return (
     <Message data-query-message="assistant" data-query-status={message.status}>
       <MessageContent>
-        <MessageHeader className="ste:gap-2 ste:px-0">
-          <span>记忆助手</span>
-          <Badge variant={message.status === "error" ? "destructive" : "secondary"}>
-            {message.status === "streaming"
-              ? "回答中"
-              : message.status === "error"
-                ? "出错"
-                : message.status === "interrupted"
-                  ? "已中断"
-                  : "完成"}
-          </Badge>
-        </MessageHeader>
+        {message.status === "done" ? null : (
+          <MessageHeader className="ste:px-0">
+            <Badge variant={message.status === "error" ? "destructive" : "secondary"}>
+              {message.status === "streaming"
+                ? "回答中"
+                : message.status === "error"
+                  ? "出错"
+                  : "已中断"}
+            </Badge>
+          </MessageHeader>
+        )}
         {message.segments.map((segment, index) => (
           <TimelineSegment
             key={index}
             segment={segment}
             active={message.status === "streaming" && index === message.segments.length - 1}
+            onCopyError={setCopyError}
           />
         ))}
         {message.status === "streaming" && !message.segments.length ? (
@@ -111,9 +126,12 @@ export function QueryMessage({
               onClick={() => void copy()}
               data-action="copy-answer"
             >
-              <Copy data-icon="inline-start" />
-              {copied ? "已复制回答" : "复制回答"}
+              {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+              {copied ? "已复制" : "复制回答"}
             </Button>
+            <span aria-live="polite" className="ste:sr-only">
+              {copied ? "已复制回答" : ""}
+            </span>
           </MessageFooter>
         ) : null}
       </MessageContent>
@@ -124,9 +142,11 @@ export function QueryMessage({
 const TimelineSegment = memo(function TimelineSegment({
   segment,
   active,
+  onCopyError,
 }: {
   segment: QueryChatSegment;
   active: boolean;
+  onCopyError: (message: string) => void;
 }) {
   const [open, setOpen] = useState<boolean | null>(null);
   if (segment.kind === "text")
@@ -144,26 +164,7 @@ const TimelineSegment = memo(function TimelineSegment({
   const failed = segment.kind === "tool" && segment.isError;
   const label =
     segment.kind === "thinking" ? "思考过程" : (toolLabels[segment.name] ?? segment.name);
-  let summary: string | undefined;
-  if (
-    segment.kind === "tool" &&
-    !segment.running &&
-    !segment.isError &&
-    segment.result !== undefined
-  ) {
-    if (segment.name === "query_records")
-      summary = `命中 ${(segment.result as QueryRecordsToolResult).total} 条记录`;
-    if (segment.name === "query_sql") {
-      const result = segment.result as QuerySqlToolResult;
-      summary = `返回 ${result.rows.length} 行${result.truncated ? "（已截断）" : ""}`;
-    }
-    if (segment.name === "proposal_preview") {
-      const result = segment.result as ProposalPreviewToolResult;
-      summary = result.valid
-        ? `${result.operations.length} 项修改待确认`
-        : `校验未通过 · ${result.errors.length} 项问题`;
-    }
-  }
+  const summary = segment.kind === "tool" ? toolSummary(segment) : undefined;
   return (
     <Trace data-query-segment={segment.kind}>
       <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
@@ -175,52 +176,118 @@ const TimelineSegment = memo(function TimelineSegment({
               ) : failed ? (
                 <X />
               ) : segment.kind === "thinking" ? (
-                <Brain />
+                <MessageCircleMore />
               ) : (
                 <Check />
               )}
             </TraceIcon>
             <TraceTitle>{label}</TraceTitle>
-            <TraceDescription>{running ? "执行中" : failed ? "执行失败" : "完成"}</TraceDescription>
+            {running ? (
+              <TraceDescription>执行中</TraceDescription>
+            ) : failed ? (
+              <TraceDescription>执行失败</TraceDescription>
+            ) : summary ? (
+              <TraceDescription>{summary}</TraceDescription>
+            ) : null}
           </TraceLine>
         </TraceCollapsibleTrigger>
-        {summary ? (
-          <p className="ste:mt-1 ste:pl-6 ste:text-xs ste:text-muted-foreground">{summary}</p>
-        ) : null}
         <TraceCollapsibleContent>
           {segment.kind === "thinking" ? (
-            <p className="ste:whitespace-pre-wrap ste:break-words">{segment.text}</p>
+            <p className="ste:text-xs ste:whitespace-pre-wrap ste:break-words">{segment.text}</p>
           ) : (
-            <div className="ste:flex ste:flex-col ste:gap-3 ste:min-w-0">
-              <p className="ste:flex ste:items-center ste:gap-2 ste:text-xs">
-                <Wrench className="ste:size-3" />
-                {segment.name}
-              </p>
-              <div>
-                <h3 className="ste:mb-2 ste:text-xs ste:font-medium">参数</h3>
-                <pre className="ste:max-h-60 ste:overflow-y-auto ste:whitespace-pre-wrap ste:break-words ste:text-xs">
-                  {JSON.stringify(segment.args, null, 2)}
-                </pre>
-              </div>
-              {!segment.running ? (
-                <div>
-                  <h3 className="ste:mb-2 ste:text-xs ste:font-medium">
-                    结果{segment.isError ? "（错误）" : ""}
-                  </h3>
-                  <pre className="ste:max-h-80 ste:overflow-y-auto ste:whitespace-pre-wrap ste:break-words ste:text-xs">
-                    {segment.result === undefined
-                      ? "（无返回内容）"
-                      : JSON.stringify(segment.result, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-            </div>
+            <ToolDetail segment={segment} onCopyError={onCopyError} />
           )}
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>
   );
 });
+
+function ToolDetail({
+  segment,
+  onCopyError,
+}: {
+  segment: ToolSegment;
+  onCopyError: (message: string) => void;
+}) {
+  const args = stringifyJson(segment.args);
+  const raw = segment.result === undefined ? "（无返回内容）" : stringifyJson(segment.result);
+  return (
+    <div className="ste:flex ste:min-w-0 ste:flex-col ste:gap-3">
+      <p className="ste:flex ste:items-center ste:gap-2 ste:font-mono ste:text-xs">
+        <Wrench className="ste:size-3" />
+        {segment.name}
+      </p>
+      <CodeBlock size="sm">
+        <CodeBlockHeader>
+          <CodeBlockTitle>参数</CodeBlockTitle>
+          <CodeBlockActions>
+            <CodeBlockCopyButton
+              value={args}
+              aria-label="复制参数"
+              copy={() => copyText(args)}
+              onCopyError={onCopyError}
+            />
+          </CodeBlockActions>
+        </CodeBlockHeader>
+        <CodeBlockContent wrap className="ste:max-h-60">
+          {args}
+        </CodeBlockContent>
+      </CodeBlock>
+      {!segment.running ? (
+        <CodeBlock size="sm" variant={segment.isError ? "destructive" : "default"}>
+          <CodeBlockHeader>
+            <CodeBlockTitle>{segment.isError ? "错误详情" : "结果"}</CodeBlockTitle>
+            <CodeBlockActions>
+              <CodeBlockCopyButton
+                value={raw}
+                aria-label="复制结果"
+                copy={() => copyText(raw)}
+                onCopyError={onCopyError}
+              />
+            </CodeBlockActions>
+          </CodeBlockHeader>
+          <CodeBlockContent
+            wrap
+            className={cn(
+              "ste:max-h-80",
+              segment.result === undefined && "ste:text-muted-foreground",
+            )}
+          >
+            {raw}
+          </CodeBlockContent>
+        </CodeBlock>
+      ) : null}
+    </div>
+  );
+}
+
+function toolSummary(segment: ToolSegment): string | undefined {
+  if (segment.running || segment.isError || segment.result === undefined) return undefined;
+  if (segment.name === "query_records") {
+    const result = segment.result as QueryRecordsToolResult;
+    const total = result.total ?? result.records?.length ?? 0;
+    const pages = result.totalPages ?? 1;
+    const page = result.page ?? 1;
+    return pages > 1 ? `命中 ${total} 条记录 · 第 ${page}/${pages} 页` : `命中 ${total} 条记录`;
+  }
+  if (segment.name === "query_sql") {
+    const result = segment.result as QuerySqlToolResult;
+    const rows = result.rows?.length ?? 0;
+    return `返回 ${rows} 行${result.truncated ? "（已截断）" : ""}`;
+  }
+  if (segment.name === "proposal_preview") {
+    const result = segment.result as ProposalPreviewToolResult;
+    return result.valid
+      ? `${result.operations.length} 项修改待确认`
+      : `校验未通过 · ${result.errors.length} 项问题`;
+  }
+  return undefined;
+}
+
+function stringifyJson(value: unknown): string {
+  return JSON.stringify(value, null, 2) ?? "";
+}
 
 const toolLabels: Readonly<Record<string, string>> = {
   query_records: "查询记忆记录",

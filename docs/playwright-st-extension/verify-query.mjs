@@ -36,10 +36,14 @@ async function openAssistant() {
   await action("nav-settings").click();
   await button("记忆助手").click();
 }
+async function openMenu() {
+  await action("assistant-menu").click();
+}
 async function newSession() {
   const previous = await page.evaluate(() =>
     window.frontendPreview.queryStore.getSessions().map((session) => session.id),
   );
+  if (await action("assistant-menu").count()) await openMenu();
   await action("assistant-new").click();
   return page.evaluate(
     (previous) =>
@@ -64,11 +68,8 @@ async function switchChat(key) {
   );
 }
 async function selectSession(title) {
-  await action("assistant-sessions").click();
-  await page
-    .getByRole("region", { name: "会话列表" })
-    .getByRole("button", { name: title, exact: true })
-    .click();
+  await openMenu();
+  await page.locator('[data-action="assistant-session-option"]', { hasText: title }).click();
 }
 try {
   await page.goto(url);
@@ -108,7 +109,7 @@ try {
       (await page.locator('[data-query-message] [data-slot="card"]').count()) === 0,
   );
   const toolTrace = page.locator('[data-query-segment="tool"]').first();
-  const toolTrigger = toolTrace.getByRole("button");
+  const toolTrigger = toolTrace.locator('[data-slot="trace-collapsible-trigger"]');
   check(
     "completed tool starts collapsed with real result summary",
     (await toolTrigger.getAttribute("aria-expanded")) === "false" &&
@@ -116,7 +117,7 @@ try {
   );
   await toolTrigger.focus();
   await toolTrigger.press("Enter");
-  await toolTrace.getByRole("heading", { name: "参数", exact: true }).waitFor();
+  await toolTrace.getByText("参数", { exact: true }).waitFor();
   check(
     "trace keyboard toggle exposes tool arguments and results",
     (await toolTrace.innerText()).includes("query_records") &&
@@ -132,18 +133,16 @@ try {
     (await action("query-chat-input").locator("xpath=..").getAttribute("data-slot")) ===
       "input-group" &&
       (await action("query-chat-send").locator("xpath=..").getAttribute("data-align")) ===
-        "block-end",
+        "inline-end",
   );
   await action("copy-answer").click();
-  check("copy answer", await button("已复制回答").isVisible());
+  check("copy answer", await button("已复制").isVisible());
+  await openMenu();
   await action("assistant-sessions").click();
   await button("重命名 书店里有谁？").click();
   await page.getByLabel("会话名称", { exact: true }).fill("人物整理");
   await button("保存").click();
-  await page
-    .getByRole("region", { name: "会话列表" })
-    .getByRole("button", { name: "人物整理", exact: true })
-    .click();
+  await page.locator('[data-action="assistant-session"]', { hasText: "人物整理" }).click();
   await action("query-chat-input").fill("尚未发送的草稿");
   const b = await newSession();
   check("new conversation empty", (await session(b)).messages.length === 0);
@@ -154,6 +153,10 @@ try {
   );
   await send("新增一个人物");
   await waitDone(a);
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-action="assistant-confirm"]');
+    return !!button && !button.hasAttribute("disabled");
+  });
   const draft = await session(a);
   check(
     "mutation awaits explicit confirmation",
@@ -165,8 +168,8 @@ try {
   check(
     "proposal lists actual field before and after values",
     (await proposal.locator("dl dt").count()) > 0 &&
-      (await proposal.innerText()).includes("修改前：") &&
-      (await proposal.innerText()).includes("修改后：") &&
+      (await proposal.innerText()).includes("修改后") &&
+      !(await proposal.innerText()).includes("修改前") &&
       (await proposal.innerText()).includes("预览新增人物"),
   );
   await page.addStyleTag({ content: "*, *::before, *::after { text-shadow: 0 0 6px red; }" });
@@ -254,7 +257,7 @@ try {
     .locator('[data-query-message="assistant"]')
     .last()
     .locator('[data-query-segment="tool"]');
-  const streamingTrigger = streamingTrace.getByRole("button");
+  const streamingTrigger = streamingTrace.locator('[data-slot="trace-collapsible-trigger"]');
   check(
     "running trace opens automatically",
     (await streamingTrigger.getAttribute("aria-expanded")) === "true",
@@ -273,7 +276,7 @@ try {
     (await streamingTrace.innerText()).includes("返回 1 行（已截断）"),
   );
   await streamingTrigger.click();
-  await streamingTrace.getByRole("heading", { name: "结果", exact: true }).waitFor();
+  await streamingTrace.getByText("结果", { exact: true }).waitFor();
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     check(
@@ -326,8 +329,9 @@ try {
   check(
     "original conversation restored",
     (await session(a)).messages.length > 2 &&
-      (await action("assistant-sessions").innerText()).trim() === "人物整理",
+      (await action("assistant-menu").innerText()).includes("人物整理"),
   );
+  await openMenu();
   await action("assistant-sessions").click();
   await page.getByRole("button", { name: "删除 新会话", exact: true }).first().click();
   await page
@@ -343,10 +347,7 @@ try {
           .filter((session) => session.spaceId === "space-a").length,
     )) === 2,
   );
-  await page
-    .getByRole("region", { name: "会话列表" })
-    .getByRole("button", { name: "人物整理", exact: true })
-    .click();
+  await page.locator('[data-action="assistant-session"]', { hasText: "人物整理" }).click();
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     check(

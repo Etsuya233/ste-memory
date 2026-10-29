@@ -30,7 +30,7 @@ function TraceLine({
       data-slot="trace-line"
       data-status={status}
       className={cn(
-        "ste:flex ste:w-fit ste:max-w-full ste:min-w-0 ste:items-center ste:gap-2 ste:text-sm ste:text-muted-foreground ste:transition-colors ste:in-[a,button]:cursor-pointer ste:in-[a:hover,button:hover]:text-foreground ste:data-[status=error]:text-destructive ste:data-[status=error]:in-[a:hover,button:hover]:text-destructive ste:data-[status=pending]:opacity-60",
+        "ste:flex ste:w-fit ste:max-w-full ste:min-w-0 ste:items-center ste:gap-2 ste:text-xs ste:text-muted-foreground ste:transition-colors ste:in-[a,button]:cursor-pointer ste:in-[a:hover,button:hover]:text-foreground ste:data-[status=error]:text-destructive ste:data-[status=error]:in-[a:hover,button:hover]:text-destructive ste:data-[status=pending]:opacity-60",
         className,
       )}
       {...props}
@@ -101,7 +101,7 @@ function TraceCollapsibleTrigger({
     <CollapsibleTrigger
       data-slot="trace-collapsible-trigger"
       className={cn(
-        "ste:group/trace-collapsible-trigger ste:flex ste:w-fit ste:max-w-full ste:min-w-0 ste:cursor-pointer ste:items-center ste:gap-1 ste:rounded-lg ste:border-0 ste:bg-transparent ste:p-0 ste:text-left ste:text-muted-foreground ste:transition-colors ste:outline-none ste:hover:text-foreground ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:has-[[data-status=error]]:text-destructive",
+        "ste:group/trace-collapsible-trigger ste:flex ste:w-fit ste:max-w-full ste:min-w-0 ste:cursor-pointer ste:items-center ste:gap-1 ste:rounded-lg ste:border-0 ste:bg-transparent ste:px-0 ste:py-1 ste:text-left ste:text-muted-foreground ste:transition-colors ste:outline-none ste:hover:text-foreground ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:has-[[data-status=error]]:text-destructive",
         className,
       )}
       {...props}

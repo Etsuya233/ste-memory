@@ -262,7 +262,9 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 ## 记忆助手会话
 
 记忆助手统一查询与填写交互，默认入口 `pages/query/query-page.tsx`，沿用公共页头、内容区、消息时间线和确认框。
+会话切换、新建和管理入口收在页头标题的会话菜单里；管理视图沿用同一页头，返回箭头回到对话。
 消息使用 Base UI/Luma 的 Message 与 Bubble 组合，思考和工具调用使用 Trace，输入区使用 Input Group 组合 Prompt Input。
+工具参数与结果使用 Code Block 展示，结果保留原始 JSON，两者都可以复制。
 这些组合直接消费现有 QueryChatMessage/QueryChatSegment；正文继续使用原有 Markdown 渲染，流式跟随与会话滚动恢复沿用当前页面逻辑。
 片段保持真实发生顺序，过程默认随运行展开、完成收起；用户主动切换展开状态后优先保留其选择。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
 提案以 Item 组合展示操作类型和字段修改前后值，只有会话当前有效提案提供确认入口，确认继续绑定 previewId 并沿用服务校验。
