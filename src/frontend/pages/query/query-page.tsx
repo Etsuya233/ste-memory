@@ -16,11 +16,29 @@ import {
   MessagesSquare,
   Pencil,
   Trash2,
+  FileCheck,
 } from "lucide-react";
 import type { QueryChatService } from "../../../features/query-chat/query-chat-service.ts";
 import type { QueryChatStore } from "../../../features/query-chat/session-store.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
+import {
+  InputGroup,
+  InputGroupTextarea,
+  InputGroupAddon,
+  InputGroupButton,
+} from "../../../ui/primitives/input-group.tsx";
+import {
+  Item,
+  ItemHeader,
+  ItemTitle,
+  ItemDescription,
+  ItemContent,
+  ItemActions,
+  ItemFooter,
+  ItemGroup,
+  ItemMedia,
+} from "../../../ui/primitives/item.tsx";
+import { Badge } from "../../../ui/primitives/badge.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
 import {
@@ -314,7 +332,7 @@ export function QueryPage(props: QueryPageProps) {
         ) : (
           <section
             aria-label="记忆助手消息"
-            className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-4"
+            className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-6"
           >
             {notice?.key === key ? (
               <StatusNotice variant="destructive">{notice.text}</StatusNotice>
@@ -340,61 +358,85 @@ export function QueryPage(props: QueryPageProps) {
               </StatusNotice>
             ) : null}
             {session && !busy && session.proposal.operations.length ? (
-              <section
-                aria-label="待提交修改"
-                className="ste:flex ste:min-w-0 ste:flex-col ste:gap-3 ste:rounded-xl ste:border ste:p-3"
-              >
-                <h2 className="ste:text-sm ste:font-semibold">
-                  待提交修改 · {session.proposal.operations.length} 项
-                </h2>
-                {session.preview?.operations.map((operation, index) => (
-                  <div
-                    key={index}
-                    className="ste:flex ste:min-w-0 ste:flex-col ste:gap-1 ste:text-sm"
-                  >
-                    <p className="ste:break-words">
-                      {{ create: "新增", update: "修改", delete: "删除" }[operation.op]} ·{" "}
-                      {operation.tableKey} · {operation.display}
-                    </p>
-                    {operation.changes.map((change) => (
-                      <p
-                        key={change.field}
-                        className="ste:break-all ste:text-xs ste:text-muted-foreground"
-                      >
-                        {change.field}：{JSON.stringify(change.old)} → {JSON.stringify(change.new)}
-                      </p>
+              <section aria-label="待提交修改" className="ste:min-w-0">
+                <Item variant="outline" size="sm">
+                  <ItemHeader>
+                    <ItemMedia variant="icon">
+                      <FileCheck />
+                    </ItemMedia>
+                    <ItemContent className="ste:min-w-0">
+                      <ItemTitle>待提交修改 · {session.proposal.operations.length} 项</ItemTitle>
+                      <ItemDescription>核对以下差异，确认后写入记忆。</ItemDescription>
+                    </ItemContent>
+                  </ItemHeader>
+                  <ItemGroup>
+                    {session.preview?.operations.map((operation, index) => (
+                      <Item key={index} variant="muted" size="sm" className="ste:min-w-0">
+                        <ItemContent className="ste:min-w-0">
+                          <div className="ste:flex ste:min-w-0 ste:flex-wrap ste:items-center ste:gap-2">
+                            <Badge
+                              variant={operation.op === "delete" ? "destructive" : "secondary"}
+                            >
+                              {{ create: "新增", update: "修改", delete: "删除" }[operation.op]}
+                            </Badge>
+                            <span className="ste:min-w-0 ste:break-words ste:font-medium">
+                              {operation.tableKey} · {operation.display}
+                            </span>
+                          </div>
+                          <dl className="ste:mt-2 ste:flex ste:min-w-0 ste:flex-col ste:gap-3">
+                            {operation.changes.map((change) => (
+                              <div
+                                key={change.field}
+                                className="ste:flex ste:min-w-0 ste:flex-col ste:gap-1 ste:text-xs"
+                              >
+                                <dt className="ste:break-all ste:font-medium">{change.field}</dt>
+                                <dd className="ste:m-0 ste:min-w-0 ste:break-all ste:text-muted-foreground">
+                                  <span>修改前：</span>
+                                  {JSON.stringify(change.old)}
+                                </dd>
+                                <dd className="ste:m-0 ste:min-w-0 ste:break-all">
+                                  <span>修改后：</span>
+                                  {JSON.stringify(change.new)}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </ItemContent>
+                      </Item>
                     ))}
-                  </div>
-                ))}
-                {session.preview?.errors.map((error, index) => (
-                  <StatusNotice key={index} variant="destructive">
-                    {error.message}
-                  </StatusNotice>
-                ))}
-                {!session.preview ? (
-                  <p className="ste:text-sm ste:text-muted-foreground">
-                    发送消息让助手重新检查提案后，可查看差异并确认。
-                  </p>
-                ) : null}
-                <div className="ste:flex ste:flex-wrap ste:gap-2">
-                  <Button
-                    disabled={
-                      !session.preview?.valid || !session.previewId || session.commitUncertain
-                    }
-                    data-action="assistant-confirm"
-                    onClick={() =>
-                      void perform(() => {
-                        props.assertContext(context!);
-                        return props.service.confirm(session.id, session.previewId!);
-                      })
-                    }
-                  >
-                    确认提交
-                  </Button>
-                  <Button variant="outline" onClick={() => setDiscarding(true)}>
-                    放弃提案
-                  </Button>
-                </div>
+                  </ItemGroup>
+                  {session.preview?.errors.map((error, index) => (
+                    <StatusNotice key={index} variant="destructive">
+                      {error.message}
+                    </StatusNotice>
+                  ))}
+                  {!session.preview ? (
+                    <p className="ste:text-sm ste:text-muted-foreground">
+                      发送消息让助手重新检查提案后，可查看差异并确认。
+                    </p>
+                  ) : null}
+                  <ItemFooter>
+                    <ItemActions className="ste:flex-wrap">
+                      <Button
+                        disabled={
+                          !session.preview?.valid || !session.previewId || session.commitUncertain
+                        }
+                        data-action="assistant-confirm"
+                        onClick={() =>
+                          void perform(() => {
+                            props.assertContext(context!);
+                            return props.service.confirm(session.id, session.previewId!);
+                          })
+                        }
+                      >
+                        确认提交
+                      </Button>
+                      <Button variant="outline" onClick={() => setDiscarding(true)}>
+                        放弃提案
+                      </Button>
+                    </ItemActions>
+                  </ItemFooter>
+                </Item>
               </section>
             ) : null}
             {!session ? (
@@ -430,49 +472,63 @@ export function QueryPage(props: QueryPageProps) {
                 最新消息
               </Button>
             ) : null}
-            <Field>
-              <Textarea
-                id="query-chat-input"
-                aria-label="消息内容"
-                data-action="query-chat-input"
-                rows={2}
-                value={session.draft}
-                disabled={busy}
-                placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}
-                onChange={(event) => store.setDraft(session.id, event.target.value)}
-              />
+            <Field data-disabled={busy}>
+              <FieldLabel htmlFor="query-chat-input" className="ste:sr-only">
+                消息内容
+              </FieldLabel>
+              <InputGroup data-disabled={busy}>
+                <InputGroupTextarea
+                  id="query-chat-input"
+                  aria-label="消息内容"
+                  aria-describedby="query-chat-status"
+                  data-action="query-chat-input"
+                  rows={2}
+                  className="ste:max-h-40 ste:overflow-y-auto"
+                  value={session.draft}
+                  disabled={busy}
+                  placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}
+                  onChange={(event) => store.setDraft(session.id, event.target.value)}
+                />
+                <InputGroupAddon align="block-end" className="ste:justify-between ste:gap-3">
+                  <p
+                    id="query-chat-status"
+                    className="ste:min-w-0 ste:text-xs ste:font-normal ste:wrap-break-word"
+                    role="status"
+                  >
+                    {runningElsewhere
+                      ? "会话正在其他标签页处理。"
+                      : busy
+                        ? "可切换会话，结果会保留。"
+                        : unsaved
+                          ? "正在保存会话…"
+                          : "会话保存在当前浏览器。"}
+                  </p>
+                  {executing && session.status !== "committing" ? (
+                    <InputGroupButton
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => store.cancel(session.id)}
+                      data-action="query-chat-stop"
+                    >
+                      <Square data-icon="inline-start" />
+                      停止
+                    </InputGroupButton>
+                  ) : (
+                    <InputGroupButton
+                      type="submit"
+                      size="sm"
+                      variant="default"
+                      disabled={busy || !session.draft.trim() || !!storageError}
+                      data-action="query-chat-send"
+                    >
+                      <Send data-icon="inline-start" />
+                      发送
+                    </InputGroupButton>
+                  )}
+                </InputGroupAddon>
+              </InputGroup>
             </Field>
-            <div className="ste:flex ste:items-center ste:justify-between ste:gap-3">
-              <p className="ste:text-xs ste:text-muted-foreground" role="status">
-                {runningElsewhere
-                  ? "会话正在其他标签页处理。"
-                  : busy
-                    ? "可切换会话，结果会保留。"
-                    : unsaved
-                      ? "正在保存会话…"
-                      : "会话保存在当前浏览器。"}
-              </p>
-              {executing && session.status !== "committing" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => store.cancel(session.id)}
-                  data-action="query-chat-stop"
-                >
-                  <Square data-icon="inline-start" />
-                  停止
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={busy || !session.draft.trim() || !!storageError}
-                  data-action="query-chat-send"
-                >
-                  <Send data-icon="inline-start" />
-                  发送
-                </Button>
-              )}
-            </div>
           </form>
         </PageFooter>
       ) : null}

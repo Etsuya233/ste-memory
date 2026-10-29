@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy } from "lucide-react";
+import { Brain, Check, Copy, LoaderCircle, Wrench, X } from "lucide-react";
+import type {
+  QueryRecordsToolResult,
+  QuerySqlToolResult,
+  ProposalPreviewToolResult,
+} from "../../../features/agent/index.ts";
 import {
   assistantPlainText,
   type QueryChatMessage,
@@ -11,18 +16,22 @@ import {
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Badge } from "../../../ui/primitives/badge.tsx";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardAction,
-  CardContent,
-} from "../../../ui/primitives/card.tsx";
+  Message,
+  MessageContent,
+  MessageHeader,
+  MessageFooter,
+} from "../../../ui/primitives/message.tsx";
+import { Bubble, BubbleContent } from "../../../ui/primitives/bubble.tsx";
 import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
+  Trace,
+  TraceLine,
+  TraceIcon,
+  TraceTitle,
+  TraceDescription,
+  TraceCollapsible,
+  TraceCollapsibleTrigger,
+  TraceCollapsibleContent,
+} from "../../../ui/primitives/trace.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { copyText } from "../../components/copy-text.ts";
 
@@ -39,14 +48,14 @@ export function QueryMessage({
   const [copyError, setCopyError] = useState<string | null>(null);
   if (message.kind === "user")
     return (
-      <Card size="sm" className="ste:min-w-0" data-query-message="user">
-        <CardHeader>
-          <CardTitle>你</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="ste:whitespace-pre-wrap ste:break-words">{message.text}</p>
-        </CardContent>
-      </Card>
+      <Message align="end" data-query-message="user">
+        <MessageContent>
+          <MessageHeader>你</MessageHeader>
+          <Bubble variant="secondary">
+            <BubbleContent className="ste:whitespace-pre-wrap">{message.text}</BubbleContent>
+          </Bubble>
+        </MessageContent>
+      </Message>
     );
   const answer = assistantPlainText(message);
   async function copy() {
@@ -59,15 +68,10 @@ export function QueryMessage({
     }
   }
   return (
-    <Card
-      size="sm"
-      className="ste:min-w-0"
-      data-query-message="assistant"
-      data-query-status={message.status}
-    >
-      <CardHeader>
-        <CardTitle>记忆助手</CardTitle>
-        <CardAction>
+    <Message data-query-message="assistant" data-query-status={message.status}>
+      <MessageContent>
+        <MessageHeader className="ste:gap-2 ste:px-0">
+          <span>记忆助手</span>
           <Badge variant={message.status === "error" ? "destructive" : "secondary"}>
             {message.status === "streaming"
               ? "回答中"
@@ -77,9 +81,7 @@ export function QueryMessage({
                   ? "已中断"
                   : "完成"}
           </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="ste:flex ste:min-w-0 ste:flex-col ste:gap-4">
+        </MessageHeader>
         {message.segments.map((segment, index) => (
           <TimelineSegment
             key={index}
@@ -100,25 +102,33 @@ export function QueryMessage({
           <StatusNotice variant="destructive">复制失败：{copyError}</StatusNotice>
         ) : null}
         {answer ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="ste:self-start"
-            onClick={() => void copy()}
-            data-action="copy-answer"
-          >
-            <Copy data-icon="inline-start" />
-            {copied ? "已复制回答" : "复制回答"}
-          </Button>
+          <MessageFooter className="ste:px-0">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="ste:self-start"
+              onClick={() => void copy()}
+              data-action="copy-answer"
+            >
+              <Copy data-icon="inline-start" />
+              {copied ? "已复制回答" : "复制回答"}
+            </Button>
+          </MessageFooter>
         ) : null}
-      </CardContent>
-    </Card>
+      </MessageContent>
+    </Message>
   );
 }
 
-function TimelineSegment({ segment, active }: { segment: QueryChatSegment; active: boolean }) {
-  const [open, setOpen] = useState(false);
+const TimelineSegment = memo(function TimelineSegment({
+  segment,
+  active,
+}: {
+  segment: QueryChatSegment;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState<boolean | null>(null);
   if (segment.kind === "text")
     return (
       <div
@@ -130,24 +140,62 @@ function TimelineSegment({ segment, active }: { segment: QueryChatSegment; activ
         </ReactMarkdown>
       </div>
     );
-  const expanding = segment.kind === "thinking" ? active : segment.running;
+  const running = segment.kind === "thinking" ? active : segment.running;
+  const failed = segment.kind === "tool" && segment.isError;
+  const label =
+    segment.kind === "thinking" ? "思考过程" : (toolLabels[segment.name] ?? segment.name);
+  let summary: string | undefined;
+  if (
+    segment.kind === "tool" &&
+    !segment.running &&
+    !segment.isError &&
+    segment.result !== undefined
+  ) {
+    if (segment.name === "query_records")
+      summary = `命中 ${(segment.result as QueryRecordsToolResult).total} 条记录`;
+    if (segment.name === "query_sql") {
+      const result = segment.result as QuerySqlToolResult;
+      summary = `返回 ${result.rows.length} 行${result.truncated ? "（已截断）" : ""}`;
+    }
+    if (segment.name === "proposal_preview") {
+      const result = segment.result as ProposalPreviewToolResult;
+      summary = result.valid
+        ? `${result.operations.length} 项修改待确认`
+        : `校验未通过 · ${result.errors.length} 项问题`;
+    }
+  }
   return (
-    <Accordion
-      value={expanding || open ? ["segment"] : []}
-      onValueChange={(values) => setOpen(values.length > 0)}
-      data-query-segment={segment.kind}
-    >
-      <AccordionItem value="segment">
-        <AccordionTrigger>
-          {segment.kind === "thinking"
-            ? "思考过程"
-            : `${segment.name} · ${segment.running ? "执行中" : segment.isError ? "执行失败" : "完成"}`}
-        </AccordionTrigger>
-        <AccordionContent>
+    <Trace data-query-segment={segment.kind}>
+      <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={failed ? "error" : running ? "running" : undefined}>
+            <TraceIcon>
+              {running ? (
+                <LoaderCircle className="ste:motion-safe:animate-spin" />
+              ) : failed ? (
+                <X />
+              ) : segment.kind === "thinking" ? (
+                <Brain />
+              ) : (
+                <Check />
+              )}
+            </TraceIcon>
+            <TraceTitle>{label}</TraceTitle>
+            <TraceDescription>{running ? "执行中" : failed ? "执行失败" : "完成"}</TraceDescription>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        {summary ? (
+          <p className="ste:mt-1 ste:pl-6 ste:text-xs ste:text-muted-foreground">{summary}</p>
+        ) : null}
+        <TraceCollapsibleContent>
           {segment.kind === "thinking" ? (
             <p className="ste:whitespace-pre-wrap ste:break-words">{segment.text}</p>
           ) : (
             <div className="ste:flex ste:flex-col ste:gap-3 ste:min-w-0">
+              <p className="ste:flex ste:items-center ste:gap-2 ste:text-xs">
+                <Wrench className="ste:size-3" />
+                {segment.name}
+              </p>
               <div>
                 <h3 className="ste:mb-2 ste:text-xs ste:font-medium">参数</h3>
                 <pre className="ste:max-h-60 ste:overflow-y-auto ste:whitespace-pre-wrap ste:break-words ste:text-xs">
@@ -168,11 +216,20 @@ function TimelineSegment({ segment, active }: { segment: QueryChatSegment; activ
               ) : null}
             </div>
           )}
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
   );
-}
+});
+
+const toolLabels: Readonly<Record<string, string>> = {
+  query_records: "查询记忆记录",
+  query_sql: "SQL 查询记忆",
+  mutate: "准备记录变更",
+  drop_mutate: "移除待提交变更",
+  proposal_preview: "校验并预览提案",
+  submit_proposal: "准备提交确认",
+};
 
 function CommitResult({
   commit,

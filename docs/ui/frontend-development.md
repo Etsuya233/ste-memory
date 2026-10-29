@@ -54,9 +54,9 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | 需求                                 | 优先使用                                                                               | 使用约定                                                                               |
 | ------------------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | 页面骨架、页头、滚动区、页脚         | [PageHeader / PageContent / PageFooter](../../src/frontend/components/page-layout.tsx) | 沿用关闭、返回和亮暗色控件。公共页头同时提供桌面窗口拖动区域。                         |
-| 页面分组容器                         | [PageSection](../../src/frontend/components/page-section.tsx)                          | 统一“边框 + 分组头 + 内容”结构；设置与任务页共用，页面主骨架不再新增 Card。           |
+| 页面分组容器                         | [PageSection](../../src/frontend/components/page-section.tsx)                          | 统一“边框 + 分组头 + 内容”结构；设置与任务页共用，页面主骨架不再新增 Card。            |
 | 列表分页                             | [PagePagination](../../src/frontend/components/page-pagination.tsx)                    | 记录、日志共用上一页/下一页、每页条数与跳转；页码从 1 开始。                           |
-| 列表行时间                           | [format-time.ts](../../src/frontend/components/format-time.ts)                          | 列表行统一紧凑 24 小时制；详情保留完整时间。                                           |
+| 列表行时间                           | [format-time.ts](../../src/frontend/components/format-time.ts)                         | 列表行统一紧凑 24 小时制；详情保留完整时间。                                           |
 | 表单保存栏                           | 同文件的 `SaveActions`                                                                 | 统一保存位置、busy/dirty 状态与取消入口；通过 `formId` 关联表单。                      |
 | 设置编辑页                           | [SettingsEditor](../../src/frontend/pages/settings/connection-settings-editor.tsx)     | 已组合布局、离开保护、刷新提示、错误与保存栏；`contentProps` 可接入滚动 ref/onScroll。 |
 | 确认操作、未保存离开                 | [ConfirmAction / usePageLeave](../../src/frontend/components/confirmation.tsx)         | 接入顶层 `registerLeaveGuard`，避免另建导航确认状态。                                  |
@@ -262,6 +262,10 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 ## 记忆助手会话
 
 记忆助手统一查询与填写交互，默认入口 `pages/query/query-page.tsx`，沿用公共页头、内容区、消息时间线和确认框。
+消息使用 Base UI/Luma 的 Message 与 Bubble 组合，思考和工具调用使用 Trace，输入区使用 Input Group 组合 Prompt Input。
+这些组合直接消费现有 QueryChatMessage/QueryChatSegment；正文继续使用原有 Markdown 渲染，流式跟随与会话滚动恢复沿用当前页面逻辑。
+片段保持真实发生顺序，过程默认随运行展开、完成收起；用户主动切换展开状态后优先保留其选择。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
+提案以 Item 组合展示操作类型和字段修改前后值，只有会话当前有效提案提供确认入口，确认继续绑定 previewId 并沿用服务校验。
 `features/query-chat/session-store.ts` 管理按真实 chatKey、spaceId 和会话 ID 隔离的历史、输入、模型上下文及提案。
 运行时创建唯一 store，IndexedDB 的 assistantSessions 保存会话；前端不得另建 store，关闭页面或切换会话不终止回答。
 流式增量仅更新展示，消息完成和工具结果后保存完整检查点；输入草稿变更也保存，失败必须展示原因并可重试。

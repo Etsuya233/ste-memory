@@ -29,8 +29,8 @@ describe("query answer projection", () => {
       { kind: "text", text: "第二段回答" },
     ]);
     expect(html.indexOf("思考过程")).toBeLessThan(html.indexOf("第一段回答"));
-    expect(html.indexOf("第一段回答")).toBeLessThan(html.indexOf("query_records"));
-    expect(html.indexOf("query_records")).toBeLessThan(html.indexOf("第二段回答"));
+    expect(html.indexOf("第一段回答")).toBeLessThan(html.indexOf("查询记忆记录"));
+    expect(html.indexOf("查询记忆记录")).toBeLessThan(html.indexOf("第二段回答"));
   });
   it("does not execute raw HTML, load remote images or allow javascript links", () => {
     const html = render([
@@ -44,5 +44,31 @@ describe("query answer projection", () => {
     expect(html).not.toContain('href="javascript:');
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('rel="noopener noreferrer"');
+  });
+  it("shows SQL truncation and preserves failed tool status without a success summary", () => {
+    const html = render([
+      {
+        kind: "tool",
+        callId: "sql",
+        name: "query_sql",
+        args: { sql: "SELECT name FROM people" },
+        running: false,
+        isError: false,
+        result: { rows: [{ name: "爱丽丝" }], truncated: true, limit: 1 },
+      },
+      {
+        kind: "tool",
+        callId: "error",
+        name: "query_records",
+        args: {},
+        running: false,
+        isError: true,
+        result: { error: "查询失败" },
+      },
+    ]);
+    expect(html).toContain("返回 1 行（已截断）");
+    expect(html).toContain('data-status="error"');
+    expect(html).toContain("执行失败");
+    expect(html).not.toContain("命中");
   });
 });
