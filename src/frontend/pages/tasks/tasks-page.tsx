@@ -6,7 +6,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ListTodo } from "lucide-react";
+import { ChevronDown, FileText, ListTodo } from "lucide-react";
 import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
@@ -68,6 +68,18 @@ const vectorLabels: Record<VectorTaskStatus, string> = {
   interrupted: "已中断",
 };
 const autoFillModeLabels = { off: "关闭", remind: "仅提醒", auto: "自动填表" } as const;
+
+/** 任务列表使用紧凑的本地时间：当年省略年份，统一 24 小时制。 */
+function formatTaskTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const datePart = `${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+  const timePart = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.getFullYear() === new Date().getFullYear()
+    ? `${datePart} ${timePart}`
+    : `${date.getFullYear()}/${datePart} ${timePart}`;
+}
 
 interface TasksPageProps {
   workspace: TasksWorkspace;
@@ -533,7 +545,7 @@ function RunningTask({
       )}
       <p className="ste:text-xs ste:text-muted-foreground">
         每批 {task.blockSize} 层 · {task.automatic ? "自动" : "手动"} ·{" "}
-        {new Date(task.createdAt).toLocaleString()}
+        {formatTaskTime(task.createdAt)}
       </p>
       {task.blocksQueue && (
         <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
@@ -560,7 +572,7 @@ function LastResult({
         <Badge variant={task.status === "failed" ? "destructive" : "outline"}>{status.label}</Badge>
         <span className="ste:font-medium">{taskRangeText(task)}</span>
         <span className="ste:text-xs ste:text-muted-foreground">
-          {new Date(task.createdAt).toLocaleString()}
+          {formatTaskTime(task.createdAt)}
         </span>
       </div>
       <div className="ste:flex ste:gap-1">
@@ -680,9 +692,15 @@ function FillRow({
 }) {
   const status = taskStatusViewModel(task);
   return (
-    <Item className="ste:rounded-none ste:border-0 ste:px-4 ste:py-3">
-      <ItemContent>
-        <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+    <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
+      <div
+        className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:flex-col ste:gap-1 ste:px-4 ste:py-3 ste:text-left"
+        title="查看任务日志"
+        data-action="open-task-log"
+        data-task-key={task.runId}
+        onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
+      >
+        <span className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
           <Badge
             variant={
               task.status === "failed"
@@ -695,30 +713,32 @@ function FillRow({
             {status.label}
           </Badge>
           <span className="ste:text-sm ste:font-medium">{taskRangeText(task)}</span>
-          <span className="ste:text-xs ste:text-muted-foreground">
-            {new Date(task.createdAt).toLocaleString()}
-          </span>
-        </div>
+        </span>
         {status.detail && (
-          <p className="ste:break-words ste:text-sm ste:text-muted-foreground">{status.detail}</p>
+          <span className="ste:break-words ste:text-sm ste:text-muted-foreground">
+            {status.detail}
+          </span>
         )}
-        <p className="ste:text-xs ste:text-muted-foreground">
-          {task.automatic ? "自动" : "手动"} · 每批 {task.blockSize} 层
-        </p>
+        <span className="ste:text-xs ste:text-muted-foreground">
+          {task.automatic ? "自动" : "手动"} · 每批 {task.blockSize} 层 ·{" "}
+          {formatTaskTime(task.createdAt)}
+        </span>
         {task.blocksQueue && (
-          <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
+          <span className="ste:text-xs ste:text-destructive">
+            队列已暂停，重试或取消此任务后继续。
+          </span>
         )}
-      </ItemContent>
-      <ItemActions className="ste:basis-full ste:justify-end ste:sm:basis-auto">
+      </div>
+      <ItemActions className="ste:basis-full ste:justify-end ste:gap-1 ste:px-4 ste:pb-3 ste:sm:basis-auto ste:sm:px-3 ste:sm:py-3">
         <Button
           variant="ghost"
-          size="sm"
-          disabled={busy}
-          data-action="open-task-log"
-          data-task-key={task.runId}
+          size="icon-sm"
+          className="ste:text-muted-foreground"
+          aria-label={`查看日志：${taskRangeText(task)}，${status.label}`}
+          title="查看任务日志"
           onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
         >
-          查看日志
+          <FileText />
         </Button>
         {(task.status === "queued" || task.status === "running" || task.blocksQueue) && (
           <Button
@@ -856,7 +876,7 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
                   </div>
                   <p className="ste:text-xs ste:text-muted-foreground">
                     {task.groupName} · {task.source === "manual" ? "手动" : "自动"} ·{" "}
-                    {new Date(task.createdAt).toLocaleString()}
+                    {formatTaskTime(task.createdAt)}
                   </p>
                   {task.waitReason && (
                     <p className="ste:break-words ste:text-sm ste:text-muted-foreground">
