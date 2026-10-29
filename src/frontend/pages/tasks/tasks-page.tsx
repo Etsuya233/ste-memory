@@ -6,7 +6,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, FileText, ListTodo } from "lucide-react";
+import { ChevronDown, ListTodo } from "lucide-react";
 import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
@@ -691,14 +691,26 @@ function FillRow({
   onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
 }) {
   const status = taskStatusViewModel(task);
+  const canCancel =
+    task.status === "queued" || task.status === "running" || task.blocksQueue;
+  const canRetry = task.status === "failed" || task.status === "interrupted";
+  const openLog = () => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`);
   return (
     <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
       <div
-        className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:flex-col ste:gap-1 ste:px-4 ste:py-3 ste:text-left"
+        role="button"
+        tabIndex={0}
+        className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:flex-col ste:gap-1 ste:px-4 ste:py-3 ste:text-left ste:outline-none ste:focus-visible:bg-muted/50 ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:focus-visible:ring-inset"
+        aria-label={`查看日志：${taskRangeText(task)}，${status.label}`}
         title="查看任务日志"
         data-action="open-task-log"
         data-task-key={task.runId}
-        onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
+        onClick={openLog}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openLog();
+        }}
       >
         <span className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
           <Badge
@@ -729,42 +741,34 @@ function FillRow({
           </span>
         )}
       </div>
-      <ItemActions className="ste:basis-full ste:justify-end ste:gap-1 ste:px-4 ste:pb-3 ste:sm:basis-auto ste:sm:px-3 ste:sm:py-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="ste:text-muted-foreground"
-          aria-label={`查看日志：${taskRangeText(task)}，${status.label}`}
-          title="查看任务日志"
-          onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
-        >
-          <FileText />
-        </Button>
-        {(task.status === "queued" || task.status === "running" || task.blocksQueue) && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy || task.phase === "saving"}
-            data-action="cancel-task"
-            data-task-key={task.runId}
-            onClick={() => onAction(task, "cancel")}
-          >
-            取消任务
-          </Button>
-        )}
-        {(task.status === "failed" || task.status === "interrupted") && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-action="retry-task"
-            data-task-key={task.runId}
-            onClick={() => onAction(task, "retry")}
-          >
-            重试
-          </Button>
-        )}
-      </ItemActions>
+      {(canCancel || canRetry) && (
+        <ItemActions className="ste:basis-full ste:justify-end ste:gap-1 ste:px-4 ste:pb-3 ste:sm:basis-auto ste:sm:px-3 ste:sm:py-3">
+          {canCancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || task.phase === "saving"}
+              data-action="cancel-task"
+              data-task-key={task.runId}
+              onClick={() => onAction(task, "cancel")}
+            >
+              取消任务
+            </Button>
+          )}
+          {canRetry && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              data-action="retry-task"
+              data-task-key={task.runId}
+              onClick={() => onAction(task, "retry")}
+            >
+              重试
+            </Button>
+          )}
+        </ItemActions>
+      )}
     </Item>
   );
 }
