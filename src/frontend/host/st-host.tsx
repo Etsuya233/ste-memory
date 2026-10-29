@@ -13,7 +13,6 @@ import { FrontendPanel } from "./panel.tsx";
 import { testAgentConnection } from "../../infrastructure/sillytavern/llm/st-backends-status.ts";
 import { createPresetSettingsServices } from "./preset-settings.ts";
 import { createMaintenanceServices } from "./maintenance-services.ts";
-import { QueryChatStore, queryChatHistoryKey } from "../../features/query-chat/query-chat-state.ts";
 
 export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const host = document.createElement("div");
@@ -97,7 +96,7 @@ function StFrontend({
   assertContext: (context: RecordsContext) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [queryStore] = useState(() => new QueryChatStore());
+  const queryStore = runtime.queryChat.store;
   const [tone, setTone] = useState<"light" | "dark">(() =>
     matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   );
@@ -158,14 +157,13 @@ function StFrontend({
       createPresetSettingsServices(
         runtime,
         async (context) => {
-          queryStore.clearSpaceHistory(context.spaceId);
+          await queryStore.clearSpaceHistory(context.spaceId);
           if (chatIdentityKey(runtime.adapter.getChatSnapshot()) === context.chatIdentity) {
             await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
           }
         },
         (id) => {
-          queryStore.cancel(queryChatHistoryKey(id, "query"));
-          queryStore.cancel(queryChatHistoryKey(id, "fill"));
+          queryStore.cancelSpace(id);
         },
         async (context) => {
           const current = runtime.manager.getStatus();

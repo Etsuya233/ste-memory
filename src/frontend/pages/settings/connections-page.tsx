@@ -151,7 +151,7 @@ function ConnectionList({
           {(
             [
               ["fillTask", "表格填写 Agent"],
-              ["queryChat", "查询 Agent"],
+              ["queryChat", "记忆助手"],
             ] as const
           ).map(([target, label]) => (
             <Field key={target}>

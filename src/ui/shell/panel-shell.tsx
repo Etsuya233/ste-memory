@@ -49,7 +49,6 @@ import type { FillSourceMessage } from "../../features/fill-tasks/fill-task.ts";
 import type { QueryChatService } from "../../features/query-chat/query-chat-service.ts";
 import type { SpaceMaintenanceService } from "../../features/space-maintenance/space-maintenance-service.ts";
 import type { TablePresetApplyService } from "../../features/table-presets/table-preset-apply-service.ts";
-import { QueryChatStore } from "../../features/query-chat/query-chat-state.ts";
 import { PANEL_TAB_LABELS, type PanelModel } from "./panel-model.ts";
 import { buildSpaceInfo } from "./space-info.ts";
 import { RecordsTab, type LeaveGuard } from "../memory/record-view.tsx";
@@ -158,7 +157,7 @@ export interface PanelRuntime {
     "stopSpaceWrites" | "applyPreset" | "assertCurrentChat" | "validate"
   >;
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排（事件 → 状态增量） */
-  readonly queryChat: Pick<QueryChatService, "run">;
+  readonly queryChat: Pick<QueryChatService, "run" | "confirm" | "discard" | "store">;
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话列表选择读写 + ST 正则条目 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
@@ -322,8 +321,7 @@ export function PanelShell(props: {
   }, [status]);
   // 日志定位（ADR 0015）：任务面板「日志」跳转到日志 Tab 时携带的目标 runId
   const [logFocusRunId, setLogFocusRunId] = useState<string | null>(null);
-  // 问答聊天历史/run 状态的页面内存存储（ticket 20）：挂在面板壳上，跨 Tab 切换存活；
-  // 刷新页面即失（决策 4/9：不落 Dexie、不进通用日志）
+  // 记忆助手会话由运行时管理，持久保存在当前浏览器。
   const [recordFocus, setRecordFocus] = useState<{
     tableId: MemoryTableId;
     recordId: MemoryRecordId;
@@ -331,7 +329,7 @@ export function PanelShell(props: {
   useEffect(() => {
     setRecordFocus(null);
   }, [status?.kind === "active" ? status.space.id : null]);
-  const [queryChatStore] = useState(() => new QueryChatStore());
+  const queryChatStore = props.runtime.queryChat.store;
 
   const appearance = useAppearance();
   const presentation = presentAppearance(appearance);

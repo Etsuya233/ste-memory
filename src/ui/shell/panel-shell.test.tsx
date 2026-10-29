@@ -1,3 +1,7 @@
+import {
+  QueryChatStore,
+  InMemoryAssistantSessions,
+} from "../../features/query-chat/session-store.ts";
 import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { ResolvedTablePreset } from "../../features/table-presets/preset-model.ts";
 import { SettingsService } from "../../features/settings/settings-service.ts";
@@ -144,12 +148,15 @@ function fakeRuntime(overrides: Partial<PanelRuntime> = {}): PanelRuntime {
       applyPreset: vi.fn(async () => ({ kind: "applied" as const })),
     },
     queryChat: {
-      run: vi.fn(async () => ({
-        stopReason: "stop" as const,
-        errorMessage: undefined,
-        answer: "",
-        commit: undefined,
+      store: new QueryChatStore(new InMemoryAssistantSessions()),
+      run: vi.fn(async () => undefined),
+      confirm: vi.fn(async () => ({
+        status: "committed" as const,
+        created: 0,
+        updated: 0,
+        deleted: 0,
       })),
+      discard: vi.fn(),
     },
     logs: {
       byKey: vi.fn(async () => []),
@@ -307,22 +314,12 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-tab="settings"');
   });
 
-  it("问答 Tab：模式切换与消息区域的静态投影", () => {
+  it("记忆助手 Tab 使用统一会话页面", () => {
     const model = new PanelModel();
     model.setTab("query");
     const html = renderShell(model);
-    expect(html).toContain('data-tab="query"');
-    expect(html).toContain("问答");
-    expect(html).toContain('data-stm-section="query"');
-    expect(html).toContain('data-action="query-chat-mode"');
-    expect(html).toContain('data-mode="query"');
-    expect(html).toContain('data-mode="fill"');
-    expect(html).toContain("查询");
-    expect(html).toContain("填写");
-    // 顶底栏经 Portal 挂载，由浏览器检查操作与输入；SSR 只投影正文。
-    expect(html).toContain('data-stm-field="message-list"');
-    // 空状态邀请（默认查询模式）
-    expect(html).toContain("有什么想问记忆的吗？");
+    expect(html).toContain("记忆助手");
+    expect(html).not.toContain('data-action="query-chat-mode"');
   });
 
   it("设置 Tab：开关/版本/运行状态/宏按分区（宏设置输入不常驻默认分区）", () => {

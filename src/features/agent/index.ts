@@ -12,7 +12,6 @@ export {
   composeInteractiveProposalAgentSystemPrompt,
   composeProposalAgentMessages,
   composeProposalAgentSystemPrompt,
-  composeQueryAgentSystemPrompt,
   composeTableDigestSummary,
 } from "./prompt-composer.ts";
 export type {
@@ -33,8 +32,6 @@ export type {
   QueryRecordsToolResult,
   QueryRecordsToolResultRecord,
 } from "./tools/index.ts";
-export { DEFAULT_QUERY_AGENT_TIMEOUT_MS, QueryAgent } from "./query-agent.ts";
-export type { QueryAgentOptions, QueryAgentRunHooks, QueryAgentRunInput } from "./query-agent.ts";
 export {
   ProposalState,
   compileProposalOperation,

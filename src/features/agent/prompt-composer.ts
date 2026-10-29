@@ -33,40 +33,6 @@ export function composeProposalAgentMessages(
 }
 
 /**
- * 组合 QueryAgent 系统提示词：基础问答指令 + 启用表/字段摘要。
- * 摘要与 query_records 工具校验共用同一份 digest，模型可见范围 = 工具可用范围。
- * 不含来源消息（来源消息与提案提示词归 12）。
- */
-export function composeQueryAgentSystemPrompt(
-  digest: MemorySpaceTableDigest,
-  sqlAvailable = false,
-  semanticSqlAvailable = false,
-): string {
-  return [
-    "你是一个问答助手，回答用户关于记忆空间记录的问题。",
-    "",
-    "工作方式：",
-    sqlAvailable
-      ? "1. 使用只读工具 query_records 或 query_sql 查询记录，不要编造数据。"
-      : "1. 只使用工具 query_records（只读）查询记录，不要编造数据。",
-    "2. 基于查询返回的真实记录回答；查不到时如实说明，并给出可进一步查询的建议。",
-    sqlAvailable
-      ? "3. query_records 的多个条件为 AND；OR、括号分组、JOIN 和聚合可使用 query_sql。SQL 表名和列名使用摘要中的 Key。"
-      : "3. 一次查询内多个条件是 AND 语义；需要 OR 或更复杂的检索时，分多次查询后自行归纳。",
-    "4. 用户问题不明确时，先用查询确认范围，再回答。",
-    "5. 查询先窄后宽：先用 conditions 与 fields 投影缩小范围，结果不足再放宽，不要一次性全表查询。",
-    "",
-    ...(semanticSqlAvailable
-      ? [
-          "query_sql 可直接使用 semantic_scores 按语义相关度检索，并结合 SQL 条件、JOIN、排序；向量组 Key 见工具说明。先检查返回的索引覆盖，区分无有效索引和零命中。",
-          "",
-        ]
-      : []),
-    ...digestSummaryLines(digest, false),
-  ].join("\n");
-}
-
-/**
  * 组合 ProposalAgent 系统提示词：提案工作流指令 + 启用表/字段摘要。
  * 处理块消息内容由宿主放入本轮消息（模型只管看内容对表操作）。
  */
@@ -110,23 +76,23 @@ export function composeTableDigestSummary(digest: MemorySpaceTableDigest): strin
 }
 
 /**
- * 组合交互式填写（ADR 0019）系统提示词：边栏聊天中执行记忆记录变更，
- * 提交前必须征得用户明确同意（prompt 软闸门），与后台填表任务的自动提交相对。
+ * 组合记忆助手系统提示词：查询记忆并准备提案，
+ * 提案由用户通过界面确认提交，后台填表任务沿用自动提交。
  * 不注入消息范围/证据框架——用户的对话指令就是本轮任务。
  */
 export function composeInteractiveProposalAgentSystemPrompt(
   digest: MemorySpaceTableDigest,
 ): string {
   return [
-    "你是记忆空间的填写助手：理解用户的指令，把记忆记录变更整理成提案并提交。",
+    "你是记忆助手：通过查询记忆表格回答问题，也可按用户要求准备记录变更。普通提问只查询，不创建提案。",
     "",
     "工作流程：",
     "1. 用 query_records 查询当前记录（只反映已提交数据；未提交变更请用 proposal_preview 查看）。",
     "2. 用 mutate 增量构建变更：一次一个操作（create 新建 / update 更新 / delete 删除）。",
     "3. 用 proposal_preview 做整批校验与差异预览，直到 valid 为 true。",
     "4. 用 drop_mutate 移除错误操作（按 mutationId），修正后重新预览。",
-    "5. 调用 submit_proposal 之前，必须先用一句话向用户陈述将执行的变更（哪些记录的增删改），并明确询问用户是否同意。",
-    "6. 只有用户明确同意后，才允许调用 submit_proposal（唯一完成信号）；提交成功后直接结束对话。",
+    "5. 修改准备完成后调用 submit_proposal，向用户说明具体增删改，提示在界面查看差异并点击确认提交。",
+    "6. submit_proposal 只准备确认，不会写入数据库。用户通过界面确认后宿主才提交；聊天中的同意不能代替确认按钮。准备后直接结束回答。",
     "用户不同意、或确认无需任何变更时，不要调用 submit_proposal，直接结束对话。",
     "",
     "规则：",

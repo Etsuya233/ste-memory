@@ -11,7 +11,7 @@
  *   进入初始 transcript（run 的本轮消息之前）；
  * - 守卫：仅「组合后至少一条消息」抛错，不设「第一条/最后一条必须 user」
  *   守卫（assistant 结尾的预设直接进入 run）；
- * - 装配：每 run 新建一个 ProposalState + 校验闭包 + 5 个工具工厂
+ * - 装配：后台每 run 新建 State，交互助手接收会话 State；装配校验闭包 + 5 个工具工厂
  *   （query_records / mutate / proposal_preview / drop_mutate / submit_proposal）；
  * - digest 由调用方传入（ST 块循环构建一次，同时喂消息展开与工具装配），
  *   本模块不内置 digest 构建；
@@ -42,15 +42,22 @@ import {
   createQueryRecordsTool,
   createSubmitProposalTool,
   ProposalState,
+  compileProposalOperations,
   runAgentWithTimeout,
   type ComposedAgentMessage,
   type LlmPort,
   type MemorySpaceTableDigest,
 } from "./index.ts";
 import { createTaskMutationTools } from "./task-mutation-tools.ts";
-import { optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
+import { createSemanticQuerySqlTool, optionalQuerySqlTools } from "./tools/query/query-sql-tool.ts";
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
 
 export interface FillAgentRunInput {
+  readonly state?: ProposalState;
+  readonly history?: readonly AgentMessage[];
+  readonly semanticQuery?: SemanticQueryExecutor;
+  /** 交互助手只准备提案，由界面确认后提交。 */
+  readonly confirmationRequired?: boolean;
   readonly retryPolicy?: RetryPolicy;
   readonly retryCallbacks?: RetryCallbacks;
   /** 填表任务即时写入；交互问答省略此端口，保持确认后提交。 */
@@ -166,8 +173,8 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
     throw new Error("runFillAgent 需要至少一条消息（本轮消息或编排消息）");
   }
 
-  // 装配：每 run 新建一个提案 State 与校验闭包（与查询 Agent/问答面板同一套零件）。
-  const state = new ProposalState();
+  // 后台填表使用运行级 State，交互助手由会话持有 State。
+  const state = input.state ?? new ProposalState();
   const validateOperation = (operation: Parameters<typeof validateProposalOperation>[2]) =>
     validateProposalOperation(ports, memorySpaceId, operation);
   const validateOperations = (operations: Parameters<typeof validateProposalOperations>[2]) =>
@@ -187,6 +194,17 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
           writer: input.taskWriter,
           signal: input.signal,
         });
+  const sqlTools = input.semanticQuery
+    ? [await createSemanticQuerySqlTool({ reader, digest, query: input.semanticQuery })]
+    : optionalQuerySqlTools(reader, digest);
+  const submitTool = createSubmitProposalTool({
+    digest,
+    state,
+    validateOperations,
+    preview,
+    messageRange,
+    evidence,
+  });
   const agent = new Agent({
     initialState: {
       systemPrompt:
@@ -195,24 +213,39 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
           ? ""
           : "\n\n当前为事务填表模式：mutate 成功后已写入本任务事务，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请再次 mutate。全部操作完成后调用 submit_proposal 并结束。正式提交由宿主在整个任务结束后完成。"),
       // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
-      messages: toAgentPrefixMessages(prefix, llm.model.id),
+      messages: [...toAgentPrefixMessages(prefix, llm.model.id), ...(input.history ?? [])],
       model: llm.model,
       tools:
         input.taskWriter === undefined
           ? [
               createQueryRecordsTool({ reader, digest }),
-              ...optionalQuerySqlTools(reader, digest),
+              ...sqlTools,
               createMutateTool({ digest, state, validateOperation }),
               createProposalPreviewTool({ digest, state, validateOperations, preview }),
               createDropMutateTool({ state }),
-              createSubmitProposalTool({
-                digest,
-                state,
-                validateOperations,
-                preview,
-                messageRange,
-                evidence,
-              }),
+              input.confirmationRequired
+                ? {
+                    ...submitTool,
+                    description:
+                      "准备当前提案供用户确认，不写入数据库。调用后说明变更并结束回答，用户通过界面的确认提交按钮完成写入。",
+                    async execute() {
+                      const errors = await validateOperations(
+                        compileProposalOperations(digest, state),
+                      );
+                      if (errors.length)
+                        throw new Error(errors.map((error) => error.message).join("；"));
+                      if (!state.operations.length) throw new Error("提案为空，无需提交");
+                      const details = {
+                        status: "awaiting_confirmation",
+                        version: state.snapshot().version,
+                      };
+                      return {
+                        content: [{ type: "text" as const, text: JSON.stringify(details) }],
+                        details,
+                      };
+                    },
+                  }
+                : submitTool,
             ]
           : [
               createQueryRecordsTool({ reader, digest }),

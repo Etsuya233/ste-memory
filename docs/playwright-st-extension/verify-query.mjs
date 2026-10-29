@@ -18,24 +18,36 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const action = (name) => page.locator(`[data-action="${name}"]:visible`).first();
 const button = (name) => page.getByRole("button", { name, exact: true });
+let checks = 0;
 const check = (name, value) => {
   assert.ok(value, name);
+  checks++;
   console.log(`PASS ${name}`);
 };
-const history = (key) =>
-  page.evaluate((key) => window.frontendPreview.queryStore.getHistory(key), key);
-const waitDone = (key) =>
-  page.waitForFunction(
-    (key) =>
-      window.frontendPreview.queryStore.getHistory(key).length > 0 &&
-      !window.frontendPreview.queryStore.getRun(key),
-    key,
-  );
-const waitRunning = (key) =>
-  page.waitForFunction((key) => !!window.frontendPreview.queryStore.getRun(key), key);
-async function openQuery() {
+const session = (id) => page.evaluate((id) => window.frontendPreview.queryStore.get(id), id);
+const waitDone = (id) =>
+  page.waitForFunction((id) => {
+    const store = window.frontendPreview.queryStore;
+    return (
+      store.get(id).messages.length && !store.getRun(id) && store.get(id).status !== "committing"
+    );
+  }, id);
+async function openAssistant() {
   await action("nav-settings").click();
-  await button("记忆问答").click();
+  await button("记忆助手").click();
+}
+async function newSession() {
+  const previous = await page.evaluate(() =>
+    window.frontendPreview.queryStore.getSessions().map((session) => session.id),
+  );
+  await action("assistant-new").click();
+  return page.evaluate(
+    (previous) =>
+      window.frontendPreview.queryStore
+        .getSessions()
+        .find((session) => !previous.includes(session.id)).id,
+    previous,
+  );
 }
 async function send(text) {
   await action("query-chat-input").fill(text);
@@ -51,15 +63,30 @@ async function switchChat(key) {
     key,
   );
 }
+async function selectSession(title) {
+  await action("assistant-sessions").click();
+  await page
+    .getByRole("region", { name: "会话列表" })
+    .getByRole("button", { name: title, exact: true })
+    .click();
+}
 try {
   await page.goto(url);
-  await openQuery();
-  await send("书店里有谁？");
-  await waitDone("space-a:query");
-  const first = await history("space-a:query");
+  await openAssistant();
   check(
-    "query stores user and assistant in current space",
-    first.length === 2 && first[0].text === "书店里有谁？" && first[1].status === "done",
+    "unified assistant without mode tabs",
+    (await page.getByRole("heading", { name: "记忆助手", exact: true }).isVisible()) &&
+      (await page.getByRole("tab", { name: "查询", exact: true }).count()) === 0,
+  );
+  const a = await newSession();
+  await send("书店里有谁？");
+  await waitDone(a);
+  const first = await session(a);
+  check(
+    "query with full tool transcript",
+    first.messages.length === 2 &&
+      first.transcript.some((message) => message.role === "toolResult") &&
+      first.proposal.operations.length === 0,
   );
   const kinds = await page
     .locator('[data-query-message="assistant"]')
@@ -67,155 +94,129 @@ try {
     .locator("[data-query-segment]")
     .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-query-segment")));
   check(
-    "thinking tool and text retain event order",
-    JSON.stringify(kinds) === JSON.stringify(first[1].segments.map((segment) => segment.kind)) &&
-      kinds.includes("tool") &&
-      kinds.includes("thinking"),
-  );
-  const tool = page.locator('[data-query-segment="tool"]').first();
-  await tool.getByRole("button").click();
-  check(
-    "tool arguments and result can be inspected",
-    (await tool.getByRole("heading", { name: "参数", exact: true }).isVisible()) &&
-      (await tool.getByRole("heading", { name: "结果", exact: true }).isVisible()),
+    "thinking tool and text inspectable",
+    kinds.includes("tool") && kinds.includes("thinking") && kinds.includes("text"),
   );
   await action("copy-answer").click();
-  check("answer copies through clipboard", await button("已复制回答").isVisible());
-  await send("再告诉我更多。");
-  await waitDone("space-a:query");
-  check("multiple rounds append to current history", (await history("space-a:query")).length === 4);
-  const secondInput = await page.evaluate(() => window.frontendPreview.queryInputs()[1]);
+  check("copy answer", await button("已复制回答").isVisible());
+  await action("assistant-sessions").click();
+  await button("重命名 书店里有谁？").click();
+  await page.getByLabel("会话名称", { exact: true }).fill("人物整理");
+  await button("保存").click();
+  await page
+    .getByRole("region", { name: "会话列表" })
+    .getByRole("button", { name: "人物整理", exact: true })
+    .click();
+  await action("query-chat-input").fill("尚未发送的草稿");
+  const b = await newSession();
+  check("new conversation empty", (await session(b)).messages.length === 0);
+  await selectSession("人物整理");
   check(
-    "multiple rounds send only user and assistant text",
-    secondInput.length === 3 &&
-      secondInput.every((message) => Object.keys(message).sort().join(",") === "role,text") &&
-      secondInput[1].role === "assistant" &&
-      !secondInput[1].text.includes("检查记忆"),
+    "input draft restored",
+    (await action("query-chat-input").inputValue()) === "尚未发送的草稿",
   );
-  await page.getByRole("tab", { name: "填写", exact: true }).click();
+  await send("新增一个人物");
+  await waitDone(a);
+  const draft = await session(a);
   check(
-    "fill mode has independent history",
-    await page.getByText("想新增或修改什么？", { exact: true }).isVisible(),
+    "mutation awaits explicit confirmation",
+    draft.proposal.operations.length === 1 &&
+      draft.preview.valid &&
+      (await action("assistant-confirm").isEnabled()),
   );
-  await send("新增书店记忆，确认提交。");
-  await waitDone("space-a:fill");
+  await page.evaluate(() => window.frontendPreview.queryStore.flush());
+  await page.reload();
+  await openAssistant();
+  await selectSession("人物整理");
   check(
-    "fill response shows committed receipt",
-    (await history("space-a:fill")).at(-1).commit?.status === "committed" &&
-      (await page.locator("[role=alert]").allTextContents()).join(" ").includes("已提交"),
+    "reload restores proposal and transcript",
+    (await session(a)).proposal.operations.length === 1 &&
+      (await session(a)).transcript.length === draft.transcript.length,
   );
-  await action("query-refresh").click();
-  await page.getByText("记录已刷新。", { exact: true }).waitFor();
-  check("committed records can be refreshed", true);
-  await page.getByRole("tab", { name: "查询", exact: true }).click();
+  await action("assistant-confirm").click();
+  await waitDone(a);
   check(
-    "switching mode restores query history",
-    (await page.locator('[data-query-message="user"]').count()) === 2,
+    "confirm commits and clears draft",
+    (await session(a)).proposal.operations.length === 0 &&
+      (await session(a)).messages.at(-1).commit.status === "committed",
   );
-  await page.evaluate(() => window.frontendPreview.delayQuery(1000));
-  await send("在后台查询");
-  await waitRunning("space-a:query");
-  await action("nav-tables").click();
   check(
-    "leaving page keeps original run active",
-    await page.evaluate(() => !!window.frontendPreview.queryStore.getRun("space-a:query")),
+    "commit summary visible",
+    await page.getByText("已提交：创建 1", { exact: false }).isVisible(),
   );
-  await waitDone("space-a:query");
-  await openQuery();
+  await page.evaluate(() => window.frontendPreview.delayQuery(60000));
+  await send("慢查询");
+  await page.waitForFunction((id) => !!window.frontendPreview.queryStore.getRun(id), a);
+  const c = await newSession();
   check(
-    "returning displays completed background history",
-    (await page.locator('[data-query-message="user"]').allTextContents())
-      .join(" ")
-      .includes("在后台查询"),
+    "switch keeps original running",
+    (await session(a)).status === "running" && (await session(c)).status === "idle",
   );
-  await page.evaluate(() => window.frontendPreview.delayQuery(5000));
-  await send("停止这一轮");
-  await waitRunning("space-a:query");
+  await page.evaluate(() => window.frontendPreview.queryStore.flush());
+  await page.reload();
+  await openAssistant();
+  check(
+    "inflight request marked interrupted",
+    (await session(a)).status === "interrupted" &&
+      (await session(a)).messages.at(-1).status === "interrupted",
+  );
+  await selectSession("人物整理");
+  await send("继续查询");
+  await waitDone(a);
+  check("interrupted session resumes", (await session(a)).messages.at(-1).status === "done");
+  await page.evaluate(() => window.frontendPreview.delayQuery(60000));
+  await send("取消查询");
   await action("query-chat-stop").click();
-  await waitDone("space-a:query");
+  await waitDone(a);
   check(
-    "stop aborts only current run",
-    !(await page.evaluate(() => !!window.frontendPreview.queryStore.getRun("space-a:query"))),
+    "stop isolates conversations",
+    (await session(a)).messages.at(-1).status === "error" &&
+      (await session(b)).messages.length === 0,
   );
-  await page.evaluate(() => {
-    window.frontendPreview.delayQuery(0);
-    window.frontendPreview.failNextQuery();
-  });
-  await send("测试失败反馈");
-  await waitDone("space-a:query");
-  check(
-    "failed generation remains visible in history",
-    (await history("space-a:query")).at(-1).status === "error",
-  );
-  await page.evaluate(() => window.frontendPreview.delayQuery(1000));
-  await send("对话A的后台问题");
-  await waitRunning("space-a:query");
+  await page.evaluate(() => window.frontendPreview.delayQuery(30));
   await switchChat("b");
-  check(
-    "different space starts with separate history",
-    (await page.locator('[data-query-message="user"]').count()) === 0,
-  );
-  await page.evaluate(() => window.frontendPreview.delayQuery(0));
-  await send("对话B的问题");
-  await waitDone("space-b:query");
-  await waitDone("space-a:query");
-  check(
-    "background response does not leak into another chat",
-    !(await page.locator('[data-query-message="user"]').allTextContents())
-      .join(" ")
-      .includes("对话A的后台问题"),
-  );
+  check("different ST chat isolated", (await action("query-chat-input").count()) === 0);
+  const other = await newSession();
+  await send("另一个对话");
+  await waitDone(other);
   await switchChat("a");
+  await selectSession("人物整理");
   check(
-    "returning restores original space results",
-    (await page.locator('[data-query-message="user"]').allTextContents())
-      .join(" ")
-      .includes("对话A的后台问题"),
+    "original conversation restored",
+    (await session(a)).messages.length > 2 &&
+      (await action("assistant-sessions").innerText()).trim() === "人物整理",
   );
-  await page.getByRole("tab", { name: "填写", exact: true }).click();
-  await page.evaluate(() => window.frontendPreview.delayQuery(1000));
-  await send("切换对话时的填写");
-  await waitRunning("space-a:fill");
-  await switchChat("b");
-  await waitDone("space-a:fill");
+  await action("assistant-sessions").click();
+  await page.getByRole("button", { name: "删除 新会话", exact: true }).first().click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "删除会话", exact: true })
+    .click();
   check(
-    "fill run retains space-switch abandonment receipt",
-    (await history("space-a:fill")).at(-1).commit?.status === "abandoned",
+    "delete one conversation",
+    (await page.evaluate(
+      () =>
+        window.frontendPreview.queryStore
+          .getSessions()
+          .filter((session) => session.spaceId === "space-a").length,
+    )) === 2,
   );
-  await switchChat("a");
-  await page.getByText("对话已切换，变更未提交", { exact: true }).waitFor();
-  await action("query-chat-input").fill("未发送的填写草稿");
-  await page.getByRole("tab", { name: "查询", exact: true }).click();
-  await action("query-chat-input").fill("未发送的问题");
-  await page.getByRole("tab", { name: "填写", exact: true }).click();
-  check(
-    "unsent drafts are independent by mode",
-    (await action("query-chat-input").inputValue()) === "未发送的填写草稿",
-  );
-  await action("nav-records").click();
-  await button("保留编辑").click();
-  check(
-    "unsent draft protects navigation",
-    (await action("query-chat-input").inputValue()) === "未发送的填写草稿",
-  );
-  await action("page-back").click();
-  await button("放弃修改并继续").click();
-  await button("记忆问答").click();
-  check(
-    "confirmed draft discard leaves history intact",
-    (await action("query-chat-input").inputValue()) === "" &&
-      (await history("space-a:fill")).length >= 4,
-  );
-  await page.setViewportSize({ width: 320, height: 700 });
-  await page.screenshot({ path: `${screenshots}/workbench-query-320.png` });
-  check(
-    "320px query page has no horizontal overflow",
-    await page
-      .locator("#ste-memory-app")
-      .evaluate((element) => element.scrollWidth <= element.clientWidth),
-  );
-  check("no browser exceptions", errors.length === 0);
+  await page
+    .getByRole("region", { name: "会话列表" })
+    .getByRole("button", { name: "人物整理", exact: true })
+    .click();
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    check(
+      `no horizontal overflow at ${width}px`,
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    );
+  }
+  await page.screenshot({ path: `${screenshots}/memory-assistant-desktop.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: `${screenshots}/memory-assistant-mobile.png` });
+  check("no browser errors", errors.length === 0);
+  console.log(`${checks} memory assistant checks passed`);
 } finally {
-  if (errors.length) console.error(errors);
   await browser.close();
 }

@@ -1,3 +1,5 @@
+import { QueryChatStore } from "./features/query-chat/session-store.ts";
+import { IndexedDbAssistantSessions } from "./infrastructure/indexeddb/assistant-session-repository.ts";
 import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
 import type { RerankPort } from "./features/semantic-query/rerank.ts";
 import type {
@@ -716,9 +718,15 @@ export async function startSteMemory(
     onCleanupError: (error: unknown) => log.error("语义查询会话关闭失败", error),
   });
 
-  // 问答面板（ticket 20 / ADR 0009）：查询/填写双模式。LLM 端口开启思考流
-  // （ticket 19）；填写提交前校验当前绑定空间 == run 起始空间（决策 7）。
+  // 记忆助手共用持久化会话及查询/提案工具，提交前检查实时对话身份和代次。
+  const assistantStore = new QueryChatStore(new IndexedDbAssistantSessions(db));
+  let assistantContextGeneration = 0;
+  manager.onStatusChange(() => {
+    assistantContextGeneration++;
+  });
+  await assistantStore.ready;
   const queryChat = new QueryChatService({
+    store: assistantStore,
     semanticQuery,
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
@@ -728,10 +736,13 @@ export async function startSteMemory(
       await work();
     },
     createLlm: createQueryChatLlm,
-    getCurrentSpaceId: () => {
+    getCurrentContext: () => {
       if (!settings.read().enabled) return undefined;
       const status = manager.getStatus();
-      return status?.kind === "active" ? status.space.id : undefined;
+      const chatKey = chatIdentityKey(adapter.getChatSnapshot());
+      return status?.kind === "active" && chatKey
+        ? { chatKey, spaceId: status.space.id, generation: assistantContextGeneration }
+        : undefined;
     },
   });
 

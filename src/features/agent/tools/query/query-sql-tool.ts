@@ -132,8 +132,8 @@ export function optionalQuerySqlTools(
     : [];
 }
 
-/** QueryAgent uses the same SQL tool name and arguments for ordinary and semantic queries. */
-export async function createQueryAgentSqlTool(input: {
+/** 记忆助手通过同一个 SQL 工具执行普通与语义查询。 */
+export async function createSemanticQuerySqlTool(input: {
   reader: MemorySpaceReader;
   digest: MemorySpaceTableDigest;
   query: SemanticQueryExecutor;

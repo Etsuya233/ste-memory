@@ -1,257 +1,290 @@
-import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
-/**
- * QueryChatService：问答面板（ticket 20 / ADR 0009）的 run 编排（浏览器侧）。
- *
- * 本模块只做编排（Agent 装配 →
- * 事件翻译 → 终态 → 填写提交与空间校验），不感知 HTTP/SSE 与厂商协议（LLM
- * 经注入的 LlmPort，宿主以 includeReasoning: true 构造，ticket 19）。
- *
- * - 查询模式：QueryAgent 只读问答（Memory 固定提示词 composeQueryAgentSystemPrompt）；
- *   多轮历史由客户端回传（user/assistant 文本），工具结果与思考不跨轮；
- * - 填写模式：共享组装模块 runFillAgent（src/agent，ADR 0024）+
- *   composeInteractiveProposalAgentSystemPrompt（prompt 软闸门：Agent 陈述变更
- *   并征得用户明确同意后提交）；run 结束后冻结提案直通 repository
- *   （revisionSource "agent"，Memory 修订校验兜底并发），不经活动任务守卫（web 决策 8/10）；
- * - 空间切换守卫（决策 7）：提交前校验当前绑定空间 == run 起始空间，不一致
- *   放弃提案（abandoned，提示「对话已切换，变更未提交」）；查询模式继续跑完；
- * - 取消：AbortController；适配器以 stopReason "aborted" 收尾，本模块翻译为
- *   「已取消」；总超时 5 分钟（Memory 默认），超时按同一路径翻译；
- * - 契约：一切失败（LLM 网络/鉴权/超时/取消、digest 失败、提交失败）都以
- *   QueryChatEvent 的 error/done 终态编码，绝不抛异常（对齐 StreamFn 契约精神）。
- */
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { StopReason } from "@earendil-works/pi-ai";
-import type {
-  MemoryProposalPorts,
-  MemoryProposalSubmission,
-  MemoryRecordService,
-  MemorySpaceId,
+import type { SemanticQueryExecutor } from "../semantic-query/semantic-query-session.ts";
+import {
+  MemoryCommitPersistenceError,
+  memoryProposalSubmission,
+  memoryProposalBatch,
+  validateProposalOperations,
+  previewProposal,
+  type MemoryProposalPorts,
+  type MemoryRecordService,
+  type MemorySpaceReader,
 } from "../memory/index.ts";
 import {
-  QueryAgent,
   buildMemorySpaceTableDigest,
   composeInteractiveProposalAgentSystemPrompt,
-  type ComposedAgentMessage,
+  compileProposalOperations,
+  createProposalPreviewTool,
+  ProposalState,
   type LlmPort,
 } from "../agent/index.ts";
-import type { MemorySpaceReader } from "../memory/index.ts";
 import { runFillAgent } from "../agent/fill-agent-runner.ts";
 import {
+  completeInterruptedTools,
+  type QueryChatStore,
+  type AssistantContext,
+} from "./session-store.ts";
+import {
   errorMessage,
+  createPendingAssistantMessage,
+  createUserMessage,
   type QueryChatCommitResult,
   type QueryChatEvent,
-  type QueryChatHistoryMessage,
-  type QueryChatMode,
 } from "./query-chat-state.ts";
 
-/** 单次 run 总超时（对齐 QueryAgent/ProposalAgent Memory 默认 5 分钟）。 */
 export const QUERY_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** 空间切换放弃提案的提示（决策 7，对齐填表任务 chatId 安全点精神）。 */
 export const QUERY_CHAT_SPACE_SWITCHED_NOTICE = "对话已切换，变更未提交";
-
 export interface QueryChatServiceOptions {
+  readonly store: QueryChatStore;
   readonly semanticQuery?: SemanticQueryExecutor;
-  /** 记忆空间只读端口（digest 构建 + query_records 工具共用）。 */
   readonly reader: MemorySpaceReader;
-  /** 提案校验/预览/提交所需的领域访问端口（与填表任务共用同一组 repository）。 */
   readonly ports: MemoryProposalPorts;
-  /** 完整提案提交操作，与填表任务共用 Memory 写入规则。 */
   readonly recordWriter: Pick<MemoryRecordService, "commitProposal">;
-  /** 原子事务运行器（提交批次在单事务内；由组合根注入 Dexie 事务）。 */
   readonly runInTransaction: (work: () => Promise<void>) => Promise<void>;
-  /** LLM 端口工厂：每次 run 构造一次（宿主以 includeReasoning: true 构造，ticket 19）。 */
   readonly createLlm: () => LlmPort;
-  /** 当前绑定空间（填写提交前校验用）：读取活动空间 id；非 active 返回 undefined。 */
-  readonly getCurrentSpaceId: () => MemorySpaceId | undefined;
-  /** 单次 run 总超时（毫秒），默认 5 分钟。 */
+  readonly getCurrentContext: () =>
+    (AssistantContext & { readonly generation?: number }) | undefined;
   readonly timeoutMs?: number;
 }
-
 export interface QueryChatRunInput {
-  readonly mode: QueryChatMode;
-  readonly memorySpaceId: MemorySpaceId;
-  /** 多轮历史 + 本轮用户消息（末尾一条必须是 user）。 */
-  readonly messages: readonly QueryChatHistoryMessage[];
-  readonly signal: AbortSignal;
-  /** 事件回调：增量（thinking/text/toolcall）后终态（done/error）必发一次。 */
-  readonly onEvent: (event: QueryChatEvent) => void;
+  readonly sessionId: string;
+  readonly text: string;
 }
-
-export interface QueryChatRunResult {
-  readonly stopReason: StopReason | undefined;
-  readonly errorMessage: string | undefined;
-  /** 最后一次助手消息的纯文本回答（供测试断言；UI 以流式增量为准）。 */
-  readonly answer: string;
-  /** 填写模式自动提交的结果；查询模式或未产生提案时为 undefined。 */
-  readonly commit: QueryChatCommitResult | undefined;
-}
-
-/** 零用量占位：历史 assistant 消息元数据不被 LLM 循环使用（convertToLlm 只按角色过滤）。 */
-const ZERO_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-} as const;
-
 export class QueryChatService {
-  readonly #semanticQuery: SemanticQueryExecutor | undefined;
-  readonly #reader: MemorySpaceReader;
-  readonly #ports: MemoryProposalPorts;
-  readonly #recordWriter: Pick<MemoryRecordService, "commitProposal">;
-  readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
-  readonly #createLlm: () => LlmPort;
-  readonly #getCurrentSpaceId: () => MemorySpaceId | undefined;
-  readonly #timeoutMs: number;
-
+  readonly store: QueryChatStore;
+  readonly #options: QueryChatServiceOptions;
   constructor(options: QueryChatServiceOptions) {
-    this.#semanticQuery = options.semanticQuery;
-    this.#reader = options.reader;
-    this.#ports = options.ports;
-    this.#recordWriter = options.recordWriter;
-    this.#runInTransaction = options.runInTransaction;
-    this.#createLlm = options.createLlm;
-    this.#getCurrentSpaceId = options.getCurrentSpaceId;
-    this.#timeoutMs = options.timeoutMs ?? QUERY_CHAT_TIMEOUT_MS;
+    this.#options = options;
+    this.store = options.store;
   }
 
-  /**
-   * 跑一次问答 run。返回结构化结果；所有失败都以 onEvent 的终态事件编码
-   * （绝不抛异常——UI 无需 try/catch，但仍容忍防御性 catch）。
-   */
-  async run(input: QueryChatRunInput): Promise<QueryChatRunResult> {
-    if (input.messages.length === 0) {
-      return this.#fail(input, "问答消息为空");
-    }
-    if (input.messages[input.messages.length - 1]!.role !== "user") {
-      return this.#fail(input, "本轮消息必须是用户消息");
-    }
-    if (input.signal.aborted) {
-      return this.#fail(input, "已取消");
-    }
-    try {
-      // LLM 配置缺失在 run 开始时立即失败（createLlm 读 ST 当前配置，缺失抛中文错误）。
-      const llm = this.#createLlm();
-      const messages = toAgentMessages(input.messages, llm.model.id);
-      if (input.mode === "fill") {
-        return await this.#runFill(input, llm, messages);
-      }
-      return await this.#runQuery(input, llm, messages);
-    } catch (error) {
-      return this.#fail(input, errorMessage(error));
-    }
-  }
-
-  /** 查询模式：QueryAgent（只读，Memory 固定提示词）。 */
-  async #runQuery(
-    input: QueryChatRunInput,
-    llm: LlmPort,
-    messages: readonly AgentMessage[],
-  ): Promise<QueryChatRunResult> {
-    const agent = new QueryAgent({
-      semanticQuery: this.#semanticQuery,
-      llm,
-      reader: this.#reader,
-      timeoutMs: this.#timeoutMs,
-    });
-    const result = await agent.run(
-      { memorySpaceId: input.memorySpaceId, messages },
-      { signal: input.signal, onEvent: this.#translate(input) },
-    );
-    const terminal = terminalQueryChatEvent(result, input.signal, undefined);
-    input.onEvent(terminal);
-    return {
-      stopReason: result.stopReason,
-      errorMessage: result.errorMessage,
-      answer: result.answer,
-      commit: undefined,
+  async run(input: QueryChatRunInput): Promise<void> {
+    const store = this.store;
+    const session = store.get(input.sessionId);
+    this.#assertContext(session);
+    if (!input.text.trim()) throw new Error("消息不能为空");
+    const controller = new AbortController();
+    const pendingId = crypto.randomUUID();
+    const userMessage: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text: input.text }],
+      timestamp: Date.now(),
     };
-  }
-
-  /**
-   * 填写模式：共享组装模块 + 交互式填写提示词（软闸门，ADR 0024）；run 结束后
-   * 冻结提案经空间一致性校验直通 repository。
-   */
-  async #runFill(
-    input: QueryChatRunInput,
-    llm: LlmPort,
-    messages: readonly AgentMessage[],
-  ): Promise<QueryChatRunResult> {
-    // digest 在 run 前构建一次，同时喂消息展开（软闸门提示词）与工具装配。
-    const digest = await buildMemorySpaceTableDigest(this.#reader, input.memorySpaceId);
-    const composed: readonly ComposedAgentMessage[] = [
-      { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
-    ];
-    const result = await runFillAgent({
-      llm,
-      reader: this.#reader,
-      ports: this.#ports,
-      memorySpaceId: input.memorySpaceId,
-      digest,
-      composedMessages: composed,
-      messages,
-      // 聊天无消息范围概念：合成占位（commit 不使用它，仅预览元数据，对齐 api）。
-      messageRange: { from: 0, to: 0 },
-      // v1 交互式填写不注入证据（零剧情注入，决策 2）。
-      evidence: [],
-      timeoutMs: this.#timeoutMs,
-      signal: input.signal,
-      onEvent: this.#translate(input),
+    store.beginRun(session.id, pendingId, controller);
+    store.update(session.id, {
+      draft: "",
+      title:
+        session.messages.length || session.title !== "新会话"
+          ? session.title
+          : input.text.trim().slice(0, 30),
+      messages: [
+        ...session.messages,
+        createUserMessage(crypto.randomUUID(), input.text),
+        createPendingAssistantMessage(pendingId),
+      ],
+      transcript: [...session.transcript, userMessage],
     });
-
-    // 自动落库（ADR 0019）：只有正常结束（非取消/超时）才提交冻结提案。
-    let commit: QueryChatCommitResult | undefined;
-    if (result.proposal && !input.signal.aborted && result.stopReason !== "aborted") {
-      commit = await this.#commitProposal(input.memorySpaceId, result.proposal);
-    }
-    const terminal = terminalQueryChatEvent(result, input.signal, commit);
-    input.onEvent(terminal);
-    return {
-      stopReason: result.stopReason,
-      errorMessage: result.errorMessage,
-      answer: result.answer,
-      commit,
-    };
-  }
-
-  /** 提交冻结提案：空间校验（决策 7）→ 单事务直通 repository（revisionSource "agent"）。 */
-  async #commitProposal(
-    startSpaceId: MemorySpaceId,
-    proposal: MemoryProposalSubmission,
-  ): Promise<QueryChatCommitResult> {
-    // 运行中切换对话：提交前校验当前绑定空间 == run 起始空间，不一致放弃提案。
-    if (this.#getCurrentSpaceId() !== startSpaceId) {
-      return { status: "abandoned", notice: QUERY_CHAT_SPACE_SWITCHED_NOTICE };
-    }
+    const state = new ProposalState(session.proposal);
+    const transcript: AgentMessage[] = [userMessage];
     try {
-      await this.#runInTransaction(async () => {
-        await this.#recordWriter.commitProposal(startSpaceId, proposal, "agent");
+      await store.flush();
+      const llm = this.#options.createLlm();
+      const digest = await buildMemorySpaceTableDigest(this.#options.reader, session.spaceId);
+      if (controller.signal.aborted) throw new Error("已取消");
+      const result = await runFillAgent({
+        llm,
+        reader: this.#options.reader,
+        ports: this.#options.ports,
+        memorySpaceId: session.spaceId,
+        digest,
+        state,
+        history: session.transcript,
+        semanticQuery: this.#options.semanticQuery,
+        confirmationRequired: true,
+        composedMessages: [
+          { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
+        ],
+        messages: [userMessage],
+        messageRange: { from: 0, to: 0 },
+        evidence: [],
+        timeoutMs: this.#options.timeoutMs ?? QUERY_CHAT_TIMEOUT_MS,
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (store.getRun(session.id)?.pendingId !== pendingId) return;
+          for (const translated of translateAgentEvent(event))
+            store.applyEvent(session.id, translated);
+          if (event.type === "message_end") {
+            if (event.message.role !== "user") transcript.push(event.message);
+            store.update(session.id, {
+              transcript: [...session.transcript, ...transcript],
+              proposal: state.snapshot(),
+            });
+          }
+        },
       });
-      return {
-        status: "committed",
-        created: proposal.batch.create.length,
-        updated: proposal.batch.update.length,
-        deleted: proposal.batch.delete.length,
-      };
-    } catch (error) {
-      return { status: "failed", error: errorMessage(error) };
+      if (store.getRun(session.id)?.pendingId !== pendingId) return;
+      store.update(session.id, {
+        transcript: completeInterruptedTools([...session.transcript, ...transcript]),
+        proposal: state.snapshot(),
+      });
+      if (state.operations.length && result.stopReason === "stop" && !controller.signal.aborted)
+        await this.#preview(session.id);
+      store.applyEvent(session.id, terminalQueryChatEvent(result, controller.signal, undefined));
+    } catch (cause) {
+      if (store.getRun(session.id)?.pendingId === pendingId) {
+        store.update(session.id, {
+          transcript: completeInterruptedTools([...session.transcript, ...transcript]),
+          proposal: state.snapshot(),
+          preview: undefined,
+        });
+        store.applyEvent(session.id, { type: "error", message: errorMessage(cause) });
+      }
+    } finally {
+      if (store.getRun(session.id)?.pendingId === pendingId) {
+        store.finishRun(session.id);
+        await store.flush();
+      }
     }
   }
 
-  /** Agent 事件翻译（对齐 api translateAgentEvent：只透传思考/回答增量与工具调用）。 */
-  #translate(input: QueryChatRunInput): (event: AgentEvent) => void {
-    return (event) => {
-      for (const chatEvent of translateAgentEvent(event)) input.onEvent(chatEvent);
-    };
+  async #preview(id: string) {
+    const session = this.store.get(id);
+    const digest = await buildMemorySpaceTableDigest(this.#options.reader, session.spaceId);
+    const state = new ProposalState(session.proposal);
+    const tool = createProposalPreviewTool({
+      digest,
+      state,
+      validateOperations: (operations) =>
+        validateProposalOperations(this.#options.ports, session.spaceId, operations),
+      preview: (operations) => previewProposal(this.#options.ports, session.spaceId, operations),
+    });
+    const result = await tool.execute("preview", {});
+    // Deletion during an asynchronous preview must not resurrect the session.
+    if (!this.store.getSessions().some((item) => item.id === id)) return;
+    this.store.update(id, { preview: result.details, previewId: crypto.randomUUID() });
   }
 
-  /** 收口：终态 error 事件 + 结构化结果（校验失败/异常共用，绝不抛出）。 */
-  #fail(input: QueryChatRunInput, message: string): QueryChatRunResult {
-    input.onEvent({ type: "error", message });
-    return { stopReason: "error", errorMessage: message, answer: "", commit: undefined };
+  async confirm(id: string, previewId: string): Promise<QueryChatCommitResult> {
+    const session = this.store.get(id);
+    const origin = this.#assertContext(session);
+    if (session.status === "running" || session.status === "committing")
+      throw new Error("会话正在执行");
+    if (session.commitUncertain)
+      throw new Error("上次提交结果待核对，请查询记录并放弃旧提案后重新准备修改");
+    if (!session.preview?.valid || session.previewId !== previewId)
+      throw new Error("提案已变化，请重新查看变更后确认");
+    this.store.update(id, { status: "committing" });
+    let commit: QueryChatCommitResult;
+    try {
+      await this.store.flush();
+      const digest = await buildMemorySpaceTableDigest(this.#options.reader, session.spaceId);
+      const state = new ProposalState(session.proposal);
+      const operations = compileProposalOperations(digest, state);
+      if (!operations.length) throw new Error("提案为空");
+      const errors = await validateProposalOperations(
+        this.#options.ports,
+        session.spaceId,
+        operations,
+      );
+      if (errors.length) throw new Error(errors.map((error) => error.message).join("；"));
+      const freshPreview = await previewProposal(this.#options.ports, session.spaceId, operations);
+      if (JSON.stringify(freshPreview.operations) !== JSON.stringify(session.preview.operations))
+        throw new Error("记录或表结构已变化，请让助手重新预览提案后确认");
+      const proposal = memoryProposalSubmission(
+        { from: 0, to: 0 },
+        [],
+        session.preview.operations,
+        memoryProposalBatch(operations),
+      );
+      this.#assertContext(session, origin.generation);
+      try {
+        await this.#options.runInTransaction(async () => {
+          this.#assertContext(session, origin.generation);
+          await this.#options.recordWriter.commitProposal(session.spaceId, proposal, "agent");
+        });
+        commit = {
+          status: "committed",
+          created: proposal.batch.create.length,
+          updated: proposal.batch.update.length,
+          deleted: proposal.batch.delete.length,
+        };
+      } catch (cause) {
+        if (!(cause instanceof MemoryCommitPersistenceError)) throw cause;
+        commit = {
+          status: "committed",
+          created: proposal.batch.create.length,
+          updated: proposal.batch.update.length,
+          deleted: proposal.batch.delete.length,
+          warning: `记录已提交，快照保存失败：${cause.message}。请使用工作台的保存重试。`,
+        };
+      }
+      // 与下方提交回执一起持久保存，磁盘上不会出现“已清空草稿但仍在提交”的中间态。
+      this.store.update(
+        id,
+        {
+          proposal: new ProposalState().snapshot(),
+          preview: undefined,
+          previewId: undefined,
+        },
+        false,
+      );
+    } catch (cause) {
+      commit = { status: "failed", error: errorMessage(cause) };
+      this.store.update(id, { preview: undefined, previewId: undefined });
+    }
+    const notice = createPendingAssistantMessage(crypto.randomUUID());
+    const text =
+      commit.status === "committed"
+        ? "用户已确认，提案已提交。后续修改请重新查询最新记录。"
+        : `提交失败：${commit.error}`;
+    const current = this.store.get(id);
+    this.store.update(id, {
+      status: "idle",
+      messages: [
+        ...current.messages,
+        {
+          ...notice,
+          kind: "assistant",
+          status: "done",
+          segments: [{ kind: "text", text }],
+          commit,
+        },
+      ],
+      transcript: [...current.transcript, { role: "user", content: text, timestamp: Date.now() }],
+    });
+    await this.store.flush();
+    return commit;
+  }
+  discard(id: string) {
+    const session = this.store.get(id);
+    if (session.status === "running" || session.status === "committing")
+      throw new Error("会话正在执行");
+    this.store.update(id, {
+      proposal: new ProposalState().snapshot(),
+      preview: undefined,
+      previewId: undefined,
+      commitUncertain: false,
+      transcript: [
+        ...session.transcript,
+        {
+          role: "user",
+          content: "已放弃当前全部未提交提案，之前的 mutationId 和临时 ID 已失效。",
+          timestamp: Date.now(),
+        },
+      ],
+    });
+  }
+  #assertContext(context: AssistantContext, generation?: number) {
+    const current = this.#options.getCurrentContext();
+    if (
+      !current ||
+      current.chatKey !== context.chatKey ||
+      current.spaceId !== context.spaceId ||
+      (generation !== undefined && generation !== current.generation)
+    )
+      throw new Error(QUERY_CHAT_SPACE_SWITCHED_NOTICE);
+    return current;
   }
 }
 
@@ -325,26 +358,4 @@ export function terminalQueryChatEvent(
     default:
       return { type: "error", message: "未产生回答" };
   }
-}
-
-/** 客户端文本历史 → pi AgentMessage（无状态多轮：只回传 user/assistant 文本）。 */
-export function toAgentMessages(
-  messages: readonly QueryChatHistoryMessage[],
-  model: string,
-): readonly AgentMessage[] {
-  const timestamp = Date.now();
-  return messages.map((message) =>
-    message.role === "user"
-      ? { role: "user", content: [{ type: "text", text: message.text }], timestamp }
-      : {
-          role: "assistant",
-          content: [{ type: "text", text: message.text }],
-          api: "openai-completions",
-          provider: "sillytavern",
-          model,
-          usage: ZERO_USAGE,
-          stopReason: "stop",
-          timestamp,
-        },
-  );
 }

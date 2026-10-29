@@ -294,7 +294,7 @@ function SettingsOverview({
             {
               label: "工具与维护",
               items: [
-                ["query", "记忆问答"],
+                ["query", "记忆助手"],
                 ["logs", "运行日志"],
                 ["maintenance", "备份与空间维护"],
                 ["sql", "SQL 控制台"],
