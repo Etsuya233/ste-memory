@@ -89,23 +89,37 @@ try {
       first.transcript.some((message) => message.role === "toolResult") &&
       first.proposal.operations.length === 0,
   );
-  const kinds = await page
-    .locator('[data-query-message="assistant"]')
-    .first()
-    .locator("[data-query-segment]")
-    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-query-segment")));
-  check(
-    "thinking tool and text inspectable",
-    kinds.includes("tool") && kinds.includes("thinking") && kinds.includes("text"),
+  const assistant = page.locator('[data-query-message="assistant"]').first();
+  const processTrigger = assistant.locator(
+    '[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]',
   );
   check(
-    "messages use aligned bubbles and trace instead of cards",
+    "completed process stays collapsed",
+    (await processTrigger.getAttribute("aria-expanded")) === "false" &&
+      (await processTrigger.innerText()).includes("过程"),
+  );
+  await processTrigger.click();
+  await assistant.locator("[data-query-segment]").first().waitFor();
+  const kinds = await assistant
+    .locator("[data-query-process] [data-query-segment]")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-query-segment")));
+  check(
+    "thinking and tool steps inspectable",
+    kinds.includes("tool") && kinds.includes("thinking"),
+  );
+  check(
+    "final answer stays outside the process group",
+    (await assistant.locator("[data-query-answer]").count()) === 1 &&
+      (await assistant.locator("[data-query-answer]").innerText()).length > 0,
+  );
+  check(
+    "messages use aligned bubbles and a single process trace instead of cards",
     (await page
       .locator(
         '[data-query-message="user"][data-slot="message"][data-align="end"] [data-slot="bubble-content"]',
       )
       .count()) === 1 &&
-      (await page.locator('[data-query-message="assistant"] [data-slot="trace"]').count()) === 2 &&
+      (await assistant.locator("[data-query-process]").count()) === 1 &&
       (await page.locator('[data-query-message] [data-slot="card"]').count()) === 0,
   );
   const toolTrace = page.locator('[data-query-segment="tool"]').first();
@@ -127,6 +141,15 @@ try {
   check(
     "trace keyboard toggle collapses details",
     (await toolTrigger.getAttribute("aria-expanded")) === "false",
+  );
+  await processTrigger.press("Enter");
+  await assistant
+    .locator("[data-query-process] [data-query-segment]")
+    .first()
+    .waitFor({ state: "detached" });
+  check(
+    "process collapses again",
+    (await processTrigger.getAttribute("aria-expanded")) === "false",
   );
   check(
     "prompt controls share an input group",
@@ -209,6 +232,14 @@ try {
     (await session(a)).proposal.operations.length === 1 &&
       (await session(a)).transcript.length === draft.transcript.length,
   );
+  const reloadedProcess = page
+    .locator('[data-query-message="assistant"]')
+    .first()
+    .locator('[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]');
+  check(
+    "reload keeps completed process collapsed",
+    (await reloadedProcess.getAttribute("aria-expanded")) === "false",
+  );
   await action("assistant-confirm").click();
   await waitDone(a);
   check(
@@ -253,11 +284,17 @@ try {
     });
   }, a);
   await page.waitForFunction(() => !!window.finishPresentation);
-  const streamingTrace = page
-    .locator('[data-query-message="assistant"]')
-    .last()
-    .locator('[data-query-segment="tool"]');
+  const streamingMessage = page.locator('[data-query-message="assistant"]').last();
+  const streamingProcess = streamingMessage.locator(
+    '[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]',
+  );
+  const streamingTrace = streamingMessage.locator('[data-query-segment="tool"]');
   const streamingTrigger = streamingTrace.locator('[data-slot="trace-collapsible-trigger"]');
+  check(
+    "running process expands with the current action",
+    (await streamingProcess.getAttribute("aria-expanded")) === "true" &&
+      (await streamingProcess.innerText()).includes("正在"),
+  );
   check(
     "running trace opens automatically",
     (await streamingTrigger.getAttribute("aria-expanded")) === "true",
@@ -271,6 +308,18 @@ try {
     window.finishPresentation();
     await window.presentationRun;
   });
+  await page.waitForFunction(() => {
+    const messages = document.querySelectorAll('[data-query-message="assistant"]');
+    const process = messages[messages.length - 1]?.querySelector(
+      '[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]',
+    );
+    return process?.getAttribute("aria-expanded") === "false";
+  });
+  check(
+    "finished process collapses automatically",
+    (await streamingProcess.getAttribute("aria-expanded")) === "false",
+  );
+  await streamingProcess.click();
   check(
     "SQL summary exposes truncation",
     (await streamingTrace.innerText()).includes("返回 1 行（已截断）"),

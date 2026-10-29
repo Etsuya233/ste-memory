@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   applyQueryChatEvent,
-  assistantPlainText,
   createPendingAssistantMessage,
   createUserMessage,
   isTerminalQueryChatEvent,
@@ -253,47 +252,5 @@ describe("applyQueryChatEvent（事件 → 片段时间线）", () => {
   it("pending 不存在时原样返回（迟到事件防御）", () => {
     const next = applyQueryChatEvent(base, "nope", { type: "message_delta", text: "x" });
     expect(next).toBe(base);
-  });
-});
-
-describe("assistantPlainText（聚合回答纯文本推导）", () => {
-  it("全部文本片段拼接；思考与工具内容不参与", () => {
-    const message: Extract<QueryChatMessage, { kind: "assistant" }> = {
-      kind: "assistant",
-      id: "a1",
-      status: "streaming",
-      segments: [
-        { kind: "thinking", text: "思考" },
-        { kind: "text", text: "第一段" },
-        {
-          kind: "tool",
-          callId: "c1",
-          name: "query_records",
-          args: {},
-          running: false,
-          result: undefined,
-          isError: false,
-        },
-        { kind: "text", text: "第二段" },
-      ],
-    };
-    expect(assistantPlainText(message)).toBe("第一段第二段");
-  });
-
-  it("无文本片段时为空串", () => {
-    const empty: Extract<QueryChatMessage, { kind: "assistant" }> = {
-      kind: "assistant",
-      id: "a1",
-      status: "streaming",
-      segments: [],
-    };
-    expect(assistantPlainText(empty)).toBe("");
-    const withThinking: Extract<QueryChatMessage, { kind: "assistant" }> = {
-      kind: "assistant",
-      id: "a1",
-      status: "streaming",
-      segments: [{ kind: "thinking", text: "只有思考" }],
-    };
-    expect(assistantPlainText(withThinking)).toBe("");
   });
 });

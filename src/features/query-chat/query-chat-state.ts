@@ -90,17 +90,6 @@ export function createPendingAssistantMessage(id: string): QueryChatMessage {
   return { kind: "assistant", id, status: "streaming", segments: [] };
 }
 
-/** 聚合回答纯文本：全部文本片段拼接（回传历史与「复制回答」共用，行为与扁平模型等价）。 */
-export function assistantPlainText(
-  message: Extract<QueryChatMessage, { kind: "assistant" }>,
-): string {
-  let text = "";
-  for (const segment of message.segments) {
-    if (segment.kind === "text") text += segment.text;
-  }
-  return text;
-}
-
 /** 终态事件：done/error 会同时终止 run（run 状态由 QueryChatStore 消费此判定）。 */
 export function isTerminalQueryChatEvent(event: QueryChatEvent): boolean {
   return event.type === "done" || event.type === "error";

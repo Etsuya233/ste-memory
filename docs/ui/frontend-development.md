@@ -266,7 +266,7 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 消息使用 Base UI/Luma 的 Message 与 Bubble 组合，思考和工具调用使用 Trace，输入区使用 Input Group 组合 Prompt Input。
 工具参数与结果使用 Code Block 展示，结果保留原始 JSON，两者都可以复制。
 这些组合直接消费现有 QueryChatMessage/QueryChatSegment；正文继续使用原有 Markdown 渲染，流式跟随与会话滚动恢复沿用当前页面逻辑。
-片段保持真实发生顺序，过程默认随运行展开、完成收起；用户主动切换展开状态后优先保留其选择。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
+思考、工具与中间旁白合并为一个过程组，正文区只显示最终回答；过程组在运行中展开、终态收起，用户主动切换后保留其选择，刷新与会话切换后回到收起状态。组内片段保持真实发生顺序，失败步骤在收起摘要中计数。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
 提案以 Item 组合展示操作类型和字段修改前后值，只有会话当前有效提案提供确认入口，确认继续绑定 previewId 并沿用服务校验。
 `features/query-chat/session-store.ts` 管理按真实 chatKey、spaceId 和会话 ID 隔离的历史、输入、模型上下文及提案。
 运行时创建唯一 store，IndexedDB 的 assistantSessions 保存会话；前端不得另建 store，关闭页面或切换会话不终止回答。

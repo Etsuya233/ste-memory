@@ -1,17 +1,24 @@
 import { memo, useEffect, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, LoaderCircle, MessageCircleMore, Wrench, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  LoaderCircle,
+  MessageCircleMore,
+  TriangleAlert,
+  Wrench,
+  X,
+} from "lucide-react";
 import type {
   QueryRecordsToolResult,
   QuerySqlToolResult,
   ProposalPreviewToolResult,
 } from "../../../features/agent/index.ts";
-import {
-  assistantPlainText,
-  type QueryChatMessage,
-  type QueryChatSegment,
-  type QueryChatCommitResult,
+import type {
+  QueryChatMessage,
+  QueryChatSegment,
+  QueryChatCommitResult,
 } from "../../../features/query-chat/query-chat-state.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Badge } from "../../../ui/primitives/badge.tsx";
@@ -72,7 +79,8 @@ export function QueryMessage({
         </MessageContent>
       </Message>
     );
-  const answer = assistantPlainText(message);
+  const { process, answer } = splitTimeline(message.segments);
+  const streaming = message.status === "streaming";
   async function copy() {
     try {
       await copyText(answer);
@@ -96,15 +104,25 @@ export function QueryMessage({
             </Badge>
           </MessageHeader>
         )}
-        {message.segments.map((segment, index) => (
-          <TimelineSegment
-            key={index}
-            segment={segment}
-            active={message.status === "streaming" && index === message.segments.length - 1}
+        {process.length ? (
+          <ProcessGroup
+            process={process}
+            streaming={streaming}
+            answering={streaming && answer !== ""}
             onCopyError={setCopyError}
           />
-        ))}
-        {message.status === "streaming" && !message.segments.length ? (
+        ) : null}
+        {answer ? (
+          <div
+            data-query-answer=""
+            className="ste:flex ste:min-w-0 ste:flex-col ste:gap-3 ste:break-words"
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {answer}
+            </ReactMarkdown>
+          </div>
+        ) : null}
+        {streaming && !message.segments.length ? (
           <p role="status" className="ste:text-sm ste:text-muted-foreground">
             正在准备回答…
           </p>
@@ -137,6 +155,105 @@ export function QueryMessage({
       </MessageContent>
     </Message>
   );
+}
+
+/**
+ * 过程组：思考、工具调用与中间旁白收进一个折叠入口，正文只保留最终回答。
+ * 运行中默认展开，终态默认收起；用户手动切换后以其选择为准。
+ */
+function ProcessGroup({
+  process,
+  streaming,
+  answering,
+  onCopyError,
+}: {
+  process: readonly QueryChatSegment[];
+  streaming: boolean;
+  answering: boolean;
+  onCopyError: (message: string) => void;
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? streaming;
+  const { steps, failed } = countSteps(process);
+  const description =
+    streaming && !answering
+      ? runningLabel(process)
+      : failed
+        ? `${steps} 步 · ${failed} 步失败`
+        : steps
+          ? `${steps} 步`
+          : undefined;
+  return (
+    <Trace data-query-process="">
+      <TraceCollapsible open={open} onOpenChange={setUserOpen}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={streaming ? "running" : failed ? "error" : undefined}>
+            <TraceIcon>
+              {streaming ? (
+                <LoaderCircle className="ste:motion-safe:animate-spin" />
+              ) : failed ? (
+                <TriangleAlert />
+              ) : (
+                <Check />
+              )}
+            </TraceIcon>
+            <TraceTitle>过程</TraceTitle>
+            {description ? (
+              <TraceDescription aria-live={streaming ? "polite" : undefined}>
+                {description}
+              </TraceDescription>
+            ) : null}
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
+          <Trace>
+            {process.map((segment, index) => (
+              <TimelineSegment
+                key={index}
+                segment={segment}
+                active={streaming && index === process.length - 1}
+                onCopyError={onCopyError}
+              />
+            ))}
+          </Trace>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
+  );
+}
+
+/**
+ * 时间线拆分：末尾文本片段是最终回答，此前的一切（思考、工具、旁白文字）归入过程组。
+ * 相邻同类片段已在事件应用时合并，因此末尾文本天然是一整段。
+ */
+function splitTimeline(segments: readonly QueryChatSegment[]): {
+  process: readonly QueryChatSegment[];
+  answer: string;
+} {
+  const last = segments[segments.length - 1];
+  if (last?.kind === "text") return { process: segments.slice(0, -1), answer: last.text };
+  return { process: segments, answer: "" };
+}
+
+/** 步骤数只统计思考与工具，旁白文字不计入。 */
+function countSteps(process: readonly QueryChatSegment[]): { steps: number; failed: number } {
+  let steps = 0;
+  let failed = 0;
+  for (const segment of process) {
+    if (segment.kind === "text") continue;
+    steps += 1;
+    if (segment.kind === "tool" && segment.isError) failed += 1;
+  }
+  return { steps, failed };
+}
+
+/** 运行中摘要：取过程组最后一个动作，避免展示原始工具名。 */
+function runningLabel(process: readonly QueryChatSegment[]): string {
+  const last = [...process].reverse().find((segment) => segment.kind !== "text");
+  if (!last) return "正在准备回答…";
+  if (last.kind === "thinking") return "正在思考…";
+  if (last.running) return `正在${toolLabels[last.name] ?? "调用工具"}…`;
+  return "正在整理回答…";
 }
 
 const TimelineSegment = memo(function TimelineSegment({
