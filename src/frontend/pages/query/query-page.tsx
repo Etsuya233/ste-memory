@@ -624,7 +624,8 @@ export function QueryPage(props: QueryPageProps) {
                   aria-label="消息内容"
                   aria-describedby={statusText ? "query-chat-status" : undefined}
                   data-action="query-chat-input"
-                  rows={2}
+                  rows={1}
+                  className="ste:min-h-0"
                   value={session.draft}
                   disabled={busy}
                   placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}

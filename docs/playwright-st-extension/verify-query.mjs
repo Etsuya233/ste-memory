@@ -158,6 +158,19 @@ try {
       (await action("query-chat-send").locator("xpath=..").getAttribute("data-align")) ===
         "inline-end",
   );
+  const promptInput = action("query-chat-input");
+  const singleLineHeight = await promptInput.evaluate((node) => node.clientHeight);
+  check("empty prompt starts on a single line", singleLineHeight <= 48);
+  await promptInput.fill("第一行\n第二行\n第三行");
+  check(
+    "prompt grows with multiple lines",
+    (await promptInput.evaluate((node) => node.clientHeight)) > singleLineHeight,
+  );
+  await promptInput.fill("");
+  check(
+    "cleared prompt returns to a single line",
+    (await promptInput.evaluate((node) => node.clientHeight)) === singleLineHeight,
+  );
   await action("copy-answer").click();
   check("copy answer", await button("已复制").isVisible());
   await openMenu();
