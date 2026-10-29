@@ -4,7 +4,6 @@ import { RecordDetailPage } from "./record-detail.tsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId } from "react";
 import {
   BookOpen,
-  ChevronDown,
   ChevronRight,
   FileText,
   LoaderCircle,
@@ -49,14 +48,7 @@ import {
   ItemDescription,
   ItemActions,
 } from "../../ui/primitives/item.tsx";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from "../../ui/primitives/pagination.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "../../ui/primitives/popover.tsx";
+import { PagePagination } from "../components/page-pagination.tsx";
 
 export interface RecordsPageProps {
   registerLeaveGuard?: RegisterLeaveGuard;
@@ -87,8 +79,6 @@ export function RecordsPage(props: RecordsPageProps) {
   const [hostBusy, setHostBusy] = useState(false);
   const hostOperation = useRef(0);
   const [search, setSearch] = useState(state.search);
-  const [pageInput, setPageInput] = useState(String(state.page));
-  const [paginationOpen, setPaginationOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -115,9 +105,6 @@ export function RecordsPage(props: RecordsPageProps) {
   useEffect(() => {
     setSearch(state.search);
   }, [state.context?.chatKey, state.context?.spaceId, state.tableId]);
-  useEffect(() => {
-    setPageInput(String(state.page));
-  }, [state.page]);
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (state.context && search.trim() !== state.search) void workspace.setSearch(search.trim());
@@ -534,117 +521,19 @@ export function RecordsPage(props: RecordsPageProps) {
           ) : null}
           {!showingDetail ? (
             <PageFooter className="ste:px-3 ste:py-2">
-              <Pagination aria-label="记录分页" className="ste:mx-0 ste:w-full">
-                <PaginationContent className="ste:w-full ste:flex-nowrap ste:justify-between">
-                  <PaginationItem>
-                    <PaginationPrevious
-                      text=""
-                      size="icon"
-                      aria-label="上一页"
-                      disabled={state.listLoading || state.page <= 1}
-                      onClick={() => changePage(state.page - 1)}
-                    />
-                  </PaginationItem>
-                  <PaginationItem>
-                    <Popover
-                      open={paginationOpen}
-                      onOpenChange={(open) => {
-                        setPaginationOpen(open);
-                        if (open) setPageInput(String(state.page));
-                      }}
-                    >
-                      <PopoverTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="ste:bg-muted/50 ste:px-2.5 ste:text-xs ste:font-normal ste:hover:bg-muted"
-                          />
-                        }
-                        aria-label={`分页设置，第 ${state.page}/${totalPages} 页，共 ${state.records?.total ?? 0} 条`}
-                      >
-                        <span className="ste:whitespace-nowrap">
-                          {state.page}/{totalPages} · {state.records?.total ?? 0} 条
-                        </span>
-                        <ChevronDown className="ste:size-3 ste:opacity-70" aria-hidden />
-                      </PopoverTrigger>
-                      <PopoverContent aria-label="分页设置" side="top" className="ste:w-64">
-                        <div className="ste:flex ste:flex-col ste:gap-2">
-                          <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
-                            每页条数
-                          </span>
-                          <NativeSelect
-                            size="sm"
-                            aria-label="每页条数"
-                            className="ste:w-full"
-                            value={String(state.pageSize)}
-                            disabled={state.listLoading || !state.records}
-                            onChange={(event) => {
-                              listRef.current?.scrollTo({ top: 0 });
-                              void workspace.setPageSize(Number(event.target.value));
-                            }}
-                          >
-                            {[10, 20, 50, 100].map((size) => (
-                              <option key={size} value={size}>
-                                {size} 条/页
-                              </option>
-                            ))}
-                          </NativeSelect>
-                        </div>
-                        <form
-                          className="ste:flex ste:flex-col ste:gap-2"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            const requested = Number.parseInt(pageInput, 10);
-                            const target = Number.isInteger(requested)
-                              ? Math.min(Math.max(requested, 1), totalPages)
-                              : state.page;
-                            setPageInput(String(target));
-                            setPaginationOpen(false);
-                            if (target !== state.page) changePage(target);
-                          }}
-                        >
-                          <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
-                            跳转页码
-                          </span>
-                          <div className="ste:flex ste:items-center ste:gap-2">
-                            <Input
-                              aria-label="跳转页码"
-                              className="ste:h-8 ste:min-w-0 ste:flex-1 ste:text-center"
-                              inputMode="numeric"
-                              placeholder={`1–${totalPages}`}
-                              value={pageInput}
-                              disabled={state.listLoading || totalPages <= 1}
-                              onChange={(event) =>
-                                setPageInput(event.target.value.replace(/\D/g, ""))
-                              }
-                              onBlur={() => {
-                                if (pageInput === "") setPageInput(String(state.page));
-                              }}
-                            />
-                            <Button
-                              type="submit"
-                              size="sm"
-                              disabled={state.listLoading || totalPages <= 1}
-                            >
-                              跳转
-                            </Button>
-                          </div>
-                        </form>
-                      </PopoverContent>
-                    </Popover>
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationNext
-                      text=""
-                      size="icon"
-                      aria-label="下一页"
-                      disabled={state.listLoading || !state.records || state.page >= totalPages}
-                      onClick={() => changePage(state.page + 1)}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
+              <PagePagination
+                label="记录分页"
+                page={state.page}
+                totalPages={totalPages}
+                total={state.records?.total ?? 0}
+                pageSize={state.pageSize}
+                disabled={state.listLoading}
+                onPageChange={changePage}
+                onPageSizeChange={(size) => {
+                  listRef.current?.scrollTo({ top: 0 });
+                  void workspace.setPageSize(size);
+                }}
+              />
             </PageFooter>
           ) : null}
         </>

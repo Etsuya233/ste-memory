@@ -42,7 +42,6 @@ try {
       (await entries().first().getAttribute("data-log-key")) === original,
   );
   await button("上一页").click();
-  await button("筛选").click();
   const level = await entries().first().getAttribute("data-log-level");
   const type = await entries().first().getAttribute("data-log-type");
   const key = await entries().first().getAttribute("data-log-key");
@@ -63,9 +62,17 @@ try {
   await label("内容关键词").fill("");
   await label("级别").selectOption("");
   await label("类型").selectOption("");
+  await action("filter-task-key").click();
   await label("任务 Key").fill(key);
   await button("查询").click();
-  await action("open-log").waitFor();
+  await page.getByText(`任务 Key：${key}`, { exact: true }).waitFor();
+  await page.waitForFunction(
+    (key) =>
+      [...document.querySelectorAll('[data-action="open-log"]')].every(
+        (el) => el.dataset.logKey === key,
+      ),
+    key,
+  );
   check(
     "task key query uses exact key",
     await entries().evaluateAll(
@@ -74,8 +81,20 @@ try {
     ),
   );
   await button("刷新日志").click();
-  await action("open-log").waitFor();
+  await page.waitForFunction(
+    (key) =>
+      [...document.querySelectorAll('[data-action="open-log"]')].every(
+        (el) => el.dataset.logKey === key,
+      ),
+    key,
+  );
+  await action("filter-task-key").click();
   check("manual refresh retains key filter", (await label("任务 Key").inputValue()) === key);
+  await button("清除").click();
+  await page.getByText(`任务 Key：${key}`, { exact: true }).waitFor({ state: "hidden" });
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-action="open-log"]').length === 30,
+  );
   const before = await entries().count();
   await button("清空全部日志").click();
   await button("取消").click();
@@ -87,11 +106,8 @@ try {
   await page.screenshot({ path: `${directory}/settings-logs-320.png` });
   await button("清空全部日志").click();
   await button("确认清空日志").click();
-  await page.getByText("没有符合条件的日志", { exact: true }).waitFor();
+  await page.getByText("还没有日志", { exact: true }).waitFor();
   check("confirmed clear removes all logs", (await entries().count()) === 0);
-  await label("任务 Key").fill("");
-  await button("查询").click();
-  await page.getByText("没有符合条件的日志", { exact: true }).waitFor();
   check("log clear applies beyond prior task filter", (await entries().count()) === 0);
   check(
     "320px logs page has no horizontal overflow",

@@ -239,7 +239,7 @@ try {
   await taskLog.click();
   check(
     "task log action opens the exact task key",
-    (await page.getByLabel("任务 Key", { exact: true }).inputValue()) === taskKey,
+    (await page.getByText(`任务 Key：${taskKey}`, { exact: true }).count()) > 0,
   );
   await action("page-back").click();
   check(

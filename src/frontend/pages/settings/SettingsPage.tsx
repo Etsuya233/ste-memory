@@ -16,17 +16,20 @@ import { MaintenancePage, type MaintenanceServices } from "../maintenance/mainte
 import { QueryPage, type QueryServices } from "../query/query-page.tsx";
 import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
 import type { LogRepository } from "../../../features/logging/log.ts";
+import type { PluginSettings } from "../../../features/settings/plugin-settings.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "../../../ui/primitives/card.tsx";
 import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "../../../ui/primitives/item.tsx";
 import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { usePageLeave, type RegisterLeaveGuard } from "../../components/confirmation.tsx";
@@ -74,6 +77,80 @@ type SettingsPageProps = {
   tools: SettingsTools;
   active: boolean;
 };
+
+const settingGroups = [
+  {
+    label: "连接与填写",
+    items: [
+      ["connections", "Agent 连接与模型"],
+      ["embedding", "Embedding 连接"],
+      ["rerank", "重排设置"],
+      ["auto-fill", "自动填表"],
+    ],
+  },
+  {
+    label: "预设与规则",
+    items: [
+      ["agent-presets", "Agent 提示词预设"],
+      ["table-presets", "表格预设"],
+      ["cleaning", "清洗规则"],
+      ["macros", "记忆宏"],
+    ],
+  },
+  {
+    label: "工具与维护",
+    items: [
+      ["logs", "运行日志"],
+      ["query", "记忆问答"],
+      ["maintenance", "备份与空间维护"],
+      ["sql", "SQL 控制台"],
+    ],
+  },
+] as const;
+
+function buildEntrySummaries(
+  settings: PluginSettings,
+  context: RecordsContext | null,
+): Partial<Record<SettingsSection, string>> {
+  const fillConnection = settings.agentConnections.find(
+    (connection) => connection.id === settings.fillTaskConnectionId,
+  );
+  const activePreset = settings.agentPresets.presets.find(
+    (preset) => preset.id === settings.agentPresets.activePresetId,
+  );
+  const defaultTablePreset = settings.tablePresets.userPresets.find(
+    (preset) => preset.id === settings.tablePresets.defaultPresetId,
+  );
+  return {
+    connections: settings.agentConnections.length
+      ? `${settings.agentConnections.length} 个连接 · ${fillConnection?.name ?? "填表跟随 ST"}`
+      : "跟随 ST 当前连接",
+    embedding: settings.embeddingConnection
+      ? `已配置 · ${settings.embeddingConnection.model}`
+      : "未配置",
+    rerank: settings.rerank.enabled
+      ? `已启用 · ${settings.rerank.connection?.model ?? "无连接"}`
+      : "已关闭",
+    "auto-fill":
+      settings.autoFill.mode === "auto"
+        ? `自动 · 每 ${settings.autoFill.interval} 层`
+        : settings.autoFill.mode === "remind"
+          ? "仅提醒"
+          : "已关闭",
+    "agent-presets": settings.agentPresets.presets.length
+      ? `${settings.agentPresets.presets.length} 个自定义 · ${activePreset?.name ?? "系统默认"}`
+      : "系统默认",
+    "table-presets": settings.tablePresets.userPresets.length
+      ? `${settings.tablePresets.userPresets.length} 个自定义 · ${defaultTablePreset?.name ?? "系统预设"}`
+      : "系统预设",
+    cleaning: `${settings.cleaningRules.length} 条全局规则`,
+    macros: `${settings.macros.length} 个全局宏`,
+    logs: "运行记录与错误",
+    query: context ? "当前对话" : "打开对话后可用",
+    maintenance: "备份 · 恢复 · 清理",
+    sql: context ? "当前记忆空间" : "打开对话后可用",
+  };
+}
 
 export function SettingsPage(
   props: SettingsPageProps & {
@@ -145,6 +222,7 @@ function SettingsOverview({
   controls,
   registerLeaveGuard,
   mirror,
+  context,
   onOpen,
 }: SettingsPageProps & { onOpen: (section: SettingsSection) => void }) {
   const scroll = usePageScroll(services, "settings-overview", true);
@@ -195,6 +273,8 @@ function SettingsOverview({
     }
   }
 
+  const summaries = buildEntrySummaries(settings, context);
+
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
@@ -204,18 +284,33 @@ function SettingsOverview({
         {...controls}
         busy={busy}
       />
+      <div
+        className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground"
+        aria-live="polite"
+      >
+        {mirror.kind === "failed" ? (
+          <span className="ste:text-destructive">对话文件同步失败：{mirror.error}</span>
+        ) : mirror.kind === "saving" ? (
+          "正在写入对话文件…"
+        ) : mirror.kind === "disabled" ? (
+          "对话文件同步已暂停"
+        ) : mirror.lastWrittenAt ? (
+          `最近写入：${new Date(mirror.lastWrittenAt).toLocaleString()}`
+        ) : (
+          "尚未写入对话文件"
+        )}
+      </div>
       <PageContent ref={scroll.ref} onScroll={scroll.onScroll} className="ste:space-y-4">
         {notice ? (
           <StatusNotice variant={notice.error ? "destructive" : "default"}>
             {notice.text}
           </StatusNotice>
         ) : null}
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>基础设置</CardTitle>
-            <CardDescription>开关立即保存；超时单独保存。设置适用于所有对话。</CardDescription>
-          </CardHeader>
-          <CardContent className="ste:space-y-5">
+        <PageSection
+          title="基础设置"
+          meta={<span className="ste:text-xs ste:text-muted-foreground">全局生效</span>}
+        >
+          <div className="ste:flex ste:flex-col ste:gap-5">
             <SwitchField
               label="启用记忆插件"
               description="关闭后暂停同步和记忆宏；仍可在这里重新开启。"
@@ -234,17 +329,6 @@ function SettingsOverview({
                 void save(() => setSettingToggle(services, "mirror", value))
               }
             />
-            <p role="status" className="ste:text-xs ste:text-muted-foreground">
-              {mirror.kind === "failed"
-                ? `对话文件同步失败：${mirror.error}`
-                : mirror.kind === "saving"
-                  ? "正在写入对话文件…"
-                  : mirror.kind === "disabled"
-                    ? "对话文件同步已暂停"
-                    : mirror.lastWrittenAt
-                      ? `最近写入：${new Date(mirror.lastWrittenAt).toLocaleString()}`
-                      : "尚无对话文件写入记录"}
-            </p>
             <form
               className="ste:space-y-3"
               onSubmit={(event) => {
@@ -279,65 +363,47 @@ function SettingsOverview({
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
-        {(
-          [
-            {
-              label: "连接与填写",
-              items: [
-                ["connections", "Agent 连接与模型"],
-                ["embedding", "Embedding 连接"],
-                ["rerank", "重排设置"],
-                ["auto-fill", "自动填表"],
-              ],
-            },
-            {
-              label: "预设与规则",
-              items: [
-                ["agent-presets", "Agent 提示词预设"],
-                ["table-presets", "表格预设"],
-                ["cleaning", "清洗规则"],
-                ["macros", "记忆宏"],
-              ],
-            },
-            {
-              label: "工具与维护",
-              items: [
-                ["query", "记忆问答"],
-                ["logs", "运行日志"],
-                ["maintenance", "备份与空间维护"],
-                ["sql", "SQL 控制台"],
-              ],
-            },
-          ] as const
-        ).map((group) => (
-          <section key={group.label} className="ste:flex ste:flex-col ste:gap-2">
-            <h2 className="ste:mt-2 ste:text-sm ste:font-semibold">{group.label}</h2>
-            {group.items.map(([id, label]) => (
-              <Button
-                key={id}
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => requestLeave(() => onOpen(id))}
-              >
-                {label}
-                <ChevronRight />
-              </Button>
-            ))}
-          </section>
+          </div>
+        </PageSection>
+        {settingGroups.map((group) => (
+          <PageSection
+            key={group.label}
+            title={group.label}
+            meta={
+              <span className="ste:text-xs ste:text-muted-foreground">{group.items.length} 项</span>
+            }
+            bodyClassName="ste:p-0"
+          >
+            <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+              {group.items.map(([id, label]) => {
+                const description = summaries[id];
+                return (
+                  <div role="listitem" key={id}>
+                    <Item
+                      render={<button type="button" />}
+                      className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                      aria-label={label}
+                      data-action={`open-settings-${id}`}
+                      onClick={() => requestLeave(() => onOpen(id))}
+                    >
+                      <ItemContent>
+                        <ItemTitle>{label}</ItemTitle>
+                        {description ? (
+                          <ItemDescription className="ste:line-clamp-1">
+                            {description}
+                          </ItemDescription>
+                        ) : null}
+                      </ItemContent>
+                      <ItemActions>
+                        <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                      </ItemActions>
+                    </Item>
+                  </div>
+                );
+              })}
+            </ItemGroup>
+          </PageSection>
         ))}
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>外观</CardTitle>
-            <CardDescription>切换工作台的亮色或暗色外观。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" onClick={controls.onToggleTone}>
-              切换亮暗色
-            </Button>
-          </CardContent>
-        </Card>
       </PageContent>
       {confirmation}
     </div>

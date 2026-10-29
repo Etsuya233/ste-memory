@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ChevronDown, ListTodo } from "lucide-react";
 import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
@@ -31,7 +24,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../../../ui/primitives/accordion.tsx";
-import { cn } from "../../../ui/primitives/utils.ts";
+import { PageSection } from "../../components/page-section.tsx";
+import { formatCompactTime } from "../../components/format-time.ts";
 import {
   buildCoverageViewModel,
   taskRangeText,
@@ -68,18 +62,6 @@ const vectorLabels: Record<VectorTaskStatus, string> = {
   interrupted: "已中断",
 };
 const autoFillModeLabels = { off: "关闭", remind: "仅提醒", auto: "自动填表" } as const;
-
-/** 任务列表使用紧凑的本地时间：当年省略年份，统一 24 小时制。 */
-function formatTaskTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const pad = (part: number) => String(part).padStart(2, "0");
-  const datePart = `${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
-  const timePart = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  return date.getFullYear() === new Date().getFullYear()
-    ? `${datePart} ${timePart}`
-    : `${date.getFullYear()}/${datePart} ${timePart}`;
-}
 
 interface TasksPageProps {
   workspace: TasksWorkspace;
@@ -250,7 +232,7 @@ function TasksMain({
                 onCancel={(task) => void workspace.fillAction(task.runId, "cancel")}
                 onRetry={(task) => void workspace.fillAction(task.runId, "retry")}
               />
-              <TaskSurface
+              <PageSection
                 title="手动填表"
                 meta={
                   <span className="ste:text-xs ste:text-muted-foreground">
@@ -313,8 +295,8 @@ function TasksMain({
                     </Button>
                   </div>
                 </form>
-              </TaskSurface>
-              <TaskSurface
+              </PageSection>
+              <PageSection
                 title="本对话配置"
                 meta={<span className="ste:text-xs ste:text-muted-foreground">随对话保存</span>}
               >
@@ -331,7 +313,7 @@ function TasksMain({
                   onPresetChange={(presetId) => workspace.updateAgentPresetOverride(presetId)}
                   onOpenAutoFill={() => requestLeave(onAutoFill)}
                 />
-              </TaskSurface>
+              </PageSection>
               <FillList
                 title="排队与阻塞"
                 items={queued}
@@ -340,7 +322,7 @@ function TasksMain({
                 onAction={(task, action) => void workspace.fillAction(task.runId, action)}
               />
               {history.length > 0 && (
-                <TaskSurface
+                <PageSection
                   title="最近结果"
                   meta={
                     <span className="ste:text-xs ste:text-muted-foreground">
@@ -376,7 +358,7 @@ function TasksMain({
                       </Button>
                     </div>
                   )}
-                </TaskSurface>
+                </PageSection>
               )}
               <Accordion>
                 <AccordionItem value="init">
@@ -466,7 +448,7 @@ function ProgressSection({
   onRetry: (task: FillTaskView) => void;
 }) {
   return (
-    <TaskSurface
+    <PageSection
       title="填表进度"
       meta={
         <span className="ste:text-xs ste:text-muted-foreground">
@@ -494,7 +476,7 @@ function ProgressSection({
           </div>
         )}
       </div>
-    </TaskSurface>
+    </PageSection>
   );
 }
 
@@ -545,7 +527,7 @@ function RunningTask({
       )}
       <p className="ste:text-xs ste:text-muted-foreground">
         每批 {task.blockSize} 层 · {task.automatic ? "自动" : "手动"} ·{" "}
-        {formatTaskTime(task.createdAt)}
+        {formatCompactTime(task.createdAt)}
       </p>
       {task.blocksQueue && (
         <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
@@ -572,7 +554,7 @@ function LastResult({
         <Badge variant={task.status === "failed" ? "destructive" : "outline"}>{status.label}</Badge>
         <span className="ste:font-medium">{taskRangeText(task)}</span>
         <span className="ste:text-xs ste:text-muted-foreground">
-          {formatTaskTime(task.createdAt)}
+          {formatCompactTime(task.createdAt)}
         </span>
       </div>
       <div className="ste:flex ste:gap-1">
@@ -663,7 +645,7 @@ function FillList({
 }) {
   if (items.length === 0) return null;
   return (
-    <TaskSurface
+    <PageSection
       title={title}
       meta={<span className="ste:text-xs ste:text-muted-foreground">{items.length} 条</span>}
       bodyClassName="ste:p-0"
@@ -675,7 +657,7 @@ function FillList({
           </div>
         ))}
       </ItemGroup>
-    </TaskSurface>
+    </PageSection>
   );
 }
 
@@ -691,8 +673,7 @@ function FillRow({
   onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
 }) {
   const status = taskStatusViewModel(task);
-  const canCancel =
-    task.status === "queued" || task.status === "running" || task.blocksQueue;
+  const canCancel = task.status === "queued" || task.status === "running" || task.blocksQueue;
   const canRetry = task.status === "failed" || task.status === "interrupted";
   const openLog = () => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`);
   return (
@@ -733,7 +714,7 @@ function FillRow({
         )}
         <span className="ste:text-xs ste:text-muted-foreground">
           {task.automatic ? "自动" : "手动"} · 每批 {task.blockSize} 层 ·{" "}
-          {formatTaskTime(task.createdAt)}
+          {formatCompactTime(task.createdAt)}
         </span>
         {task.blocksQueue && (
           <span className="ste:text-xs ste:text-destructive">
@@ -782,7 +763,7 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
     .filter((task) => ["failed", "interrupted", "cancelled", "obsolete"].includes(task.status))
     .map((task) => task.id);
   return (
-    <TaskSurface
+    <PageSection
       title="向量任务"
       meta={
         <span className="ste:text-xs ste:text-muted-foreground">共 {state.vectorTotal} 项</span>
@@ -880,7 +861,7 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
                   </div>
                   <p className="ste:text-xs ste:text-muted-foreground">
                     {task.groupName} · {task.source === "manual" ? "手动" : "自动"} ·{" "}
-                    {formatTaskTime(task.createdAt)}
+                    {formatCompactTime(task.createdAt)}
                   </p>
                   {task.waitReason && (
                     <p className="ste:break-words ste:text-sm ste:text-muted-foreground">
@@ -938,28 +919,6 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
           下一页
         </Button>
       </div>
-    </TaskSurface>
-  );
-}
-
-function TaskSurface({
-  title,
-  meta,
-  bodyClassName,
-  children,
-}: {
-  title: string;
-  meta?: ReactNode;
-  bodyClassName?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
-      <header className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2 ste:border-b ste:border-border ste:px-4 ste:py-2.5">
-        <h2 className="ste:text-sm ste:font-semibold">{title}</h2>
-        {meta}
-      </header>
-      <div className={cn("ste:px-4 ste:py-3", bodyClassName)}>{children}</div>
-    </section>
+    </PageSection>
   );
 }

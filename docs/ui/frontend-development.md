@@ -54,6 +54,9 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | 需求                                 | 优先使用                                                                               | 使用约定                                                                               |
 | ------------------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | 页面骨架、页头、滚动区、页脚         | [PageHeader / PageContent / PageFooter](../../src/frontend/components/page-layout.tsx) | 沿用关闭、返回和亮暗色控件。公共页头同时提供桌面窗口拖动区域。                         |
+| 页面分组容器                         | [PageSection](../../src/frontend/components/page-section.tsx)                          | 统一“边框 + 分组头 + 内容”结构；设置与任务页共用，页面主骨架不再新增 Card。           |
+| 列表分页                             | [PagePagination](../../src/frontend/components/page-pagination.tsx)                    | 记录、日志共用上一页/下一页、每页条数与跳转；页码从 1 开始。                           |
+| 列表行时间                           | [format-time.ts](../../src/frontend/components/format-time.ts)                          | 列表行统一紧凑 24 小时制；详情保留完整时间。                                           |
 | 表单保存栏                           | 同文件的 `SaveActions`                                                                 | 统一保存位置、busy/dirty 状态与取消入口；通过 `formId` 关联表单。                      |
 | 设置编辑页                           | [SettingsEditor](../../src/frontend/pages/settings/connection-settings-editor.tsx)     | 已组合布局、离开保护、刷新提示、错误与保存栏；`contentProps` 可接入滚动 ref/onScroll。 |
 | 确认操作、未保存离开                 | [ConfirmAction / usePageLeave](../../src/frontend/components/confirmation.tsx)         | 接入顶层 `registerLeaveGuard`，避免另建导航确认状态。                                  |

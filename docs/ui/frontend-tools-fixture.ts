@@ -37,11 +37,11 @@ export function createToolsFixture(options: {
   const queryInputs: (readonly QueryChatHistoryMessage[])[] = [];
   let logs: LogEntry[] = Array.from({ length: 38 }, (_, i) => ({
     id: i + 1,
-    type: i % 2 ? "fill" : "vector",
+    type: ["fill", "vector", "query"][i % 3]!,
     key: i % 5 === 0 ? "space-a-running-fill" : `preview-task-${i % 4}`,
     level: (["info", "warn", "error"] as const)[i % 3]!,
-    text: `预览日志 ${i + 1}\n任务执行诊断`,
-    createdAt: "2026-10-28T09:00:00Z",
+    text: `${["填表批次完成", "向量索引更新", "记忆问答失败"][i % 3]}\n第 ${i + 1} 条预览日志`,
+    createdAt: new Date(Date.UTC(2026, 9, 28, 18, 0, 0) - i * 7 * 60 * 1000).toISOString(),
   })).reverse();
   function snapshot(): MemoryBackupData {
     const data = options.read();
