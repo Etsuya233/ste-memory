@@ -5,6 +5,7 @@ import {
 } from "./rerank-settings.ts";
 import {
   DEFAULT_AUTO_FILL_SETTINGS,
+  migrateAutoFillSettings,
   validateAutoFillSettings,
   type AutoFillSettings,
 } from "../fill-tasks/auto-fill-settings.ts";
@@ -133,7 +134,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
   const agentConnections = mergeAgentConnections(source.agentConnections);
   const autoFill = {
     ...DEFAULT_AUTO_FILL_SETTINGS,
-    ...(source.autoFill as Partial<AutoFillSettings> | undefined),
+    ...migrateAutoFillSettings(source.autoFill as Partial<AutoFillSettings> | undefined),
   };
   validateAutoFillSettings(autoFill);
   if (

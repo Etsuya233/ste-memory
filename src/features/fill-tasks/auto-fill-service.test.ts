@@ -138,9 +138,42 @@ describe("自动填表入队", () => {
       { floor: 25, status: "processed" },
       { floor: 29, status: "error" },
     ];
-    expect(autoFillRange(ledger, 31, false)).toEqual({ from: 26, to: 30 });
-    expect(autoFillRange(ledger, 31, true)).toEqual({ from: 26, to: 31 });
-    expect(autoFillRange([], 0, false)).toBeUndefined();
+    expect(autoFillRange(ledger, 31, 1)).toEqual({ from: 26, to: 30 });
+    expect(autoFillRange(ledger, 31, 0)).toEqual({ from: 26, to: 31 });
+    expect(autoFillRange([], 0, 1)).toBeUndefined();
+    expect(autoFillRange(ledger, 31, 5)).toEqual({ from: 26, to: 26 });
+    expect(autoFillRange(ledger, 31, 6)).toBeUndefined();
+    expect(autoFillRange([], 3, 5)).toBeUndefined();
+  });
+
+  it.each(["auto", "remind"] as const)("%s 按延迟后的待填范围判断触发间隔", async (mode) => {
+    const h = setup({ mode, delayFloors: 5, interval: 5 });
+    h.setCurrent({ chatLength: 30, aiFloor: 29 });
+    await check(h);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.notify).not.toHaveBeenCalled();
+    h.setCurrent({ chatLength: 31, aiFloor: 30 });
+    await check(h);
+    if (mode === "auto") {
+      expect(h.tasks.submit.mock.calls[0]![0]).toMatchObject({ from: 21, to: 25 });
+    } else {
+      expect(h.tasks.submit).not.toHaveBeenCalled();
+      expect(h.notify).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "reminder", message: "待填 #21–#25，共 5 层" }),
+      );
+    }
+  });
+
+  it("修改延迟保留已入队范围，新增任务使用新延迟", async () => {
+    const h = setup();
+    await check(h);
+    h.service.saveOverrides({ delayFloors: 5 });
+    await check(h);
+    expect(h.tasks.submit).toHaveBeenCalledTimes(1);
+    expect((await h.tasks.pendingTasks())[0]).toMatchObject({ from: 21, to: 30 });
+    h.setCurrent({ chatLength: 46, aiFloor: 45 });
+    await check(h);
+    expect(h.tasks.submit.mock.calls[1]![0]).toMatchObject({ from: 31, to: 40 });
   });
 
   it("达到间隔入队，重复检查不会重复提交同一范围", async () => {
@@ -229,17 +262,17 @@ describe("自动填表入队", () => {
     expect(h.tasks.cancel).toHaveBeenCalledWith("space", first.runId);
   });
 
-  it("覆盖配置保留显式关闭和 false，清空后继承全局设置", () => {
-    const h = setup({ includeCurrent: true });
-    h.service.saveOverrides({ mode: "off", includeCurrent: false, blockSize: 4 });
+  it("覆盖配置保留显式关闭和延迟层数，清空后继承全局设置", () => {
+    const h = setup({ delayFloors: 0 });
+    h.service.saveOverrides({ mode: "off", delayFloors: 1, blockSize: 4 });
     h.setSettings({ blockSize: 8 });
     expect(h.service.settings()).toMatchObject({
       mode: "off",
-      includeCurrent: false,
+      delayFloors: 1,
       blockSize: 4,
     });
     h.service.saveOverrides({ mode: "off" });
-    expect(h.service.settings()).toMatchObject({ includeCurrent: true, blockSize: 8 });
+    expect(h.service.settings()).toMatchObject({ delayFloors: 0, blockSize: 8 });
   });
   it("旧暂存列表首次载入转入共享队列，删除旧状态并保留每项参数", async () => {
     const settings = { ...DEFAULT_AUTO_FILL_SETTINGS, mode: "auto" as const, blockSize: 4 };

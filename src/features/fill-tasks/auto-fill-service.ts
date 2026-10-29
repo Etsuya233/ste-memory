@@ -3,6 +3,7 @@ import type { FillTaskService } from "./fill-task-service.ts";
 import type { FillTask, FillTaskView } from "./fill-task.ts";
 import {
   autoFillRange,
+  migrateAutoFillSettings,
   validateAutoFillSettings,
   type AutoFillChatStore,
   type AutoFillSettings,
@@ -140,7 +141,7 @@ export class AutoFillService {
       current.chatLength - 1,
     );
     if (this.#ports.current()?.identity !== current.identity) return undefined;
-    return autoFillRange(ledger, current.aiFloor, this.settings().includeCurrent);
+    return autoFillRange(ledger, current.aiFloor, this.settings().delayFloors);
   }
 
   generationStarted(): void {
@@ -212,7 +213,7 @@ export class AutoFillService {
         0,
         current.chatLength - 1,
       );
-      const remaining = autoFillRange(ledger, current.chatLength - 1, true);
+      const remaining = autoFillRange(ledger, current.chatLength - 1, 0);
       if (!unchanged()) return;
       for (const item of items) {
         if (!unchanged()) return;
@@ -221,7 +222,10 @@ export class AutoFillService {
         if (from > to) continue;
         if (pending.some((task) => task.kind === "floor" && task.from <= from && task.to >= to))
           continue;
-        const task = await this.#submit(current, from, to, { ...settings, ...item.settings });
+        const task = await this.#submit(current, from, to, {
+          ...settings,
+          ...migrateAutoFillSettings(item.settings),
+        });
         if (item === items[0] && (legacy.pausedReason || legacy.pendingResumeTask))
           await this.#ports.tasks.cancel(current.spaceId, task.runId, "chat-changed");
       }

@@ -3,7 +3,7 @@ import type { FillTaskView, FloorLedgerEntry } from "./fill-task.ts";
 export interface AutoFillSettings {
   readonly mode: "off" | "remind" | "auto";
   readonly interval: number;
-  readonly includeCurrent: boolean;
+  readonly delayFloors: number;
   readonly blockSize: number;
   readonly retries: number;
   readonly retryDelaySeconds: number;
@@ -14,7 +14,7 @@ export interface AutoFillSettings {
 export const DEFAULT_AUTO_FILL_SETTINGS: AutoFillSettings = {
   mode: "off",
   interval: 10,
-  includeCurrent: false,
+  delayFloors: 1,
   blockSize: 20,
   retries: 2,
   retryDelaySeconds: 10,
@@ -57,7 +57,6 @@ export interface AutoFillChatStore {
 export function validateAutoFillSettings(settings: AutoFillSettings): void {
   if (
     !["off", "remind", "auto"].includes(settings.mode) ||
-    typeof settings.includeCurrent !== "boolean" ||
     typeof settings.hideAfterSuccess !== "boolean"
   ) {
     throw new Error("自动填表模式或楼层选项无效");
@@ -67,6 +66,8 @@ export function validateAutoFillSettings(settings: AutoFillSettings): void {
       throw new Error("自动填表间隔、批大小和等待秒数须为正整数，重试次数须为非负整数");
     }
   }
+  if (!Number.isInteger(settings.delayFloors) || settings.delayFloors < 0)
+    throw new Error("延迟填写楼层数须为非负整数");
   if (!Number.isInteger(settings.keepRecentFloors) || settings.keepRecentFloors < 0)
     throw new Error("保留最近楼层数须为非负整数");
 }
@@ -74,13 +75,25 @@ export function validateAutoFillSettings(settings: AutoFillSettings): void {
 export function autoFillRange(
   ledger: readonly FloorLedgerEntry[],
   aiFloor: number,
-  includeCurrent: boolean,
+  delayFloors: number,
 ) {
   const highest = ledger.reduce(
     (max, entry) => (entry.status === "processed" ? Math.max(max, entry.floor) : max),
     -1,
   );
   const from = highest + 1;
-  const to = aiFloor - (includeCurrent ? 0 : 1);
+  const to = aiFloor - delayFloors;
   return from <= to ? { from, to } : undefined;
+}
+
+/** 在持久化读取入口转换旧开关，未覆盖的字段继续继承全局配置。 */
+export function migrateAutoFillSettings(
+  raw: Partial<AutoFillSettings> & { readonly includeCurrent?: boolean } = {},
+): Partial<AutoFillSettings> {
+  const { includeCurrent, ...settings } = raw;
+  if (settings.delayFloors === undefined && includeCurrent !== undefined) {
+    if (typeof includeCurrent !== "boolean") throw new Error("自动填表楼层选项无效");
+    return { ...settings, delayFloors: includeCurrent ? 0 : 1 };
+  }
+  return settings;
 }

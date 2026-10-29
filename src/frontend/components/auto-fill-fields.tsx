@@ -5,6 +5,7 @@ import { Field, FieldLabel, FieldDescription } from "../../ui/primitives/field.t
 import { SwitchField } from "./form-fields.tsx";
 
 export const AUTO_FILL_NUMERIC_FIELDS = [
+  ["delayFloors", "延迟填写楼层数", 0],
   ["interval", "触发间隔（层）", 1],
   ["blockSize", "每批楼层数", 1],
   ["retries", "每次请求额外重试次数", 0],
@@ -58,39 +59,34 @@ export function AutoFillFields(
           <option value="auto">自动填表</option>
         </NativeSelect>
       </Field>
-      {(
-        [
-          ["includeCurrent", "包含刚完成的 AI 楼层", "包含", "不包含"],
-          ["hideAfterSuccess", "成功后自动隐藏楼层", "开启", "关闭"],
-        ] as const
-      ).map(([key, label, enabled, disabled]) =>
-        inherited ? (
-          <Field key={key}>
-            <FieldLabel htmlFor={`${props.idPrefix}-${key}`}>{label}</FieldLabel>
-            <NativeSelect
-              id={`${props.idPrefix}-${key}`}
-              disabled={props.disabled}
-              value={props.value[key] === undefined ? "" : String(props.value[key])}
-              onChange={(event) =>
-                change({
-                  [key]: event.target.value === "" ? undefined : event.target.value === "true",
-                })
-              }
-            >
-              <option value="">跟随全局</option>
-              <option value="true">{enabled}</option>
-              <option value="false">{disabled}</option>
-            </NativeSelect>
-          </Field>
-        ) : (
-          <SwitchField
-            key={key}
-            label={label}
-            checked={props.value[key]!}
+      {inherited ? (
+        <Field>
+          <FieldLabel htmlFor={`${props.idPrefix}-hideAfterSuccess`}>成功后自动隐藏楼层</FieldLabel>
+          <NativeSelect
+            id={`${props.idPrefix}-hideAfterSuccess`}
             disabled={props.disabled}
-            onCheckedChange={(checked) => change({ [key]: checked })}
-          />
-        ),
+            value={
+              props.value.hideAfterSuccess === undefined ? "" : String(props.value.hideAfterSuccess)
+            }
+            onChange={(event) =>
+              change({
+                hideAfterSuccess:
+                  event.target.value === "" ? undefined : event.target.value === "true",
+              })
+            }
+          >
+            <option value="">跟随全局</option>
+            <option value="true">开启</option>
+            <option value="false">关闭</option>
+          </NativeSelect>
+        </Field>
+      ) : (
+        <SwitchField
+          label="成功后自动隐藏楼层"
+          checked={props.value.hideAfterSuccess}
+          disabled={props.disabled}
+          onCheckedChange={(checked) => change({ hideAfterSuccess: checked })}
+        />
       )}
       {AUTO_FILL_NUMERIC_FIELDS.map(([key, label, min]) => (
         <Field key={key}>
@@ -103,7 +99,11 @@ export function AutoFillFields(
             required={!inherited}
             disabled={props.disabled}
             aria-describedby={
-              key === "keepRecentFloors" ? `${props.idPrefix}-hide-description` : undefined
+              key === "keepRecentFloors"
+                ? `${props.idPrefix}-hide-description`
+                : key === "delayFloors"
+                  ? `${props.idPrefix}-delay-description`
+                  : undefined
             }
             placeholder={inherited ? "留空跟随全局" : undefined}
             value={
@@ -122,7 +122,12 @@ export function AutoFillFields(
               })
             }
           />
-          {key === "keepRecentFloors" ? (
+          {key === "delayFloors" ? (
+            <FieldDescription id={`${props.idPrefix}-delay-description`}>
+              以最新完成的 AI 楼层为基准，暂留最近 N 层；0 表示包含该 AI 楼层。用户和 AI
+              消息均计数，达到触发间隔后填写更早的待填楼层。
+            </FieldDescription>
+          ) : key === "keepRecentFloors" ? (
             <FieldDescription id={`${props.idPrefix}-hide-description`}>
               仅在整次自动填表成功并保存后隐藏已填楼层，用户和 AI 消息均计数；保留数可设为
               0。关闭后已隐藏楼层保持原样，可通过 ST 的 /unhide 恢复。

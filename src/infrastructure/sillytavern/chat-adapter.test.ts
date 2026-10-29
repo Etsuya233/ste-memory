@@ -790,7 +790,7 @@ describe("自动填表聊天适配", () => {
     const adapter = new StChatAdapter(() => current);
     expect(adapter.autoFillStore.read()).toEqual({ overrides: {}, pausedReason: null });
     adapter.autoFillStore.write({
-      overrides: { mode: "off", includeCurrent: false },
+      overrides: { mode: "off", delayFloors: 1 },
       pausedReason: "用户取消",
     });
     current = second;
@@ -798,7 +798,7 @@ describe("自动填表聊天适配", () => {
     adapter.autoFillStore.write({ overrides: { blockSize: 4 }, pausedReason: null });
     current = first;
     expect(adapter.autoFillStore.read()).toEqual({
-      overrides: { mode: "off", includeCurrent: false },
+      overrides: { mode: "off", delayFloors: 1 },
       pausedReason: "用户取消",
     });
     expect(first.saveMetadataDebounced).toHaveBeenCalledTimes(1);
@@ -883,5 +883,27 @@ describe("ST 楼层隐藏", () => {
   it("ST 未提供 hide 命令时明确报错", async () => {
     const { adapter } = stableAdapter({ chat: [{ mes: "开场" }] });
     await expect(adapter.hideFloors("char:3:story", 0)).rejects.toThrow("未提供 /hide 命令");
+  });
+});
+
+describe("旧对话自动填表延迟配置", () => {
+  it.each([
+    [{ includeCurrent: true }, { delayFloors: 0 }],
+    [{ includeCurrent: false }, { delayFloors: 1 }],
+    [{ includeCurrent: true, delayFloors: 5 }, { delayFloors: 5 }],
+    [{ delayFloors: 0 }, { delayFloors: 0 }],
+    [{ blockSize: 4 }, { blockSize: 4 }],
+  ])("迁移 %j 并在保存后清除旧开关", (overrides, expected) => {
+    const context = fakeContext({
+      chatMetadata: { steMemoryAutoFill: { overrides, pausedReason: null } },
+    });
+    const adapter = new StChatAdapter(() => context);
+    const state = adapter.autoFillStore.read();
+    expect(state.overrides).toEqual(expected);
+    adapter.autoFillStore.write(state);
+    expect(context.chatMetadata?.steMemoryAutoFill).toEqual({
+      overrides: expected,
+      pausedReason: null,
+    });
   });
 });

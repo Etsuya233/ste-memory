@@ -298,7 +298,7 @@ it("旧设置补齐自动填表默认值，保存后保留显式关闭和 false"
     mergeSettings({ autoFill: { mode: "off", includeCurrent: false, blockSize: 4 } }).autoFill,
   ).toMatchObject({
     mode: "off",
-    includeCurrent: false,
+    delayFloors: 1,
     blockSize: 4,
     retries: 2,
     retryDelaySeconds: 10,
@@ -318,4 +318,25 @@ it("自动隐藏设置兼容旧配置并校验非负保留数", () => {
     expect(() => mergeSettings({ autoFill: { keepRecentFloors } })).toThrow("非负整数");
   }
   expect(() => mergeSettings({ autoFill: { hideAfterSuccess: "true" } })).toThrow("楼层选项无效");
+});
+
+it("延迟层数迁移旧开关，新字段优先并拒绝无效值", () => {
+  expect(mergeSettings({}).autoFill.delayFloors).toBe(1);
+  for (const [includeCurrent, delayFloors] of [
+    [true, 0],
+    [false, 1],
+  ] as const) {
+    const result = mergeSettings({ autoFill: { includeCurrent } }).autoFill;
+    expect(result.delayFloors).toBe(delayFloors);
+    expect(result).not.toHaveProperty("includeCurrent");
+  }
+  expect(
+    mergeSettings({ autoFill: { includeCurrent: false, delayFloors: 0 } }).autoFill.delayFloors,
+  ).toBe(0);
+  expect(
+    mergeSettings({ autoFill: { includeCurrent: true, delayFloors: 5 } }).autoFill.delayFloors,
+  ).toBe(5);
+  for (const delayFloors of [-1, 0.5, "1", null]) {
+    expect(() => mergeSettings({ autoFill: { delayFloors } })).toThrow("非负整数");
+  }
 });
