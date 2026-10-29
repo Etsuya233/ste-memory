@@ -143,6 +143,7 @@ export interface AssistantRun {
  */
 export class QueryChatStore {
   readonly #repository: AssistantSessionRepository;
+  readonly #createId: () => string;
   readonly #listeners = new Set<() => void>();
   readonly #runs = new Map<string, AssistantRun & { transcript: AgentMessage[] }>();
   #sessions: readonly AssistantSession[] = [];
@@ -161,8 +162,12 @@ export class QueryChatStore {
   #unsubscribe: (() => void) | undefined;
   readonly ready: Promise<void>;
 
-  constructor(repository: AssistantSessionRepository) {
+  constructor(
+    repository: AssistantSessionRepository,
+    createId: () => string = () => crypto.randomUUID(),
+  ) {
     this.#repository = repository;
+    this.#createId = createId;
     this.ready = this.#load();
   }
   isExecuting(id: string) {
@@ -248,7 +253,7 @@ export class QueryChatStore {
     const now = new Date().toISOString();
     const session: AssistantSession = {
       ...context,
-      id: crypto.randomUUID(),
+      id: this.#createId(),
       storageRevision: -1,
       title: "新会话",
       createdAt: now,
@@ -296,7 +301,7 @@ export class QueryChatStore {
       timestamp: Date.now(),
     };
     const run = {
-      pendingId: crypto.randomUUID(),
+      pendingId: this.#createId(),
       input,
       proposal: new ProposalState(session.proposal),
       transcript: [...session.transcript, input],
@@ -313,7 +318,7 @@ export class QueryChatStore {
       previewId: undefined,
       messages: [
         ...session.messages,
-        createUserMessage(crypto.randomUUID(), text),
+        createUserMessage(this.#createId(), text),
         createPendingAssistantMessage(run.pendingId),
       ],
       transcript: [...run.transcript],
@@ -356,7 +361,7 @@ export class QueryChatStore {
       transcript: completeInterruptedTools(run.transcript),
       proposal: run.proposal.snapshot(),
       preview,
-      previewId: preview ? crypto.randomUUID() : undefined,
+      previewId: preview ? this.#createId() : undefined,
     });
   }
 
@@ -392,7 +397,7 @@ export class QueryChatStore {
         ...session.messages,
         {
           kind: "assistant",
-          id: crypto.randomUUID(),
+          id: this.#createId(),
           status: "done",
           segments: [{ kind: "text", text }],
           commit,

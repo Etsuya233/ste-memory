@@ -719,7 +719,9 @@ export async function startSteMemory(
   });
 
   // 记忆助手共用持久化会话及查询/提案工具，提交前检查实时对话身份和代次。
-  const assistantStore = new QueryChatStore(new IndexedDbAssistantSessions(db));
+  const assistantStore = new QueryChatStore(new IndexedDbAssistantSessions(db), () =>
+    createId("assistant"),
+  );
   let assistantContextGeneration = 0;
   manager.onStatusChange(() => {
     assistantContextGeneration++;

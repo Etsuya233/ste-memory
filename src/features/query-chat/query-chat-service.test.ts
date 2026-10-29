@@ -145,6 +145,42 @@ function draftScript() {
   });
 }
 describe("记忆助手会话", () => {
+  it("没有 Web Locks 和 randomUUID 的宿主仍能新建、跨轮保存并确认提案", async () => {
+    const h = await createHarness();
+    h.store.dispose();
+    let id = 0;
+    // 生产接线同样注入运行时的 ID 工厂，Store 无需依赖安全上下文 API。
+    const store = new QueryChatStore(
+      new IndexedDbAssistantSessions(h.db),
+      () => `assistant-${++id}`,
+    );
+    await store.ready;
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("宿主没有 randomUUID");
+    });
+    vi.stubGlobal("navigator", {});
+    try {
+      const session = store.create({ chatKey: "chat-a", spaceId: h.spaceId });
+      const service = h.buildService(draftScript(), store);
+      await service.run({ sessionId: session.id, text: "新增云烬" });
+      await service.run({ sessionId: session.id, text: "检查刚才的提案" });
+      expect(await service.confirm(session.id, store.get(session.id).previewId!)).toEqual({
+        status: "committed",
+        created: 1,
+        updated: 0,
+        deleted: 0,
+      });
+      const saved = await h.db.assistantSessions.get(session.id);
+      expect(saved!.proposal.operations).toHaveLength(0);
+      expect(saved!.status).toBe("idle");
+      expect(saved!.messages.at(-1)).toMatchObject({ commit: { status: "committed" } });
+    } finally {
+      store.dispose();
+      uuid.mockRestore();
+      vi.unstubAllGlobals();
+      h.db.close();
+    }
+  });
   it("跨用户轮次保留草稿和工具上下文，刷新后继续检查并确认精确提案", async () => {
     const h = await createHarness({ streamFn: draftScript() });
     const session = createSession(h);

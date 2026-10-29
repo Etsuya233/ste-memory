@@ -42,7 +42,10 @@ export class IndexedDbAssistantSessions implements AssistantSessionRepository {
     wait = false,
     signal?: AbortSignal,
   ): Promise<T> {
-    if (!navigator.locks) throw new Error("当前浏览器未提供会话锁，无法安全执行助手会话");
+    // HTTP 局域网等环境没有 Web Locks，允许单页面使用；页内互斥由 Store 负责。
+    // 该环境不保证跨页面协调，持久化仍保留版本校验，不模拟分布式锁。
+    signal?.throwIfAborted();
+    if (!navigator.locks) return work();
     return navigator.locks.request(
       `ste-memory:${this.db.name}:assistant:${id}`,
       wait ? { signal } : { ifAvailable: true },
