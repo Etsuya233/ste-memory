@@ -33,8 +33,7 @@ const waitDone = (id) =>
     );
   }, id);
 async function openAssistant() {
-  await action("nav-settings").click();
-  await button("记忆助手").click();
+  await action("nav-query").click();
 }
 async function openMenu() {
   await action("assistant-menu").click();
@@ -75,8 +74,21 @@ try {
   await page.goto(url);
   await openAssistant();
   check(
+    "primary navigation exposes Agent and moves vector search into settings",
+    (
+      await page
+        .getByRole("navigation", { name: "工作台页面" })
+        .getByRole("button")
+        .allTextContents()
+    )
+      .map((text) => text.trim())
+      .join(",") === "记录,表格,任务,Agent,设置" &&
+      (await page.locator('[data-action="nav-search"]').count()) === 0 &&
+      (await page.locator('[data-action="page-back"]').count()) === 0,
+  );
+  check(
     "unified assistant without mode tabs",
-    (await page.getByRole("heading", { name: "记忆助手", exact: true }).isVisible()) &&
+    (await page.getByRole("heading", { name: "Agent", exact: true }).isVisible()) &&
       (await page.getByRole("tab", { name: "查询", exact: true }).count()) === 0,
   );
   const a = await newSession();

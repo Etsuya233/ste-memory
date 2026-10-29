@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { BookOpen, TableProperties, ListTodo, Settings, Search } from "lucide-react";
+import { BookOpen, TableProperties, ListTodo, Settings, MessageCircle } from "lucide-react";
 import { Button } from "../ui/primitives/button.tsx";
 import { RecordsPage, type RecordsPageProps } from "./pages/records-page.tsx";
 import type { NavigationGuard } from "./components/confirmation.tsx";
@@ -13,7 +13,8 @@ import {
   type SettingsServices,
   type SettingsSection,
 } from "./pages/settings/SettingsPage.tsx";
-import { SearchPage, type SearchServices } from "./pages/search/search-page.tsx";
+import type { SearchServices } from "./pages/search/search-page.tsx";
+import { QueryPage } from "./pages/query/query-page.tsx";
 import type { CleaningServices } from "./pages/settings/cleaning-rules-page.tsx";
 import type { MacroServices } from "./pages/settings/macros-page.tsx";
 import type { PresetSettingsServices } from "./pages/settings/preset-settings-services.ts";
@@ -35,7 +36,7 @@ export interface WorkbenchProps extends RecordsPageProps {
 }
 
 export function WorkbenchApp(props: WorkbenchProps) {
-  const [page, setPage] = useState<"records" | "tables" | "tasks" | "search" | "settings">(
+  const [page, setPage] = useState<"records" | "tables" | "tasks" | "query" | "settings">(
     "records",
   );
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview");
@@ -88,28 +89,12 @@ export function WorkbenchApp(props: WorkbenchProps) {
             controls={controls}
             registerLeaveGuard={registerLeaveGuard}
           />
-        ) : page === "search" ? (
-          <SearchPage
-            {...props.search}
+        ) : page === "query" ? (
+          <QueryPage
+            {...props.tools.query}
             context={context}
             controls={controls}
-            active={props.active ?? true}
-            connection={props.settings.settings.read().embeddingConnection}
-            onRecord={async (tableId, recordId) => {
-              if (!context) throw new Error("请先打开对话");
-              const epoch = props.search.service.getState().epoch;
-              props.search.assertContext(context);
-              await props.workspace.selectTable(tableId);
-              props.search.assertContext(context);
-              if (epoch !== props.search.service.getState().epoch) return;
-              await props.workspace.openRecord(recordId);
-              if (epoch === props.search.service.getState().epoch) setPage("records");
-            }}
-            onIndex={() => setPage("tables")}
-            onSettings={() => {
-              setSettingsSection("embedding");
-              setPage("settings");
-            }}
+            registerLeaveGuard={registerLeaveGuard}
           />
         ) : page === "tasks" ? (
           <TasksPage
@@ -146,6 +131,18 @@ export function WorkbenchApp(props: WorkbenchProps) {
             presets={props.presets}
             context={context}
             tools={props.tools}
+            search={props.search}
+            onSearchRecord={async (tableId, recordId) => {
+              if (!context) throw new Error("请先打开对话");
+              const epoch = props.search.service.getState().epoch;
+              props.search.assertContext(context);
+              await props.workspace.selectTable(tableId);
+              props.search.assertContext(context);
+              if (epoch !== props.search.service.getState().epoch) return;
+              await props.workspace.openRecord(recordId);
+              if (epoch === props.search.service.getState().epoch) setPage("records");
+            }}
+            onSearchIndex={() => navigate(() => setPage("tables"))}
             active={props.active ?? true}
           />
         )}
@@ -159,7 +156,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
             { id: "records", label: "记录", icon: BookOpen },
             { id: "tables", label: "表格", icon: TableProperties },
             { id: "tasks", label: "任务", icon: ListTodo },
-            { id: "search", label: "检索", icon: Search },
+            { id: "query", label: "Agent", icon: MessageCircle },
             { id: "settings", label: "设置", icon: Settings },
           ] as const
         ).map(({ id, label, icon: Icon }) => (

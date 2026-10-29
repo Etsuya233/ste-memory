@@ -13,7 +13,8 @@ import type { PresetSettingsServices } from "./preset-settings-services.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import { LogsPage } from "../activity/logs-page.tsx";
 import { MaintenancePage, type MaintenanceServices } from "../maintenance/maintenance-page.tsx";
-import { QueryPage, type QueryServices } from "../query/query-page.tsx";
+import type { QueryServices } from "../query/query-page.tsx";
+import { SearchPage, type SearchServices, type SearchPageProps } from "../search/search-page.tsx";
 import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
 import type { LogRepository } from "../../../features/logging/log.ts";
 import type { PluginSettings } from "../../../features/settings/plugin-settings.ts";
@@ -55,7 +56,7 @@ export type SettingsSection =
   | "table-presets"
   | "logs"
   | "maintenance"
-  | "query"
+  | "search"
   | "sql";
 
 export interface SettingsTools {
@@ -75,6 +76,9 @@ type SettingsPageProps = {
   presets: PresetSettingsServices;
   context: RecordsContext | null;
   tools: SettingsTools;
+  search: SearchServices;
+  onSearchRecord: SearchPageProps["onRecord"];
+  onSearchIndex: SearchPageProps["onIndex"];
   active: boolean;
 };
 
@@ -101,7 +105,7 @@ const settingGroups = [
     label: "工具与维护",
     items: [
       ["logs", "运行日志"],
-      ["query", "记忆助手"],
+      ["search", "向量搜索"],
       ["maintenance", "备份与空间维护"],
       ["sql", "SQL 控制台"],
     ],
@@ -146,7 +150,7 @@ function buildEntrySummaries(
     cleaning: `${settings.cleaningRules.length} 条全局规则`,
     macros: `${settings.macros.length} 个全局宏`,
     logs: "运行记录与错误",
-    query: context ? "当前对话" : "打开对话后可用",
+    search: context ? "查询当前记忆空间的向量索引" : "打开对话后可用",
     maintenance: "备份 · 恢复 · 清理",
     sql: context ? "当前记忆空间" : "打开对话后可用",
   };
@@ -178,14 +182,18 @@ export function SettingsPage(
     );
   if (section === "maintenance")
     return <MaintenancePage {...detailProps} services={props.tools.maintenance} />;
-  if (section === "query")
+  if (section === "search")
     return (
-      <QueryPage
-        {...props.tools.query}
+      <SearchPage
+        {...props.search}
         context={props.context}
         controls={props.controls}
         onBack={detailProps.onBack}
-        registerLeaveGuard={props.registerLeaveGuard}
+        active={props.active}
+        connection={props.services.settings.read().embeddingConnection}
+        onRecord={props.onSearchRecord}
+        onIndex={props.onSearchIndex}
+        onSettings={() => setSection("embedding")}
       />
     );
   if (section === "sql")

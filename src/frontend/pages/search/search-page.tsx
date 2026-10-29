@@ -55,6 +55,7 @@ export interface SearchPageProps extends SearchServices {
   onRecord: (tableId: MemoryTableId, recordId: MemoryRecordId) => void | Promise<void>;
   onIndex: () => void;
   onSettings: () => void;
+  onBack?: () => void;
 }
 
 const running = (state: RetrievalState) =>
@@ -91,10 +92,11 @@ export function SearchPage(props: SearchPageProps) {
   return (
     <section className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
-        title="检索记忆"
+        title="向量搜索"
         subtitle={props.context?.title}
         icon={Search}
         {...props.controls}
+        onBack={props.onBack}
         actions={
           <Button variant="ghost" size="icon" aria-label="管理索引" onClick={props.onIndex}>
             <Database />

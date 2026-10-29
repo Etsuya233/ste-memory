@@ -68,7 +68,7 @@ export interface QueryServices {
 export interface QueryPageProps extends QueryServices {
   context: RecordsContext | null;
   controls: PageControls;
-  onBack: () => void;
+  onBack?: () => void;
   registerLeaveGuard?: RegisterLeaveGuard;
 }
 
@@ -275,7 +275,7 @@ export function QueryPage(props: QueryPageProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            "记忆助手"
+            "Agent"
           )
         }
         subtitle={context?.title}

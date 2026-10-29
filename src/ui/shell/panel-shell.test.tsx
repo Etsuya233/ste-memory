@@ -314,11 +314,11 @@ describe("PanelShell（面板骨架投影）", () => {
     expect(html).toContain('data-tab="settings"');
   });
 
-  it("记忆助手 Tab 使用统一会话页面", () => {
+  it("Agent Tab 使用统一会话页面", () => {
     const model = new PanelModel();
     model.setTab("query");
     const html = renderShell(model);
-    expect(html).toContain("记忆助手");
+    expect(html).toContain("Agent");
     expect(html).not.toContain('data-action="query-chat-mode"');
   });
 

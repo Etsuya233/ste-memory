@@ -80,7 +80,7 @@ function TranscriptViewport({
     <MessageScroller.Root className="ste:relative ste:flex ste:min-h-0 ste:flex-1 ste:flex-col ste:overflow-hidden">
       <MessageScroller.Viewport
         ref={viewportRef}
-        aria-label="记忆助手消息"
+        aria-label="Agent 消息"
         data-action="assistant-transcript"
         className="ste:min-h-0 ste:flex-1 ste:overflow-y-auto ste:overscroll-contain ste:data-pending-scroll:invisible"
       >

@@ -19,8 +19,7 @@ async function open(tab) {
   tab.setDefaultTimeout(15000);
   tab.on("pageerror", (error) => errors.push(error.message));
   await tab.goto(url);
-  await action(tab, "nav-settings").click();
-  await tab.getByRole("button", { name: "记忆助手", exact: true }).click();
+  await action(tab, "nav-query").click();
 }
 const done = (tab, id) =>
   tab.waitForFunction((id) => {

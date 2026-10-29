@@ -20,6 +20,10 @@ const check = (name, value) => {
   assert.ok(value, name);
   console.log(`PASS ${name}`);
 };
+async function openSearch() {
+  await action("nav-settings").click();
+  await action("open-settings-search").click();
+}
 const state = () => page.evaluate(() => window.frontendPreview.searchService.getState());
 const search = async (query) => {
   await action("retrieval-query").fill(query);
@@ -33,9 +37,33 @@ const waitStatus = (status) =>
 
 try {
   await page.goto(url);
-  await action("nav-search").click();
+  await action("nav-settings").click();
+  check(
+    "settings tools contain vector search and SQL without a duplicate Agent entry",
+    (await action("open-settings-search").count()) === 1 &&
+      (await action("open-settings-sql").count()) === 1 &&
+      (await page.locator('[data-action="open-settings-query"]').count()) === 0,
+  );
+  await openSearch();
   await page.getByText("先配置向量连接", { exact: true }).waitFor();
   check("missing connection provides setup action", await button("配置向量连接").isVisible());
+  await button("配置向量连接").click();
+  await page.getByRole("heading", { name: "Embedding 连接", exact: true }).waitFor();
+  check(
+    "search opens the existing embedding settings",
+    await page.getByRole("heading", { name: "Embedding 连接", exact: true }).isVisible(),
+  );
+  await action("page-back").click();
+  await action("open-settings-search").click();
+  await page.getByLabel("管理索引", { exact: true }).click();
+  check(
+    "search index action opens the shared tables page",
+    (await action("nav-tables").getAttribute("aria-current")) === "page",
+  );
+  await openSearch();
+  await action("page-back").click();
+  check("vector search back returns to settings", await action("open-settings-search").isVisible());
+  await action("open-settings-search").click();
   await page.evaluate(() => window.frontendPreview.seedSearch());
   await page.getByText("先配置向量连接", { exact: true }).waitFor({ state: "hidden" });
   await search("雨后书店的人物");
@@ -62,7 +90,7 @@ try {
     "result opens shared record detail and evidence",
     await page.getByRole("region", { name: "记录详情", exact: true }).isVisible(),
   );
-  await action("nav-search").click();
+  await openSearch();
   check(
     "returning to search restores last submitted query",
     (await action("retrieval-query").inputValue()) === "雨后书店的人物",
@@ -131,7 +159,7 @@ try {
   await action("nav-tables").click();
   await waitStatus("cancelled");
   check("leaving search cancels outstanding query", true);
-  await action("nav-search").click();
+  await openSearch();
   await search("切对话中的搜索");
   await waitStatus("embedding");
   const chats = page.getByRole("combobox", { name: "预览对话", exact: true });

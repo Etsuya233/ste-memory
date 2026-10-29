@@ -55,8 +55,7 @@ const bottomGap = () =>
 
 try {
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825/");
-  await action("nav-settings").click();
-  await page.getByRole("button", { name: "记忆助手", exact: true }).click();
+  await action("nav-query").click();
   // This first-use empty state has its own new-conversation action.
   await action("assistant-new").click();
   const id = await page.evaluate(() => window.frontendPreview.queryStore.getSessions()[0].id);
@@ -192,8 +191,7 @@ try {
     Math.abs((await viewport().evaluate((node) => node.scrollTop)) - restoredTop) <= 2,
   );
   await action("nav-records").click();
-  await action("nav-settings").click();
-  await page.getByRole("button", { name: "记忆助手", exact: true }).click();
+  await action("nav-query").click();
   await selectSession("滚动验收 A");
   check(
     "leaving and reopening the assistant restores reading position",
