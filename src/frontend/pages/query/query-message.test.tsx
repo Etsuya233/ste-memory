@@ -53,7 +53,7 @@ describe("query answer projection", () => {
     });
     expect(thinking).toContain('aria-expanded="true"');
     expect(thinking).toContain("正在思考…");
-    expect(thinking).toContain("先检查记忆");
+    expect(thinking).not.toContain("先检查记忆");
     expect(thinking).not.toContain("复制回答");
 
     const tool = render({

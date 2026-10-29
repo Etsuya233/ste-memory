@@ -113,6 +113,7 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 [usePanelWindow](../../src/frontend/host/use-panel-window.ts) 管理。页头空白处可拖动，四边与四角可缩放，
 按钮和表单操作不触发拖动；窗口受视口边界限制。双击页头还原，聚焦页头后方向键移动、Shift 加方向键缩放、Home 还原。
 尺寸与位置在关闭重开后保留，浏览器刷新后重置。拖动通过 CSS 变量更新几何属性，避免让整个页面随 pointermove 重绘。
+样式表提供与默认窗口规则一致的初始桌面几何，确保手机宽度首次跨过桌面断点时，在 resize 处理前已有有效尺寸，避免内部滚动区被瞬间撑开而丢失位置。
 移动端全屏显示并隐藏缩放手柄；页面不得再实现自己的窗口拖动或缩放系统。
 
 内容区保留安全区间距，动效遵守 `prefers-reduced-motion`。页面内的弹窗与导航不能遮挡必要的取消或保存入口。
@@ -265,8 +266,9 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 会话切换、新建和管理入口收在页头标题的会话菜单里；管理视图沿用同一页头，返回箭头回到对话。
 消息使用 Base UI/Luma 的 Message 与 Bubble 组合，思考和工具调用使用 Trace，输入区使用 Input Group 组合 Prompt Input。
 工具参数与结果使用 Code Block 展示，结果保留原始 JSON，两者都可以复制。
-这些组合直接消费现有 QueryChatMessage/QueryChatSegment；正文继续使用原有 Markdown 渲染，流式跟随与会话滚动恢复沿用当前页面逻辑。
-思考、工具与中间旁白合并为一个过程组，正文区只显示最终回答；过程组在运行中展开、终态收起，用户主动切换后保留其选择，刷新与会话切换后回到收起状态。组内片段保持真实发生顺序，失败步骤在收起摘要中计数。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
+这些组合直接消费现有 QueryChatMessage/QueryChatSegment；正文继续使用原有 Markdown 渲染。
+消息区由 `pages/query/query-transcript.tsx` 接入 `@shadcn/react/message-scroller`，统一管理轮次锚定、流式跟随和回到最新；禁止在同一容器上再按消息增量写入 scrollTop。用户上翻后暂停跟随，主动回到最新后恢复。会话切换和离开页面时按工作区与会话缓存可见消息身份、相对位置及是否位于最新，恢复通过组件的定位接口完成；会话列表继续使用 usePageScroll。
+思考、工具与中间旁白合并为一个过程组，正文区只显示最终回答；过程组在运行中展开、终态收起，用户主动切换后保留其选择，刷新与会话切换后回到收起状态。组内步骤详情默认收起，避免每次思考和工具状态切换都改变大段内容的高度，用户可以主动展开；片段保持真实发生顺序，失败步骤在收起摘要中计数。工具摘要只展示已有结构化结果，原始参数、结果和错误保留在可展开详情中。
 提案以 Item 组合展示操作类型和字段修改前后值，只有会话当前有效提案提供确认入口，确认继续绑定 previewId 并沿用服务校验。
 `features/query-chat/session-store.ts` 管理按真实 chatKey、spaceId 和会话 ID 隔离的历史、输入、模型上下文及提案。
 运行时创建唯一 store，IndexedDB 的 assistantSessions 保存会话；前端不得另建 store，关闭页面或切换会话不终止回答。
@@ -276,3 +278,4 @@ pnpm exec prettier --check --ignore-path .gitignore docs/ui/frontend-development
 会话仅在本地浏览器保存，聊天文件镜像、空间备份及其他设备不携带会话。
 
 会话跨标签页使用 Web Locks 和持久化版本校验协调，原页面仍持锁时不得恢复其运行状态。会话保存错误与待写入状态由工作台的全局 beforeunload 监听读取，页面不单独承担刷新保护。并发与刷新保护验收命令为 `verify-assistant-concurrency.mjs`。
+消息滚动验收使用 `verify-assistant-scroll.mjs`，覆盖思考与工具切换、上翻阅读、恢复会话、回到最新、终态折叠及视口尺寸变化。

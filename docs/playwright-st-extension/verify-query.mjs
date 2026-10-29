@@ -248,7 +248,9 @@ try {
   const reloadedProcess = page
     .locator('[data-query-message="assistant"]')
     .first()
-    .locator('[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]');
+    .locator(
+      '[data-query-process] > [data-slot="trace-collapsible"] > [data-slot="trace-collapsible-trigger"]',
+    );
   check(
     "reload keeps completed process collapsed",
     (await reloadedProcess.getAttribute("aria-expanded")) === "false",
@@ -309,7 +311,12 @@ try {
       (await streamingProcess.innerText()).includes("正在"),
   );
   check(
-    "running trace opens automatically",
+    "running trace keeps details collapsed by default",
+    (await streamingTrigger.getAttribute("aria-expanded")) === "false",
+  );
+  await streamingTrigger.click();
+  check(
+    "running trace can be expanded manually",
     (await streamingTrigger.getAttribute("aria-expanded")) === "true",
   );
   await streamingTrigger.click();

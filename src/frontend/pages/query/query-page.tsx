@@ -1,13 +1,5 @@
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import {
-  ArrowDown,
   ChevronDown,
   FileCheck,
   MessageCircle,
@@ -19,6 +11,8 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
+import { MessageScroller } from "@shadcn/react/message-scroller";
+import { QueryTranscript } from "./query-transcript.tsx";
 import type { QueryChatService } from "../../../features/query-chat/query-chat-service.ts";
 import type { QueryChatStore } from "../../../features/query-chat/session-store.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
@@ -121,11 +115,10 @@ export function QueryPage(props: QueryPageProps) {
   } | null>(null);
   const noticeTimeout = useRef<number | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
-  const [showLatest, setShowLatest] = useState(false);
-  const following = useRef(true);
   const currentKey = useRef(key);
   currentKey.current = key;
-  const scroll = usePageScroll(store, key, !!context && !list);
+  const scroll = usePageScroll(store, `list:${scope}`, !!context && list);
+  const chatting = !!context && loaded && !list && !!session;
   const executing = useSyncExternalStore(
     subscribe,
     () => !!session && store.isExecuting(session.id),
@@ -141,16 +134,6 @@ export function QueryPage(props: QueryPageProps) {
     setEditing(null);
     setList(false);
   }, [scope]);
-  useLayoutEffect(() => {
-    const element = scroll.ref.current;
-    if (!element) return;
-    following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 80;
-    setShowLatest(!following.current);
-  }, [key, list, scroll.ref]);
-  useLayoutEffect(() => {
-    if (following.current && scroll.ref.current && !list)
-      scroll.ref.current.scrollTop = scroll.ref.current.scrollHeight;
-  }, [session?.messages, list, scroll.ref]);
   async function perform(action: () => void | Promise<unknown>) {
     const captured = key;
     try {
@@ -181,7 +164,6 @@ export function QueryPage(props: QueryPageProps) {
     const created = store.create(context);
     if (text) store.setDraft(created.id, text);
     selectSession(created.id);
-    following.current = true;
   }
   function pickStarter(prompt: string) {
     if (!session) {
@@ -206,8 +188,6 @@ export function QueryPage(props: QueryPageProps) {
   function send() {
     if (!context || !session || busy) return;
     props.assertContext(context);
-    following.current = true;
-    setShowLatest(false);
     setNotice(null);
     return props.service.run({ sessionId: session.id, text: session.draft.trim() });
   }
@@ -326,168 +306,47 @@ export function QueryPage(props: QueryPageProps) {
         </StatusNotice>
       ) : null}
       <div className="ste:relative ste:flex ste:min-h-0 ste:flex-1 ste:flex-col">
-        <PageContent
-          key={list ? `list:${scope}` : key}
-          ref={scroll.ref}
-          onScroll={(event) => {
-            scroll.onScroll(event);
-            const element = event.currentTarget;
-            following.current =
-              element.scrollHeight - element.clientHeight - element.scrollTop <= 80;
-            setShowLatest(!following.current);
-          }}
-        >
-          {notice?.key === key ? (
-            <div className="ste:mx-auto ste:w-full ste:max-w-3xl ste:pb-4">
-              <StatusNotice variant={notice.variant}>{notice.text}</StatusNotice>
-            </div>
-          ) : null}
-          {!context ? (
-            <PageEmpty title="请先打开对话" description="绑定记忆空间后，可以查询或修改记忆。" />
-          ) : !loaded ? (
-            <PageEmpty
-              title={storageError ? "会话加载失败" : "正在加载会话…"}
-              description="会话保存在当前浏览器。"
-            />
-          ) : list ? (
-            <section
-              aria-label="会话列表"
-              className="ste:mx-auto ste:flex ste:w-full ste:max-w-3xl ste:flex-col ste:gap-2"
-            >
-              {available.map((item) => {
-                const active = item.id === session?.id;
-                return (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "ste:flex ste:min-w-0 ste:items-start ste:gap-1 ste:rounded-xl ste:border ste:border-border ste:p-1",
-                      active && "ste:bg-muted",
-                    )}
-                  >
-                    {editing === item.id ? (
-                      <form
-                        className="ste:flex ste:w-full ste:items-end ste:gap-2 ste:p-1"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void perform(() => {
-                            store.rename(item.id, name);
-                            setEditing(null);
-                          });
-                        }}
-                      >
-                        <Field className="ste:min-w-0 ste:flex-1">
-                          <FieldLabel htmlFor="assistant-session-name">会话名称</FieldLabel>
-                          <Input
-                            id="assistant-session-name"
-                            value={name}
-                            onChange={(event) => setName(event.target.value)}
-                            autoFocus
-                          />
-                        </Field>
-                        <Button type="submit" size="sm">
-                          保存
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditing(null)}
-                        >
-                          取消
-                        </Button>
-                      </form>
-                    ) : (
-                      <>
-                        <Button
-                          variant="ghost"
-                          aria-current={active ? "true" : undefined}
-                          data-action="assistant-session"
-                          className="ste:h-auto ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-0.5 ste:px-2 ste:py-1.5 ste:text-left"
-                          onClick={() => selectSession(item.id)}
-                        >
-                          <span className="ste:line-clamp-2 ste:whitespace-normal ste:break-words ste:text-sm ste:font-medium">
-                            {item.title}
-                          </span>
-                          <span className="ste:text-xs ste:font-normal ste:text-muted-foreground">
-                            {sessionMeta(item)}
-                          </span>
-                        </Button>
-                        <div className="ste:flex ste:shrink-0 ste:items-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`重命名 ${item.title}`}
-                            onClick={() => {
-                              setEditing(item.id);
-                              setName(item.title);
-                            }}
-                          >
-                            <Pencil />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`删除 ${item.title}`}
-                            disabled={item.status === "committing"}
-                            onClick={() => setDeleting(item.id)}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-              {available.length ? null : (
-                <PageEmpty title="还没有会话" description="新建会话后，可以查询记忆或准备修改。">
-                  <Button onClick={() => void perform(() => create())} data-action="assistant-new">
-                    <Plus data-icon="inline-start" />
-                    新建会话
-                  </Button>
-                </PageEmpty>
-              )}
-            </section>
-          ) : !session ? (
-            <PageEmpty
-              icon={MessagesSquare}
-              title="想了解或修改哪段记忆？"
-              description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
-            >
-              <Button onClick={() => void perform(() => create())} data-action="assistant-new">
-                <Plus data-icon="inline-start" />
-                新建会话
-              </Button>
-              <StarterPrompts onPick={pickStarter} />
-            </PageEmpty>
-          ) : (
-            <section
-              aria-label="记忆助手消息"
-              className="ste:mx-auto ste:flex ste:w-full ste:min-w-0 ste:max-w-3xl ste:flex-col ste:gap-6"
-            >
-              {session.messages.length ? (
-                session.messages.map((message) => (
+        {chatting ? (
+          <QueryTranscript key={key} owner={store} sessionId={key}>
+            {notice?.key === key ? (
+              <MessageScroller.Item messageId="notice">
+                <StatusNotice variant={notice.variant}>{notice.text}</StatusNotice>
+              </MessageScroller.Item>
+            ) : null}
+            {session.messages.length ? (
+              session.messages.map((message) => (
+                <MessageScroller.Item
+                  key={message.id}
+                  messageId={message.id}
+                  data-query-turn=""
+                  scrollAnchor={message.kind === "user"}
+                >
                   <QueryMessage
-                    key={message.id}
                     message={message}
                     onRefresh={() => void perform(refresh)}
                     refreshing={refreshing}
                   />
-                ))
-              ) : (
+                </MessageScroller.Item>
+              ))
+            ) : (
+              <MessageScroller.Item messageId="empty">
                 <PageEmpty
                   title="想了解或修改哪段记忆？"
                   description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
                 >
                   <StarterPrompts onPick={pickStarter} />
                 </PageEmpty>
-              )}
-              {session.commitUncertain ? (
+              </MessageScroller.Item>
+            )}
+            {session.commitUncertain ? (
+              <MessageScroller.Item messageId="commit-uncertain">
                 <StatusNotice variant="destructive">
                   上次提交被中断，结果待核对。请先查询记录，放弃旧提案后再准备新的修改。
                 </StatusNotice>
-              ) : null}
-              {session.proposal.operations.length ? (
+              </MessageScroller.Item>
+            ) : null}
+            {session.proposal.operations.length ? (
+              <MessageScroller.Item messageId="proposal">
                 <section aria-label="待提交修改" className="ste:min-w-0">
                   <Item variant="outline" size="sm">
                     <ItemHeader>
@@ -575,26 +434,144 @@ export function QueryPage(props: QueryPageProps) {
                     </ItemFooter>
                   </Item>
                 </section>
-              ) : null}
-            </section>
-          )}
-        </PageContent>
-        {showLatest && !list && session ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="ste:absolute ste:bottom-3 ste:left-1/2 ste:z-10 ste:-translate-x-1/2 ste:shadow-md"
-            onClick={() => {
-              following.current = true;
-              scroll.ref.current!.scrollTop = scroll.ref.current!.scrollHeight;
-              setShowLatest(false);
-            }}
+              </MessageScroller.Item>
+            ) : null}
+          </QueryTranscript>
+        ) : (
+          <PageContent
+            key={list ? `list:${scope}` : key}
+            ref={scroll.ref}
+            onScroll={scroll.onScroll}
           >
-            <ArrowDown data-icon="inline-start" />
-            最新消息
-          </Button>
-        ) : null}
+            {notice?.key === key ? (
+              <div className="ste:mx-auto ste:w-full ste:max-w-3xl ste:pb-4">
+                <StatusNotice variant={notice.variant}>{notice.text}</StatusNotice>
+              </div>
+            ) : null}
+            {!context ? (
+              <PageEmpty title="请先打开对话" description="绑定记忆空间后，可以查询或修改记忆。" />
+            ) : !loaded ? (
+              <PageEmpty
+                title={storageError ? "会话加载失败" : "正在加载会话…"}
+                description="会话保存在当前浏览器。"
+              />
+            ) : list ? (
+              <section
+                aria-label="会话列表"
+                className="ste:mx-auto ste:flex ste:w-full ste:max-w-3xl ste:flex-col ste:gap-2"
+              >
+                {available.map((item) => {
+                  const active = item.id === session?.id;
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "ste:flex ste:min-w-0 ste:items-start ste:gap-1 ste:rounded-xl ste:border ste:border-border ste:p-1",
+                        active && "ste:bg-muted",
+                      )}
+                    >
+                      {editing === item.id ? (
+                        <form
+                          className="ste:flex ste:w-full ste:items-end ste:gap-2 ste:p-1"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void perform(() => {
+                              store.rename(item.id, name);
+                              setEditing(null);
+                            });
+                          }}
+                        >
+                          <Field className="ste:min-w-0 ste:flex-1">
+                            <FieldLabel htmlFor="assistant-session-name">会话名称</FieldLabel>
+                            <Input
+                              id="assistant-session-name"
+                              value={name}
+                              onChange={(event) => setName(event.target.value)}
+                              autoFocus
+                            />
+                          </Field>
+                          <Button type="submit" size="sm">
+                            保存
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditing(null)}
+                          >
+                            取消
+                          </Button>
+                        </form>
+                      ) : (
+                        <>
+                          <Button
+                            variant="ghost"
+                            aria-current={active ? "true" : undefined}
+                            data-action="assistant-session"
+                            className="ste:h-auto ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-0.5 ste:px-2 ste:py-1.5 ste:text-left"
+                            onClick={() => selectSession(item.id)}
+                          >
+                            <span className="ste:line-clamp-2 ste:whitespace-normal ste:break-words ste:text-sm ste:font-medium">
+                              {item.title}
+                            </span>
+                            <span className="ste:text-xs ste:font-normal ste:text-muted-foreground">
+                              {sessionMeta(item)}
+                            </span>
+                          </Button>
+                          <div className="ste:flex ste:shrink-0 ste:items-center">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`重命名 ${item.title}`}
+                              onClick={() => {
+                                setEditing(item.id);
+                                setName(item.title);
+                              }}
+                            >
+                              <Pencil />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`删除 ${item.title}`}
+                              disabled={item.status === "committing"}
+                              onClick={() => setDeleting(item.id)}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+                {available.length ? null : (
+                  <PageEmpty title="还没有会话" description="新建会话后，可以查询记忆或准备修改。">
+                    <Button
+                      onClick={() => void perform(() => create())}
+                      data-action="assistant-new"
+                    >
+                      <Plus data-icon="inline-start" />
+                      新建会话
+                    </Button>
+                  </PageEmpty>
+                )}
+              </section>
+            ) : !session ? (
+              <PageEmpty
+                icon={MessagesSquare}
+                title="想了解或修改哪段记忆？"
+                description="助手可以查询表格、回答问题并准备修改，确认提交后才会写入记忆。"
+              >
+                <Button onClick={() => void perform(() => create())} data-action="assistant-new">
+                  <Plus data-icon="inline-start" />
+                  新建会话
+                </Button>
+                <StarterPrompts onPick={pickStarter} />
+              </PageEmpty>
+            ) : null}
+          </PageContent>
+        )}
       </div>
       {context && session && !list ? (
         <PageFooter className="ste:block">

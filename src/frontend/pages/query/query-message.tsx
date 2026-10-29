@@ -265,7 +265,7 @@ const TimelineSegment = memo(function TimelineSegment({
   active: boolean;
   onCopyError: (message: string) => void;
 }) {
-  const [open, setOpen] = useState<boolean | null>(null);
+  const [open, setOpen] = useState(false);
   if (segment.kind === "text")
     return (
       <div
@@ -284,7 +284,7 @@ const TimelineSegment = memo(function TimelineSegment({
   const summary = segment.kind === "tool" ? toolSummary(segment) : undefined;
   return (
     <Trace data-query-segment={segment.kind}>
-      <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
+      <TraceCollapsible open={open} onOpenChange={setOpen}>
         <TraceCollapsibleTrigger>
           <TraceLine status={failed ? "error" : running ? "running" : undefined}>
             <TraceIcon>

@@ -14,6 +14,12 @@
 
 /* The application surface is a native top-layer popover. */
 #ste-memory-app {
+  /* Keep desktop geometry valid while a mobile-first window crosses the breakpoint,
+     before the resize handler paints its pixel bounds. */
+  --stm-window-width: min(960px, calc(100vw - 48px));
+  --stm-window-height: calc(100dvh - 48px);
+  --stm-window-x: calc((100vw - min(960px, calc(100vw - 48px))) / 2);
+  --stm-window-y: 24px;
   margin: 0;
   padding: 0;
   border: 0;

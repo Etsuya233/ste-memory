@@ -75,6 +75,7 @@ node verify-presets.mjs
 node verify-preset-structure.mjs
 node verify-query.mjs
 node verify-assistant-concurrency.mjs
+node verify-assistant-scroll.mjs
 node verify-sql.mjs
 node verify-logs.mjs
 node verify-maintenance.mjs
