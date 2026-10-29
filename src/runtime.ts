@@ -7,6 +7,10 @@ import type {
 } from "./features/sql-console/sql-console.ts";
 import { createSemanticQuerySession } from "./features/semantic-query/semantic-query-session.ts";
 import { createSemanticQueryExecutor } from "./features/semantic-query/semantic-query-service.ts";
+import {
+  isAgentPresetSelectable,
+  setActiveAgentPreset,
+} from "./features/agent-presets/preset-model.ts";
 import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
 import {
   buildPresetUpdate,
@@ -165,6 +169,11 @@ export interface SteMemoryRuntime {
   /** 问答面板（ticket 20 / ADR 0009）：查询/填写双模式 run 编排；LLM 端口开启
    * 思考流（includeReasoning，ticket 19），提交直通 repository + 空间切换守卫 */
   readonly queryChat: QueryChatService;
+  /** 对话级 Agent 预设覆盖：undefined = 跟随全局活动预设 */
+  readonly agentPresetOverride: {
+    readonly read: () => string | undefined;
+    readonly write: (presetId: string | undefined) => void;
+  };
   /** 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写 + 聊天 Scope 宏 */
   readonly cleaning: {
     readonly readSelection: () => string | undefined;
@@ -396,7 +405,14 @@ export async function startSteMemory(
   const createQueryChatLlm = (): LlmPort => createLlmFor("queryChat", true);
   // 填表任务的编排上下文工厂（ADR 0024 组装迁移）：纯数据装配在所属功能
   const createPromptContext = createFillTaskPromptContext({
-    readPresetSettings: () => settings.read().agentPresets,
+    // 对话覆盖优先：悬空/未知预设回退全局活动预设。
+    readPresetSettings: () => {
+      const presets = settings.read().agentPresets;
+      const override = adapter.agentPresetStore.read();
+      return override !== undefined && isAgentPresetSelectable(presets, override)
+        ? setActiveAgentPreset(presets, override)
+        : presets;
+    },
     readSnapshot: () => adapter.getPromptSnapshot(),
     getStContext: () => getContext() as StContext,
     logWarn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
@@ -1347,6 +1363,11 @@ export async function startSteMemory(
     createQueryChatLlm,
     queryChat,
     version: options.version ?? "",
+    // 对话级 Agent 预设覆盖：undefined = 跟随全局活动预设
+    agentPresetOverride: {
+      read: () => adapter.agentPresetStore.read(),
+      write: (presetId) => adapter.agentPresetStore.write(presetId),
+    },
     // 清洗规则（ticket 22 / ADR 0011）：当前对话规则选择读写
     cleaning: {
       readSelection: () => adapter.cleaningRuleStore.read(),

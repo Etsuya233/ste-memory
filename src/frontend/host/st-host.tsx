@@ -69,6 +69,12 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const tasks = new TasksWorkspace({
     tasks: runtime.tasks,
     vector: runtime.vector,
+    chatConfig: {
+      readCleaningSelection: () => runtime.cleaning.readSelection(),
+      writeCleaningSelection: (ruleId) => runtime.cleaning.writeSelection(ruleId),
+      readAgentPresetOverride: () => runtime.agentPresetOverride.read(),
+      writeAgentPresetOverride: (presetId) => runtime.agentPresetOverride.write(presetId),
+    },
     messageCount: () => runtime.adapter.chatMessageCount(),
     assertContext,
   });

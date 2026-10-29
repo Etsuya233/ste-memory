@@ -38,7 +38,7 @@ export function createToolsFixture(options: {
   let logs: LogEntry[] = Array.from({ length: 38 }, (_, i) => ({
     id: i + 1,
     type: i % 2 ? "fill" : "vector",
-    key: `preview-task-${i % 4}`,
+    key: i % 5 === 0 ? "space-a-running-fill" : `preview-task-${i % 4}`,
     level: (["info", "warn", "error"] as const)[i % 3]!,
     text: `预览日志 ${i + 1}\n任务执行诊断`,
     createdAt: "2026-10-28T09:00:00Z",

@@ -9,12 +9,19 @@ import type {
 import { validateFloorRange, validateBlockSize } from "../../../ui/tasks/task-panel-model.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 
+export interface TasksChatConfigServices {
+  readCleaningSelection: () => string | undefined;
+  writeCleaningSelection: (ruleId: string | undefined) => void;
+  readAgentPresetOverride: () => string | undefined;
+  writeAgentPresetOverride: (presetId: string | undefined) => void;
+}
 export interface TasksServices {
   tasks: Pick<
     FillTaskService,
     "pendingTasks" | "recentTasks" | "ledgerStatuses" | "submit" | "submitInit" | "cancel" | "retry"
   >;
   vector: Pick<VectorIndexService, "listTasks" | "cancel" | "cancelMany" | "retry">;
+  chatConfig: TasksChatConfigServices;
   messageCount: () => number;
   assertContext: (context: RecordsContext) => void;
 }
@@ -31,6 +38,12 @@ export interface TasksSnapshot {
   source: VectorTaskSource | "";
   selected: readonly string[];
   draft: string;
+  /** 当前对话的清洗规则选择；undefined = 不使用清洗规则。 */
+  cleaningSelection?: string;
+  /** 当前对话的 Agent 预设覆盖；undefined = 跟随全局活动预设。 */
+  agentPresetOverride?: string;
+  configError: string | null;
+  configNotice: string | null;
   busy: boolean;
   loading: boolean;
   error: string | null;
@@ -50,6 +63,8 @@ const empty = (): TasksSnapshot => ({
   source: "",
   selected: [],
   draft: "",
+  configError: null,
+  configNotice: null,
   busy: false,
   loading: false,
   error: null,
@@ -84,18 +99,30 @@ export class TasksWorkspace {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((listener) => listener());
   }
+  private readChatConfig() {
+    return {
+      cleaningSelection: this.services.chatConfig.readCleaningSelection(),
+      agentPresetOverride: this.services.chatConfig.readAgentPresetOverride(),
+    };
+  }
   setContext(context: RecordsContext | null) {
     if (
       context?.chatKey === this.state.context?.chatKey &&
       context?.spaceId === this.state.context?.spaceId
     ) {
-      this.publish({ context });
+      this.publish({
+        context,
+        ...(context ? this.readChatConfig() : {}),
+        configError: null,
+        configNotice: null,
+      });
       return;
     }
     this.generation++;
     this.state = {
       ...empty(),
       context,
+      ...(context ? this.readChatConfig() : {}),
       busy: context
         ? this.pendingOperations.has(JSON.stringify([context.chatKey, context.spaceId]))
         : false,
@@ -106,6 +133,34 @@ export class TasksWorkspace {
     this.publish({});
     if (this.active && !document.hidden) void this.refresh();
   }
+  private saveChatConfig(write: () => void, notice: string) {
+    const context = this.state.context;
+    if (!context) return;
+    try {
+      this.services.assertContext(context);
+      write();
+      this.publish({
+        ...this.readChatConfig(),
+        configNotice: notice,
+        configError: null,
+      });
+    } catch (error) {
+      this.publish({
+        configNotice: null,
+        configError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  updateCleaningSelection = (ruleId: string | undefined) =>
+    this.saveChatConfig(
+      () => this.services.chatConfig.writeCleaningSelection(ruleId),
+      "当前对话的清洗规则已保存",
+    );
+  updateAgentPresetOverride = (presetId: string | undefined) =>
+    this.saveChatConfig(
+      () => this.services.chatConfig.writeAgentPresetOverride(presetId),
+      "当前对话的 Agent 预设已保存",
+    );
   setDraft = (draft: string) => {
     const context = this.state.context;
     if (!context) throw new Error("请先打开对话");
@@ -191,6 +246,7 @@ export class TasksWorkspace {
             vectors: vectors.items,
             vectorTotal: vectors.total,
             selected: this.state.selected.filter((id) => vectors.items.some((t) => t.id === id)),
+            ...this.readChatConfig(),
             loading: false,
             loadError: null,
           });
@@ -218,20 +274,26 @@ export class TasksWorkspace {
         ? [...new Set([...this.state.selected, id])]
         : this.state.selected.filter((value) => value !== id),
     });
-  async perform(action: (context: RecordsContext) => Promise<unknown>, notice: string) {
+  async perform(
+    action: (context: RecordsContext) => Promise<unknown>,
+    notice: string,
+    options: { surfaceError?: boolean } = {},
+  ): Promise<{ ok: true; error: null } | { ok: false; error: string }> {
     const context = this.state.context;
-    if (!context) return;
+    if (!context) return { ok: false, error: "请先打开对话" };
     const key = JSON.stringify([context.chatKey, context.spaceId]);
-    if (this.pendingOperations.has(key)) return;
+    if (this.pendingOperations.has(key)) return { ok: false, error: "任务正在处理中，请稍候" };
     this.pendingOperations.add(key);
     this.publish({ busy: true, error: null, notice: null });
     let result: Partial<TasksSnapshot>;
+    let failure: string | null = null;
     try {
       this.services.assertContext(context);
       await action(context);
       result = { notice };
     } catch (error) {
-      result = { error: error instanceof Error ? error.message : String(error) };
+      failure = error instanceof Error ? error.message : String(error);
+      result = { error: options.surfaceError === false ? null : failure };
     } finally {
       this.pendingOperations.delete(key);
     }
@@ -242,20 +304,26 @@ export class TasksWorkspace {
       this.publish({ ...result, busy: false });
       if (this.active && !document.hidden) void this.refresh();
     }
+    return failure === null ? { ok: true, error: null } : { ok: false, error: failure };
   }
   submitFloors = (from: string, to: string, block: string) =>
-    this.perform(async (context) => {
-      const range = validateFloorRange(from, to, this.services.messageCount());
-      const size = validateBlockSize(block);
-      if (range.kind === "error") throw new Error(range.message);
-      if (size.kind === "error") throw new Error(size.message);
-      await this.services.tasks.submit({
-        memorySpaceId: context.spaceId,
-        from: range.from,
-        to: range.to,
-        blockSize: size.value,
-      });
-    }, "填表任务已加入队列");
+    this.perform(
+      async (context) => {
+        const range = validateFloorRange(from, to, this.services.messageCount());
+        const size = validateBlockSize(block);
+        if (range.kind === "error") throw new Error(range.message);
+        if (size.kind === "error") throw new Error(size.message);
+        await this.services.tasks.submit({
+          memorySpaceId: context.spaceId,
+          from: range.from,
+          to: range.to,
+          blockSize: size.value,
+        });
+      },
+      "填表任务已加入队列",
+      // 提交流程在确认弹窗内展示失败原因，避免弹窗关闭后才发现错误。
+      { surfaceError: false },
+    );
   submitInit = () => {
     const text = this.state.draft;
     return this.perform(async (context) => {

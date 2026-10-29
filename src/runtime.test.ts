@@ -21,6 +21,7 @@ import {
   type SettingsStore,
 } from "./features/settings/plugin-settings.ts";
 import {
+  CHAT_METADATA_AGENT_PRESET_KEY,
   CHAT_METADATA_BINDING_KEY,
   CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_MIRROR_KEY,
@@ -104,6 +105,27 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       ruleId: "new",
     });
     expect(runtime.cleaning.readSelection()).toBe("new");
+  });
+
+  it("对话级 Agent 预设覆盖读写 chatMetadata，清除后回到跟随全局", async () => {
+    const db = createTestDatabase();
+    const { context, chatMetadata, handlers } = fakeStContext();
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    expect(runtime.agentPresetOverride.read()).toBeUndefined();
+    runtime.agentPresetOverride.write("preset-1");
+    expect(chatMetadata[CHAT_METADATA_AGENT_PRESET_KEY]).toEqual({
+      version: 1,
+      presetId: "preset-1",
+    });
+    expect(runtime.agentPresetOverride.read()).toBe("preset-1");
+    context.chatId = "other";
+    context.chatMetadata = {};
+    await handlers.get("chat_id_changed")?.();
+    expect(runtime.agentPresetOverride.read()).toBeUndefined();
+    context.chatMetadata = { [CHAT_METADATA_AGENT_PRESET_KEY]: { version: 1, presetId: "p2" } };
+    expect(runtime.agentPresetOverride.read()).toBe("p2");
+    runtime.agentPresetOverride.write(undefined);
+    expect(context.chatMetadata[CHAT_METADATA_AGENT_PRESET_KEY]).toBeUndefined();
   });
 
   it("首次打开对话：建空间 + 写绑定 + 系统表就位；再次打开不重复建", async () => {

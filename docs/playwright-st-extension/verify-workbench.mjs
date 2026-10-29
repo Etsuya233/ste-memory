@@ -42,7 +42,7 @@ try {
       .textContent()
       .then((text) => text.includes("雨后")),
   );
-  const failed = page.locator('[data-slot="card"]').filter({ hasText: "预览模拟：连接临时失败" });
+  const failed = page.locator('[data-fill-task="space-a-failed-fill"]');
   await failed.getByRole("button", { name: "重试", exact: true }).click();
   await page.waitForFunction(
     () =>
@@ -51,11 +51,7 @@ try {
         .fillTasks.find((task) => task.runId === "space-a-failed-fill").status === "queued",
   );
   check("failed fill retries in current space", true);
-  await page
-    .locator('[data-slot="card"]')
-    .filter({ hasText: "4–7" })
-    .getByRole("button", { name: "取消任务", exact: true })
-    .click();
+  await failed.getByRole("button", { name: "取消任务", exact: true }).click();
   await page.waitForFunction(
     () =>
       window.frontendPreview
@@ -63,16 +59,31 @@ try {
         .fillTasks.find((task) => task.runId === "space-a-failed-fill").status === "interrupted",
   );
   check("fill cancellation records terminal state", true);
+  const beforeInvalid = (await snapshot()).fillTasks.length;
   await page.getByLabel("起始楼层", { exact: true }).fill("0");
   await page.getByLabel("结束楼层", { exact: true }).fill("99");
-  await button("提交填表任务").click();
+  await button("开始填表").click();
   await page
     .getByText(/结束楼层超出范围/)
     .first()
     .waitFor();
-  check("invalid floor range creates no task", (await snapshot()).fillTasks.length === 2);
+  check("invalid floor range creates no task", (await snapshot()).fillTasks.length === beforeInvalid);
+  check(
+    "invalid floor range does not open confirmation",
+    (await page.getByRole("alertdialog").count()) === 0,
+  );
   await page.getByLabel("结束楼层", { exact: true }).fill("3");
-  await button("提交填表任务").click();
+  await button("开始填表").click();
+  await page.getByRole("heading", { name: "开始填表任务？", exact: true }).waitFor();
+  check(
+    "confirmation shows floor range and batch plan",
+    (await page.getByText("0–3（4 层）", { exact: true }).count()) === 1 &&
+      (await page.getByText("每批 20 层，共 1 批", { exact: true }).count()) === 1,
+  );
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "开始填表", exact: true })
+    .click();
   await page.waitForFunction(() =>
     window.frontendPreview
       .tasksSnapshot()
@@ -81,15 +92,48 @@ try {
       ),
   );
   check("floor submission uses requested range", true);
-  const init = page.getByLabel("初始化文本", { exact: true });
+  check(
+    "running task exposes progress semantics",
+    (await page.getByRole("progressbar", { name: "当前填表任务进度" }).count()) === 1 &&
+      (await page.getByRole("progressbar", { name: "当前填表任务进度" }).getAttribute("aria-valuenow")) ===
+        "1",
+  );
+  await page.getByLabel("清洗规则", { exact: true }).selectOption("preview-cleaning");
+  await page.getByLabel("Agent 预设", { exact: true }).selectOption("preview-chat-preset");
+  await page.waitForFunction(() =>
+    window.frontendPreview
+      .agentPresetSnapshot()
+      .some(([key, value]) => key.includes("bookshop") && value === "preview-chat-preset"),
+  );
+  check("chat cleaning and preset overrides save immediately", true);
+  async function openInit() {
+    const input = page.getByLabel("初始化文本", { exact: true });
+    if (!(await input.isVisible())) await page.getByText("初始化填表", { exact: true }).click();
+    await input.waitFor();
+    return input;
+  }
+  let init = await openInit();
   await init.fill("对话A初始化草稿");
   await action("nav-settings").click();
   await button("保留编辑").click();
   check("dirty task navigation retains draft", (await init.inputValue()) === "对话A初始化草稿");
   await switchChat("b");
+  init = await openInit();
   check("new chat has independent init draft", (await init.inputValue()) === "");
+  check(
+    "new chat uses no cleaning or preset override",
+    (await page.getByLabel("清洗规则", { exact: true }).inputValue()) === "" &&
+      (await page.getByLabel("Agent 预设", { exact: true }).inputValue()) === "",
+  );
   await switchChat("a");
+  init = await openInit();
   check("returning restores init draft", (await init.inputValue()) === "对话A初始化草稿");
+  check(
+    "returning restores chat config",
+    (await page.getByLabel("清洗规则", { exact: true }).inputValue()) === "preview-cleaning" &&
+      (await page.getByLabel("Agent 预设", { exact: true }).inputValue()) ===
+        "preview-chat-preset",
+  );
   await button("提交初始化任务").click();
   await page.waitForFunction(() =>
     window.frontendPreview
@@ -196,6 +240,12 @@ try {
   check(
     "task log action opens the exact task key",
     (await page.getByLabel("任务 Key", { exact: true }).inputValue()) === taskKey,
+  );
+  await action("page-back").click();
+  check(
+    "task log returns to tasks",
+    (await page.getByRole("tab", { name: "填表任务", exact: true }).isVisible()) &&
+      (await page.getByTestId("chat-title").textContent())?.includes("雨后"),
   );
   check("no browser exceptions", errors.length === 0);
 } finally {

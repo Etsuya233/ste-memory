@@ -76,7 +76,14 @@ type SettingsPageProps = {
 };
 
 export function SettingsPage(
-  props: SettingsPageProps & { initialSection?: SettingsSection; initialLogKey?: string },
+  props: SettingsPageProps & {
+    initialSection?: SettingsSection;
+    initialLogKey?: string;
+    logTitle?: string;
+    logContext?: string;
+    logBackLabel?: string;
+    onLogBack?: () => void;
+  },
 ) {
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "overview");
   const detailProps = { ...props, onBack: () => setSection("overview") };
@@ -85,7 +92,10 @@ export function SettingsPage(
       <LogsPage
         logs={props.tools.logs}
         controls={props.controls}
-        onBack={detailProps.onBack}
+        onBack={props.onLogBack ?? detailProps.onBack}
+        title={props.logTitle}
+        backLabel={props.logBackLabel}
+        context={props.logContext}
         initialKey={props.initialLogKey}
       />
     );

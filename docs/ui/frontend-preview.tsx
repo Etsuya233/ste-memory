@@ -22,7 +22,10 @@ import type {
 } from "../../src/features/vector-index/types.ts";
 import { VectorIndexService } from "../../src/features/vector-index/vector-index-service.ts";
 import { VectorRetrievalService } from "../../src/features/vector-retrieval/vector-retrieval-service.ts";
-import { DEFAULT_SETTINGS } from "../../src/features/settings/plugin-settings.ts";
+import {
+  DEFAULT_SETTINGS,
+  type PluginSettings,
+} from "../../src/features/settings/plugin-settings.ts";
 import { SettingsService } from "../../src/features/settings/settings-service.ts";
 import type { SettingsServices } from "../../src/frontend/pages/settings/SettingsPage.tsx";
 import type { MacroServices } from "../../src/frontend/pages/settings/macros-page.tsx";
@@ -466,7 +469,49 @@ const tablesWorkspace = new TablesWorkspace({
   },
   retryMemorySave: async () => {},
 });
-let settingsValue = structuredClone(DEFAULT_SETTINGS);
+let settingsValue: PluginSettings = {
+  ...structuredClone(DEFAULT_SETTINGS),
+  cleaningRules: [
+    {
+      id: "preview-cleaning",
+      name: "去思考标签",
+      enabled: true,
+      keepTags: [],
+      excludeTags: [{ pre: "<think>", post: "</think>" }],
+    },
+  ],
+  agentPresets: {
+    presets: [
+      {
+        id: "preview-preset",
+        name: "预览预设",
+        messages: [
+          {
+            id: "preview-preset-message",
+            name: "系统提示",
+            role: "system" as const,
+            content: "预览用 Agent 预设",
+            enabled: true,
+          },
+        ],
+      },
+      {
+        id: "preview-chat-preset",
+        name: "对话预设",
+        messages: [
+          {
+            id: "preview-chat-preset-message",
+            name: "系统提示",
+            role: "system" as const,
+            content: "仅当前对话使用",
+            enabled: true,
+          },
+        ],
+      },
+    ],
+    activePresetId: "preview-preset",
+  },
+};
 const chatMacros = new Map<string, readonly MemoryMacro[]>();
 const cleaningSelections = new Map<string, string>();
 let notifySettingsChanged: () => Promise<void> = async () => {};
@@ -777,23 +822,41 @@ async function seedSearch() {
   }
   await notifySettingsChanged();
 }
-const fillTasks: FillTaskView[] = Object.values(contexts).map((context) => ({
-  runId: `${context.spaceId}-failed-fill`,
-  memorySpaceId: context.spaceId,
-  from: 4,
-  to: 7,
-  blockSize: 4,
-  chatId: context.chatKey,
-  status: "failed",
-  errorMessage: "预览模拟：连接临时失败",
-  createdAt: date,
-  updatedAt: date,
-  kind: "floor",
-  initText: null,
-  processedCount: 0,
-  totalCount: 4,
-  blocksQueue: true,
-}));
+const fillTasks: FillTaskView[] = Object.values(contexts).flatMap((context): FillTaskView[] => [
+  {
+    runId: `${context.spaceId}-failed-fill`,
+    memorySpaceId: context.spaceId,
+    from: 4,
+    to: 7,
+    blockSize: 4,
+    chatId: context.chatKey,
+    status: "failed",
+    errorMessage: "预览模拟：连接临时失败",
+    createdAt: date,
+    updatedAt: date,
+    kind: "floor",
+    initText: null,
+    processedCount: 0,
+    totalCount: 4,
+    blocksQueue: true,
+  },
+  {
+    runId: `${context.spaceId}-running-fill`,
+    memorySpaceId: context.spaceId,
+    from: 8,
+    to: 11,
+    blockSize: 2,
+    chatId: context.chatKey,
+    status: "running",
+    errorMessage: null,
+    createdAt: date,
+    updatedAt: date,
+    kind: "floor",
+    initText: null,
+    processedCount: 1,
+    totalCount: 4,
+  },
+]);
 const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
   (["queued", "failed"] as const).map((status, index) => ({
     id: `${context.spaceId}-vector-${status}`,
@@ -819,6 +882,7 @@ const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
     endedAt: null,
   })),
 );
+const agentPresetOverrides = new Map<string, string>();
 const taskServices: TasksServices = {
   tasks: {
     pendingTasks: async (spaceId) =>
@@ -839,7 +903,10 @@ const taskServices: TasksServices = {
     ledgerStatuses: async (_spaceId, from, to) =>
       Array.from({ length: to - from + 1 }, (_, i) => ({
         floor: from + i,
-        status: from + i < 4 ? ("processed" as const) : ("untracked" as const),
+        status:
+          from + i < 4 || from + i === 8
+            ? ("processed" as const)
+            : ("untracked" as const),
       })),
     submit: async (input) => {
       const task: FillTaskView = {
@@ -943,6 +1010,18 @@ const taskServices: TasksServices = {
       return { created: 1, reused: 0, promoted: 0, skipped: 0 };
     },
   },
+  chatConfig: {
+    readCleaningSelection: () => cleaningSelections.get(contexts[current].chatKey),
+    writeCleaningSelection: (id) => {
+      if (id) cleaningSelections.set(contexts[current].chatKey, id);
+      else cleaningSelections.delete(contexts[current].chatKey);
+    },
+    readAgentPresetOverride: () => agentPresetOverrides.get(contexts[current].chatKey),
+    writeAgentPresetOverride: (id) => {
+      if (id) agentPresetOverrides.set(contexts[current].chatKey, id);
+      else agentPresetOverrides.delete(contexts[current].chatKey);
+    },
+  },
   messageCount: () => 12,
   assertContext,
 };
@@ -1039,6 +1118,7 @@ function Preview() {
       tablesWorkspace,
       tasksWorkspace,
       autoFillSnapshot: () => structuredClone([...autoFillOverrides]),
+      agentPresetSnapshot: () => structuredClone([...agentPresetOverrides]),
       searchService,
       seedSearch,
       delaySearch: (ms: number) => {

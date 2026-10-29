@@ -42,6 +42,7 @@ try {
       (await entries().first().getAttribute("data-log-key")) === original,
   );
   await button("上一页").click();
+  await button("筛选").click();
   const level = await entries().first().getAttribute("data-log-level");
   const type = await entries().first().getAttribute("data-log-type");
   const key = await entries().first().getAttribute("data-log-key");

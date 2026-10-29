@@ -7,6 +7,9 @@ import {
   AGENT_PRESET_EXPORT_FORMAT,
   AGENT_PRESET_EXPORT_VERSION,
   BUILTIN_AGENT_PRESET_ID,
+  formatAgentPresetSelection,
+  isAgentPresetSelectable,
+  readAgentPresetSelection,
   containsDigestReference,
   containsMsgReference,
   containsWorldbookReference,
@@ -391,5 +394,20 @@ describe("导入导出（备份信封模式）", () => {
     const ids = second.presets.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length); // 无重复 id
     expect(ids[2]).not.toBe(ids[1]);
+  });
+
+  it("对话预设选择：格式化后读取相同 id，损坏载荷回退未选择", () => {
+    expect(readAgentPresetSelection(formatAgentPresetSelection("p1"))).toBe("p1");
+    expect(readAgentPresetSelection({ version: 1, presetId: "" })).toBeUndefined();
+    expect(readAgentPresetSelection({ version: 2, presetId: "p1" })).toBeUndefined();
+    expect(readAgentPresetSelection("p1")).toBeUndefined();
+    expect(readAgentPresetSelection(null)).toBeUndefined();
+  });
+
+  it("isAgentPresetSelectable：系统默认始终可选，未知 id 不可选", () => {
+    const s = settings({ presets: [preset("p1", "一")] });
+    expect(isAgentPresetSelectable(s, BUILTIN_AGENT_PRESET_ID)).toBe(true);
+    expect(isAgentPresetSelectable(s, "p1")).toBe(true);
+    expect(isAgentPresetSelectable(s, "ghost")).toBe(false);
   });
 });

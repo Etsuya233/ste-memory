@@ -18,6 +18,11 @@ import type {
   AgentPromptNames,
   AgentPromptSnapshot,
 } from "../../features/agent-presets/preset-composer.ts";
+import {
+  formatAgentPresetSelection,
+  readAgentPresetSelection,
+  type AgentPresetSelectionStore,
+} from "../../features/agent-presets/preset-model.ts";
 import type { ChatMirrorFile } from "../../features/chat-mirror/index.ts";
 import type { ChatFileTarget, ChatSnapshotFileStore } from "../../features/chat-mirror/index.ts";
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
@@ -182,6 +187,8 @@ export const CHAT_METADATA_MIRROR_KEY = "steMemoryMirror";
 export const CHAT_METADATA_CLEANING_RULE_KEY = "steMemoryCleaningList";
 /** 聊天 Scope 宏在 chatMetadata 里的键（双 Scope 宏系统，Phase 1）：独立键，随对话文件走。 */
 export const CHAT_METADATA_CHAT_SCOPE_MACROS_KEY = "steMemoryChatMacros";
+/** 对话级 Agent 预设覆盖在 chatMetadata 里的键：独立键，随对话文件走。 */
+export const CHAT_METADATA_AGENT_PRESET_KEY = "steMemoryAgentPreset";
 
 /** ST 事件桥：切换空间上下文，并在提示词构建前等待本次宏计算。 */
 export interface StEventBridge {
@@ -457,6 +464,30 @@ export class StChatAdapter {
           delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
         } else {
           metadata[CHAT_METADATA_CLEANING_RULE_KEY] = formatCleaningRuleSelection(ruleId);
+        }
+        context.saveMetadataDebounced?.();
+      },
+    };
+  }
+
+  /**
+   * 对话级 Agent 预设覆盖读写端口：undefined = 跟随全局活动预设。
+   * 写入随对话文件持久化；指向已删除预设的悬空 id 保留，由解析侧回退全局。
+   */
+  get agentPresetStore(): AgentPresetSelectionStore {
+    return {
+      read: () => {
+        const metadata = this.#getContext().chatMetadata;
+        return readAgentPresetSelection(metadata?.[CHAT_METADATA_AGENT_PRESET_KEY]);
+      },
+      write: (presetId) => {
+        const context = this.#getContext();
+        const metadata = context.chatMetadata;
+        if (!metadata) return;
+        if (presetId === undefined) {
+          delete metadata[CHAT_METADATA_AGENT_PRESET_KEY];
+        } else {
+          metadata[CHAT_METADATA_AGENT_PRESET_KEY] = formatAgentPresetSelection(presetId);
         }
         context.saveMetadataDebounced?.();
       },

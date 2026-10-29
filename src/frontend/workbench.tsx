@@ -40,6 +40,8 @@ export function WorkbenchApp(props: WorkbenchProps) {
   );
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview");
   const [logKey, setLogKey] = useState("");
+  const [logSummary, setLogSummary] = useState("");
+  const [logReturn, setLogReturn] = useState<"settings" | "tasks">("settings");
   const { context } = useSyncExternalStore(props.workspace.subscribe, props.workspace.getSnapshot);
   const leaveGuard = useRef<NavigationGuard | null>(null);
   const registerLeaveGuard = useCallback((guard: NavigationGuard | null) => {
@@ -111,9 +113,12 @@ export function WorkbenchApp(props: WorkbenchProps) {
           <TasksPage
             workspace={props.tasks}
             autoFill={props.autoFill}
-            onOpenLog={(key) =>
+            settings={props.settings.settings}
+            onOpenLog={(key, summary) =>
               navigate(() => {
                 setLogKey(key);
+                setLogSummary(summary ?? "");
+                setLogReturn("tasks");
                 setSettingsSection("logs");
                 setPage("settings");
               })
@@ -130,6 +135,10 @@ export function WorkbenchApp(props: WorkbenchProps) {
             mirror={props.mirror}
             initialSection={settingsSection}
             initialLogKey={logKey}
+            logTitle={logReturn === "tasks" ? "任务日志" : undefined}
+            logContext={logSummary}
+            logBackLabel={logReturn === "tasks" ? "返回任务" : undefined}
+            onLogBack={logReturn === "tasks" ? () => setPage("tasks") : undefined}
             cleaning={props.cleaning}
             macros={props.macros}
             presets={props.presets}
@@ -164,6 +173,8 @@ export function WorkbenchApp(props: WorkbenchProps) {
                   if (id === "settings") {
                     setSettingsSection("overview");
                     setLogKey("");
+                    setLogSummary("");
+                    setLogReturn("settings");
                   }
                   setPage(id);
                 });

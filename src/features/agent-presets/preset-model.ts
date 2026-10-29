@@ -14,6 +14,9 @@
 /** 内置「系统默认」预设的固定 id（虚拟预设，不在 presets 数组中） */
 export const BUILTIN_AGENT_PRESET_ID = "systemDefault";
 
+/** 对话级 Agent 预设覆盖在 chatMetadata 中的载荷版本。 */
+export const AGENT_PRESET_SELECTION_VERSION = 1;
+
 /** 预设导入导出信封（沿用备份文件信封先例：未知版本明确报错，绝不半导入） */
 export const AGENT_PRESET_EXPORT_FORMAT = "ste-memory-agent-preset";
 /** v2 = 消息编排（messages + role）；v1 = 文本片段（fragments，解析时迁移为 system 消息） */
@@ -54,6 +57,39 @@ export const DEFAULT_AGENT_PRESET_SETTINGS: AgentPresetSettings = {
   presets: [],
   activePresetId: BUILTIN_AGENT_PRESET_ID,
 };
+
+/** 对话级预设选择：undefined = 跟随全局；systemDefault = 显式使用系统默认。 */
+export interface AgentPresetSelectionStore {
+  read(): string | undefined;
+  write(presetId: string | undefined): void;
+}
+
+export interface AgentPresetSelection {
+  readonly version: typeof AGENT_PRESET_SELECTION_VERSION;
+  readonly presetId: string;
+}
+
+export function formatAgentPresetSelection(presetId: string): AgentPresetSelection {
+  return { version: AGENT_PRESET_SELECTION_VERSION, presetId };
+}
+
+export function readAgentPresetSelection(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const selection = raw as { version?: unknown; presetId?: unknown };
+  return selection.version === AGENT_PRESET_SELECTION_VERSION &&
+    typeof selection.presetId === "string" &&
+    selection.presetId !== ""
+    ? selection.presetId
+    : undefined;
+}
+
+/** 预设 id 可解析：系统默认始终有效，其余必须存在于当前预设库。 */
+export function isAgentPresetSelectable(settings: AgentPresetSettings, presetId: string): boolean {
+  return (
+    presetId === BUILTIN_AGENT_PRESET_ID ||
+    settings.presets.some((preset) => preset.id === presetId)
+  );
+}
 
 /** 预设导出文件信封（单预设） */
 export interface AgentPresetExportFile {

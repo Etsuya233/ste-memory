@@ -1,26 +1,62 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { ListTodo, Settings2 } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { ChevronDown, ListTodo } from "lucide-react";
+import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
+import type { SettingsService } from "../../../features/settings/settings-service.ts";
+import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../../ui/primitives/tabs.tsx";
-import { Card } from "../../../ui/primitives/card.tsx";
 import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
 import { Checkbox } from "../../../ui/primitives/checkbox.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
 import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
-import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
-import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";
-import { usePageLeave, type RegisterLeaveGuard } from "../../components/confirmation.tsx";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemMedia,
+} from "../../../ui/primitives/item.tsx";
+import { Input } from "../../../ui/primitives/input.tsx";
+import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/primitives/tabs.tsx";
+import { Textarea } from "../../../ui/primitives/textarea.tsx";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../../ui/primitives/accordion.tsx";
+import { cn } from "../../../ui/primitives/utils.ts";
 import {
   buildCoverageViewModel,
   taskRangeText,
   taskStatusViewModel,
+  unprocessedRanges,
 } from "../../../ui/tasks/task-panel-model.ts";
-import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
-import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
-import type { TasksWorkspace, TasksSnapshot } from "./tasks-workspace.ts";
-import { AutoFillOverrides, type AutoFillServices } from "./auto-fill-overrides.tsx";
+import { PageContent, PageHeader, type PageControls } from "../../components/page-layout.tsx";
+import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";
+import {
+  ConfirmAction,
+  usePageLeave,
+  type RegisterLeaveGuard,
+} from "../../components/confirmation.tsx";
+import type { FillSubmitSummary } from "./task-submit-summary.ts";
+import {
+  agentPresetLabel,
+  buildFillSubmitSummary,
+  cleaningRuleLabel,
+  isCleaningRuleDisabled,
+} from "./task-submit-summary.ts";
+import { CoverageBar, TaskProgressBar } from "./task-progress.tsx";
+import { TaskChatConfig } from "./task-chat-config.tsx";
+import type { AutoFillServices } from "./auto-fill-overrides.tsx";
+import { AutoFillOverrides } from "./auto-fill-overrides.tsx";
+import type { TasksSnapshot, TasksWorkspace } from "./tasks-workspace.ts";
 
 const vectorLabels: Record<VectorTaskStatus, string> = {
   queued: "等待中",
@@ -31,15 +67,18 @@ const vectorLabels: Record<VectorTaskStatus, string> = {
   cancelled: "已取消",
   interrupted: "已中断",
 };
-const card = "ste:space-y-3 ste:rounded-xl ste:border ste:border-border ste:p-4";
+const autoFillModeLabels = { off: "关闭", remind: "仅提醒", auto: "自动填表" } as const;
+
 interface TasksPageProps {
   workspace: TasksWorkspace;
   autoFill: AutoFillServices;
-  onOpenLog: (key: string) => void;
+  settings: Pick<SettingsService, "read">;
+  onOpenLog: (key: string, summary?: string) => void;
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
   active?: boolean;
 }
+
 export function TasksPage(props: TasksPageProps) {
   const [overrides, setOverrides] = useState(false);
   return overrides ? (
@@ -51,6 +90,8 @@ export function TasksPage(props: TasksPageProps) {
 
 function TasksMain({
   workspace,
+  autoFill,
+  settings,
   controls,
   registerLeaveGuard,
   active = true,
@@ -59,9 +100,29 @@ function TasksMain({
 }: TasksPageProps & { onAutoFill: () => void }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const scope = JSON.stringify([state.context?.chatKey, state.context?.spaceId]);
-  const [range, setRange] = useState({ from: "", to: "", block: "20" });
+  const defaultBlock = String(autoFill.settings().blockSize);
+  const [range, setRange] = useState({ from: "", to: "", block: defaultBlock });
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [pendingSubmit, setPendingSubmit] = useState<FillSubmitSummary | null>(null);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const prefilledScope = useRef<string | null>(null);
   useEffect(() => (active ? workspace.startPolling() : undefined), [workspace, active]);
-  useEffect(() => setRange({ from: "", to: "", block: "20" }), [scope]);
+  useEffect(() => {
+    setRange({ from: "", to: "", block: String(autoFill.settings().blockSize) });
+    setRangeError(null);
+    setPendingSubmit(null);
+    setShowAllHistory(false);
+  }, [autoFill, scope]);
+  useEffect(() => {
+    if (!state.context || state.loading || prefilledScope.current === scope) return;
+    prefilledScope.current = scope;
+    const first = unprocessedRanges(state.ledger, state.messageCount)[0];
+    setRange({
+      from: first ? String(first.from) : "",
+      to: first ? String(first.to) : "",
+      block: String(autoFill.settings().blockSize),
+    });
+  }, [autoFill, scope, state.context, state.ledger, state.loading, state.messageCount]);
   const { requestLeave, confirmation } = usePageLeave({
     dirty: !!state.draft,
     busy: state.busy,
@@ -69,17 +130,70 @@ function TasksMain({
     discard: workspace.discard,
     register: registerLeaveGuard,
   });
+  const currentSettings = settings.read();
   const coverage = buildCoverageViewModel({
     ledger: state.ledger,
     chatLength: state.messageCount,
     activeRange: undefined,
-    plannedRanges: state.pending.filter((task) => task.kind === "floor"),
+    plannedRanges: state.pending.filter(
+      (task) => task.kind === "floor" && (task.status === "queued" || task.status === "running"),
+    ),
   });
-  const running = state.pending.filter((task) => task.status === "running");
+  const firstUnprocessed = unprocessedRanges(state.ledger, state.messageCount)[0];
+  const running = state.pending.find((task) => task.status === "running");
   const queued = state.pending.filter((task) => task.status !== "running");
   const history = state.history.filter(
     (task) => !state.pending.some((pending) => pending.runId === task.runId),
   );
+  const visibleHistory = showAllHistory ? history : history.slice(0, 5);
+  const cleaningLabel = cleaningRuleLabel(currentSettings.cleaningRules, state.cleaningSelection);
+  const presetLabel = agentPresetLabel(currentSettings.agentPresets, state.agentPresetOverride);
+  const cleaningDisabled = isCleaningRuleDisabled(
+    currentSettings.cleaningRules,
+    state.cleaningSelection,
+  );
+  const autoFillMode = autoFillModeLabels[autoFill.settings().mode];
+  const autoFillOverridden = Object.keys(autoFill.read().overrides).length > 0;
+  const autoFillSummary = `${autoFillOverridden ? "本对话覆盖" : "跟随全局"} · ${autoFillMode} · 每 ${autoFill.settings().interval} 层`;
+
+  function requestFill(event: FormEvent) {
+    event.preventDefault();
+    const result = buildFillSubmitSummary({
+      fromText: range.from,
+      toText: range.to,
+      blockText: range.block,
+      chatLength: state.messageCount,
+      ledger: state.ledger,
+      pending: state.pending,
+    });
+    if (result.kind === "error") {
+      setRangeError(result.message);
+      return;
+    }
+    setRangeError(null);
+    setPendingSubmit(result.summary);
+  }
+  async function confirmFill() {
+    if (!pendingSubmit) return;
+    const outcome = await workspace.submitFloors(
+      String(pendingSubmit.from),
+      String(pendingSubmit.to),
+      String(pendingSubmit.blockSize),
+    );
+    if (!outcome.ok) throw new Error(outcome.error);
+    setPendingSubmit(null);
+  }
+  function useFirstUnprocessed() {
+    if (!firstUnprocessed) return;
+    setRange({
+      from: String(firstUnprocessed.from),
+      to: String(firstUnprocessed.to),
+      block: range.block || defaultBlock,
+    });
+    setRangeError(null);
+    document.getElementById("task-from")?.focus();
+  }
+
   return (
     <section className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
@@ -88,17 +202,6 @@ function TasksMain({
         icon={ListTodo}
         busy={state.busy}
         {...controls}
-        actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="配置对话自动填表"
-            disabled={!state.context || state.busy}
-            onClick={() => requestLeave(onAutoFill)}
-          >
-            <Settings2 />
-          </Button>
-        }
       />
       <PageContent className="ste:space-y-4">
         {!state.context ? (
@@ -124,194 +227,528 @@ function TasksMain({
             )}
             {state.notice && <StatusNotice>{state.notice}</StatusNotice>}
             <TabsContent value="fill" className="ste:space-y-4">
-              <Card size="sm" className="ste:px-4">
-                <h2 className="ste:text-sm ste:font-semibold">当前对话覆盖</h2>
-                <p className="ste:text-sm ste:text-muted-foreground">
-                  共 {coverage.totalCount} 层 · 已处理 {coverage.processedCount} · 任务中{" "}
-                  {coverage.runningCount} · 出错 {coverage.errorCount} · 未计划{" "}
-                  {coverage.untrackedCount}
-                </p>
-                <p className="ste:text-xs ste:text-muted-foreground">
-                  楼层从 0 开始；填写范围包含起止楼层。已启动的任务交由后台服务执行。
-                </p>
-              </Card>
-              <form
-                className={card}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void workspace.submitFloors(range.from, range.to, range.block);
-                }}
-              >
-                <h2 className="ste:text-sm ste:font-semibold">按楼层填表</h2>
-                <div className="ste:grid ste:grid-cols-2 ste:gap-3">
-                  <Field>
-                    <FieldLabel htmlFor="task-from">起始楼层</FieldLabel>
-                    <Input
-                      id="task-from"
-                      inputMode="numeric"
-                      placeholder="0"
-                      value={range.from}
-                      onChange={(event) => setRange({ ...range, from: event.target.value })}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="task-to">结束楼层</FieldLabel>
-                    <Input
-                      id="task-to"
-                      inputMode="numeric"
-                      placeholder={String(Math.max(0, state.messageCount - 1))}
-                      value={range.to}
-                      onChange={(event) => setRange({ ...range, to: event.target.value })}
-                    />
-                  </Field>
-                </div>
-                <Field>
-                  <FieldLabel htmlFor="task-block">每批楼层数</FieldLabel>
-                  <Input
-                    id="task-block"
-                    inputMode="numeric"
-                    value={range.block}
-                    onChange={(event) => setRange({ ...range, block: event.target.value })}
-                  />
-                </Field>
-                <Button type="submit" disabled={state.busy || state.messageCount === 0}>
-                  提交填表任务
-                </Button>
-              </form>
-              <form
-                className={card}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void workspace.submitInit();
-                }}
-              >
-                <Field>
-                  <FieldLabel htmlFor="task-init">初始化文本</FieldLabel>
-                  <Textarea
-                    id="task-init"
-                    className="ste:min-h-32"
-                    placeholder="输入需要写入记忆的背景、设定或摘要"
-                    value={state.draft}
-                    disabled={state.busy}
-                    onChange={(event) => workspace.setDraft(event.target.value)}
-                  />
-                </Field>
-                <p className="ste:text-xs ste:text-muted-foreground">
-                  草稿按对话保留在本次工作台中，提交后清空。
-                </p>
-                <Button type="submit" disabled={state.busy || !state.draft.trim()}>
-                  提交初始化任务
-                </Button>
-              </form>
-              <FillList
-                title="当前任务"
-                items={running}
-                workspace={workspace}
+              <ProgressSection
+                coverage={coverage}
+                running={running}
+                last={history[0]}
+                firstUnprocessed={firstUnprocessed}
                 busy={state.busy}
+                onUseRange={useFirstUnprocessed}
                 onOpenLog={onOpenLog}
+                onCancel={(task) => void workspace.fillAction(task.runId, "cancel")}
+                onRetry={(task) => void workspace.fillAction(task.runId, "retry")}
               />
+              <TaskSurface
+                title="手动填表"
+                meta={
+                  <span className="ste:text-xs ste:text-muted-foreground">
+                    共 {state.messageCount} 层
+                  </span>
+                }
+              >
+                <form className="ste:flex ste:flex-col ste:gap-3" onSubmit={requestFill}>
+                  <div className="ste:grid ste:grid-cols-2 ste:gap-3 ste:sm:grid-cols-3">
+                    <Field>
+                      <FieldLabel htmlFor="task-from">起始楼层</FieldLabel>
+                      <Input
+                        id="task-from"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={range.from}
+                        onChange={(event) => {
+                          setRange({ ...range, from: event.target.value });
+                          setRangeError(null);
+                        }}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="task-to">结束楼层</FieldLabel>
+                      <Input
+                        id="task-to"
+                        inputMode="numeric"
+                        placeholder={String(Math.max(0, state.messageCount - 1))}
+                        value={range.to}
+                        onChange={(event) => {
+                          setRange({ ...range, to: event.target.value });
+                          setRangeError(null);
+                        }}
+                      />
+                    </Field>
+                    <Field className="ste:col-span-2 ste:sm:col-span-1">
+                      <FieldLabel htmlFor="task-block">每批楼层数</FieldLabel>
+                      <Input
+                        id="task-block"
+                        inputMode="numeric"
+                        value={range.block}
+                        onChange={(event) => {
+                          setRange({ ...range, block: event.target.value });
+                          setRangeError(null);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  {rangeError && (
+                    <p role="alert" className="ste:text-xs ste:text-destructive">
+                      {rangeError}
+                    </p>
+                  )}
+                  <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2">
+                    <p className="ste:text-xs ste:text-muted-foreground">
+                      楼层从 0 开始，范围包含起止楼层。
+                    </p>
+                    <Button type="submit" disabled={state.busy || state.messageCount === 0}>
+                      开始填表
+                    </Button>
+                  </div>
+                </form>
+              </TaskSurface>
+              <TaskSurface
+                title="本对话配置"
+                meta={<span className="ste:text-xs ste:text-muted-foreground">随对话保存</span>}
+              >
+                <TaskChatConfig
+                  rules={currentSettings.cleaningRules}
+                  presetSettings={currentSettings.agentPresets}
+                  cleaningSelection={state.cleaningSelection}
+                  presetOverride={state.agentPresetOverride}
+                  autoFillSummary={autoFillSummary}
+                  disabled={state.busy}
+                  notice={state.configNotice}
+                  error={state.configError}
+                  onCleaningChange={(ruleId) => workspace.updateCleaningSelection(ruleId)}
+                  onPresetChange={(presetId) => workspace.updateAgentPresetOverride(presetId)}
+                  onOpenAutoFill={() => requestLeave(onAutoFill)}
+                />
+              </TaskSurface>
               <FillList
-                title="排队任务"
+                title="排队与阻塞"
                 items={queued}
-                workspace={workspace}
                 busy={state.busy}
                 onOpenLog={onOpenLog}
+                onAction={(task, action) => void workspace.fillAction(task.runId, action)}
               />
-              <FillList
-                title="最近历史（最多 100 条）"
-                items={history}
-                workspace={workspace}
-                busy={state.busy}
-                onOpenLog={onOpenLog}
-              />
+              {history.length > 0 && (
+                <TaskSurface
+                  title="最近结果"
+                  meta={
+                    <span className="ste:text-xs ste:text-muted-foreground">
+                      {history.length} 条
+                    </span>
+                  }
+                  bodyClassName="ste:p-0"
+                >
+                  <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                    {visibleHistory.map((task) => (
+                      <div role="listitem" key={task.runId} data-fill-task={task.runId}>
+                        <FillRow
+                          task={task}
+                          busy={state.busy}
+                          onOpenLog={onOpenLog}
+                          onAction={(target, action) =>
+                            void workspace.fillAction(target.runId, action)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </ItemGroup>
+                  {history.length > visibleHistory.length && (
+                    <div className="ste:border-t ste:border-border ste:p-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ste:w-full"
+                        onClick={() => setShowAllHistory(true)}
+                      >
+                        <ChevronDown data-icon="inline-start" />
+                        显示更早的 {history.length - visibleHistory.length} 条
+                      </Button>
+                    </div>
+                  )}
+                </TaskSurface>
+              )}
+              <Accordion>
+                <AccordionItem value="init">
+                  <AccordionTrigger>初始化填表</AccordionTrigger>
+                  <AccordionContent>
+                    <form
+                      className="ste:flex ste:flex-col ste:gap-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void workspace.submitInit();
+                      }}
+                    >
+                      <Field>
+                        <FieldLabel htmlFor="task-init">初始化文本</FieldLabel>
+                        <Textarea
+                          id="task-init"
+                          className="ste:min-h-32"
+                          placeholder="输入需要写入记忆的背景、设定或摘要"
+                          value={state.draft}
+                          disabled={state.busy}
+                          onChange={(event) => workspace.setDraft(event.target.value)}
+                        />
+                      </Field>
+                      <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2">
+                        <p className="ste:text-xs ste:text-muted-foreground">
+                          草稿按对话保留；提交后清空。
+                        </p>
+                        <Button type="submit" disabled={state.busy || !state.draft.trim()}>
+                          提交初始化任务
+                        </Button>
+                      </div>
+                    </form>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </TabsContent>
-            <TabsContent value="vector">
+            <TabsContent value="vector" className="ste:space-y-4">
               <VectorList state={state} workspace={workspace} />
             </TabsContent>
           </Tabs>
         )}
       </PageContent>
       {confirmation}
+      <ConfirmAction
+        open={pendingSubmit !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingSubmit(null);
+        }}
+        title="开始填表任务？"
+        description={
+          pendingSubmit ? (
+            <FillSubmitDescription
+              summary={pendingSubmit}
+              cleaningLabel={cleaningLabel}
+              presetLabel={presetLabel}
+              cleaningDisabled={cleaningDisabled}
+            />
+          ) : null
+        }
+        cancelLabel="取消"
+        confirmLabel="开始填表"
+        onConfirm={confirmFill}
+      />
     </section>
   );
 }
+
+function ProgressSection({
+  coverage,
+  running,
+  last,
+  firstUnprocessed,
+  busy,
+  onUseRange,
+  onOpenLog,
+  onCancel,
+  onRetry,
+}: {
+  coverage: ReturnType<typeof buildCoverageViewModel>;
+  running: FillTaskView | undefined;
+  last: FillTaskView | undefined;
+  firstUnprocessed: { from: number; to: number } | undefined;
+  busy: boolean;
+  onUseRange: () => void;
+  onOpenLog: (key: string, summary?: string) => void;
+  onCancel: (task: FillTaskView) => void;
+  onRetry: (task: FillTaskView) => void;
+}) {
+  return (
+    <TaskSurface
+      title="填表进度"
+      meta={
+        <span className="ste:text-xs ste:text-muted-foreground">
+          {coverage.totalCount} 层 · 未处理 {coverage.untrackedCount}
+        </span>
+      }
+    >
+      <div className="ste:flex ste:flex-col ste:gap-3">
+        {running ? (
+          <RunningTask task={running} busy={busy} onOpenLog={onOpenLog} onCancel={onCancel} />
+        ) : last ? (
+          <LastResult task={last} busy={busy} onOpenLog={onOpenLog} onRetry={onRetry} />
+        ) : (
+          <p className="ste:text-sm ste:text-muted-foreground">还没有填表任务。</p>
+        )}
+        <CoverageBar coverage={coverage} />
+        {firstUnprocessed && (
+          <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2 ste:text-xs">
+            <span className="ste:text-muted-foreground">
+              未处理楼层 {firstUnprocessed.from}–{firstUnprocessed.to}
+            </span>
+            <Button variant="outline" size="sm" onClick={onUseRange}>
+              按此范围填表
+            </Button>
+          </div>
+        )}
+      </div>
+    </TaskSurface>
+  );
+}
+
+function RunningTask({
+  task,
+  busy,
+  onOpenLog,
+  onCancel,
+}: {
+  task: FillTaskView;
+  busy: boolean;
+  onOpenLog: (key: string, summary?: string) => void;
+  onCancel: (task: FillTaskView) => void;
+}) {
+  const status = taskStatusViewModel(task);
+  return (
+    <div className="ste:flex ste:flex-col ste:gap-2 ste:rounded-lg ste:border ste:border-border ste:bg-muted/30 ste:p-3">
+      <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2">
+        <div className="ste:flex ste:min-w-0 ste:items-center ste:gap-2">
+          <Badge variant="secondary">{status.label}</Badge>
+          <span className="ste:truncate ste:text-sm ste:font-medium">{taskRangeText(task)}</span>
+        </div>
+        <div className="ste:flex ste:gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            data-action="open-task-log"
+            data-task-key={task.runId}
+            onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
+          >
+            查看日志
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || task.phase === "saving"}
+            data-action="cancel-task"
+            data-task-key={task.runId}
+            onClick={() => onCancel(task)}
+          >
+            取消任务
+          </Button>
+        </div>
+      </div>
+      <TaskProgressBar task={task} />
+      {status.detail && (task.kind === "init" || task.retryState || task.phase === "saving") && (
+        <p className="ste:text-xs ste:text-muted-foreground">{status.detail}</p>
+      )}
+      <p className="ste:text-xs ste:text-muted-foreground">
+        每批 {task.blockSize} 层 · {task.automatic ? "自动" : "手动"} ·{" "}
+        {new Date(task.createdAt).toLocaleString()}
+      </p>
+      {task.blocksQueue && (
+        <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
+      )}
+    </div>
+  );
+}
+
+function LastResult({
+  task,
+  busy,
+  onOpenLog,
+  onRetry,
+}: {
+  task: FillTaskView;
+  busy: boolean;
+  onOpenLog: (key: string, summary?: string) => void;
+  onRetry: (task: FillTaskView) => void;
+}) {
+  const status = taskStatusViewModel(task);
+  return (
+    <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2 ste:text-sm">
+      <div className="ste:flex ste:min-w-0 ste:flex-wrap ste:items-center ste:gap-2">
+        <Badge variant={task.status === "failed" ? "destructive" : "outline"}>{status.label}</Badge>
+        <span className="ste:font-medium">{taskRangeText(task)}</span>
+        <span className="ste:text-xs ste:text-muted-foreground">
+          {new Date(task.createdAt).toLocaleString()}
+        </span>
+      </div>
+      <div className="ste:flex ste:gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-action="open-task-log"
+          data-task-key={task.runId}
+          onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
+        >
+          查看日志
+        </Button>
+        {(task.status === "failed" || task.status === "interrupted") && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            data-action="retry-task"
+            data-task-key={task.runId}
+            onClick={() => onRetry(task)}
+          >
+            重试
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FillSubmitDescription({
+  summary,
+  cleaningLabel,
+  presetLabel,
+  cleaningDisabled,
+}: {
+  summary: FillSubmitSummary;
+  cleaningLabel: string;
+  presetLabel: string;
+  cleaningDisabled: boolean;
+}) {
+  return (
+    <div className="ste:flex ste:flex-col ste:gap-2">
+      <dl className="ste:grid ste:grid-cols-[auto_minmax(0,1fr)] ste:gap-x-3 ste:gap-y-1 ste:text-sm">
+        <dt className="ste:text-muted-foreground">楼层</dt>
+        <dd>
+          {summary.from}–{summary.to}（{summary.floorCount} 层）
+        </dd>
+        <dt className="ste:text-muted-foreground">批次</dt>
+        <dd>
+          每批 {summary.blockSize} 层，共 {summary.batchCount} 批
+        </dd>
+        <dt className="ste:text-muted-foreground">清洗</dt>
+        <dd className="ste:break-words">{cleaningLabel}</dd>
+        <dt className="ste:text-muted-foreground">Agent</dt>
+        <dd className="ste:break-words">{presetLabel}</dd>
+      </dl>
+      {(summary.processedCount > 0 ||
+        summary.errorCount > 0 ||
+        summary.plannedCount > 0 ||
+        cleaningDisabled) && (
+        <div className="ste:flex ste:flex-col ste:gap-1 ste:text-xs ste:text-destructive">
+          {summary.processedCount > 0 && (
+            <p>范围内有 {summary.processedCount} 层已处理，重新提交会重新填写。</p>
+          )}
+          {summary.errorCount > 0 && (
+            <p>范围内有 {summary.errorCount} 层出错，重新提交会覆盖错误状态。</p>
+          )}
+          {summary.plannedCount > 0 && <p>范围内有 {summary.plannedCount} 层已在排队任务中。</p>}
+          {cleaningDisabled && <p>所选清洗规则已停用，输入将保持原文。</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FillList({
   title,
   items,
-  workspace,
   busy,
   onOpenLog,
+  onAction,
 }: {
   title: string;
   items: readonly FillTaskView[];
-  workspace: TasksWorkspace;
   busy: boolean;
-  onOpenLog: (key: string) => void;
+  onOpenLog: (key: string, summary?: string) => void;
+  onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
 }) {
+  if (items.length === 0) return null;
   return (
-    <section className="ste:space-y-3">
-      <h2 className="ste:text-sm ste:font-semibold">
-        {title} · {items.length}
-      </h2>
-      {items.length === 0 ? (
-        <p className="ste:text-sm ste:text-muted-foreground">暂无任务</p>
-      ) : (
-        items.map((task) => {
-          const status = taskStatusViewModel(task);
-          return (
-            <Card key={task.runId} size="sm" className="ste:px-4">
-              <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2">
-                <h3 className="ste:text-sm ste:font-medium">{taskRangeText(task)}</h3>
-                <Badge variant="secondary">{status.label}</Badge>
-              </div>
-              <p className="ste:break-words ste:text-sm ste:text-muted-foreground">
-                {status.detail}
-              </p>
-              <p className="ste:text-xs ste:text-muted-foreground">
-                {new Date(task.createdAt).toLocaleString()} · {task.automatic ? "自动" : "手动"}
-              </p>
-              {task.blocksQueue && (
-                <StatusNotice>队列已暂停，重试或取消此任务后继续。</StatusNotice>
-              )}
-              <div className="ste:flex ste:flex-wrap ste:gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  data-action="open-task-log"
-                  data-task-key={task.runId}
-                  onClick={() => onOpenLog(task.runId)}
-                >
-                  查看日志
-                </Button>
-                {(task.status === "queued" || task.status === "running" || task.blocksQueue) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || task.phase === "saving"}
-                    onClick={() => void workspace.fillAction(task.runId, "cancel")}
-                  >
-                    取消任务
-                  </Button>
-                )}
-                {(task.status === "failed" || task.status === "interrupted") && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void workspace.fillAction(task.runId, "retry")}
-                  >
-                    重试
-                  </Button>
-                )}
-              </div>
-            </Card>
-          );
-        })
-      )}
-    </section>
+    <TaskSurface
+      title={title}
+      meta={<span className="ste:text-xs ste:text-muted-foreground">{items.length} 条</span>}
+      bodyClassName="ste:p-0"
+    >
+      <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+        {items.map((task) => (
+          <div role="listitem" key={task.runId} data-fill-task={task.runId}>
+            <FillRow task={task} busy={busy} onOpenLog={onOpenLog} onAction={onAction} />
+          </div>
+        ))}
+      </ItemGroup>
+    </TaskSurface>
   );
 }
+
+function FillRow({
+  task,
+  busy,
+  onOpenLog,
+  onAction,
+}: {
+  task: FillTaskView;
+  busy: boolean;
+  onOpenLog: (key: string, summary?: string) => void;
+  onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
+}) {
+  const status = taskStatusViewModel(task);
+  return (
+    <Item className="ste:rounded-none ste:border-0 ste:px-4 ste:py-3">
+      <ItemContent>
+        <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+          <Badge
+            variant={
+              task.status === "failed"
+                ? "destructive"
+                : task.status === "succeeded"
+                  ? "outline"
+                  : "secondary"
+            }
+          >
+            {status.label}
+          </Badge>
+          <span className="ste:text-sm ste:font-medium">{taskRangeText(task)}</span>
+          <span className="ste:text-xs ste:text-muted-foreground">
+            {new Date(task.createdAt).toLocaleString()}
+          </span>
+        </div>
+        {status.detail && (
+          <p className="ste:break-words ste:text-sm ste:text-muted-foreground">{status.detail}</p>
+        )}
+        <p className="ste:text-xs ste:text-muted-foreground">
+          {task.automatic ? "自动" : "手动"} · 每批 {task.blockSize} 层
+        </p>
+        {task.blocksQueue && (
+          <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
+        )}
+      </ItemContent>
+      <ItemActions className="ste:basis-full ste:justify-end ste:sm:basis-auto">
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          data-action="open-task-log"
+          data-task-key={task.runId}
+          onClick={() => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`)}
+        >
+          查看日志
+        </Button>
+        {(task.status === "queued" || task.status === "running" || task.blocksQueue) && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || task.phase === "saving"}
+            data-action="cancel-task"
+            data-task-key={task.runId}
+            onClick={() => onAction(task, "cancel")}
+          >
+            取消任务
+          </Button>
+        )}
+        {(task.status === "failed" || task.status === "interrupted") && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            data-action="retry-task"
+            data-task-key={task.runId}
+            onClick={() => onAction(task, "retry")}
+          >
+            重试
+          </Button>
+        )}
+      </ItemActions>
+    </Item>
+  );
+}
+
 function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: TasksWorkspace }) {
   const selected = state.vectors.filter((task) => state.selected.includes(task.id));
   const cancelIds = selected
@@ -321,113 +758,142 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
     .filter((task) => ["failed", "interrupted", "cancelled", "obsolete"].includes(task.status))
     .map((task) => task.id);
   return (
-    <section className="ste:space-y-4">
-      <div className="ste:flex ste:flex-wrap ste:gap-2">
-        <NativeSelect
-          aria-label="向量任务状态"
-          value={state.status}
-          disabled={state.busy}
-          onChange={(event) =>
-            workspace.setFilters(event.target.value as TasksSnapshot["status"], state.source)
-          }
-        >
-          <option value="">全部状态</option>
-          {Object.entries(vectorLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </NativeSelect>
-        <NativeSelect
-          aria-label="向量任务来源"
-          value={state.source}
-          disabled={state.busy}
-          onChange={(event) =>
-            workspace.setFilters(state.status, event.target.value as TasksSnapshot["source"])
-          }
-        >
-          <option value="">全部来源</option>
-          <option value="manual">手动</option>
-          <option value="automatic">自动</option>
-        </NativeSelect>
+    <TaskSurface
+      title="向量任务"
+      meta={
+        <span className="ste:text-xs ste:text-muted-foreground">共 {state.vectorTotal} 项</span>
+      }
+      bodyClassName="ste:p-0"
+    >
+      <div className="ste:flex ste:flex-col ste:gap-2 ste:border-b ste:border-border ste:p-3">
+        <div className="ste:flex ste:flex-wrap ste:gap-2">
+          <NativeSelect
+            aria-label="向量任务状态"
+            value={state.status}
+            disabled={state.busy}
+            onChange={(event) =>
+              workspace.setFilters(event.target.value as TasksSnapshot["status"], state.source)
+            }
+          >
+            <option value="">全部状态</option>
+            {Object.entries(vectorLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </NativeSelect>
+          <NativeSelect
+            aria-label="向量任务来源"
+            value={state.source}
+            disabled={state.busy}
+            onChange={(event) =>
+              workspace.setFilters(state.status, event.target.value as TasksSnapshot["source"])
+            }
+          >
+            <option value="">全部来源</option>
+            <option value="manual">手动</option>
+            <option value="automatic">自动</option>
+          </NativeSelect>
+          <span className="ste:flex ste:items-center ste:px-1 ste:text-xs ste:text-muted-foreground">
+            已选 {selected.length} 项
+          </span>
+        </div>
+        <div className="ste:flex ste:flex-wrap ste:gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={state.busy || !cancelIds.length}
+            onClick={() => void workspace.vectorAction(cancelIds, "cancel")}
+          >
+            取消选中（{cancelIds.length}）
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={state.busy || !retryIds.length}
+            onClick={() => void workspace.vectorAction(retryIds, "retry")}
+          >
+            重试选中（{retryIds.length}）
+          </Button>
+        </div>
       </div>
-      <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
-        <span className="ste:text-xs ste:text-muted-foreground">已选 {selected.length} 项</span>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={state.busy || !cancelIds.length}
-          onClick={() => void workspace.vectorAction(cancelIds, "cancel")}
-        >
-          取消选中（{cancelIds.length}）
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={state.busy || !retryIds.length}
-          onClick={() => void workspace.vectorAction(retryIds, "retry")}
-        >
-          重试选中（{retryIds.length}）
-        </Button>
-      </div>
-      {!state.vectors.length && (
-        <PageEmpty
-          title={state.loading ? "正在读取任务…" : "暂无向量任务"}
-          description="在表格的向量索引设置中提交构建任务。"
-        />
-      )}
-      {state.vectors.map((task) => (
-        <Card key={task.id} size="sm" className="ste:px-4">
-          <div className="ste:flex ste:items-start ste:gap-3">
-            <Checkbox
-              aria-label={`选择 ${task.recordDisplayText} ${task.groupName}`}
-              checked={state.selected.includes(task.id)}
-              disabled={state.busy}
-              onCheckedChange={(checked) => workspace.select(task.id, checked === true)}
-            />
-            <div className="ste:min-w-0 ste:flex-1">
-              <h3 className="ste:break-words ste:text-sm ste:font-medium">
-                {task.recordDisplayText}
-              </h3>
-              <p className="ste:text-xs ste:text-muted-foreground">
-                {task.groupName} · {task.source === "manual" ? "手动" : "自动"} ·{" "}
-                {vectorLabels[task.status]}
-              </p>
+      {!state.vectors.length ? (
+        <div className="ste:p-4">
+          <PageEmpty
+            title={state.loading ? "正在读取任务…" : "暂无向量任务"}
+            description="在表格的向量索引设置中提交构建任务。"
+          />
+        </div>
+      ) : (
+        <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+          {state.vectors.map((task) => (
+            <div role="listitem" key={task.id} data-vector-task={task.id}>
+              <Item className="ste:rounded-none ste:border-0 ste:px-4 ste:py-3">
+                <ItemMedia>
+                  <Checkbox
+                    aria-label={`选择 ${task.recordDisplayText} ${task.groupName}`}
+                    checked={state.selected.includes(task.id)}
+                    disabled={state.busy}
+                    onCheckedChange={(checked) => workspace.select(task.id, checked === true)}
+                  />
+                </ItemMedia>
+                <ItemContent>
+                  <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+                    <span className="ste:break-words ste:text-sm ste:font-medium">
+                      {task.recordDisplayText}
+                    </span>
+                    <Badge
+                      variant={
+                        task.status === "failed"
+                          ? "destructive"
+                          : task.status === "running"
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {vectorLabels[task.status]}
+                    </Badge>
+                  </div>
+                  <p className="ste:text-xs ste:text-muted-foreground">
+                    {task.groupName} · {task.source === "manual" ? "手动" : "自动"} ·{" "}
+                    {new Date(task.createdAt).toLocaleString()}
+                  </p>
+                  {task.waitReason && (
+                    <p className="ste:break-words ste:text-sm ste:text-muted-foreground">
+                      {task.waitReason}
+                    </p>
+                  )}
+                  {task.error && <StatusNotice variant="destructive">{task.error}</StatusNotice>}
+                </ItemContent>
+                <ItemActions className="ste:basis-full ste:justify-end ste:sm:basis-auto">
+                  {task.status === "queued" || task.status === "running" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={state.busy}
+                      onClick={() => void workspace.vectorAction([task.id], "cancel")}
+                    >
+                      取消任务
+                    </Button>
+                  ) : (
+                    task.status !== "succeeded" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={state.busy}
+                        onClick={() => void workspace.vectorAction([task.id], "retry")}
+                      >
+                        重试
+                      </Button>
+                    )
+                  )}
+                </ItemActions>
+              </Item>
             </div>
-          </div>
-          {task.waitReason && (
-            <p className="ste:break-words ste:text-sm ste:text-muted-foreground">
-              {task.waitReason}
-            </p>
-          )}
-          {task.error && <StatusNotice variant="destructive">{task.error}</StatusNotice>}
-          <p className="ste:text-xs ste:text-muted-foreground">
-            {new Date(task.createdAt).toLocaleString()}
-          </p>
-          {task.status === "queued" || task.status === "running" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={state.busy}
-              onClick={() => void workspace.vectorAction([task.id], "cancel")}
-            >
-              取消任务
-            </Button>
-          ) : (
-            task.status !== "succeeded" && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={state.busy}
-                onClick={() => void workspace.vectorAction([task.id], "retry")}
-              >
-                重试
-              </Button>
-            )
-          )}
-        </Card>
-      ))}
-      <div className="ste:flex ste:items-center ste:justify-between ste:gap-2">
+          ))}
+        </ItemGroup>
+      )}
+      <div className="ste:flex ste:items-center ste:justify-between ste:gap-2 ste:border-t ste:border-border ste:p-3">
         <Button
           variant="outline"
           size="sm"
@@ -448,6 +914,28 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
           下一页
         </Button>
       </div>
+    </TaskSurface>
+  );
+}
+
+function TaskSurface({
+  title,
+  meta,
+  bodyClassName,
+  children,
+}: {
+  title: string;
+  meta?: ReactNode;
+  bodyClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+      <header className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2 ste:border-b ste:border-border ste:px-4 ste:py-2.5">
+        <h2 className="ste:text-sm ste:font-semibold">{title}</h2>
+        {meta}
+      </header>
+      <div className={cn("ste:px-4 ste:py-3", bodyClassName)}>{children}</div>
     </section>
   );
 }

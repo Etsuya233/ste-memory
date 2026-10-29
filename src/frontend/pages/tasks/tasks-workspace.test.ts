@@ -23,6 +23,12 @@ function setup() {
       cancelMany: vi.fn(),
       retry: vi.fn(),
     },
+    chatConfig: {
+      readCleaningSelection: vi.fn(),
+      writeCleaningSelection: vi.fn(),
+      readAgentPresetOverride: vi.fn(),
+      writeAgentPresetOverride: vi.fn(),
+    },
     assertContext: vi.fn(),
     messageCount: vi.fn(() => 10),
   };
@@ -174,18 +180,43 @@ describe("TasksWorkspace", () => {
     workspace.setContext(a);
     expect(workspace.getSnapshot().draft).toBe("A draft");
   });
-  it("validates range before enqueue and keeps operation errors across refreshes", async () => {
+  it("validates range before enqueue and returns the error to the confirmation dialog", async () => {
     const { services, workspace } = setup();
-    await workspace.submitFloors("0", "10", "20");
+    const invalid = await workspace.submitFloors("0", "10", "20");
+    expect(invalid).toEqual({ ok: false, error: expect.stringContaining("超出范围") });
     expect(services.tasks.submit).not.toHaveBeenCalled();
     await workspace.refresh();
-    expect(workspace.getSnapshot().error).toContain("超出范围");
-    await workspace.submitFloors("0", "9", "2");
+    expect(workspace.getSnapshot().error).toBeNull();
+    await expect(workspace.submitFloors("0", "9", "2")).resolves.toEqual({
+      ok: true,
+      error: null,
+    });
     expect(services.tasks.submit).toHaveBeenCalledWith({
       memorySpaceId: a.spaceId,
       from: 0,
       to: 9,
       blockSize: 2,
+    });
+  });
+  it("writes chat config only for the current context and surfaces write failures", () => {
+    const { services, workspace } = setup();
+    workspace.updateCleaningSelection("rule-1");
+    workspace.updateAgentPresetOverride("preset-1");
+    expect(services.chatConfig.writeCleaningSelection).toHaveBeenCalledWith("rule-1");
+    expect(services.chatConfig.writeAgentPresetOverride).toHaveBeenCalledWith("preset-1");
+    expect(workspace.getSnapshot()).toMatchObject({
+      cleaningSelection: undefined,
+      agentPresetOverride: undefined,
+      configNotice: "当前对话的 Agent 预设已保存",
+    });
+    vi.mocked(services.assertContext).mockImplementationOnce(() => {
+      throw new Error("对话已变化");
+    });
+    workspace.updateCleaningSelection("rule-2");
+    expect(services.chatConfig.writeCleaningSelection).not.toHaveBeenCalledWith("rule-2");
+    expect(workspace.getSnapshot()).toMatchObject({
+      configError: "对话已变化",
+      configNotice: null,
     });
   });
   it("stops hidden and unmounted polling without cancelling background tasks", async () => {
