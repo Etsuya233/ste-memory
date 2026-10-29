@@ -31,11 +31,18 @@ describe("会话持久化与恢复", () => {
     const tempId = state.allocateTempId();
     state.apply({ op: "create", tableKey: "characters", tempId, patch: { name: "云烬" } });
     store.rename(a.id, "人物整理");
-    store.update(a.id, {
-      draft: "继续整理",
-      proposal: state.snapshot(),
-      messages: [createUserMessage("u", "记一下")],
-    });
+    store.setDraft(a.id, "继续整理");
+    await store.flush();
+    const saved = (await repo.find(a.id))!;
+    await repo.put(
+      {
+        ...saved,
+        storageRevision: saved.storageRevision + 1,
+        proposal: state.snapshot(),
+        messages: [createUserMessage("u", "记一下")],
+      },
+      saved.storageRevision,
+    );
     await store.flush();
     const restored = new QueryChatStore(repo);
     await restored.ready;
@@ -64,13 +71,19 @@ describe("会话持久化与恢复", () => {
       tempId: state.allocateTempId(),
       patch: { name: "云烬" },
     });
-    store.update(a.id, {
-      messages: [createPendingAssistantMessage("pending")],
-      proposal: state.snapshot(),
-      transcript: [assistantMessage([toolCallMessage("call", "mutate", {})], "toolUse")],
-    });
-    store.beginRun(a.id, "pending");
     await store.flush();
+    const saved = (await repo.find(a.id))!;
+    await repo.put(
+      {
+        ...saved,
+        storageRevision: saved.storageRevision + 1,
+        status: "running",
+        messages: [createPendingAssistantMessage("pending")],
+        proposal: state.snapshot(),
+        transcript: [assistantMessage([toolCallMessage("call", "mutate", {})], "toolUse")],
+      },
+      saved.storageRevision,
+    );
     const restored = new QueryChatStore(repo);
     await restored.ready;
     expect(restored.getRun(a.id)).toBeUndefined();
@@ -90,8 +103,17 @@ describe("会话持久化与恢复", () => {
     const store = new QueryChatStore(repo);
     await store.ready;
     const a = store.create(context);
-    store.update(a.id, { status: "committing", previewId: "old" });
     await store.flush();
+    const saved = (await repo.find(a.id))!;
+    await repo.put(
+      {
+        ...saved,
+        storageRevision: saved.storageRevision + 1,
+        status: "committing",
+        previewId: "old",
+      },
+      saved.storageRevision,
+    );
     const restored = new QueryChatStore(repo);
     await restored.ready;
     expect(restored.get(a.id)).toMatchObject({
@@ -137,9 +159,8 @@ describe("会话持久化与恢复", () => {
     const session = store.create(context);
     await store.flush();
     const stale = await peer.find(session.id);
-    await store.execute(session.id, async () => {
-      store.update(session.id, { draft: "新草稿" });
-    });
+    store.setDraft(session.id, "新草稿");
+    await store.flush();
     await expect(
       peer.put(
         { ...stale!, draft: "过期草稿", storageRevision: stale!.storageRevision + 1 },

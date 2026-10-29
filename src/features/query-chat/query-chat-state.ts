@@ -1,3 +1,4 @@
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { StopReason } from "@earendil-works/pi-ai";
 
 /**
@@ -45,7 +46,7 @@ export type QueryChatMessage =
       readonly commit?: QueryChatCommitResult;
     };
 
-/** 服务 → 状态的事件（pi AgentEvent 的应用层翻译，见 query-chat-service）。 */
+/** 聊天展示事件（由本模块从 pi AgentEvent 翻译）。 */
 export type QueryChatEvent =
   | { readonly type: "thinking_delta"; readonly text: string }
   | { readonly type: "message_delta"; readonly text: string }
@@ -193,3 +194,73 @@ function applyToAssistant(
 }
 
 export { QueryChatStore } from "./session-store.ts";
+
+/** pi AgentEvent → 问答事件（未映射的事件类型返回空数组，不产生噪音）。 */
+export function translateAgentEvent(event: AgentEvent): readonly QueryChatEvent[] {
+  switch (event.type) {
+    case "message_update": {
+      const delta = event.assistantMessageEvent;
+      if (delta.type === "text_delta") return [{ type: "message_delta", text: delta.delta }];
+      if (delta.type === "thinking_delta") return [{ type: "thinking_delta", text: delta.delta }];
+      return [];
+    }
+    case "tool_execution_start":
+      return [
+        { type: "tool_start", callId: event.toolCallId, name: event.toolName, args: event.args },
+      ];
+    case "tool_execution_end":
+      return [
+        {
+          type: "tool_result",
+          callId: event.toolCallId,
+          name: event.toolName,
+          result: toolResultDetails(event.result),
+          isError: event.isError,
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/** 工具执行结果取结构化 details（query_records 的 QueryRecordsToolResult），没有则回退原值。 */
+function toolResultDetails(result: unknown): unknown {
+  if (typeof result === "object" && result !== null && "details" in result) {
+    return (result as { readonly details: unknown }).details;
+  }
+  return result;
+}
+
+/**
+ * run 终态 → 终态事件（对齐 api terminalAgentRunEvent，补取消/超时区分）：
+ * - stop/length：本轮正常结束；实际提交由用户点击确认后单独处理。
+ * - error：模型调用失败（网络/鉴权等，pi 以 stopReason "error" + errorMessage 编码）；
+ * - aborted：调用方取消（「已取消」）或内部超时（5 分钟提示）。
+ */
+export function terminalQueryChatEvent(
+  result: {
+    readonly stopReason: StopReason | undefined;
+    readonly errorMessage: string | undefined;
+    readonly answer: string;
+  },
+  signal: AbortSignal,
+): QueryChatEvent {
+  switch (result.stopReason) {
+    case "stop":
+    case "length":
+      return {
+        type: "done",
+        stopReason: result.stopReason,
+        errorMessage: result.errorMessage ?? null,
+      };
+    case "error":
+      return { type: "error", message: result.errorMessage ?? "模型调用失败" };
+    case "aborted":
+      return {
+        type: "error",
+        message: signal.aborted ? "已取消" : "Agent 运行超时（默认 5 分钟），请重试或缩小问题范围",
+      };
+    default:
+      return { type: "error", message: "未产生回答" };
+  }
+}

@@ -405,9 +405,9 @@ export async function startSteMemory(
   });
   const logs = new DexieLogRepository(logDb, { now });
   /**
-   * Dexie 原子事务运行器工厂：提交批次在单事务内（scope 必须声明为 async——
-   * Dexie expected-awaits 追踪，否则 PrematureCommit）。表集合 = 批次提交读写全集：
-   * 填表任务含台账表，问答面板不含。
+   * 填表任务台账使用 Dexie 原子事务；scope 必须声明为 async，
+   * 供 Dexie expected-awaits 追踪，避免 PrematureCommit。
+   * 记忆记录的提交事务由 MemoryRecordService 管理。
    */
   const runInTransaction = (tables: readonly Table[]) => (work: () => Promise<void>) =>
     db.transaction("rw", tables, async () => {
@@ -731,10 +731,6 @@ export async function startSteMemory(
     reader,
     ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
     recordWriter: records,
-    // 提交批次的事务作用域（不含台账表）：记录/历史/证据读写全集。
-    runInTransaction: async (work) => {
-      await work();
-    },
     createLlm: createQueryChatLlm,
     getCurrentContext: () => {
       if (!settings.read().enabled) return undefined;

@@ -439,7 +439,7 @@ export function QueryPage(props: QueryPageProps) {
                 value={session.draft}
                 disabled={busy}
                 placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}
-                onChange={(event) => store.update(session.id, { draft: event.target.value })}
+                onChange={(event) => store.setDraft(session.id, event.target.value)}
               />
             </Field>
             <div className="ste:flex ste:items-center ste:justify-between ste:gap-3">

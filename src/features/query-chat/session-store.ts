@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   ProposalState,
   type ProposalStateSnapshot,
@@ -7,6 +7,10 @@ import type { MemorySpaceId } from "../memory/index.ts";
 import type { ProposalPreviewToolResult } from "../agent/index.ts";
 import {
   applyQueryChatEvent,
+  translateAgentEvent,
+  createUserMessage,
+  createPendingAssistantMessage,
+  type QueryChatCommitResult,
   errorMessage,
   type QueryChatMessage,
   type QueryChatEvent,
@@ -125,19 +129,33 @@ export class InMemoryAssistantSessions implements AssistantSessionRepository {
   }
 }
 
+/** 一轮的可变提案由 Store 持有，Agent 工具在同一个对象上累积变更。 */
+export interface AssistantRun {
+  readonly pendingId: string;
+  readonly input: AgentMessage;
+  readonly proposal: ProposalState;
+}
+
+/**
+ * 会话的内存状态与持久化入口。
+ * 页面只修改输入、管理会话；Service 在独占操作内驱动对话和提案状态转换。
+ * 展示消息和模型历史用途不同，但每个完成的消息都和提案一起形成恢复检查点。
+ */
 export class QueryChatStore {
   readonly #repository: AssistantSessionRepository;
   readonly #listeners = new Set<() => void>();
-  readonly #runs = new Map<string, { pendingId: string }>();
+  readonly #runs = new Map<string, AssistantRun & { transcript: AgentMessage[] }>();
   #sessions: readonly AssistantSession[] = [];
   #writes: Promise<void> = Promise.resolve();
   #error: string | null = null;
   #loaded = false;
   #pending = 0;
+  // 最新待保存意图；null 表示删除。写失败时保留，供显式重试。
   readonly #unsaved = new Map<string, AssistantSession | null>();
+  // 只记录已成功落盘的版本，后续排队快照据此做原子版本校验。
   readonly #revisions = new Map<string, number>();
-  readonly #owned = new Set<string>();
-  readonly #executing = new Map<string, AbortController>();
+  // 排队和持锁都属于一次操作，取消也能终止尚在等待跨页锁的请求。
+  readonly #operations = new Map<string, { controller: AbortController; ownsLock: boolean }>();
   readonly #lifetime = new AbortController();
   readonly #recovering = new Set<string>();
   #unsubscribe: (() => void) | undefined;
@@ -146,6 +164,301 @@ export class QueryChatStore {
   constructor(repository: AssistantSessionRepository) {
     this.#repository = repository;
     this.ready = this.#load();
+  }
+  isExecuting(id: string) {
+    return this.#operations.has(id);
+  }
+  /**
+   * 先保存本页编辑，再等待跨标签页锁；拿锁后重读最新会话交给业务。
+   * 回调退出前等待所有检查点落盘，再释放锁，其他页面才可继续同一会话。
+   */
+  async withExclusiveSession<T>(
+    id: string,
+    work: (session: AssistantSession, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    if (this.#operations.has(id)) throw new Error("会话正在执行，请等待完成或停止");
+    const controller = new AbortController();
+    const operation = { controller, ownsLock: false };
+    this.#operations.set(id, operation);
+    this.#notify();
+    try {
+      await this.flush();
+      return await this.#repository.withLock(
+        id,
+        async () => {
+          operation.ownsLock = true;
+          try {
+            const latest = await this.#repository.find(id);
+            if (!latest) throw new Error("会话已不存在");
+            this.#revisions.set(id, latest.storageRevision);
+            this.#sessions = this.#sessions.map((session) =>
+              session.id === id ? latest : session,
+            );
+            this.#notify();
+            controller.signal.throwIfAborted();
+            return await work(latest, controller.signal);
+          } finally {
+            try {
+              await this.flush();
+            } finally {
+              operation.ownsLock = false;
+            }
+          }
+        },
+        true,
+        controller.signal,
+      );
+    } finally {
+      this.#operations.delete(id);
+      try {
+        this.#receive(await this.#repository.list());
+      } catch (cause) {
+        this.#error = errorMessage(cause);
+      }
+      this.#notify();
+    }
+  }
+  dispose() {
+    this.#lifetime.abort();
+    this.#unsubscribe?.();
+    for (const operation of this.#operations.values()) operation.controller.abort();
+  }
+  getSessions() {
+    return this.#sessions;
+  }
+  isLoaded() {
+    return this.#loaded;
+  }
+  storageError() {
+    return this.#error;
+  }
+  hasPendingWrites() {
+    return this.#pending > 0;
+  }
+  get(id: string): AssistantSession {
+    const session = this.#sessions.find((session) => session.id === id);
+    if (!session) throw new Error("会话已不存在");
+    return session;
+  }
+  getRun(id: string): AssistantRun | undefined {
+    return this.#runs.get(id);
+  }
+  create(context: AssistantContext): AssistantSession {
+    if (!this.#loaded) throw new Error("会话尚未加载完成");
+    const now = new Date().toISOString();
+    const session: AssistantSession = {
+      ...context,
+      id: crypto.randomUUID(),
+      storageRevision: -1,
+      title: "新会话",
+      createdAt: now,
+      updatedAt: now,
+      draft: "",
+      messages: [],
+      transcript: [],
+      proposal: new ProposalState().snapshot(),
+      status: "idle",
+    };
+    this.#revisions.set(session.id, -1);
+    this.#sessions = [session, ...this.#sessions];
+    this.#persist(session);
+    this.#notify();
+    return session;
+  }
+  setDraft(id: string, text: string) {
+    this.#update(id, { draft: text });
+  }
+  rename(id: string, title: string) {
+    if (!title.trim()) throw new Error("会话名称不能为空");
+    this.#update(id, { title: title.trim() });
+  }
+  async delete(id: string) {
+    const session = this.get(id);
+    if (session.status === "committing") throw new Error("正在提交，完成后可删除会话");
+    if (session.status === "running" && !this.#operations.has(id))
+      throw new AssistantSessionBusyError();
+    this.cancel(id);
+    this.#runs.delete(id);
+    this.#sessions = this.#sessions.filter((session) => session.id !== id);
+    this.#unsaved.set(id, null);
+    this.#enqueue(id, null);
+    this.#notify();
+    await this.flush();
+  }
+  /** 将输入、占位回复与运行状态作为同一个检查点保存。 */
+  startRun(id: string, text: string): AssistantRun {
+    const session = this.get(id);
+    if (session.status === "committing" || this.#runs.has(id))
+      throw new Error("会话正在执行，请等待完成或停止");
+    const input: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: Date.now(),
+    };
+    const run = {
+      pendingId: crypto.randomUUID(),
+      input,
+      proposal: new ProposalState(session.proposal),
+      transcript: [...session.transcript, input],
+    };
+    this.#runs.set(id, run);
+    this.#update(id, {
+      status: "running",
+      draft: "",
+      title:
+        session.messages.length || session.title !== "新会话"
+          ? session.title
+          : text.trim().slice(0, 30),
+      preview: undefined,
+      previewId: undefined,
+      messages: [
+        ...session.messages,
+        createUserMessage(crypto.randomUUID(), text),
+        createPendingAssistantMessage(run.pendingId),
+      ],
+      transcript: [...run.transcript],
+    });
+    return run;
+  }
+
+  /** 增量只刷新界面；完整模型消息到达时连同提案保存，避免逐 token 写入。 */
+  recordAgentEvent(id: string, pendingId: string, event: AgentEvent) {
+    const run = this.#runs.get(id);
+    if (!run || run.pendingId !== pendingId) return;
+    let messages = this.get(id).messages;
+    for (const translated of translateAgentEvent(event))
+      messages = applyQueryChatEvent(messages, pendingId, translated);
+    if (event.type === "message_end") {
+      if (event.message.role !== "user") run.transcript.push(event.message);
+      this.#update(id, {
+        messages,
+        transcript: [...run.transcript],
+        proposal: run.proposal.snapshot(),
+      });
+    } else if (messages !== this.get(id).messages) {
+      this.#update(id, { messages }, false);
+    }
+  }
+
+  /** 成功、取消和错误统一收尾；已删除会话的迟到事件没有本轮归属。 */
+  finishRun(
+    id: string,
+    pendingId: string,
+    terminal: QueryChatEvent,
+    preview?: ProposalPreviewToolResult,
+  ) {
+    const run = this.#runs.get(id);
+    if (!run || run.pendingId !== pendingId) return;
+    this.#runs.delete(id);
+    this.#update(id, {
+      status: "idle",
+      messages: applyQueryChatEvent(this.get(id).messages, pendingId, terminal),
+      transcript: completeInterruptedTools(run.transcript),
+      proposal: run.proposal.snapshot(),
+      preview,
+      previewId: preview ? crypto.randomUUID() : undefined,
+    });
+  }
+
+  /** 校验用户确认的预览身份，并先进入可恢复的提交中状态。 */
+  beginCommit(id: string, previewId: string): ProposalPreviewToolResult {
+    const session = this.get(id);
+    if (session.status === "running" || session.status === "committing")
+      throw new Error("会话正在执行");
+    if (session.commitUncertain)
+      throw new Error("上次提交结果待核对，请查询记录并放弃旧提案后重新准备修改");
+    if (!session.preview?.valid || session.previewId !== previewId)
+      throw new Error("提案已变化，请重新查看变更后确认");
+    if (!session.proposal.operations.length) throw new Error("提案为空");
+    this.#update(id, { status: "committing" });
+    return session.preview;
+  }
+
+  /** 成功回执与清空草稿一次落盘；失败保留提案，但需要重新预览确认。 */
+  finishCommit(id: string, commit: QueryChatCommitResult) {
+    const session = this.get(id);
+    const text =
+      commit.status === "committed"
+        ? "用户已确认，提案已提交。后续修改请重新查询最新记录。"
+        : commit.status === "failed"
+          ? `提交失败：${commit.error}`
+          : commit.notice;
+    this.#update(id, {
+      status: "idle",
+      proposal: commit.status === "committed" ? new ProposalState().snapshot() : session.proposal,
+      preview: undefined,
+      previewId: undefined,
+      messages: [
+        ...session.messages,
+        {
+          kind: "assistant",
+          id: crypto.randomUUID(),
+          status: "done",
+          segments: [{ kind: "text", text }],
+          commit,
+        },
+      ],
+      transcript: [...session.transcript, { role: "user", content: text, timestamp: Date.now() }],
+    });
+  }
+
+  discardProposal(id: string) {
+    const session = this.get(id);
+    if (session.status === "running" || session.status === "committing")
+      throw new Error("会话正在执行");
+    this.#update(id, {
+      proposal: new ProposalState().snapshot(),
+      preview: undefined,
+      previewId: undefined,
+      commitUncertain: false,
+      transcript: [
+        ...session.transcript,
+        {
+          role: "user",
+          content: "已放弃当前全部未提交提案，之前的 mutationId 和临时 ID 已失效。",
+          timestamp: Date.now(),
+        },
+      ],
+    });
+  }
+  cancel(id: string) {
+    this.#operations.get(id)?.controller.abort();
+    return this.#runs.has(id) || this.#operations.has(id);
+  }
+  cancelSpace(spaceId: MemorySpaceId) {
+    for (const session of this.#sessions) if (session.spaceId === spaceId) this.cancel(session.id);
+  }
+  async clearSpaceHistory(spaceId: MemorySpaceId) {
+    if (
+      this.#sessions.some(
+        (session) => session.spaceId === spaceId && session.status === "committing",
+      )
+    )
+      throw new Error("该空间的助手正在提交，请完成后重试");
+    const ids = this.#sessions
+      .filter((session) => session.spaceId === spaceId)
+      .map((session) => session.id);
+    await Promise.all(ids.map((id) => this.delete(id)));
+  }
+  async flush() {
+    await this.#writes;
+    if (this.#error) throw new Error(`会话保存失败：${this.#error}`);
+  }
+  async retrySave() {
+    if (!this.#loaded) {
+      await this.#load();
+      return;
+    }
+    this.#error = null;
+    for (const [id, snapshot] of this.#unsaved) this.#enqueue(id, snapshot);
+    await this.flush();
+    for (const session of this.#sessions) this.#watchRun(session);
+  }
+  onStoreChange(listener: () => void) {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
   async #load(): Promise<void> {
     try {
@@ -225,7 +538,7 @@ export class QueryChatStore {
   #watchRun(session: AssistantSession) {
     if (
       (session.status !== "running" && session.status !== "committing") ||
-      this.#executing.has(session.id) ||
+      this.#operations.has(session.id) ||
       this.#recovering.has(session.id)
     )
       return;
@@ -247,7 +560,7 @@ export class QueryChatStore {
     const local = new Set(this.#sessions.map((row) => row.id));
     const next: AssistantSession[] = [];
     for (const session of this.#sessions) {
-      if (this.#executing.has(session.id) || this.#unsaved.has(session.id)) {
+      if (this.#operations.has(session.id) || this.#unsaved.has(session.id)) {
         next.push(session);
         continue;
       }
@@ -267,99 +580,7 @@ export class QueryChatStore {
     this.#sessions = next;
     this.#notify();
   }
-  isExecuting(id: string) {
-    return this.#executing.has(id);
-  }
-  async execute<T>(id: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    if (this.#executing.has(id)) throw new Error("会话正在执行，请等待完成或停止");
-    const controller = new AbortController();
-    this.#executing.set(id, controller);
-    this.#notify();
-    try {
-      await this.flush();
-      return await this.#repository.withLock(
-        id,
-        async () => {
-          this.#owned.add(id);
-          try {
-            const latest = await this.#repository.find(id);
-            if (!latest) throw new Error("会话已不存在");
-            this.#revisions.set(id, latest.storageRevision);
-            this.#sessions = this.#sessions.map((session) =>
-              session.id === id ? latest : session,
-            );
-            this.#notify();
-            controller.signal.throwIfAborted();
-            return await work(controller.signal);
-          } finally {
-            try {
-              await this.flush();
-            } finally {
-              this.#owned.delete(id);
-            }
-          }
-        },
-        true,
-        controller.signal,
-      );
-    } finally {
-      this.#executing.delete(id);
-      try {
-        this.#receive(await this.#repository.list());
-      } catch (cause) {
-        this.#error = errorMessage(cause);
-      }
-      this.#notify();
-    }
-  }
-  dispose() {
-    this.#lifetime.abort();
-    this.#unsubscribe?.();
-    for (const controller of this.#executing.values()) controller.abort();
-  }
-  getSessions() {
-    return this.#sessions;
-  }
-  isLoaded() {
-    return this.#loaded;
-  }
-  storageError() {
-    return this.#error;
-  }
-  hasPendingWrites() {
-    return this.#pending > 0;
-  }
-  get(id: string): AssistantSession {
-    const session = this.#sessions.find((session) => session.id === id);
-    if (!session) throw new Error("会话已不存在");
-    return session;
-  }
-  getRun(id: string) {
-    return this.#runs.get(id);
-  }
-  create(context: AssistantContext): AssistantSession {
-    if (!this.#loaded) throw new Error("会话尚未加载完成");
-    const now = new Date().toISOString();
-    const session: AssistantSession = {
-      ...context,
-      id: crypto.randomUUID(),
-      storageRevision: -1,
-      title: "新会话",
-      createdAt: now,
-      updatedAt: now,
-      draft: "",
-      messages: [],
-      transcript: [],
-      proposal: new ProposalState().snapshot(),
-      status: "idle",
-    };
-    this.#revisions.set(session.id, -1);
-    this.#sessions = [session, ...this.#sessions];
-    this.#persist(session);
-    this.#notify();
-    return session;
-  }
-  update(
+  #update(
     id: string,
     patch: Partial<
       Pick<
@@ -381,90 +602,14 @@ export class QueryChatStore {
     if (
       persist &&
       (patch.title !== undefined || patch.draft !== undefined) &&
-      !this.#owned.has(id) &&
-      (this.#executing.has(id) || current.status === "running" || current.status === "committing")
+      !this.#operations.get(id)?.ownsLock &&
+      (this.#operations.has(id) || current.status === "running" || current.status === "committing")
     )
       throw new AssistantSessionBusyError();
     const session = { ...current, ...patch, updatedAt: new Date().toISOString() };
     this.#sessions = this.#sessions.map((item) => (item.id === id ? session : item));
     if (persist) this.#persist(session);
     this.#notify();
-  }
-  rename(id: string, title: string) {
-    if (!title.trim()) throw new Error("会话名称不能为空");
-    this.update(id, { title: title.trim() });
-  }
-  async delete(id: string) {
-    const session = this.get(id);
-    if (session.status === "committing") throw new Error("正在提交，完成后可删除会话");
-    if (session.status === "running" && !this.#executing.has(id))
-      throw new AssistantSessionBusyError();
-    this.cancel(id);
-    this.#runs.delete(id);
-    this.#sessions = this.#sessions.filter((session) => session.id !== id);
-    this.#unsaved.set(id, null);
-    this.#enqueue(id, null);
-    this.#notify();
-    await this.flush();
-  }
-  beginRun(id: string, pendingId: string) {
-    const session = this.get(id);
-    if (session.status === "committing" || this.#runs.has(id))
-      throw new Error("会话正在执行，请等待完成或停止");
-    this.#runs.set(id, { pendingId });
-    this.update(id, { status: "running", preview: undefined });
-  }
-  applyEvent(id: string, event: QueryChatEvent) {
-    const run = this.#runs.get(id);
-    if (!run) return;
-    this.update(
-      id,
-      { messages: applyQueryChatEvent(this.get(id).messages, run.pendingId, event) },
-      false,
-    );
-  }
-  finishRun(id: string) {
-    this.#runs.delete(id);
-    this.update(id, { status: "idle" });
-  }
-  cancel(id: string) {
-    this.#executing.get(id)?.abort();
-    return this.#runs.has(id) || this.#executing.has(id);
-  }
-  cancelSpace(spaceId: MemorySpaceId) {
-    for (const session of this.#sessions) if (session.spaceId === spaceId) this.cancel(session.id);
-  }
-  async clearSpaceHistory(spaceId: MemorySpaceId) {
-    if (
-      this.#sessions.some(
-        (session) => session.spaceId === spaceId && session.status === "committing",
-      )
-    )
-      throw new Error("该空间的助手正在提交，请完成后重试");
-    const ids = this.#sessions
-      .filter((session) => session.spaceId === spaceId)
-      .map((session) => session.id);
-    await Promise.all(ids.map((id) => this.delete(id)));
-  }
-  async flush() {
-    await this.#writes;
-    if (this.#error) throw new Error(`会话保存失败：${this.#error}`);
-  }
-  async retrySave() {
-    if (!this.#loaded) {
-      await this.#load();
-      return;
-    }
-    this.#error = null;
-    for (const [id, snapshot] of this.#unsaved) this.#enqueue(id, snapshot);
-    await this.flush();
-    for (const session of this.#sessions) this.#watchRun(session);
-  }
-  onStoreChange(listener: () => void) {
-    this.#listeners.add(listener);
-    return () => {
-      this.#listeners.delete(listener);
-    };
   }
   #persist(session: AssistantSession) {
     const snapshot = structuredClone(session);

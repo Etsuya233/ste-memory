@@ -91,9 +91,6 @@ async function createHarness(
   const currentSpace = { value: spaceId, generation: 0 };
   const store = new QueryChatStore(new IndexedDbAssistantSessions(db));
   await store.ready;
-  const runInTransaction = async (work: () => Promise<void>): Promise<void> => {
-    await work();
-  };
   const buildService = (
     streamFn: StreamFn,
     sessionStore: QueryChatStore = store,
@@ -104,7 +101,6 @@ async function createHarness(
       reader,
       ports,
       recordWriter,
-      runInTransaction,
       createLlm: () => {
         if (options.createLlmThrows)
           throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
@@ -306,6 +302,50 @@ describe("记忆助手会话", () => {
     await h.service.confirm(session.id, token);
     await expect(another.confirm(session.id, token)).rejects.toThrow("提案已变化");
     expect(await h.db.memoryRecords.toArray()).toHaveLength(1);
+  });
+  it("工具完成后取消仍保存提案与工具历史，刷新后可继续确认", async () => {
+    const draft = draftScript();
+    const waiting = hangingStreamFn();
+    let nextRequestStarted = false;
+    const h = await createHarness({
+      streamFn: (model, context, options) => {
+        if (!lastToolResult(context)) return draft(model, context, options);
+        nextRequestStarted = true;
+        return waiting(model, context, options);
+      },
+    });
+    const session = createSession(h);
+    const running = h.service.run({ sessionId: session.id, text: "新增云烬" });
+    try {
+      await vi.waitFor(() => expect(nextRequestStarted).toBe(true));
+    } finally {
+      h.store.cancel(session.id);
+      await running;
+    }
+    const restored = new QueryChatStore(new IndexedDbAssistantSessions(h.db));
+    await restored.ready;
+    try {
+      const saved = restored.get(session.id);
+      expect(saved.proposal.operations).toHaveLength(1);
+      expect(saved.messages.at(-1)).toMatchObject({ status: "error", error: "已取消" });
+      expect(saved.previewId).toBeUndefined();
+      expect(saved.transcript.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "toolResult",
+      ]);
+      const resumed = h.buildService(draftScript(), restored);
+      await resumed.run({ sessionId: session.id, text: "检查刚才的提案" });
+      expect(await resumed.confirm(session.id, restored.get(session.id).previewId!)).toEqual({
+        status: "committed",
+        created: 1,
+        updated: 0,
+        deleted: 0,
+      });
+    } finally {
+      restored.dispose();
+      h.store.dispose();
+    }
   });
   it("另一个标签页启动不会把活跃请求恢复成中断", async () => {
     const h = await createHarness({ streamFn: hangingStreamFn() });

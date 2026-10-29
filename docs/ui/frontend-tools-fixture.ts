@@ -215,9 +215,6 @@ export function createToolsFixture(options: {
         reader: options.reader,
         ports: options.ports,
         recordWriter: options.recordWriter,
-        runInTransaction: async (work) => {
-          await work();
-        },
         getCurrentContext: () => options.current() ?? undefined,
         createLlm: () => ({
           model: fakeModel(),
