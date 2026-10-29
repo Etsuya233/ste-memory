@@ -59,7 +59,7 @@ try {
   );
   check("macro prefix and limit persist through settings service", true);
   await action("page-back").click();
-  await page.getByRole("button", { name: /全局宏 ·/ }).click();
+  await page.getByRole("button", { name: /全局宏/ }).click();
   await action("create-macro").click();
   await page.getByLabel("宏名", { exact: true }).fill("人物摘要");
   await action("macro-query").fill(await query("a"));
@@ -122,7 +122,7 @@ try {
   await action("page-back").click();
   await button("放弃修改并继续").click();
   await action("page-back").click();
-  await page.getByRole("button", { name: /当前对话宏 ·/ }).click();
+  await page.getByRole("button", { name: /当前对话宏/ }).click();
   await action("create-macro").click();
   await page.getByLabel("宏名", { exact: true }).fill("书店对话宏");
   await action("macro-query").fill(await query("a"));
@@ -173,7 +173,8 @@ try {
   await action("page-back").click();
   await button("放弃修改并继续").click();
   await switchChat("a");
-  await button("删除宏 书店对话宏").click();
+  await page.getByRole("button", { name: /memory::书店对话宏/ }).click();
+  await action("delete-macro").click();
   await button("删除宏").click();
   await page.getByText("宏已删除。", { exact: true }).waitFor();
   check(
@@ -186,8 +187,9 @@ try {
     "built in overview shows actual provided snapshot",
     await page.getByText("预览模拟快照：雨后书店", { exact: true }).isVisible(),
   );
-  await page.getByRole("button", { name: /全局宏 ·/ }).click();
-  await button("删除宏 人物摘要").click();
+  await page.getByRole("button", { name: /全局宏/ }).click();
+  await action("open-macro").filter({ hasText: "人物摘要" }).click();
+  await action("delete-macro").click();
   await button("删除宏").click();
   await page.waitForFunction(() => window.frontendPreview.settingsSnapshot().macros.length === 0);
   check(

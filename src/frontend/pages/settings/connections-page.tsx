@@ -10,8 +10,10 @@ import {
   ItemTitle,
   ItemDescription,
   ItemActions,
+  ItemGroup,
 } from "../../../ui/primitives/item.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
@@ -130,12 +132,6 @@ function ConnectionList({
         {...controls}
         onBack={() => requestLeave(onBack)}
         busy={busy}
-        actions={
-          <Button onClick={onCreate} disabled={busy} data-action="create-connection">
-            <Plus />
-            新建
-          </Button>
-        }
       />
       <PageContent
         ref={scroll.ref}
@@ -147,60 +143,86 @@ function ConnectionList({
         ) : notice ? (
           <StatusNotice>{notice}</StatusNotice>
         ) : null}
-        <FieldGroup>
-          {(
-            [
-              ["fillTask", "表格填写 Agent"],
-              ["queryChat", "查询 Agent"],
-            ] as const
-          ).map(([target, label]) => (
-            <Field key={target}>
-              <FieldLabel htmlFor={`connection-${target}`}>{label}</FieldLabel>
-              <NativeSelect
-                id={`connection-${target}`}
-                className="ste:w-full"
+        <PageSection title="默认 Agent 连接">
+          <FieldGroup className="ste:gap-5">
+            {(
+              [
+                ["fillTask", "表格填写 Agent"],
+                ["queryChat", "查询 Agent"],
+              ] as const
+            ).map(([target, label]) => (
+              <Field key={target}>
+                <FieldLabel htmlFor={`connection-${target}`}>{label}</FieldLabel>
+                <NativeSelect
+                  id={`connection-${target}`}
+                  className="ste:w-full"
+                  disabled={busy}
+                  value={agentConnectionSelection(settings, target) ?? ""}
+                  onChange={(event) => void select(target, event.target.value)}
+                >
+                  <NativeSelectOption value="">跟随 SillyTavern 当前连接</NativeSelectOption>
+                  {settings.agentConnections.map((connection) => (
+                    <NativeSelectOption key={connection.id} value={connection.id}>
+                      {connection.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+                <FieldDescription>选择后立即保存；运行中的任务沿用启动时的连接。</FieldDescription>
+              </Field>
+            ))}
+          </FieldGroup>
+        </PageSection>
+        <PageSection
+          title="独立连接"
+          action={
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">
+                {settings.agentConnections.length} 个
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onCreate}
                 disabled={busy}
-                value={agentConnectionSelection(settings, target) ?? ""}
-                onChange={(event) => void select(target, event.target.value)}
+                data-action="create-connection"
               >
-                <NativeSelectOption value="">跟随 SillyTavern 当前连接</NativeSelectOption>
-                {settings.agentConnections.map((connection) => (
-                  <NativeSelectOption key={connection.id} value={connection.id}>
-                    {connection.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <FieldDescription>选择后立即保存；运行中的任务沿用启动时的连接。</FieldDescription>
-            </Field>
-          ))}
-        </FieldGroup>
-        {settings.agentConnections.length ? (
-          settings.agentConnections.map((connection) => (
-            <Item
-              key={connection.id}
-              render={<button type="button" disabled={busy} />}
-              variant="outline"
-              className="ste:text-left"
-              onClick={() => onEdit(connection)}
-              data-action="edit-connection"
-            >
-              <ItemContent>
-                <ItemTitle>{connection.name}</ItemTitle>
-                <ItemDescription className="ste:break-all">
-                  {connection.baseUrl} · {connection.model}
-                </ItemDescription>
-              </ItemContent>
-              <ItemActions>
-                <ChevronRight />
-              </ItemActions>
-            </Item>
-          ))
-        ) : (
-          <PageEmpty
-            title="暂无独立连接"
-            description="可以新建 OpenAI 兼容连接，也可以继续跟随 SillyTavern。"
-          />
-        )}
+                <Plus />
+                新建
+              </Button>
+            </div>
+          }
+          bodyClassName="ste:p-0"
+        >
+          {settings.agentConnections.length ? (
+            <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+              {settings.agentConnections.map((connection) => (
+                <div role="listitem" key={connection.id}>
+                  <Item
+                    render={<button type="button" disabled={busy} />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    onClick={() => onEdit(connection)}
+                    data-action="edit-connection"
+                  >
+                    <ItemContent>
+                      <ItemTitle>{connection.name}</ItemTitle>
+                      <ItemDescription className="ste:break-all">
+                        {connection.baseUrl} · {connection.model}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+              ))}
+            </ItemGroup>
+          ) : (
+            <PageEmpty
+              title="暂无独立连接"
+              description="可以新建 OpenAI 兼容连接，也可以继续跟随 SillyTavern。"
+            />
+          )}
+        </PageSection>
       </PageContent>
       {confirmation}
     </div>
@@ -246,6 +268,18 @@ function AgentConnectionEditor({
     }
     setDraft(next);
     setError(null);
+  }
+  function addHeader() {
+    change({
+      ...draft,
+      headerRows: [...draft.headerRows, { id: crypto.randomUUID(), name: "", value: "" }],
+    });
+  }
+  function updateHeader(id: string, patch: { name?: string; value?: string }) {
+    change({
+      ...draft,
+      headerRows: draft.headerRows.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    });
   }
   async function runTest() {
     const token = ++testGeneration.current;
@@ -327,155 +361,152 @@ function AgentConnectionEditor({
       onSave={() => void save()}
       error={error}
     >
-      <FieldGroup>
-        <Field>
-          <FieldLabel htmlFor="agent-connection-name">连接名称</FieldLabel>
-          <Input
-            id="agent-connection-name"
-            value={draft.name}
-            required
-            onChange={(event) => change({ ...draft, name: event.target.value })}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="agent-connection-url">API Base URL</FieldLabel>
-          <Input
-            id="agent-connection-url"
-            value={draft.baseUrl}
-            required
-            type="url"
-            placeholder="https://example.com/v1"
-            onChange={(event) => change({ ...draft, baseUrl: event.target.value })}
-          />
-          <FieldDescription>通过 SillyTavern 服务端转发 OpenAI 兼容请求。</FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="agent-connection-key">API Key</FieldLabel>
-          <SecretInput
-            id="agent-connection-key"
-            label="API Key"
-            value={draft.apiKey}
-            onChange={(event) => change({ ...draft, apiKey: event.target.value })}
-          />
-        </Field>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={testing || !draft.baseUrl.trim()}
-          onClick={() => void runTest()}
-          data-action="test-connection"
-        >
-          {testing ? "正在测试…" : "测试连接并获取模型"}
-        </Button>
-        {testResult ? (
-          <StatusNotice variant={testResult.error ? "destructive" : "default"}>
-            {testResult.text}
-          </StatusNotice>
-        ) : null}
-        {models.length ? (
+      <PageSection title="连接信息">
+        <FieldGroup className="ste:gap-5">
           <Field>
-            <FieldLabel htmlFor="agent-connection-model-list">可用模型</FieldLabel>
-            <NativeSelect
-              id="agent-connection-model-list"
-              className="ste:w-full"
-              value={models.includes(draft.model) ? draft.model : ""}
-              onChange={(event) => change({ ...draft, model: event.target.value })}
-            >
-              <NativeSelectOption value="" disabled>
-                选择模型
-              </NativeSelectOption>
-              {models.map((model) => (
-                <NativeSelectOption key={model} value={model}>
-                  {model}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+            <FieldLabel htmlFor="agent-connection-name">连接名称</FieldLabel>
+            <Input
+              id="agent-connection-name"
+              value={draft.name}
+              required
+              onChange={(event) => change({ ...draft, name: event.target.value })}
+            />
           </Field>
-        ) : null}
-        <Field>
-          <FieldLabel htmlFor="agent-connection-model">模型名称</FieldLabel>
-          <Input
-            id="agent-connection-model"
-            value={draft.model}
-            required
-            onChange={(event) => change({ ...draft, model: event.target.value })}
-          />
-          <FieldDescription>可以直接填写模型标识，无须先测试连接。</FieldDescription>
-        </Field>
-      </FieldGroup>
-      <section className="ste:flex ste:flex-col ste:gap-3">
-        <div className="ste:flex ste:items-center ste:justify-between ste:gap-3">
-          <h2 className="ste:text-sm ste:font-semibold">自定义请求头</h2>
+          <Field>
+            <FieldLabel htmlFor="agent-connection-url">API Base URL</FieldLabel>
+            <Input
+              id="agent-connection-url"
+              value={draft.baseUrl}
+              required
+              type="url"
+              placeholder="https://example.com/v1"
+              onChange={(event) => change({ ...draft, baseUrl: event.target.value })}
+            />
+            <FieldDescription>通过 SillyTavern 服务端转发 OpenAI 兼容请求。</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="agent-connection-key">API Key</FieldLabel>
+            <SecretInput
+              id="agent-connection-key"
+              label="API Key"
+              value={draft.apiKey}
+              onChange={(event) => change({ ...draft, apiKey: event.target.value })}
+            />
+          </Field>
+        </FieldGroup>
+      </PageSection>
+      <PageSection
+        title="模型"
+        action={
           <Button
             type="button"
+            size="sm"
             variant="outline"
-            onClick={() =>
-              change({
-                ...draft,
-                headerRows: [...draft.headerRows, { id: crypto.randomUUID(), name: "", value: "" }],
-              })
-            }
+            disabled={testing || !draft.baseUrl.trim()}
+            onClick={() => void runTest()}
+            data-action="test-connection"
           >
-            <Plus />
-            添加
+            {testing ? "正在测试…" : "测试连接"}
           </Button>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          {testResult ? (
+            <StatusNotice variant={testResult.error ? "destructive" : "default"}>
+              {testResult.text}
+            </StatusNotice>
+          ) : null}
+          {models.length ? (
+            <Field>
+              <FieldLabel htmlFor="agent-connection-model-list">可用模型</FieldLabel>
+              <NativeSelect
+                id="agent-connection-model-list"
+                className="ste:w-full"
+                value={models.includes(draft.model) ? draft.model : ""}
+                onChange={(event) => change({ ...draft, model: event.target.value })}
+              >
+                <NativeSelectOption value="" disabled>
+                  选择模型
+                </NativeSelectOption>
+                {models.map((model) => (
+                  <NativeSelectOption key={model} value={model}>
+                    {model}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </Field>
+          ) : null}
+          <Field>
+            <FieldLabel htmlFor="agent-connection-model">模型名称</FieldLabel>
+            <Input
+              id="agent-connection-model"
+              value={draft.model}
+              required
+              onChange={(event) => change({ ...draft, model: event.target.value })}
+            />
+            <FieldDescription>可以直接填写模型标识，无须先测试连接。</FieldDescription>
+          </Field>
         </div>
-        <p className="ste:text-xs ste:text-muted-foreground">
-          请求头名称不能重复，Content-Type 固定为 application/json。密钥与请求头保存在插件设置中。
-        </p>
-        {draft.headerRows.map((row, index) => (
-          <div
-            key={row.id}
-            className="ste:flex ste:flex-col ste:gap-3 ste:rounded-2xl ste:border ste:p-3"
-          >
-            <Field>
-              <FieldLabel htmlFor={`header-name-${row.id}`}>请求头 {index + 1} 名称</FieldLabel>
-              <Input
-                id={`header-name-${row.id}`}
-                value={row.name}
-                required
-                onChange={(event) =>
-                  change({
-                    ...draft,
-                    headerRows: draft.headerRows.map((item) =>
-                      item.id === row.id ? { ...item, name: event.target.value } : item,
-                    ),
-                  })
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={`header-value-${row.id}`}>请求头 {index + 1} 值</FieldLabel>
-              <SecretInput
-                id={`header-value-${row.id}`}
-                label={`请求头 ${index + 1} 值`}
-                value={row.value}
-                onChange={(event) =>
-                  change({
-                    ...draft,
-                    headerRows: draft.headerRows.map((item) =>
-                      item.id === row.id ? { ...item, value: event.target.value } : item,
-                    ),
-                  })
-                }
-              />
-            </Field>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() =>
-                change({
-                  ...draft,
-                  headerRows: draft.headerRows.filter((item) => item.id !== row.id),
-                })
-              }
-            >
-              <Trash2 />
-              移除请求头 {index + 1}
+      </PageSection>
+      <PageSection
+        title="自定义请求头"
+        action={
+          <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+            <span className="ste:text-xs ste:text-muted-foreground">
+              {draft.headerRows.length} 个
+            </span>
+            <Button type="button" size="sm" variant="outline" onClick={addHeader}>
+              <Plus />
+              添加
             </Button>
           </div>
-        ))}
-      </section>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <FieldDescription>
+            请求头名称不能重复，Content-Type 固定为 application/json。
+          </FieldDescription>
+          {draft.headerRows.map((row, index) => (
+            <div
+              key={row.id}
+              className="ste:flex ste:min-w-0 ste:flex-col ste:gap-3 ste:rounded-lg ste:border ste:border-border ste:bg-muted/30 ste:p-3"
+            >
+              <Field>
+                <FieldLabel htmlFor={`header-name-${row.id}`}>请求头 {index + 1} 名称</FieldLabel>
+                <Input
+                  id={`header-name-${row.id}`}
+                  value={row.name}
+                  required
+                  onChange={(event) => updateHeader(row.id, { name: event.target.value })}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`header-value-${row.id}`}>请求头 {index + 1} 值</FieldLabel>
+                <SecretInput
+                  id={`header-value-${row.id}`}
+                  label={`请求头 ${index + 1} 值`}
+                  value={row.value}
+                  onChange={(event) => updateHeader(row.id, { value: event.target.value })}
+                />
+              </Field>
+              <Button
+                type="button"
+                variant="ghost"
+                className="ste:self-start"
+                onClick={() =>
+                  change({
+                    ...draft,
+                    headerRows: draft.headerRows.filter((item) => item.id !== row.id),
+                  })
+                }
+              >
+                <Trash2 />
+                移除请求头 {index + 1}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </PageSection>
       {exists ? (
         <Button type="button" variant="destructive" onClick={() => setDeleting(true)}>
           <Trash2 />

@@ -8,9 +8,11 @@ import {
   ItemActions,
   ItemContent,
   ItemDescription,
+  ItemGroup,
   ItemTitle,
 } from "../../../ui/primitives/item.tsx";
 import { PageHeader, PageContent, PageFooter } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import {
   SchemaEditorFields,
   type SchemaEditor,
@@ -261,20 +263,7 @@ export function TablePresetStructureEditor({
     : (table?.name ?? "预设表结构");
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
-      <PageHeader
-        title={heading}
-        subtitle={`${value.name} · 草稿`}
-        {...controls}
-        onBack={back}
-        actions={
-          !editing ? (
-            <Button onClick={() => (table ? editField(null) : editTable(null))}>
-              <Plus />
-              {table ? "新增字段" : "新增表格"}
-            </Button>
-          ) : undefined
-        }
-      />
+      <PageHeader title={heading} subtitle={`${value.name} · 草稿`} {...controls} onBack={back} />
       <PageContent
         ref={scroll.ref}
         onScroll={scroll.onScroll}
@@ -317,107 +306,173 @@ export function TablePresetStructureEditor({
           </form>
         ) : table ? (
           <>
-            <p className="ste:text-sm ste:break-words">
-              {table.key} · {table.enabled ? "启用" : "停用"} · {table.description}
-            </p>
-            <Button variant="outline" onClick={() => editTable(tableIndex)}>
-              编辑表格属性
-            </Button>
-            <h2 className="ste:text-sm ste:font-semibold">字段（{table.fields.length}）</h2>
-            {table.fields.map((field, index) => (
-              <div
-                key={field.key}
-                className="ste:flex ste:flex-col ste:gap-2 ste:rounded-2xl ste:border ste:p-3"
-              >
+            <PageSection
+              title="表格属性"
+              action={
                 <Button
-                  variant="ghost"
-                  className="ste:h-auto ste:justify-start ste:text-left ste:whitespace-normal"
-                  onClick={() => editField(index)}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => editTable(tableIndex)}
                 >
-                  {field.name} · {field.key} · {field.type}
+                  编辑表格属性
                 </Button>
-                <div className="ste:flex ste:gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`上移字段 ${field.name}`}
-                    disabled={index === 0}
-                    onClick={() => moveField(index, -1)}
-                  >
-                    <ArrowUp />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`下移字段 ${field.name}`}
-                    disabled={index === table.fields.length - 1}
-                    onClick={() => moveField(index, 1)}
-                  >
-                    <ArrowDown />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`删除预设字段 ${field.name}`}
-                    onClick={() =>
-                      setDeletion({ table: tableIndex!, field: index, name: field.name })
-                    }
-                  >
-                    <Trash2 />
+              }
+            >
+              <p className="ste:text-sm ste:break-words">
+                {table.key} · {table.enabled ? "启用" : "停用"}
+                {table.description ? ` · ${table.description}` : null}
+              </p>
+            </PageSection>
+            <PageSection
+              title="字段"
+              action={
+                <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+                  <span className="ste:text-xs ste:text-muted-foreground">
+                    {table.fields.length} 项
+                  </span>
+                  <Button type="button" size="sm" onClick={() => editField(null)}>
+                    <Plus />
+                    新增字段
                   </Button>
                 </div>
-              </div>
-            ))}
-            {!table.fields.length ? (
-              <PageEmpty title="尚无字段" description="添加字段后配置显示策略和向量分组。" />
-            ) : null}
-            <Button
-              variant="outline"
-              className="ste:h-auto ste:justify-between ste:py-4 ste:whitespace-normal ste:text-left"
-              onClick={() =>
-                begin({
-                  kind: "display",
-                  dirty: false,
-                  draft:
-                    table.displayStrategy?.type === "field"
-                      ? { type: "field", fieldId: table.displayStrategy.fieldKey, template: "" }
-                      : table.displayStrategy?.type === "template"
-                        ? {
-                            type: "template",
-                            fieldId: "",
-                            template: table.displayStrategy.template,
-                          }
-                        : { type: "field", fieldId: "", template: "" },
-                })
               }
+              bodyClassName="ste:p-0"
             >
-              {presetDisplayStrategySummary(table)}
-              <ChevronRight />
-            </Button>
+              {table.fields.length ? (
+                <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                  {table.fields.map((field, index) => (
+                    <div role="listitem" key={field.key}>
+                      <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:items-center ste:px-4 ste:py-3 ste:text-left ste:outline-none ste:focus-visible:bg-muted/50 ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:focus-visible:ring-inset"
+                          title={`编辑字段 ${field.name}`}
+                          onClick={() => editField(index)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            editField(index);
+                          }}
+                        >
+                          <span className="ste:min-w-0 ste:break-words ste:text-sm">
+                            {field.name} · {field.key} · {field.type}
+                          </span>
+                        </div>
+                        <ItemActions className="ste:gap-1 ste:px-2 ste:py-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`上移字段 ${field.name}`}
+                            disabled={index === 0}
+                            onClick={() => moveField(index, -1)}
+                          >
+                            <ArrowUp />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`下移字段 ${field.name}`}
+                            disabled={index === table.fields.length - 1}
+                            onClick={() => moveField(index, 1)}
+                          >
+                            <ArrowDown />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`删除预设字段 ${field.name}`}
+                            onClick={() =>
+                              setDeletion({ table: tableIndex!, field: index, name: field.name })
+                            }
+                          >
+                            <Trash2 />
+                          </Button>
+                        </ItemActions>
+                      </Item>
+                    </div>
+                  ))}
+                </ItemGroup>
+              ) : (
+                <PageEmpty title="尚无字段" description="添加字段后配置显示策略和向量分组。" />
+              )}
+            </PageSection>
+            <PageSection title="显示与索引" bodyClassName="ste:p-0">
+              <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-3 ste:text-left ste:hover:bg-muted/50 ste:focus-visible:ring-inset"
+                    onClick={() =>
+                      begin({
+                        kind: "display",
+                        dirty: false,
+                        draft:
+                          table.displayStrategy?.type === "field"
+                            ? {
+                                type: "field",
+                                fieldId: table.displayStrategy.fieldKey,
+                                template: "",
+                              }
+                            : table.displayStrategy?.type === "template"
+                              ? {
+                                  type: "template",
+                                  fieldId: "",
+                                  template: table.displayStrategy.template,
+                                }
+                              : { type: "field", fieldId: "", template: "" },
+                      })
+                    }
+                  >
+                    <ItemContent>
+                      <span className="ste:min-w-0 ste:break-words ste:text-sm">
+                        {presetDisplayStrategySummary(table)}
+                      </span>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-3 ste:text-left ste:hover:bg-muted/50 ste:focus-visible:ring-inset"
+                    onClick={() =>
+                      begin({
+                        kind: "vector",
+                        dirty: false,
+                        draft: {
+                          enabled: table.vectorIndex?.enabled ?? false,
+                          source: "custom",
+                          updateMode: table.vectorIndex?.updateMode ?? "manual",
+                          groups:
+                            table.vectorIndex?.groups.map((group, index) => ({
+                              id: `preset-group-${index}`,
+                              key: group.key,
+                              name: group.name,
+                              fieldIds: group.fieldKeys.map((key) => key as MemoryFieldId),
+                            })) ?? [],
+                        },
+                      })
+                    }
+                  >
+                    <ItemContent>
+                      <span className="ste:text-sm">编辑向量分组</span>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+              </ItemGroup>
+            </PageSection>
             <Button
-              variant="outline"
-              onClick={() =>
-                begin({
-                  kind: "vector",
-                  dirty: false,
-                  draft: {
-                    enabled: table.vectorIndex?.enabled ?? false,
-                    source: "custom",
-                    updateMode: table.vectorIndex?.updateMode ?? "manual",
-                    groups:
-                      table.vectorIndex?.groups.map((group, index) => ({
-                        id: `preset-group-${index}`,
-                        key: group.key,
-                        name: group.name,
-                        fieldIds: group.fieldKeys.map((key) => key as MemoryFieldId),
-                      })) ?? [],
-                  },
-                })
-              }
-            >
-              编辑向量分组
-            </Button>
-            <Button
+              type="button"
               variant="destructive"
               onClick={() => setDeletion({ table: tableIndex!, field: null, name: table.name })}
             >
@@ -426,56 +481,83 @@ export function TablePresetStructureEditor({
             </Button>
           </>
         ) : (
-          <>
-            <p className="ste:text-sm ste:text-muted-foreground">
+          <PageSection
+            title="表格"
+            action={
+              <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+                <span className="ste:text-xs ste:text-muted-foreground">
+                  {value.tables.length} 项
+                </span>
+                <Button type="button" size="sm" onClick={() => editTable(null)}>
+                  <Plus />
+                  新增表格
+                </Button>
+              </div>
+            }
+            bodyClassName="ste:p-0"
+          >
+            <p className="ste:border-b ste:border-border ste:px-4 ste:py-2.5 ste:text-xs ste:break-words ste:text-muted-foreground">
               这里修改预设草稿，完成后返回预设页统一保存。不会修改任何现有对话。
             </p>
-            {value.tables.map((table, index) => (
-              <div key={table.key} className="ste:flex ste:flex-col ste:gap-2">
-                <Item
-                  variant="outline"
-                  render={<button type="button" />}
-                  className="ste:text-left"
-                  onClick={() => {
-                    setTableIndex(index);
-                    setError(null);
-                  }}
-                  data-action="open-preset-structure-table"
-                >
-                  <ItemContent>
-                    <ItemTitle>{table.name}</ItemTitle>
-                    <ItemDescription>
-                      {table.key} · {table.fields.length} 个字段
-                    </ItemDescription>
-                  </ItemContent>
-                  <ItemActions>
-                    <ChevronRight />
-                  </ItemActions>
-                </Item>
-                <div className="ste:flex ste:gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`上移表格 ${table.name}`}
-                    disabled={index === 0}
-                    onClick={() => moveTable(index, -1)}
-                  >
-                    <ArrowUp />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`下移表格 ${table.name}`}
-                    disabled={index === value.tables.length - 1}
-                    onClick={() => moveTable(index, 1)}
-                  >
-                    <ArrowDown />
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {!value.tables.length ? <PageEmpty title="尚无表格" /> : null}
-          </>
+            {value.tables.length ? (
+              <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                {value.tables.map((table, index) => (
+                  <div role="listitem" key={table.key}>
+                    <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:flex-col ste:gap-1 ste:px-4 ste:py-3 ste:text-left ste:outline-none ste:focus-visible:bg-muted/50 ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:focus-visible:ring-inset"
+                        data-action="open-preset-structure-table"
+                        onClick={() => {
+                          setTableIndex(index);
+                          setError(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          setTableIndex(index);
+                          setError(null);
+                        }}
+                      >
+                        <ItemContent>
+                          <ItemTitle>{table.name}</ItemTitle>
+                          <ItemDescription>
+                            {table.key} · {table.fields.length} 个字段
+                          </ItemDescription>
+                        </ItemContent>
+                      </div>
+                      <ItemActions className="ste:gap-1 ste:px-2 ste:py-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`上移表格 ${table.name}`}
+                          disabled={index === 0}
+                          onClick={() => moveTable(index, -1)}
+                        >
+                          <ArrowUp />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`下移表格 ${table.name}`}
+                          disabled={index === value.tables.length - 1}
+                          onClick={() => moveTable(index, 1)}
+                        >
+                          <ArrowDown />
+                        </Button>
+                        <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                      </ItemActions>
+                    </Item>
+                  </div>
+                ))}
+              </ItemGroup>
+            ) : (
+              <PageEmpty title="尚无表格" />
+            )}
+          </PageSection>
         )}
       </PageContent>
       <PageFooter>

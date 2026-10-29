@@ -4,6 +4,7 @@ import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../../ui/primitives/field.tsx";
 import { ConfirmAction } from "../../components/confirmation.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import {
   parseEmbeddingConnection,
   type EmbeddingConnection,
@@ -91,80 +92,86 @@ export function EmbeddingSettingsPage({
       error={error}
       notice={notice}
     >
-      <FieldGroup>
-        <Field>
-          <FieldLabel htmlFor="embedding-url">API Base URL</FieldLabel>
-          <Input
-            id="embedding-url"
-            type="url"
-            value={draft.baseUrl}
-            required
-            placeholder="https://example.com/v1"
-            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-          />
-          <FieldDescription>
-            浏览器直接调用 /embeddings 接口，服务需允许当前 SillyTavern 站点跨域访问。
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="embedding-key">API Key</FieldLabel>
-          <SecretInput
-            id="embedding-key"
-            label="Embedding API Key"
-            value={draft.apiKey}
-            onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="embedding-model">Embedding 模型</FieldLabel>
-          <Input
-            id="embedding-model"
-            value={draft.model}
-            required
-            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="embedding-chars">单条输入字符上限</FieldLabel>
-          <Input
-            id="embedding-chars"
-            type="number"
-            min={1}
-            step={1}
-            value={draft.maxInputChars}
-            required
-            onChange={(event) => setDraft({ ...draft, maxInputChars: event.target.value })}
-          />
-          <FieldDescription>这是本地字符限制；模型的 token 上限由服务校验。</FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="embedding-timeout">请求超时（秒）</FieldLabel>
-          <Input
-            id="embedding-timeout"
-            type="number"
-            min={1}
-            max={1800}
-            step={1}
-            value={draft.timeoutSeconds}
-            required
-            onChange={(event) => setDraft({ ...draft, timeoutSeconds: event.target.value })}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="embedding-dimensions">向量维度（可留空）</FieldLabel>
-          <Input
-            id="embedding-dimensions"
-            type="number"
-            min={1}
-            step={1}
-            value={draft.dimensions}
-            onChange={(event) => setDraft({ ...draft, dimensions: event.target.value })}
-          />
-          <FieldDescription>
-            留空使用模型默认维度。更换模型或维度后需要重新生成相应索引。
-          </FieldDescription>
-        </Field>
-      </FieldGroup>
+      <PageSection title="连接信息">
+        <FieldGroup className="ste:gap-5">
+          <Field>
+            <FieldLabel htmlFor="embedding-url">API Base URL</FieldLabel>
+            <Input
+              id="embedding-url"
+              type="url"
+              value={draft.baseUrl}
+              required
+              placeholder="https://example.com/v1"
+              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+            />
+            <FieldDescription>
+              浏览器直接调用 /embeddings 接口，需要服务允许当前站点跨域访问。
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="embedding-key">API Key</FieldLabel>
+            <SecretInput
+              id="embedding-key"
+              label="Embedding API Key"
+              value={draft.apiKey}
+              onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="embedding-model">Embedding 模型</FieldLabel>
+            <Input
+              id="embedding-model"
+              value={draft.model}
+              required
+              onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+            />
+          </Field>
+        </FieldGroup>
+      </PageSection>
+      <PageSection title="输入与超时">
+        <FieldGroup className="ste:gap-5">
+          <Field>
+            <FieldLabel htmlFor="embedding-chars">单条输入字符上限</FieldLabel>
+            <Input
+              id="embedding-chars"
+              type="number"
+              min={1}
+              step={1}
+              value={draft.maxInputChars}
+              required
+              onChange={(event) => setDraft({ ...draft, maxInputChars: event.target.value })}
+            />
+            <FieldDescription>本地字符限制；模型的 token 上限由服务校验。</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="embedding-timeout">请求超时（秒）</FieldLabel>
+            <Input
+              id="embedding-timeout"
+              type="number"
+              min={1}
+              max={1800}
+              step={1}
+              value={draft.timeoutSeconds}
+              required
+              onChange={(event) => setDraft({ ...draft, timeoutSeconds: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="embedding-dimensions">向量维度（可留空）</FieldLabel>
+            <Input
+              id="embedding-dimensions"
+              type="number"
+              min={1}
+              step={1}
+              value={draft.dimensions}
+              onChange={(event) => setDraft({ ...draft, dimensions: event.target.value })}
+            />
+            <FieldDescription>
+              留空使用模型默认维度。更换模型或维度后需要重新生成相应索引。
+            </FieldDescription>
+          </Field>
+        </FieldGroup>
+      </PageSection>
       {services.settings.read().embeddingConnection ? (
         <Button type="button" variant="destructive" onClick={() => setDeleting(true)}>
           <Trash2 />

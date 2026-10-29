@@ -25,6 +25,7 @@ import {
   AccordionContent,
 } from "../../../ui/primitives/accordion.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
+import { copyText } from "../../components/copy-text.ts";
 
 export function QueryMessage({
   message,
@@ -53,7 +54,7 @@ export function QueryMessage({
   const answer = assistantPlainText(message);
   async function copy() {
     try {
-      await navigator.clipboard.writeText(answer);
+      await copyText(answer);
       setCopied(true);
       setCopyError(null);
     } catch (cause) {

@@ -31,6 +31,7 @@ import { PageEmpty, PageError } from "../../components/page-state.tsx";
 import { PagePagination } from "../../components/page-pagination.tsx";
 import { formatCompactTime } from "../../components/format-time.ts";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
+import { copyText } from "../../components/copy-text.ts";
 
 const levelNames: Record<LogLevel, string> = { info: "信息", warn: "警告", error: "错误" };
 const defaultPageSize = 30;
@@ -136,7 +137,7 @@ export function LogsPage({
   async function copySelected() {
     if (!selected) return;
     try {
-      await navigator.clipboard.writeText(selected.text);
+      await copyText(selected.text);
       setCopied("done");
     } catch {
       setCopied("error");

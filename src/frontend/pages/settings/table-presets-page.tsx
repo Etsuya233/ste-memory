@@ -10,9 +10,9 @@ import {
   ItemActions,
   ItemContent,
   ItemDescription,
+  ItemGroup,
   ItemTitle,
 } from "../../../ui/primitives/item.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "../../../ui/primitives/card.tsx";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -23,6 +23,7 @@ import {
   AlertDialogCancel,
 } from "../../../ui/primitives/alert-dialog.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
@@ -188,79 +189,96 @@ function TablePresetList({
         ) : notice ? (
           <StatusNotice>{notice}</StatusNotice>
         ) : null}
-        <Field>
-          <FieldLabel htmlFor="default-table-preset">新空间默认预设</FieldLabel>
-          <NativeSelect
-            id="default-table-preset"
-            className="ste:w-full"
-            disabled={busy}
-            value={settings.defaultPresetId}
-            onChange={(event) => {
-              const id = event.target.value;
-              void change(
-                (latest) => setDefaultTablePreset(latest, SYSTEM_TABLE_PRESET, id),
-                (value) => value.defaultPresetId === id,
-                "默认预设已保存，只影响之后创建的新空间。",
-              );
-            }}
-          >
-            {rows.map((preset) => (
-              <NativeSelectOption key={preset.id} value={preset.id}>
-                {preset.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <FieldDescription>已有对话的表格、字段和记录保持原有内容。</FieldDescription>
-        </Field>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy || !context}
-          onClick={() => onCapture(context!)}
+        <PageSection title="新空间默认">
+          <Field>
+            <FieldLabel htmlFor="default-table-preset">新空间默认预设</FieldLabel>
+            <NativeSelect
+              id="default-table-preset"
+              className="ste:w-full"
+              disabled={busy}
+              value={settings.defaultPresetId}
+              onChange={(event) => {
+                const id = event.target.value;
+                void change(
+                  (latest) => setDefaultTablePreset(latest, SYSTEM_TABLE_PRESET, id),
+                  (value) => value.defaultPresetId === id,
+                  "默认预设已保存，只影响之后创建的新空间。",
+                );
+              }}
+            >
+              {rows.map((preset) => (
+                <NativeSelectOption key={preset.id} value={preset.id}>
+                  {preset.name}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <FieldDescription>已有对话的表格、字段和记录保持原有内容。</FieldDescription>
+          </Field>
+        </PageSection>
+        <PageSection
+          title="表格预设"
+          action={
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">{rows.length} 个</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || !context}
+                onClick={() => onCapture(context!)}
+              >
+                <Save />
+                将当前表结构另存为预设
+              </Button>
+            </div>
+          }
+          bodyClassName="ste:p-0"
         >
-          <Save />
-          将当前表结构另存为预设
-        </Button>
-        {!context ? (
-          <p className="ste:text-xs ste:text-muted-foreground">
-            打开已绑定记忆空间的对话后，可以另存结构或应用预设。
-          </p>
-        ) : null}
-        {rows.map((preset) => (
-          <Item
-            key={preset.id}
-            variant="outline"
-            render={<button type="button" disabled={busy} />}
-            className="ste:text-left"
-            onClick={() => onOpen(preset)}
-            data-action="open-table-preset"
-          >
-            <ItemContent>
-              <ItemTitle>{preset.name}</ItemTitle>
-              <ItemDescription>
-                {preset.builtIn ? "内置 · " : ""}
-                {preset.tables.length} 张表 · {preset.description}
-              </ItemDescription>
-            </ItemContent>
-            <ItemActions>
-              <ChevronRight />
-            </ItemActions>
-          </Item>
-        ))}
-        <Field>
-          <FieldLabel htmlFor="import-table-preset">导入表格预设 JSON</FieldLabel>
-          <Input
-            id="import-table-preset"
-            type="file"
-            accept=".json,application/json"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void importFile(file);
-            }}
-          />
-        </Field>
+          <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+            {rows.map((preset) => (
+              <div role="listitem" key={preset.id}>
+                <Item
+                  render={<button type="button" disabled={busy} />}
+                  className="ste:cursor-pointer ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                  onClick={() => onOpen(preset)}
+                  data-action="open-table-preset"
+                >
+                  <ItemContent>
+                    <ItemTitle>{preset.name}</ItemTitle>
+                    <ItemDescription className="ste:line-clamp-1">
+                      {preset.builtIn ? "内置 · " : ""}
+                      {preset.tables.length} 张表 · {preset.description}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                  </ItemActions>
+                </Item>
+              </div>
+            ))}
+          </ItemGroup>
+          {!context ? (
+            <p className="ste:border-t ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground">
+              打开已绑定记忆空间的对话后，可以另存结构或应用预设。
+            </p>
+          ) : null}
+        </PageSection>
+        <PageSection title="导入">
+          <Field>
+            <FieldLabel htmlFor="import-table-preset">导入表格预设 JSON</FieldLabel>
+            <Input
+              id="import-table-preset"
+              type="file"
+              accept=".json,application/json"
+              disabled={busy}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void importFile(file);
+              }}
+            />
+          </Field>
+        </PageSection>
       </PageContent>
       {confirmation}
     </div>
@@ -337,27 +355,38 @@ function CaptureTablePreset({
       onSave={() => void save()}
       error={error}
     >
-      <p className="ste:text-sm ste:text-muted-foreground">
-        来源：{context.title}。保存表结构、填写规则、向量分组和宏，不包含记忆记录、索引或连接密钥。
-      </p>
-      <Field>
-        <FieldLabel htmlFor="capture-preset-name">预设名称</FieldLabel>
-        <Input
-          id="capture-preset-name"
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="capture-preset-description">预设说明</FieldLabel>
-        <Textarea
-          id="capture-preset-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-      </Field>
+      <PageSection
+        title="预设内容"
+        meta={
+          <span className="ste:text-xs ste:break-words ste:text-muted-foreground">
+            来源：{context.title}
+          </span>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <Field>
+            <FieldLabel htmlFor="capture-preset-name">预设名称</FieldLabel>
+            <Input
+              id="capture-preset-name"
+              required
+              maxLength={120}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <FieldDescription>
+              保存表结构、填写规则、向量分组和宏，不包含记忆记录、索引或连接密钥。
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="capture-preset-description">预设说明</FieldLabel>
+            <Textarea
+              id="capture-preset-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </Field>
+        </div>
+      </PageSection>
     </SettingsEditor>
   );
 }
@@ -585,102 +614,148 @@ function TablePresetDetail({
       notice={notice}
       contentProps={{ ref: scroll.ref, onScroll: scroll.onScroll }}
     >
-      <div className="ste:flex ste:flex-wrap ste:gap-2">
-        <Button type="button" variant="outline" onClick={() => void copy()}>
-          <Copy />
-          复制为用户预设
-        </Button>
-        <Button type="button" variant="outline" onClick={exportFile}>
-          <Download />
-          导出草稿
-        </Button>
-      </div>
-      <Field>
-        <FieldLabel htmlFor="table-preset-name">预设名称</FieldLabel>
-        <Input
-          id="table-preset-name"
-          required
-          maxLength={120}
-          disabled={draft.builtIn}
-          value={draft.name}
-          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="table-preset-description">预设说明</FieldLabel>
-        <Textarea
-          id="table-preset-description"
-          disabled={draft.builtIn}
-          value={draft.description}
-          onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="table-preset-prompt">跨表填写规则</FieldLabel>
-        <Textarea
-          id="table-preset-prompt"
-          disabled={draft.builtIn}
-          value={draft.prompt ?? ""}
-          onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
-        />
-      </Field>
-      <Button
-        type="button"
-        variant="outline"
-        disabled={dirty || !context}
-        data-action="open-preset-update"
-        onClick={() => setUpdateTarget(context!)}
+      <PageSection
+        title="基本信息"
+        action={
+          <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>
+              <Copy />
+              复制为用户预设
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={exportFile}>
+              <Download />
+              导出草稿
+            </Button>
+          </div>
+        }
       >
-        比较并增量更新当前空间
-      </Button>
-      {draft.builtIn ? (
-        <p className="ste:text-xs ste:text-muted-foreground">
-          内置结构只读；复制为用户预设后可以编辑。
-        </p>
-      ) : (
-        <Button type="button" variant="outline" onClick={() => setStructureOpen(true)}>
-          编辑表格与字段结构
-        </Button>
-      )}
-      {draft.tables.map((table) => (
-        <Card key={table.key} size="sm">
-          <CardHeader>
-            <CardTitle className="ste:break-words">
-              {table.name} · {table.key}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="ste:flex ste:flex-col ste:gap-2">
-            <p className="ste:text-sm">{table.description}</p>
-            <p className="ste:text-xs ste:text-muted-foreground">
-              {presetDisplayStrategySummary(table)}
-            </p>
-            {table.fields.map((field) => (
-              <p key={field.key} className="ste:text-sm ste:break-words">
-                {field.name} · {field.key} · {field.type}
-                {field.required ? " · 必填" : ""}
-                {field.enabled ? "" : " · 停用"}
-              </p>
-            ))}
-            <p className="ste:text-xs ste:text-muted-foreground">
-              向量分组：{table.vectorIndex?.groups.length ?? 0}
-            </p>
-          </CardContent>
-        </Card>
-      ))}
-      <Button
-        type="button"
-        variant="destructive"
-        disabled={!context || dirty}
-        onClick={() => {
-          setApplyError(null);
-          setApplying({ context: context!, preset: structuredClone(draft) });
-        }}
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <Field>
+            <FieldLabel htmlFor="table-preset-name">预设名称</FieldLabel>
+            <Input
+              id="table-preset-name"
+              required
+              maxLength={120}
+              disabled={draft.builtIn}
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="table-preset-description">预设说明</FieldLabel>
+            <Textarea
+              id="table-preset-description"
+              disabled={draft.builtIn}
+              value={draft.description}
+              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="table-preset-prompt">跨表填写规则</FieldLabel>
+            <Textarea
+              id="table-preset-prompt"
+              disabled={draft.builtIn}
+              value={draft.prompt ?? ""}
+              onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+            />
+          </Field>
+        </div>
+      </PageSection>
+      <PageSection
+        title="表格与字段"
+        action={
+          draft.builtIn ? (
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">
+                {draft.tables.length} 张表
+              </span>
+              <span className="ste:text-xs ste:break-words ste:text-muted-foreground">
+                内置结构只读；复制为用户预设后可以编辑。
+              </span>
+            </div>
+          ) : (
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">
+                {draft.tables.length} 张表
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setStructureOpen(true)}
+              >
+                编辑表格与字段结构
+              </Button>
+            </div>
+          )
+        }
+        bodyClassName="ste:p-0"
       >
-        应用到当前空间
-      </Button>
-      {dirty ? (
-        <p className="ste:text-xs ste:text-muted-foreground">先保存预设修改，再应用到当前空间。</p>
-      ) : null}
+        <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+          {draft.tables.map((table) => (
+            <div role="listitem" key={table.key}>
+              <Item className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5">
+                <ItemContent className="ste:min-w-0">
+                  <ItemTitle className="ste:w-full ste:line-clamp-none ste:break-words">
+                    {table.name} · {table.key}
+                  </ItemTitle>
+                  <ItemDescription className="ste:line-clamp-none ste:break-words">
+                    {table.description}
+                  </ItemDescription>
+                  <p className="ste:text-xs ste:break-words ste:text-muted-foreground">
+                    {presetDisplayStrategySummary(table)} · 向量分组：
+                    {table.vectorIndex?.groups.length ?? 0}
+                  </p>
+                  {table.fields.length > 0 ? (
+                    <p className="ste:text-xs ste:break-words">
+                      {table.fields
+                        .map(
+                          (field) =>
+                            `${field.name} · ${field.key} · ${field.type}${field.required ? " · 必填" : ""}${field.enabled ? "" : " · 停用"}`,
+                        )
+                        .join("，")}
+                    </p>
+                  ) : null}
+                </ItemContent>
+              </Item>
+            </div>
+          ))}
+        </ItemGroup>
+      </PageSection>
+      <PageSection
+        title="应用到空间"
+        action={
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={dirty || !context}
+            data-action="open-preset-update"
+            onClick={() => setUpdateTarget(context!)}
+          >
+            比较并增量更新当前空间
+          </Button>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-2">
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!context || dirty}
+            onClick={() => {
+              setApplyError(null);
+              setApplying({ context: context!, preset: structuredClone(draft) });
+            }}
+          >
+            应用到当前空间
+          </Button>
+          {dirty ? (
+            <p className="ste:text-xs ste:text-muted-foreground">
+              先保存预设修改，再应用到当前空间。
+            </p>
+          ) : null}
+        </div>
+      </PageSection>
       {!draft.builtIn ? (
         <Button type="button" variant="destructive" onClick={() => setDeleting(true)}>
           <Trash2 />

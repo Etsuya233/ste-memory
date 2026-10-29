@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronRight, Plus, Trash2, Variable } from "lucide-react";
+import { ChevronRight, Copy, Plus, Trash2, Variable } from "lucide-react";
 import type { MemoryFieldService, MemoryTableService } from "../../../features/memory/index.ts";
 import type { MemoryMacro } from "../../../features/macros/macro-expression.ts";
 import type {
@@ -23,7 +23,17 @@ import {
   AccordionContent,
 } from "../../../ui/primitives/accordion.tsx";
 import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "../../../ui/primitives/item.tsx";
 import { PageHeader, PageContent } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
+import { copyText } from "../../components/copy-text.ts";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";
 import type { RecordsContext } from "../records-workspace.ts";
@@ -73,6 +83,7 @@ export function MacrosPage(props: MacrosPageProps) {
     macro: MemoryMacro;
     scope: Scope;
     context: RecordsContext | null;
+    editorKey: string;
   } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const recent = useSyncExternalStore(
@@ -161,7 +172,10 @@ export function MacrosPage(props: MacrosPageProps) {
       id: crypto.randomUUID(),
       name: "",
       enabled: false,
-      expression: { language: "query", query: { table: schema[0]?.table.key ?? "", limit: 10 } },
+      expression: {
+        language: "query",
+        query: { table: schema[0]?.table.key ?? "", limit: 10 },
+      },
       output: { format: "text", maxChars: null },
     };
     const draft = macroEditorDraft(initial, schema[0]?.table.key ?? "");
@@ -301,12 +315,22 @@ export function MacrosPage(props: MacrosPageProps) {
           ),
       );
       if (!result.saved) throw new Error(result.error ?? "宏未删除");
+      closeEditor(selected.editorKey);
       setNotice({
         text: result.error ? `宏已删除，后续刷新失败：${result.error}` : "宏已删除。",
         error: !!result.error,
       });
     } finally {
       setDeleting(false);
+    }
+  }
+  async function copyMacroName(macro: MemoryMacro) {
+    const token = prefix ? `{{${prefix}::${macro.name}}}` : macro.name;
+    try {
+      await copyText(token);
+      setNotice({ text: `已复制 ${token}`, error: false });
+    } catch {
+      setNotice({ text: "复制失败：无法写入剪贴板", error: true });
     }
   }
   if (page === "defaults") return <MacroDefaults {...props} onBack={() => setPage("overview")} />;
@@ -340,6 +364,26 @@ export function MacrosPage(props: MacrosPageProps) {
             schemaError={schemaError}
             recent={recent.find((item) => item.id === editor.initial.id && item.scope === page)}
           />
+          {editor.original ? (
+            <Button
+              type="button"
+              variant="destructive"
+              className="ste:self-start"
+              data-action="delete-macro"
+              disabled={editor.busy}
+              onClick={() =>
+                setDeletion({
+                  macro: editor.original!,
+                  scope: page as Scope,
+                  context,
+                  editorKey: key,
+                })
+              }
+            >
+              <Trash2 />
+              删除此宏
+            </Button>
+          ) : null}
         </SettingsEditor>
         {confirmation}
       </>
@@ -354,60 +398,77 @@ export function MacrosPage(props: MacrosPageProps) {
         {...props.controls}
         onBack={back}
         busy={busy}
-        actions={
-          page === "global" || page === "chat" ? (
-            <Button
-              disabled={busy || (page === "chat" && !context)}
-              onClick={() => begin()}
-              data-action="create-macro"
-            >
-              <Plus data-icon="inline-start" />
-              新建宏
-            </Button>
-          ) : undefined
-        }
       />
-      <PageContent>
-        <div className="ste:mx-auto ste:flex ste:max-w-3xl ste:flex-col ste:gap-4">
-          {notice ? (
-            <StatusNotice variant={notice.error ? "destructive" : "default"}>
-              {notice.text}
-            </StatusNotice>
-          ) : null}
-          {page === "overview" ? (
-            <>
-              <Button
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => setPage("defaults")}
-              >
-                <span>
-                  前缀与输出上限
-                  <br />
-                  <span className="ste:text-xs ste:text-muted-foreground">
-                    {settings.macroName || "未注册"} · 每个宏 {settings.macroLimit} 字符
-                  </span>
-                </span>
-                <ChevronRight />
-              </Button>
-              <Button
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => setPage("global")}
-              >
-                全局宏 · {global.length} 个<ChevronRight />
-              </Button>
-              <Button
-                variant="outline"
-                className="ste:h-auto ste:justify-between ste:py-4"
-                onClick={() => setPage("chat")}
-                disabled={!context}
-              >
-                当前对话宏 · {chat.length} 个<ChevronRight />
-              </Button>
-              <p className="ste:text-sm ste:text-muted-foreground">
-                对话宏优先于全局宏和内置宏。停用仍占用同名位置，删除后才会使用下一层定义；对话宏随记忆空间保存。
-              </p>
+      <PageContent className="ste:flex ste:flex-col ste:gap-4">
+        {notice ? (
+          <StatusNotice variant={notice.error ? "destructive" : "default"}>
+            {notice.text}
+          </StatusNotice>
+        ) : null}
+        {page === "overview" ? (
+          <>
+            <PageSection title="宏设置" bodyClassName="ste:p-0">
+              <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    onClick={() => setPage("defaults")}
+                  >
+                    <ItemContent>
+                      <ItemTitle>前缀与输出上限</ItemTitle>
+                      <ItemDescription className="ste:line-clamp-1">
+                        {settings.macroName || "未注册"} · 每个宏 {settings.macroLimit} 字符
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    onClick={() => setPage("global")}
+                  >
+                    <ItemContent>
+                      <ItemTitle>全局宏</ItemTitle>
+                      <ItemDescription className="ste:flex ste:flex-wrap ste:items-center ste:gap-1.5">
+                        <Badge variant="secondary">{global.length} 个</Badge>
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" disabled={!context} />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset ste:disabled:hover:bg-transparent ste:disabled:opacity-60"
+                    onClick={() => setPage("chat")}
+                  >
+                    <ItemContent>
+                      <ItemTitle>当前对话宏</ItemTitle>
+                      <ItemDescription className="ste:flex ste:flex-wrap ste:items-center ste:gap-1.5">
+                        <Badge variant="secondary">{chat.length} 个</Badge>
+                        {context ? null : <span>打开对话后可编辑</span>}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
+              </ItemGroup>
+              <div className="ste:border-t ste:border-border ste:px-4 ste:py-2.5">
+                <FieldDescription>
+                  对话宏优先于全局宏和内置宏；停用仍占用同名位置，删除后才使用下一层定义。
+                </FieldDescription>
+              </div>
+            </PageSection>
+            <PageSection title="可用宏">
               <Accordion>
                 <AccordionItem>
                   <AccordionTrigger>可用宏与最近展开内容</AccordionTrigger>
@@ -429,49 +490,90 @@ export function MacrosPage(props: MacrosPageProps) {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
-            </>
-          ) : !context && page === "chat" ? (
-            <PageEmpty title="请先打开对话" />
-          ) : list.length ? (
-            list.map((macro) => (
-              <div key={macro.id} className="ste:flex ste:items-center ste:gap-2">
+            </PageSection>
+          </>
+        ) : !context && page === "chat" ? (
+          <PageEmpty title="请先打开对话" />
+        ) : (
+          <PageSection
+            title={label}
+            action={
+              <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
+                <Badge variant="secondary">{list.length} 个</Badge>
                 <Button
+                  size="sm"
                   variant="outline"
-                  className="ste:h-auto ste:min-w-0 ste:flex-1 ste:flex-col ste:items-start ste:gap-2 ste:py-4 ste:text-left ste:whitespace-normal"
-                  onClick={() => begin(macro)}
-                  disabled={busy}
+                  disabled={busy || (page === "chat" && !context)}
+                  onClick={() => begin()}
+                  data-action="create-macro"
                 >
-                  <span className="ste:break-all">
-                    {prefix ? `{{${prefix}::${macro.name}}}` : macro.name}
-                  </span>
-                  <span className="ste:flex ste:flex-wrap ste:gap-2">
-                    <Badge variant={macro.enabled ? "secondary" : "outline"}>
-                      {macro.enabled ? "已启用" : "已停用"}
-                    </Badge>
-                    <Badge variant="outline">
-                      {macro.expression.language === "sql" ? "SQL" : "Query JSON"} ·{" "}
-                      {macro.output.format}
-                    </Badge>
-                  </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`删除宏 ${macro.name}`}
-                  disabled={busy}
-                  onClick={() => setDeletion({ macro, scope: page as Scope, context })}
-                >
-                  <Trash2 />
+                  <Plus data-icon="inline-start" />
+                  新建宏
                 </Button>
               </div>
-            ))
-          ) : (
-            <PageEmpty
-              title={`还没有${label}`}
-              description="创建查询或 SQL 表达式，把需要的记忆展开到提示词。"
-            />
-          )}
-        </div>
+            }
+            bodyClassName="ste:p-0"
+          >
+            {list.length ? (
+              <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                {list.map((macro) => (
+                  <div role="listitem" key={macro.id}>
+                    <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
+                      <div
+                        role="button"
+                        tabIndex={busy ? -1 : 0}
+                        aria-disabled={busy || undefined}
+                        className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:items-center ste:gap-3 ste:px-4 ste:py-2.5 ste:text-left ste:outline-none ste:aria-disabled:pointer-events-none ste:aria-disabled:opacity-60 ste:focus-visible:bg-muted/50 ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:focus-visible:ring-inset"
+                        data-action="open-macro"
+                        onClick={() => {
+                          if (!busy) begin(macro);
+                        }}
+                        onKeyDown={(event) => {
+                          if (busy || (event.key !== "Enter" && event.key !== " ")) return;
+                          event.preventDefault();
+                          begin(macro);
+                        }}
+                      >
+                        <ItemContent>
+                          <ItemTitle className="ste:max-w-full ste:break-all">
+                            {prefix ? `{{${prefix}::${macro.name}}}` : macro.name}
+                          </ItemTitle>
+                          <ItemDescription className="ste:line-clamp-none ste:flex ste:flex-wrap ste:items-center ste:gap-1.5">
+                            <Badge variant={macro.enabled ? "secondary" : "outline"}>
+                              {macro.enabled ? "已启用" : "已停用"}
+                            </Badge>
+                            <Badge variant="outline">
+                              {macro.expression.language === "sql" ? "SQL" : "Query JSON"} ·{" "}
+                              {macro.output.format}
+                            </Badge>
+                          </ItemDescription>
+                        </ItemContent>
+                      </div>
+                      <ItemActions className="ste:shrink-0 ste:gap-1 ste:pr-3">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`复制宏名 ${macro.name}`}
+                          title="复制宏名"
+                          data-action="copy-macro-name"
+                          onClick={() => void copyMacroName(macro)}
+                        >
+                          <Copy />
+                        </Button>
+                        <ChevronRight className="ste:size-4 ste:shrink-0 ste:text-muted-foreground" />
+                      </ItemActions>
+                    </Item>
+                  </div>
+                ))}
+              </ItemGroup>
+            ) : (
+              <PageEmpty
+                title={`还没有${label}`}
+                description="创建查询或 SQL 表达式，把需要的记忆展开到提示词。"
+              />
+            )}
+          </PageSection>
+        )}
       </PageContent>
       {confirmation}
       <ConfirmAction
@@ -549,31 +651,38 @@ function MacroDefaults(props: MacrosPageProps) {
       error={notice?.error ? notice.text : null}
       notice={notice && !notice.error ? notice.text : null}
     >
-      <Field>
-        <FieldLabel htmlFor="macro-prefix">宏前缀</FieldLabel>
-        <Input
-          id="macro-prefix"
-          value={draft.name}
-          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          placeholder="{{ste}}"
-        />
-        <FieldDescription>可填 ste 或 {"{{ste}}"}；留空会注销记忆宏。</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="macro-limit">默认输出字符上限</FieldLabel>
-        <Input
-          id="macro-limit"
-          type="number"
-          min={0}
-          step={1}
-          required
-          value={draft.limit}
-          onChange={(event) => setDraft({ ...draft, limit: event.target.value })}
-        />
-        <FieldDescription>
-          每个宏分别生效，可被单个宏的上限覆盖。只输出完整结果行，JSON 保持完整结构。
-        </FieldDescription>
-      </Field>
+      <PageSection
+        title="默认值"
+        meta={<span className="ste:text-xs ste:text-muted-foreground">全局生效</span>}
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <Field>
+            <FieldLabel htmlFor="macro-prefix">宏前缀</FieldLabel>
+            <Input
+              id="macro-prefix"
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              placeholder="{{ste}}"
+            />
+            <FieldDescription>可填 ste 或 {"{{ste}}"}；留空会注销记忆宏。</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="macro-limit">默认输出字符上限</FieldLabel>
+            <Input
+              id="macro-limit"
+              type="number"
+              min={0}
+              step={1}
+              required
+              value={draft.limit}
+              onChange={(event) => setDraft({ ...draft, limit: event.target.value })}
+            />
+            <FieldDescription>
+              每个宏分别生效，可被单个宏的上限覆盖。只输出完整结果行，JSON 保持完整结构。
+            </FieldDescription>
+          </Field>
+        </div>
+      </PageSection>
     </SettingsEditor>
   );
 }

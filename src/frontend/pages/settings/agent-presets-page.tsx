@@ -13,8 +13,10 @@ import {
   ItemDescription,
   ItemTitle,
   ItemActions,
+  ItemGroup,
 } from "../../../ui/primitives/item.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";
@@ -182,39 +184,7 @@ function AgentPresetList({
   }
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
-      <PageHeader
-        title="Agent 提示词预设"
-        {...controls}
-        onBack={onBack}
-        busy={busy}
-        actions={
-          <Button
-            disabled={busy}
-            data-action="create-agent-preset"
-            onClick={() =>
-              onEdit(
-                {
-                  id: crypto.randomUUID(),
-                  name: "",
-                  messages: [
-                    {
-                      id: crypto.randomUUID(),
-                      name: "",
-                      role: "system",
-                      content: "",
-                      enabled: true,
-                    },
-                  ],
-                },
-                true,
-              )
-            }
-          >
-            <Plus />
-            新建
-          </Button>
-        }
-      />
+      <PageHeader title="Agent 提示词预设" {...controls} onBack={onBack} busy={busy} />
       <PageContent
         ref={scroll.ref}
         onScroll={scroll.onScroll}
@@ -225,60 +195,107 @@ function AgentPresetList({
         ) : notice ? (
           <StatusNotice>{notice}</StatusNotice>
         ) : null}
-        <Field>
-          <FieldLabel htmlFor="active-agent-preset">活动预设</FieldLabel>
-          <NativeSelect
-            id="active-agent-preset"
-            className="ste:w-full"
-            disabled={busy}
-            value={settings.agentPresets.activePresetId}
-            onChange={(event) => void activate(event.target.value)}
-          >
-            <NativeSelectOption value={BUILTIN_AGENT_PRESET_ID}>系统默认</NativeSelectOption>
-            {settings.agentPresets.presets.map((preset) => (
-              <NativeSelectOption key={preset.id} value={preset.id}>
-                {preset.name}
-              </NativeSelectOption>
+        <PageSection title="活动预设">
+          <Field>
+            <FieldLabel htmlFor="active-agent-preset">活动预设</FieldLabel>
+            <NativeSelect
+              id="active-agent-preset"
+              className="ste:w-full"
+              disabled={busy}
+              value={settings.agentPresets.activePresetId}
+              onChange={(event) => void activate(event.target.value)}
+            >
+              <NativeSelectOption value={BUILTIN_AGENT_PRESET_ID}>系统默认</NativeSelectOption>
+              {settings.agentPresets.presets.map((preset) => (
+                <NativeSelectOption key={preset.id} value={preset.id}>
+                  {preset.name}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <FieldDescription>运行中的任务保持原提示词快照。</FieldDescription>
+          </Field>
+        </PageSection>
+        <PageSection
+          title="预设"
+          action={
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">
+                {settings.agentPresets.presets.length + 1} 个
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                data-action="create-agent-preset"
+                onClick={() =>
+                  onEdit(
+                    {
+                      id: crypto.randomUUID(),
+                      name: "",
+                      messages: [
+                        {
+                          id: crypto.randomUUID(),
+                          name: "",
+                          role: "system",
+                          content: "",
+                          enabled: true,
+                        },
+                      ],
+                    },
+                    true,
+                  )
+                }
+              >
+                <Plus />
+                新建
+              </Button>
+            </div>
+          }
+          bodyClassName="ste:p-0"
+        >
+          <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+            {[builtin, ...settings.agentPresets.presets].map((preset) => (
+              <div role="listitem" key={preset.id}>
+                <Item
+                  render={<button type="button" disabled={busy} />}
+                  className="ste:cursor-pointer ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                  onClick={() => onEdit(preset)}
+                  data-action="open-agent-preset"
+                >
+                  <ItemContent>
+                    <ItemTitle>{preset.name}</ItemTitle>
+                    <ItemDescription className="ste:line-clamp-1">
+                      {preset.id === BUILTIN_AGENT_PRESET_ID
+                        ? "内置 · 只读，可复制"
+                        : `自定义 · ${preset.messages.length} 条消息`}
+                      {preset.id === settings.agentPresets.activePresetId ? " · 使用中" : ""}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <ChevronRight className="ste:size-4 ste:text-muted-foreground" />
+                  </ItemActions>
+                </Item>
+              </div>
             ))}
-          </NativeSelect>
-          <FieldDescription>运行中的任务保持原提示词快照。</FieldDescription>
-        </Field>
-        {[builtin, ...settings.agentPresets.presets].map((preset) => (
-          <Item
-            key={preset.id}
-            variant="outline"
-            render={<button type="button" disabled={busy} />}
-            className="ste:text-left"
-            onClick={() => onEdit(preset)}
-            data-action="open-agent-preset"
-          >
-            <ItemContent>
-              <ItemTitle>{preset.name}</ItemTitle>
-              <ItemDescription>
-                {preset.id === BUILTIN_AGENT_PRESET_ID
-                  ? "内置 · 只读，可复制"
-                  : `${preset.messages.length} 条消息`}
-              </ItemDescription>
-            </ItemContent>
-            <ItemActions>
-              <ChevronRight />
-            </ItemActions>
-          </Item>
-        ))}
-        <Field>
-          <FieldLabel htmlFor="import-agent-preset">导入 Agent 预设 JSON</FieldLabel>
-          <Input
-            id="import-agent-preset"
-            type="file"
-            accept=".json,application/json"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void importFile(file);
-            }}
-          />
-        </Field>
+          </ItemGroup>
+        </PageSection>
+        <PageSection title="导入">
+          <Field>
+            <FieldLabel htmlFor="import-agent-preset">导入 Agent 预设 JSON</FieldLabel>
+            <Input
+              id="import-agent-preset"
+              type="file"
+              accept=".json,application/json"
+              disabled={busy}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void importFile(file);
+              }}
+            />
+          </Field>
+        </PageSection>
       </PageContent>
       {confirmation}
     </div>
@@ -451,244 +468,302 @@ function AgentPresetEditor({
       error={error}
       notice={notice}
     >
-      <div className="ste:flex ste:flex-wrap ste:gap-2">
-        <Button type="button" variant="outline" onClick={copy}>
-          <Copy />
-          复制为自定义
-        </Button>
-        <Button type="button" variant="outline" onClick={exportFile}>
-          <Download />
-          导出草稿
-        </Button>
-        {!readOnly && !newPreset ? (
-          <Button type="button" variant="destructive" onClick={() => setDeleting(true)}>
-            <Trash2 />
-            删除
-          </Button>
-        ) : null}
-      </div>
-      <Field>
-        <FieldLabel htmlFor="agent-preset-name">预设名称</FieldLabel>
-        <Input
-          id="agent-preset-name"
-          required
-          value={draft.name}
-          disabled={readOnly}
-          onChange={(event) => change({ ...draft, name: event.target.value })}
-        />
-      </Field>
-      {!containsDigestReference(draft) ? (
-        <StatusNotice>
-          当前预设未引用表结构摘要。可加入 {"{{tablesDigest}}"} 或 {"{{systemDefaultPrompt}}"}
-          ，让填写 Agent 获取表与字段定义。
-        </StatusNotice>
-      ) : null}
-      {draft.messages.map((message, index) => (
-        <Card key={message.id} size="sm">
-          <CardHeader>
-            <CardTitle>消息 {index + 1}</CardTitle>
-          </CardHeader>
-          <CardContent className="ste:flex ste:flex-col ste:gap-4">
-            <Field>
-              <FieldLabel htmlFor={`preset-message-name-${message.id}`}>
-                消息 {index + 1} 名称
-              </FieldLabel>
-              <Input
-                id={`preset-message-name-${message.id}`}
-                value={message.name}
-                disabled={readOnly}
-                onChange={(event) =>
+      <PageSection
+        title="预设"
+        action={
+          <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={copy}>
+              <Copy />
+              复制为自定义
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={exportFile}>
+              <Download />
+              导出草稿
+            </Button>
+            {!readOnly && !newPreset ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={() => setDeleting(true)}
+              >
+                <Trash2 />
+                删除
+              </Button>
+            ) : null}
+          </div>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <Field>
+            <FieldLabel htmlFor="agent-preset-name">预设名称</FieldLabel>
+            <Input
+              id="agent-preset-name"
+              required
+              value={draft.name}
+              disabled={readOnly}
+              onChange={(event) => change({ ...draft, name: event.target.value })}
+            />
+          </Field>
+          {!containsDigestReference(draft) ? (
+            <StatusNotice>
+              未引用表结构摘要，填写 Agent 将无法获取表与字段定义；可加入 {"{{tablesDigest}}"} 或{" "}
+              {"{{systemDefaultPrompt}}"}。
+            </StatusNotice>
+          ) : null}
+        </div>
+      </PageSection>
+      <PageSection
+        title="消息"
+        action={
+          !readOnly ? (
+            <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+              <span className="ste:text-xs ste:text-muted-foreground">
+                {draft.messages.length} 条
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
                   change({
                     ...draft,
-                    messages: draft.messages.map((item) =>
-                      item.id === message.id ? { ...item, name: event.target.value } : item,
-                    ),
-                  })
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={`preset-message-role-${message.id}`}>
-                消息 {index + 1} 角色
-              </FieldLabel>
-              <NativeSelect
-                id={`preset-message-role-${message.id}`}
-                disabled={readOnly}
-                className="ste:w-full"
-                value={message.role}
-                onChange={(event) =>
-                  change({
-                    ...draft,
-                    messages: draft.messages.map((item) =>
-                      item.id === message.id
-                        ? { ...item, role: event.target.value as AgentPresetRole }
-                        : item,
-                    ),
+                    messages: [
+                      ...draft.messages,
+                      {
+                        id: crypto.randomUUID(),
+                        name: "",
+                        role: "system",
+                        content: "",
+                        enabled: true,
+                      },
+                    ],
                   })
                 }
               >
-                {AGENT_PRESET_ROLES.map((role) => (
-                  <NativeSelectOption key={role} value={role}>
-                    {role}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </Field>
-            <SwitchField
-              label={`启用消息 ${index + 1}`}
-              checked={message.enabled}
-              disabled={readOnly}
-              onCheckedChange={(enabled) =>
-                change({
-                  ...draft,
-                  messages: draft.messages.map((item) =>
-                    item.id === message.id ? { ...item, enabled } : item,
-                  ),
-                })
-              }
-            />
-            <Field>
-              <FieldLabel htmlFor={`preset-message-content-${message.id}`}>
-                消息 {index + 1} 内容
-              </FieldLabel>
-              <Textarea
-                id={`preset-message-content-${message.id}`}
-                className="ste:min-h-40"
-                readOnly={readOnly}
-                value={message.content}
-                onChange={(event) =>
-                  change({
-                    ...draft,
-                    messages: draft.messages.map((item) =>
-                      item.id === message.id ? { ...item, content: event.target.value } : item,
-                    ),
-                  })
-                }
-              />
-            </Field>
-            {!readOnly ? (
-              <>
-                <div className="ste:flex ste:flex-wrap ste:gap-2">
-                  {(
-                    Object.entries(AGENT_PRESET_PLACEHOLDERS) as [
-                      AgentPresetPlaceholderName,
-                      string,
-                    ][]
-                  ).map(([name, value]) => (
-                    <Button
-                      key={name}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
-                      onClick={() =>
-                        change({
-                          ...draft,
-                          messages: draft.messages.map((item) =>
-                            item.id === message.id
-                              ? { ...item, content: item.content + value }
-                              : item,
-                          ),
-                        })
-                      }
-                    >
-                      {value}
-                    </Button>
-                  ))}
-                </div>
-                <div className="ste:flex ste:flex-wrap ste:gap-2">
-                  {([-1, 1] as const).map((offset) => (
-                    <Button
-                      key={offset}
-                      type="button"
-                      variant="ghost"
-                      disabled={index + offset < 0 || index + offset >= draft.messages.length}
-                      onClick={() => {
-                        const messages = [...draft.messages];
-                        [messages[index], messages[index + offset]] = [
-                          messages[index + offset]!,
-                          messages[index]!,
-                        ];
-                        change({ ...draft, messages });
-                      }}
-                    >
-                      {offset < 0 ? <ArrowUp /> : <ArrowDown />}
-                      {offset < 0 ? "上移" : "下移"}消息 {index + 1}
-                    </Button>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
+                <Plus />
+                添加消息
+              </Button>
+            </div>
+          ) : (
+            <span className="ste:text-xs ste:text-muted-foreground">
+              {draft.messages.length} 条
+            </span>
+          )
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          {draft.messages.map((message, index) => (
+            <Card key={message.id} size="sm">
+              <CardHeader>
+                <CardTitle>消息 {index + 1}</CardTitle>
+              </CardHeader>
+              <CardContent className="ste:flex ste:flex-col ste:gap-4">
+                <Field>
+                  <FieldLabel htmlFor={`preset-message-name-${message.id}`}>
+                    消息 {index + 1} 名称
+                  </FieldLabel>
+                  <Input
+                    id={`preset-message-name-${message.id}`}
+                    value={message.name}
+                    disabled={readOnly}
+                    onChange={(event) =>
                       change({
                         ...draft,
-                        messages: draft.messages.filter((item) => item.id !== message.id),
+                        messages: draft.messages.map((item) =>
+                          item.id === message.id ? { ...item, name: event.target.value } : item,
+                        ),
+                      })
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`preset-message-role-${message.id}`}>
+                    消息 {index + 1} 角色
+                  </FieldLabel>
+                  <NativeSelect
+                    id={`preset-message-role-${message.id}`}
+                    disabled={readOnly}
+                    className="ste:w-full"
+                    value={message.role}
+                    onChange={(event) =>
+                      change({
+                        ...draft,
+                        messages: draft.messages.map((item) =>
+                          item.id === message.id
+                            ? { ...item, role: event.target.value as AgentPresetRole }
+                            : item,
+                        ),
                       })
                     }
                   >
-                    <Trash2 />
-                    删除消息 {index + 1}
-                  </Button>
-                </div>
-              </>
-            ) : null}
-          </CardContent>
-        </Card>
-      ))}
-      {!readOnly ? (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() =>
-            change({
-              ...draft,
-              messages: [
-                ...draft.messages,
-                { id: crypto.randomUUID(), name: "", role: "system", content: "", enabled: true },
-              ],
-            })
-          }
-        >
-          <Plus />
-          添加消息
-        </Button>
-      ) : null}
-      <Field>
-        <FieldLabel htmlFor="preset-preview-input">预览剧情输入</FieldLabel>
-        <Textarea
-          id="preset-preview-input"
-          value={input}
-          onChange={(event) => {
-            previewGeneration.current++;
-            setPreviewing(false);
-            setPreview(null);
-            setInput(event.target.value);
-          }}
-        />
-        <FieldDescription>仅展开当前草稿和上下文；有输入时执行世界书试扫描。</FieldDescription>
-      </Field>
-      <Button type="button" variant="outline" disabled={previewing} onClick={() => void expand()}>
-        {previewing ? "正在展开…" : "展开预览"}
-      </Button>
-      {preview?.length === 0 ? (
-        <StatusNotice>没有启用且非空的消息。</StatusNotice>
-      ) : (
-        preview?.map((item) => (
-          <Card key={item.id} size="sm">
-            <CardHeader>
-              <CardTitle className="ste:break-words">
-                {item.sourceName} <Badge variant="secondary">{item.role}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <pre className="ste:whitespace-pre-wrap ste:break-words ste:text-sm">{item.text}</pre>
-              {item.note ? (
-                <p className="ste:mt-3 ste:text-xs ste:text-muted-foreground">{item.note}</p>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))
-      )}
+                    {AGENT_PRESET_ROLES.map((role) => (
+                      <NativeSelectOption key={role} value={role}>
+                        {role}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <SwitchField
+                  label={`启用消息 ${index + 1}`}
+                  checked={message.enabled}
+                  disabled={readOnly}
+                  onCheckedChange={(enabled) =>
+                    change({
+                      ...draft,
+                      messages: draft.messages.map((item) =>
+                        item.id === message.id ? { ...item, enabled } : item,
+                      ),
+                    })
+                  }
+                />
+                <Field>
+                  <FieldLabel htmlFor={`preset-message-content-${message.id}`}>
+                    消息 {index + 1} 内容
+                  </FieldLabel>
+                  <Textarea
+                    id={`preset-message-content-${message.id}`}
+                    className="ste:min-h-40"
+                    readOnly={readOnly}
+                    value={message.content}
+                    onChange={(event) =>
+                      change({
+                        ...draft,
+                        messages: draft.messages.map((item) =>
+                          item.id === message.id ? { ...item, content: event.target.value } : item,
+                        ),
+                      })
+                    }
+                  />
+                </Field>
+                {!readOnly ? (
+                  <>
+                    <div className="ste:flex ste:flex-wrap ste:gap-2">
+                      {(
+                        Object.entries(AGENT_PRESET_PLACEHOLDERS) as [
+                          AgentPresetPlaceholderName,
+                          string,
+                        ][]
+                      ).map(([name, value]) => (
+                        <Button
+                          key={name}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          title={AGENT_PRESET_PLACEHOLDER_HINTS[name]}
+                          onClick={() =>
+                            change({
+                              ...draft,
+                              messages: draft.messages.map((item) =>
+                                item.id === message.id
+                                  ? { ...item, content: item.content + value }
+                                  : item,
+                              ),
+                            })
+                          }
+                        >
+                          {value}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="ste:flex ste:flex-wrap ste:gap-2">
+                      {([-1, 1] as const).map((offset) => (
+                        <Button
+                          key={offset}
+                          type="button"
+                          variant="ghost"
+                          disabled={index + offset < 0 || index + offset >= draft.messages.length}
+                          onClick={() => {
+                            const messages = [...draft.messages];
+                            [messages[index], messages[index + offset]] = [
+                              messages[index + offset]!,
+                              messages[index]!,
+                            ];
+                            change({ ...draft, messages });
+                          }}
+                        >
+                          {offset < 0 ? <ArrowUp /> : <ArrowDown />}
+                          {offset < 0 ? "上移" : "下移"}消息 {index + 1}
+                        </Button>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() =>
+                          change({
+                            ...draft,
+                            messages: draft.messages.filter((item) => item.id !== message.id),
+                          })
+                        }
+                      >
+                        <Trash2 />
+                        删除消息 {index + 1}
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+          {draft.messages.length === 0 ? (
+            <p className="ste:text-sm ste:text-muted-foreground">还没有消息。</p>
+          ) : null}
+        </div>
+      </PageSection>
+      <PageSection
+        title="预览"
+        action={
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={previewing}
+            onClick={() => void expand()}
+          >
+            {previewing ? "正在展开…" : "展开预览"}
+          </Button>
+        }
+      >
+        <div className="ste:flex ste:flex-col ste:gap-4">
+          <Field>
+            <FieldLabel htmlFor="preset-preview-input">预览剧情输入</FieldLabel>
+            <Textarea
+              id="preset-preview-input"
+              value={input}
+              onChange={(event) => {
+                previewGeneration.current++;
+                setPreviewing(false);
+                setPreview(null);
+                setInput(event.target.value);
+              }}
+            />
+            <FieldDescription>仅展开当前草稿和上下文；有输入时执行世界书试扫描。</FieldDescription>
+          </Field>
+          {preview?.length === 0 ? (
+            <StatusNotice>没有启用且非空的消息。</StatusNotice>
+          ) : preview ? (
+            <div className="ste:flex ste:flex-col ste:gap-3">
+              {preview.map((item) => (
+                <Card key={item.id} size="sm">
+                  <CardHeader>
+                    <CardTitle className="ste:break-words">
+                      {item.sourceName} <Badge variant="secondary">{item.role}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="ste:whitespace-pre-wrap ste:break-words ste:text-sm">
+                      {item.text}
+                    </pre>
+                    {item.note ? (
+                      <p className="ste:mt-3 ste:text-xs ste:text-muted-foreground">{item.note}</p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </PageSection>
       <ConfirmAction
         open={deleting}
         onOpenChange={setDeleting}

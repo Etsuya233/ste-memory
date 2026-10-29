@@ -3,7 +3,9 @@ import {
   validateAutoFillSettings,
   type AutoFillSettings,
 } from "../../../features/fill-tasks/auto-fill-settings.ts";
+import { FieldDescription, FieldGroup } from "../../../ui/primitives/field.tsx";
 import { AutoFillFields } from "../../components/auto-fill-fields.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { SettingsEditor, type SettingsSubpageProps } from "./connection-settings-editor.tsx";
 import { persistSettingsEdit } from "./connection-settings-model.ts";
 
@@ -58,16 +60,25 @@ export function AutoFillSettingsPage({
       error={notice?.error ? notice.text : null}
       notice={notice && !notice.error ? notice.text : null}
     >
-      <p className="ste:text-sm ste:text-muted-foreground">
-        AI 回复完成后检查间隔。用户和 AI 消息均计入楼层；对话单独设置的值优先于这里的全局值。
-      </p>
-      <AutoFillFields
-        kind="global"
-        idPrefix="auto-fill"
-        disabled={busy}
-        value={draft}
-        onChange={setDraft}
-      />
+      <PageSection
+        title="自动填表"
+        meta={
+          <span className="ste:text-xs ste:text-muted-foreground">全局默认 · 对话设置可覆盖</span>
+        }
+      >
+        <FieldGroup className="ste:gap-5">
+          <FieldDescription>
+            每次 AI 回复完成后按楼层间隔检查；用户和 AI 消息均计入楼层。
+          </FieldDescription>
+          <AutoFillFields
+            kind="global"
+            idPrefix="auto-fill"
+            disabled={busy}
+            value={draft}
+            onChange={setDraft}
+          />
+        </FieldGroup>
+      </PageSection>
     </SettingsEditor>
   );
 }

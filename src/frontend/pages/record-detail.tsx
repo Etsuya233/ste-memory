@@ -7,6 +7,7 @@ import type {
 } from "../../infrastructure/sillytavern/chat-adapter.ts";
 import type { RecordsWorkspace, RecordsSnapshot } from "./records-workspace.ts";
 import { RecordFieldInput, referenceLabels } from "../components/record-fields.tsx";
+import { copyText } from "../components/copy-text.ts";
 import { recordFieldValueText } from "../../ui/memory/record-form-model.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { Badge } from "../../ui/primitives/badge.tsx";
@@ -136,9 +137,7 @@ export function RecordDetailPage({
                       size="sm"
                       onClick={() =>
                         void runHost(() =>
-                          navigator.clipboard.writeText(
-                            JSON.stringify(state.editor!.draft.values, null, 2),
-                          ),
+                          copyText(JSON.stringify(state.editor!.draft.values, null, 2)),
                         )
                       }
                     >

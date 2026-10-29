@@ -34,6 +34,7 @@ import {
   AlertDialogCancel,
 } from "../../../ui/primitives/alert-dialog.tsx";
 import { PageHeader, PageContent, PageFooter } from "../../components/page-layout.tsx";
+import { PageSection } from "../../components/page-section.tsx";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";
 import { usePageLeave } from "../../components/confirmation.tsx";
 import type { SettingsSubpageProps } from "./connection-settings-editor.tsx";
@@ -229,24 +230,23 @@ export function PresetUpdatePage(
         busy={busy}
       />
       <PageContent className="ste:flex ste:flex-col ste:gap-5" data-page="preset-update">
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>{preset.name}</CardTitle>
-          </CardHeader>
-          <CardContent className="ste:flex ste:flex-col ste:gap-3">
-            <p className="ste:text-sm ste:text-muted-foreground">
-              按表、字段和向量分组的 Key
-              比较，只执行勾选项。已有字段类型保持不变，未选中的记录与结构保留。
-            </p>
+        <PageSection
+          title={preset.name}
+          action={
             <Button
+              size="sm"
               disabled={!active || busy}
               onClick={() => void compare()}
               data-action="compare-preset-update"
             >
               {busy ? "正在处理…" : plan ? "重新比较" : "比较变更"}
             </Button>
-          </CardContent>
-        </Card>
+          }
+        >
+          <p className="ste:text-sm ste:text-muted-foreground">
+            按表、字段和向量分组的 Key 比较，只执行勾选项。
+          </p>
+        </PageSection>
         {!active ? (
           <PageEmpty
             title="目标对话已切换"
@@ -273,88 +273,104 @@ export function PresetUpdatePage(
             </div>
           </StatusNotice>
         ) : null}
+        {active && !plan && !result ? (
+          <PageEmpty
+            title="尚未比较变更"
+            description="比较当前空间与已保存预设，按需勾选要执行的差异。"
+          />
+        ) : null}
         {plan ? (
-          <>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="preset-update-filter">差异筛选</FieldLabel>
-                <NativeSelect
-                  id="preset-update-filter"
-                  value={filter}
-                  disabled={busy}
-                  onChange={(event) => setFilter(event.target.value)}
+          <PageSection
+            title="差异"
+            action={
+              <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-end ste:gap-2">
+                <span className="ste:text-xs ste:text-muted-foreground">
+                  {changes.length} 项变更
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || !changes.some((change) => change.action === "update")}
+                  onClick={() =>
+                    toggle(
+                      changes
+                        .filter((change) => change.action === "update")
+                        .map((change) => change.id),
+                      true,
+                    )
+                  }
                 >
-                  <option value="all">全部差异</option>
-                  <option value="selected">仅已选项</option>
-                </NativeSelect>
-              </Field>
-            </FieldGroup>
-            <div className="ste:flex ste:flex-wrap ste:gap-2">
-              <Button
-                variant="outline"
-                disabled={busy || !changes.some((change) => change.action === "update")}
-                onClick={() =>
-                  toggle(
-                    changes
-                      .filter((change) => change.action === "update")
-                      .map((change) => change.id),
-                    true,
-                  )
-                }
-              >
-                选择全部更新
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy || !changes.some((change) => change.action === "create")}
-                onClick={() =>
-                  toggle(
-                    changes
-                      .filter((change) => change.action === "create")
-                      .map((change) => change.id),
-                    true,
-                  )
-                }
-              >
-                选择全部新增
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={busy || !selected.size}
-                onClick={() => setSelected(new Set())}
-              >
-                清空选择
-              </Button>
-            </div>
-            <p className="ste:text-xs ste:text-muted-foreground">
-              修改 Key 将产生新增与删除。当前对话之外的宏及召回配置不在本次检查范围内。
-            </p>
-            {!changes.length && plan.nodes.length ? (
-              <PageEmpty
-                title="没有可执行的变更"
-                description="仅存在保留当前值的差异，已有字段类型保持原样。"
-              />
-            ) : null}
-            {plan.nodes.length ? (
-              <div className="ste:flex ste:flex-col ste:gap-3" aria-label="空间变更树">
-                {plan.nodes.map((node) => (
-                  <UpdateNode
-                    key={node.id}
-                    node={node}
-                    selected={selected}
-                    disabled={busy}
-                    selectedOnly={filter === "selected"}
-                    onToggle={toggle}
-                  />
-                ))}
+                  选择全部更新
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || !changes.some((change) => change.action === "create")}
+                  onClick={() =>
+                    toggle(
+                      changes
+                        .filter((change) => change.action === "create")
+                        .map((change) => change.id),
+                      true,
+                    )
+                  }
+                >
+                  选择全部新增
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || !selected.size}
+                  onClick={() => setSelected(new Set())}
+                >
+                  清空选择
+                </Button>
               </div>
-            ) : (
-              <PageEmpty title="没有可更新的差异" description="当前空间与这份已保存预设一致。" />
-            )}
-            {filter === "selected" && !chosen.length && plan.nodes.length ? (
-              <PageEmpty title="尚未选择变更" description="切回全部差异后勾选要执行的内容。" />
-            ) : null}
-          </>
+            }
+          >
+            <div className="ste:flex ste:flex-col ste:gap-4">
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="preset-update-filter">差异筛选</FieldLabel>
+                  <NativeSelect
+                    id="preset-update-filter"
+                    value={filter}
+                    disabled={busy}
+                    onChange={(event) => setFilter(event.target.value)}
+                  >
+                    <option value="all">全部差异</option>
+                    <option value="selected">仅已选项</option>
+                  </NativeSelect>
+                </Field>
+              </FieldGroup>
+              <p className="ste:text-xs ste:text-muted-foreground">修改 Key 会产生新增与删除。</p>
+              {!changes.length && plan.nodes.length ? (
+                <PageEmpty
+                  title="没有可执行的变更"
+                  description="仅存在保留当前值的差异，已有字段类型保持原样。"
+                />
+              ) : null}
+              {plan.nodes.length ? (
+                <div className="ste:flex ste:flex-col ste:gap-3" aria-label="空间变更树">
+                  {plan.nodes.map((node) => (
+                    <UpdateNode
+                      key={node.id}
+                      node={node}
+                      selected={selected}
+                      disabled={busy}
+                      selectedOnly={filter === "selected"}
+                      onToggle={toggle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <PageEmpty title="没有可更新的差异" description="当前空间与这份已保存预设一致。" />
+              )}
+              {filter === "selected" && !chosen.length && plan.nodes.length ? (
+                <PageEmpty title="尚未选择变更" description="切回全部差异后勾选要执行的内容。" />
+              ) : null}
+            </div>
+          </PageSection>
         ) : null}
       </PageContent>
       {plan && changes.length ? (
