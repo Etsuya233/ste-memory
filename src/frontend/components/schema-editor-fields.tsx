@@ -11,11 +11,11 @@ import { Field, FieldLabel, FieldDescription } from "../../ui/primitives/field.t
 import {
   fieldTypeNeedsOptions,
   fieldTypeNeedsReference,
-} from "../../ui/memory/field-editor-model.ts";
+} from "../models/memory/field-editor-model.ts";
 import {
   templateFieldRef,
   type DisplayStrategyDraft,
-} from "../../ui/memory/display-strategy-model.ts";
+} from "../models/memory/display-strategy-model.ts";
 import type { TableDraft, FieldEditorDraft } from "../pages/tables/tables-workspace.ts";
 
 export type SchemaField = Pick<

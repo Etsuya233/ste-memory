@@ -47,7 +47,7 @@ import {
 } from "../../../features/table-presets/preset-transfer.ts";
 import { copyMemoryMacros } from "../../../features/macros/macro-expression.ts";
 import { downloadTextFile } from "../../../infrastructure/browser/download.ts";
-import { presetDisplayStrategySummary } from "../../../ui/settings/table-preset-editor-model.ts";
+import { presetDisplayStrategySummary } from "../../models/settings/table-preset-editor-model.ts";
 import { SettingsEditor, type SettingsSubpageProps } from "./connection-settings-editor.tsx";
 import { persistSettingsEdit } from "./connection-settings-model.ts";
 import type { PresetContext, PresetSettingsServices } from "./preset-settings-services.ts";

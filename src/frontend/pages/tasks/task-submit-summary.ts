@@ -5,7 +5,7 @@ import type {
 import { BUILTIN_AGENT_PRESET_ID } from "../../../features/agent-presets/preset-model.ts";
 import type { CleaningRule } from "../../../features/cleaning/cleaning-rules.ts";
 import type { FillTaskView, FloorLedgerEntry } from "../../../features/fill-tasks/fill-task.ts";
-import { validateBlockSize, validateFloorRange } from "../../../ui/tasks/task-panel-model.ts";
+import { validateBlockSize, validateFloorRange } from "../../models/tasks/task-panel-model.ts";
 
 export interface FillSubmitSummary {
   readonly from: number;

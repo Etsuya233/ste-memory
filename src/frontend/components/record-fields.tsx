@@ -12,7 +12,7 @@ import {
   FieldSet,
   FieldLegend,
 } from "../../ui/primitives/field.tsx";
-import { recordFieldValueText, type RecordFormValue } from "../../ui/memory/record-form-model.ts";
+import { recordFieldValueText, type RecordFormValue } from "../models/memory/record-form-model.ts";
 
 export function RecordFieldInput({
   field,

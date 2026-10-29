@@ -99,7 +99,8 @@ describe("architecture", () => {
   it("功能不能依赖基础设施与 UI，Memory 不能反向依赖其他功能", () => {
     for (const path of [
       "../../infrastructure/indexeddb/database.ts",
-      "../../ui/shell/panel-shell.tsx",
+      "../../ui/primitives/button.tsx",
+      "../../frontend/models/memory/record-form-model.ts",
     ]) {
       expect(dependencyViolations(`import "${path}";`, featureFile, SRC, options)).toHaveLength(1);
     }
@@ -116,6 +117,11 @@ describe("architecture", () => {
   it("ESLint 同时保留 Memory 与外层限制，并拒绝 Domain 技术包导入", async () => {
     const lint = new ESLint({ cwd: ROOT });
     const probes = [
+      {
+        filePath: featureFile,
+        source:
+          'export { recordFieldValueText } from "../../frontend/models/memory/record-form-model.ts";',
+      },
       { filePath: featureFile, source: `export { memoryProposalBatch } from "${internalPath}";` },
       {
         filePath: featureFile,
@@ -137,10 +143,9 @@ describe("architecture", () => {
       { filePath: featureFile },
     );
     expect(valid!.messages).toEqual([]);
-    const [uiImport] = await lint.lintText(
-      'export { TablesTab } from "../memory/tables-tab.tsx";',
-      { filePath: join(SRC, "ui/shell/probe.ts") },
-    );
+    const [uiImport] = await lint.lintText('export { Button } from "./button.tsx";', {
+      filePath: join(SRC, "ui/primitives/probe.ts"),
+    });
     expect(uiImport!.messages).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@ import {
   COVERAGE_STATUS_LABELS,
   type CoverageStatus,
   type CoverageViewModel,
-} from "../../../ui/tasks/task-panel-model.ts";
+} from "../../models/tasks/task-panel-model.ts";
 import { cn } from "../../../ui/primitives/utils.ts";
 
 const coverageClasses: Record<CoverageStatus, string> = {

@@ -9,7 +9,7 @@ import type {
   RetrievalState,
   VectorRetrievalService,
 } from "../../../features/vector-retrieval/vector-retrieval-service.ts";
-import { recordFieldValueText } from "../../../ui/memory/record-form-model.ts";
+import { recordFieldValueText } from "../../models/memory/record-form-model.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Badge } from "../../../ui/primitives/badge.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";

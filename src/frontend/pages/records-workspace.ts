@@ -19,7 +19,7 @@ import {
   nextRecordSort,
   recordSortOptions,
   saveRecordSort,
-} from "../../ui/memory/record-sort-model.ts";
+} from "../models/memory/record-sort-model.ts";
 import {
   emptyRecordFormDraft,
   recordFormDraftFromPayload,
@@ -28,7 +28,7 @@ import {
   validateRecordFormDraft,
   type RecordFormDraft,
   type RecordFormValue,
-} from "../../ui/memory/record-form-model.ts";
+} from "../models/memory/record-form-model.ts";
 
 export interface RecordsContext {
   readonly chatKey: string;

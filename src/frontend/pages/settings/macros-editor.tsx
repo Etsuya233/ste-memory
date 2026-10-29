@@ -2,7 +2,7 @@ import { useId } from "react";
 import type { MemoryMacro, MemoryTable, MemoryField } from "../../../features/memory/index.ts";
 import { effectiveVectorIndexGroups } from "../../../features/memory/index.ts";
 import type { MacroExecutionResult } from "../../../features/macros/memory-macro-service.ts";
-import type { ExpressionMacroDraft } from "../../../ui/settings/expression-macro-editor-model.ts";
+import type { ExpressionMacroDraft } from "../../models/settings/expression-macro-editor-model.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Textarea } from "../../../ui/primitives/textarea.tsx";

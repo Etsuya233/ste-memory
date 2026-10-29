@@ -4,7 +4,7 @@ import {
   validateCleaningRule,
   type CleaningRule,
 } from "../../../features/cleaning/cleaning-rules.ts";
-import { draftToRule } from "../../../ui/settings/cleaning-rules-manager-model.ts";
+import { draftToRule } from "../../models/settings/cleaning-rules-manager-model.ts";
 import { persistSettingsEdit } from "./connection-settings-model.ts";
 import type { SettingsServices } from "./settings-actions.ts";
 

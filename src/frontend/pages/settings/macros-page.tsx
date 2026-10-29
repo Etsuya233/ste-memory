@@ -12,7 +12,7 @@ import type { SettingsService } from "../../../features/settings/settings-servic
 import {
   macroFromEditorDraft,
   type ExpressionMacroDraft,
-} from "../../../ui/settings/expression-macro-editor-model.ts";
+} from "../../models/settings/expression-macro-editor-model.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Badge } from "../../../ui/primitives/badge.tsx";

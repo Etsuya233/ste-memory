@@ -7,7 +7,7 @@ import {
   type CleaningTagPair,
 } from "../../../features/cleaning/cleaning-rules.ts";
 import type { FillSourceMessage } from "../../../features/fill-tasks/fill-task.ts";
-import { draftToRule } from "../../../ui/settings/cleaning-rules-manager-model.ts";
+import { draftToRule } from "../../models/settings/cleaning-rules-manager-model.ts";
 import { Button } from "../../../ui/primitives/button.tsx";
 import { Input } from "../../../ui/primitives/input.tsx";
 import { Textarea } from "../../../ui/primitives/textarea.tsx";

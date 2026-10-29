@@ -26,8 +26,8 @@ import {
   usePageLeave,
   type RegisterLeaveGuard,
 } from "../../components/confirmation.tsx";
-import { displayStrategySummary } from "../../../ui/memory/display-strategy-model.ts";
-import { FIELD_TYPE_LABELS } from "../../../ui/memory/table-list-model.ts";
+import { displayStrategySummary } from "../../models/memory/display-strategy-model.ts";
+import { FIELD_TYPE_LABELS } from "../../models/memory/table-list-model.ts";
 import type { TablesWorkspace } from "./tables-workspace.ts";
 import { VectorPreviewContent } from "./vector-preview-content.tsx";
 

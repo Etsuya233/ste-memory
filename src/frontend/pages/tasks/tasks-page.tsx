@@ -31,7 +31,7 @@ import {
   taskRangeText,
   taskStatusViewModel,
   unprocessedRanges,
-} from "../../../ui/tasks/task-panel-model.ts";
+} from "../../models/tasks/task-panel-model.ts";
 import { PageContent, PageHeader, type PageControls } from "../../components/page-layout.tsx";
 import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";
 import {

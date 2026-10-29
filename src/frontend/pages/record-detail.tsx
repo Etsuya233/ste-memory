@@ -8,7 +8,7 @@ import type {
 import type { RecordsWorkspace, RecordsSnapshot } from "./records-workspace.ts";
 import { RecordFieldInput, referenceLabels } from "../components/record-fields.tsx";
 import { copyText } from "../components/copy-text.ts";
-import { recordFieldValueText } from "../../ui/memory/record-form-model.ts";
+import { recordFieldValueText } from "../models/memory/record-form-model.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { Badge } from "../../ui/primitives/badge.tsx";
 import { Field, FieldLabel, FieldGroup } from "../../ui/primitives/field.tsx";

@@ -10,7 +10,7 @@ const memoryEntryRestriction = {
 
 const outerLayerRestrictions = [
   { group: ["**/infrastructure/**"], message: "功能层不依赖具体基础设施。" },
-  { group: ["**/ui/**"], message: "功能层不依赖 UI。" },
+  { group: ["**/ui/**", "**/frontend/**"], message: "功能层不依赖 UI。" },
 ];
 
 export default tseslint.config(

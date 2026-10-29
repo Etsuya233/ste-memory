@@ -16,13 +16,13 @@ import {
 import {
   renamePresetDisplayField,
   replacePresetTable,
-} from "../../../ui/settings/table-preset-editor-model.ts";
+} from "../../models/settings/table-preset-editor-model.ts";
 import {
   fieldTypeNeedsOptions,
   fieldTypeNeedsReference,
   parseOptionsText,
   validateFieldDraft,
-} from "../../../ui/memory/field-editor-model.ts";
+} from "../../models/memory/field-editor-model.ts";
 import type { FieldEditorDraft } from "../tables/tables-workspace.ts";
 
 /** Local drafts use the same import/instantiation validation as saved presets. No storage writes. */

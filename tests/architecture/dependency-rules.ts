@@ -27,7 +27,9 @@ export function dependencyViolations(
     } else if (
       sourcePath.startsWith("features/") &&
       !isTest &&
-      (targetPath?.startsWith("infrastructure/") || targetPath?.startsWith("ui/"))
+      (targetPath?.startsWith("infrastructure/") ||
+        targetPath?.startsWith("ui/") ||
+        targetPath?.startsWith("frontend/"))
     ) {
       reason = "功能层不依赖基础设施或 UI";
     } else if (inMemory && targetPath?.startsWith("features/") && !targetInMemory) {

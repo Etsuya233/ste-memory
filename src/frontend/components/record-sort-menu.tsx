@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { MemoryField, MemoryRecordListOrder } from "../../features/memory/index.ts";
-import { recordSortOptions } from "../../ui/memory/record-sort-model.ts";
+import { recordSortOptions } from "../models/memory/record-sort-model.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import {
   DropdownMenu,

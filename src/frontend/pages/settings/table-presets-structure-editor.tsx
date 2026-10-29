@@ -21,8 +21,8 @@ import {
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";
 import { usePageScroll } from "../../components/use-page-scroll.ts";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";
-import { emptyFieldDraft } from "../../../ui/memory/field-editor-model.ts";
-import { presetDisplayStrategySummary } from "../../../ui/settings/table-preset-editor-model.ts";
+import { emptyFieldDraft } from "../../models/memory/field-editor-model.ts";
+import { presetDisplayStrategySummary } from "../../models/settings/table-preset-editor-model.ts";
 import type { SettingsSubpageProps } from "./connection-settings-editor.tsx";
 import {
   checkedPresetDraft,

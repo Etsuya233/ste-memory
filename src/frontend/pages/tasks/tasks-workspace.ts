@@ -6,7 +6,7 @@ import type {
   VectorTaskStatus,
   VectorTaskSource,
 } from "../../../features/vector-index/types.ts";
-import { validateFloorRange, validateBlockSize } from "../../../ui/tasks/task-panel-model.ts";
+import { validateFloorRange, validateBlockSize } from "../../models/tasks/task-panel-model.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 
 export interface TasksChatConfigServices {

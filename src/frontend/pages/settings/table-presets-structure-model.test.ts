@@ -3,7 +3,7 @@ import type {
   ResolvedTablePreset,
   TablePresetField,
 } from "../../../features/table-presets/preset-model.ts";
-import { emptyFieldDraft } from "../../../ui/memory/field-editor-model.ts";
+import { emptyFieldDraft } from "../../models/memory/field-editor-model.ts";
 import {
   fieldFromDraft,
   removeDraftField,

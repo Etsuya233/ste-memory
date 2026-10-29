@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRecordSaveError } from "../../features/memory/index.ts";
-import { loadRecordSort, saveRecordSort } from "../../ui/memory/record-sort-model.ts";
+import { loadRecordSort, saveRecordSort } from "../models/memory/record-sort-model.ts";
 import type {
   MemoryField,
   MemoryFieldId,

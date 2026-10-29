@@ -37,9 +37,9 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | [src/features/](../../src/features/) 与 [src/infrastructure/](../../src/infrastructure/)                   | 既有业务规则、任务、数据与 ST 适配能力。前端沿用服务，避免另建一套持久化或任务调度。         |
 | [scripts/build-lib.ts](../../scripts/build-lib.ts)、[scripts/luma-styles.ts](../../scripts/luma-styles.ts) | 生产与预览共享的构建及样式编译规则。                                                         |
 
-旧 `src/index.ts`、旧 React 页面、`src/ui/kit` 与旧样式保留源码，默认构建不接入。
-新前端可以引用旧目录中已经存在的纯模型，例如 `record-form-model.ts`、`record-sort-model.ts` 和字段草稿转换；
-引用前检查其依赖，保持无旧组件、旧样式或隐式宿主副作用。迁移这些模型属于独立重构，勿在页面开发中批量搬运。
+旧入口、旧 React 页面、`src/ui/kit` 与旧样式已删除。
+表单转换、排序、字段草稿、设置及任务展示等共用纯模型位于 `src/frontend/models/`，对应测试随模型维护。
+`src/ui/primitives` 继续作为新前端基础组件与主题目录；业务模型不得依赖宿主 DOM 或旧界面。
 
 工作区负责需要跨视图保留的流程状态，局部 React state 负责局部表单与展示。
 不要为每个小表单新建工作区，也不要把同一份领域数据同时存入多套状态容器。

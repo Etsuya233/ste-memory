@@ -1,5 +1,5 @@
 import { hasSemanticSource, type MemoryMacro } from "../../../features/macros/macro-expression.ts";
-import type { ExpressionMacroDraft } from "../../../ui/settings/expression-macro-editor-model.ts";
+import type { ExpressionMacroDraft } from "../../models/settings/expression-macro-editor-model.ts";
 
 export function macroEditorDraft(macro: MemoryMacro, tableKey: string): ExpressionMacroDraft {
   return {

@@ -21,13 +21,13 @@ import {
   parseOptionsText,
   validateFieldDraft,
   type FieldDraft,
-} from "../../../ui/memory/field-editor-model.ts";
+} from "../../models/memory/field-editor-model.ts";
 import {
   emptyDisplayStrategyDraft,
   displayStrategyFromDraft,
   validateDisplayStrategyDraft,
   type DisplayStrategyDraft,
-} from "../../../ui/memory/display-strategy-model.ts";
+} from "../../models/memory/display-strategy-model.ts";
 export interface TablesServices {
   tables: Pick<MemoryTableService, "list" | "create" | "update" | "delete">;
   fields: Pick<MemoryFieldService, "list" | "create" | "update" | "delete" | "setDisplayStrategy">;

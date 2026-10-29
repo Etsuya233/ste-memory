@@ -21,7 +21,7 @@ import {
   createConnectionDraft,
   connectionFromDraft,
   type AgentConnectionDraft,
-} from "../../../ui/settings/agent-connection-draft.ts";
+} from "../../models/settings/agent-connection-draft.ts";
 import {
   agentConnectionSelection,
   removeAgentConnection,
