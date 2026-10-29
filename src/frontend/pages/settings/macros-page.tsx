@@ -399,7 +399,7 @@ export function MacrosPage(props: MacrosPageProps) {
         onBack={back}
         busy={busy}
       />
-      <PageContent className="ste:flex ste:flex-col ste:gap-4">
+      <PageContent className="ste:space-y-4">
         {notice ? (
           <StatusNotice variant={notice.error ? "destructive" : "default"}>
             {notice.text}

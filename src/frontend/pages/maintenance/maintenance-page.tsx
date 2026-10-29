@@ -159,7 +159,7 @@ export function MaintenancePage({
         busy={busy}
         onBack={() => requestLeave(onBack)}
       />
-      <PageContent className="ste:flex ste:flex-col ste:gap-4">
+      <PageContent className="ste:space-y-4">
         {error && <StatusNotice variant="destructive">{error}</StatusNotice>}
         {notice && (
           <StatusNotice
