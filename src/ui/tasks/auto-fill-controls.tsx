@@ -6,6 +6,7 @@ import { reportError } from "../shell/ui-helpers.tsx";
 
 export const AUTO_FILL_MODE_LABELS = { off: "关闭", remind: "仅提醒", auto: "自动填表" };
 const NUMERIC_FIELDS = [
+  ["delayFloors", "延迟填写楼层数", 0],
   ["interval", "触发间隔（层）", 1],
   ["blockSize", "每批楼层数", 1],
   ["retries", "每次 API 请求额外重试次数", 0],
@@ -23,7 +24,7 @@ export function AutoFillFields(props: {
     const next = { ...props.values };
     if (value === "") delete next[key];
     else if (key === "mode") next.mode = value as AutoFillSettings["mode"];
-    else if (key === "includeCurrent" || key === "hideAfterSuccess") next[key] = value === "true";
+    else if (key === "hideAfterSuccess") next[key] = value === "true";
     else Object.assign(next, { [key]: Number(value) });
     props.onChange(next);
   }
@@ -45,23 +46,6 @@ export function AutoFillFields(props: {
               {label}
             </option>
           ))}
-        </select>
-      </label>
-      <label className="stm-task-field">
-        <span>包含当前 AI 楼层</span>
-        <select
-          className="stm-select"
-          data-auto-fill="includeCurrent"
-          value={
-            props.values.includeCurrent === undefined ? "" : String(props.values.includeCurrent)
-          }
-          onChange={(event) => change("includeCurrent", event.target.value)}
-        >
-          {props.defaults && (
-            <option value="">{props.defaults.includeCurrent ? "是" : "否"}（全局）</option>
-          )}
-          <option value="false">否</option>
-          <option value="true">是</option>
         </select>
       </label>
       <label className="stm-task-field">

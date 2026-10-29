@@ -41,12 +41,13 @@ try {
     "conversation settings initially inherit globals",
     (await label("触发模式").inputValue()) === "" &&
       (await label("触发间隔（层）").inputValue()) === "" &&
+      (await label("延迟填写楼层数").inputValue()) === "" &&
       (await label("成功后自动隐藏楼层").inputValue()) === "" &&
       (await label("隐藏时保留最近楼层数").inputValue()) === "",
   );
   await label("触发模式").selectOption("auto");
   await label("触发间隔（层）").fill("5");
-  await label("包含刚完成的 AI 楼层").selectOption("true");
+  await label("延迟填写楼层数").fill("0");
   await label("成功后自动隐藏楼层").selectOption("true");
   await label("隐藏时保留最近楼层数").fill("0");
   await switchChat("b");
@@ -79,7 +80,7 @@ try {
         key.includes("bookshop") &&
         value.interval === 5 &&
         value.mode === "auto" &&
-        value.includeCurrent === true &&
+        value.delayFloors === 0 &&
         value.hideAfterSuccess === true &&
         value.keepRecentFloors === 0,
     ),
@@ -138,6 +139,21 @@ try {
       ),
   );
   await label("触发间隔（层）").fill("2");
+  for (const invalid of ["-1", "0.5"]) {
+    await label("延迟填写楼层数").fill(invalid);
+    await action("save-changes").click();
+    check(
+      `invalid delay ${invalid} is rejected`,
+      await label("延迟填写楼层数").evaluate((el) => !el.validity.valid),
+    );
+    check(
+      "invalid delay does not persist",
+      (await snapshot()).some(
+        ([key, value]) => key.includes("harbour") && Object.keys(value).length === 0,
+      ),
+    );
+  }
+  await label("延迟填写楼层数").fill("");
   await label("隐藏时保留最近楼层数").fill("-1");
   await action("save-changes").click();
   check(
@@ -166,6 +182,7 @@ try {
   await label("触发模式").selectOption("remind");
   await label("触发间隔（层）").fill("12");
   await label("每批楼层数").fill("11");
+  await label("延迟填写楼层数").fill("5");
   await page.getByRole("switch", { name: "成功后自动隐藏楼层", exact: true }).click();
   await label("隐藏时保留最近楼层数").fill("0");
   await action("save-changes").click();
@@ -174,6 +191,7 @@ try {
     "global shared fields retain global save behavior",
     (await settings()).autoFill.interval === 12 &&
       (await settings()).autoFill.blockSize === 11 &&
+      (await settings()).autoFill.delayFloors === 5 &&
       (await settings()).autoFill.mode === "remind" &&
       (await settings()).autoFill.hideAfterSuccess === true &&
       (await settings()).autoFill.keepRecentFloors === 0,
@@ -199,7 +217,9 @@ try {
   await button("全部跟随全局").click();
   await save();
   await page
-    .getByText("已保存的实际配置：仅提醒 · 每 12 层触发 · 每批 11 层。", { exact: true })
+    .getByText("已保存的实际配置：仅提醒 · 延迟 5 层 · 每 12 层触发 · 每批 11 层。", {
+      exact: true,
+    })
     .waitFor();
   check("removed overrides use latest global defaults", true);
   await page.getByText("已保存的隐藏设置：开启，保留最近 0 层。", { exact: true }).waitFor();
@@ -234,6 +254,24 @@ try {
       ([key, value]) => key.includes("harbour") && !("keepRecentFloors" in value),
     ),
   );
+  await label("延迟填写楼层数").fill("0");
+  check("delay-only edit enables save", await action("save-changes").isEnabled());
+  await save();
+  check(
+    "explicit zero overrides global delay",
+    (await snapshot()).some(([key, value]) => key.includes("harbour") && value.delayFloors === 0),
+  );
+  await label("延迟填写楼层数").fill("");
+  await save();
+  check(
+    "clearing delay restores inheritance",
+    (await snapshot()).some(([key, value]) => key.includes("harbour") && !("delayFloors" in value)),
+  );
+  await page
+    .getByText("已保存的实际配置：仅提醒 · 延迟 5 层 · 每 12 层触发 · 每批 11 层。", {
+      exact: true,
+    })
+    .waitFor();
   check(
     "320px auto fill has no horizontal overflow",
     await page.locator("#ste-memory-app").evaluate((el) => el.scrollWidth <= el.clientWidth),
@@ -242,6 +280,14 @@ try {
     process.env.FRONTEND_SCREENSHOTS ?? "../../node_modules/.cache/frontend-preview/screenshots";
   await mkdir(directory, { recursive: true });
   await page.screenshot({ path: `${directory}/tasks-auto-fill-320.png` });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await label("延迟填写楼层数").fill("3");
+  await save();
+  check(
+    "desktop saves delay override",
+    (await snapshot()).some(([key, value]) => key.includes("harbour") && value.delayFloors === 3),
+  );
+  await page.screenshot({ path: `${directory}/tasks-auto-fill-desktop.png` });
   check("no auto fill browser exceptions", errors.length === 0);
 } finally {
   if (errors.length) console.error(errors);

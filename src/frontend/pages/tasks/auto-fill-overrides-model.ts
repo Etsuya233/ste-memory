@@ -11,7 +11,7 @@ export interface AutoFillServices extends Pick<
 const keys = [
   "mode",
   "interval",
-  "includeCurrent",
+  "delayFloors",
   "blockSize",
   "retries",
   "retryDelaySeconds",

@@ -1,6 +1,7 @@
-import type {
-  AutoFillChatStore,
-  AutoFillChatState,
+import {
+  migrateAutoFillSettings,
+  type AutoFillChatStore,
+  type AutoFillChatState,
 } from "../../features/fill-tasks/auto-fill-settings.ts";
 import type {
   ChatBindingStore,
@@ -276,9 +277,9 @@ export class StChatAdapter {
     return {
       read: () => {
         const raw = this.#getContext().chatMetadata?.steMemoryAutoFill;
-        return raw === undefined
-          ? { overrides: {}, pausedReason: null }
-          : (raw as AutoFillChatState);
+        if (raw === undefined) return { overrides: {}, pausedReason: null };
+        const state = raw as AutoFillChatState;
+        return { ...state, overrides: migrateAutoFillSettings(state.overrides) };
       },
       write: (state) => {
         const context = this.#getContext();
