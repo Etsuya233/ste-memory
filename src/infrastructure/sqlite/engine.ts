@@ -7,6 +7,7 @@ import type {
   SemanticSqlParams,
 } from "../../features/semantic-query/semantic-sql-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import type { MemoryReadSnapshot } from "../../features/public-read/public-read-api.ts";
 import type {
   MacroSqlEvaluationInput,
   MacroSqlResult,
@@ -645,6 +646,17 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       evidence: this.entities(db, "evidence"),
     };
   }
+  /** One worker call reads only committed structure and records; no history or evidence copies. */
+  async readSnapshot(spaceId: string): Promise<MemoryReadSnapshot> {
+    const db = this.database(spaceId, "committed");
+    return {
+      space: this.entities(db, "space")[0]!,
+      tables: this.entities(db, "table"),
+      fields: this.entities(db, "field"),
+      records: this.entities(db, "record"),
+    };
+  }
+
   private schema(db: Database): { tables: MemoryTable[]; fields: MemoryField[] } {
     return { tables: this.entities(db, "table"), fields: this.entities(db, "field") };
   }

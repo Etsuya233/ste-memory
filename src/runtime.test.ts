@@ -86,6 +86,31 @@ function startTestRuntime(
 }
 
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
+  it("公共读取在提交后通知，切换聊天立即拒绝旧空间归属", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    const initial = await runtime.publicRead.read();
+    const changed = vi.fn();
+    const unsubscribe = runtime.publicRead.subscribe(changed);
+    await runtime.tables.create(initial.snapshot.space.id, {
+      key: "read_probe",
+      name: "读取测试",
+      description: "",
+      prompt: "",
+      position: 100,
+    });
+    expect(changed).toHaveBeenCalled();
+    const latest = await runtime.publicRead.read();
+    expect(latest.context.revision).toBeGreaterThan(initial.context.revision);
+    expect(latest.snapshot.tables.some((table) => table.key === "read_probe")).toBe(true);
+    context.chatId = "other-read-chat";
+    expect(runtime.publicRead.getContext().available).toBe(false);
+    context.chatMetadata = {};
+    await handlers.get("chat_id_changed")?.();
+    expect((await runtime.publicRead.read()).context.chatIdentity).toContain("other-read-chat");
+    unsubscribe();
+  });
   it("启动和切对话时清除旧清洗选择，保留 v3 选择", async () => {
     const db = createTestDatabase();
     const { context, chatMetadata, handlers } = fakeStContext();

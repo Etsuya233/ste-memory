@@ -1,4 +1,5 @@
 import { QueryChatStore } from "./features/query-chat/session-store.ts";
+import { PublicMemoryReader, type MemoryReadApi } from "./features/public-read/public-read-api.ts";
 import { IndexedDbAssistantSessions } from "./infrastructure/indexeddb/assistant-session-repository.ts";
 import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
 import type { RerankPort } from "./features/semantic-query/rerank.ts";
@@ -117,6 +118,7 @@ import type { PluginLog } from "./bootstrap.ts";
 
 /** 插件运行时（UI 与后续 ticket 的访问点） */
 export interface SteMemoryRuntime {
+  readonly publicRead: MemoryReadApi;
   readonly manager: ChatSpaceManager;
   readonly adapter: StChatAdapter;
   /** Memory 服务（面板表格列表/启停等 UI 操作入口） */
@@ -1173,6 +1175,7 @@ export async function startSteMemory(
         // importSpace builds and commits a separate SQLite database before publishing it.
         // It retains the old database if validation or publication fails; it does not clear vectors/tasks.
         await sqlite.importSpace(next);
+        memoryStore.onPublished(plan.spaceId);
         try {
           await memoryStore.cache(next);
         } catch (error) {
@@ -1214,7 +1217,40 @@ export async function startSteMemory(
       return finishPresetUpdate(spaceId, issues);
     },
   };
+  const publicRead = new PublicMemoryReader(
+    () => {
+      const status = manager.getStatus();
+      const chat = adapter.getChatSnapshot();
+      const identity = chatIdentityKey(chat) ?? null;
+      const active = status?.kind === "active";
+      const bound =
+        active && (status.binding.version === 1 || status.binding.chatIdentity === identity);
+      return {
+        chatIdentity: identity,
+        chatName: chat.chatId ?? null,
+        spaceId: active ? status.space.id : null,
+        spaceName: active ? status.space.name : null,
+        available: Boolean(bound),
+        message: bound
+          ? null
+          : status && "humanMsg" in status
+            ? status.humanMsg
+            : status?.kind === "branch-detected"
+              ? "请先在 Memory 中处理当前聊天的分支绑定"
+              : "当前对话的记忆空间尚未就绪",
+      };
+    },
+    async (spaceId) => {
+      if (!(await memoryStore.ensure(spaceId))) throw new Error("当前记忆空间已不存在");
+      return sqlite.readSnapshot(spaceId);
+    },
+  );
+  manager.onStatusChange(() => publicRead.invalidate());
+  memoryStore.onPublished = (spaceId) => {
+    if (publicRead.getContext().spaceId === spaceId) publicRead.invalidate();
+  };
   return {
+    publicRead,
     manager,
     retryMemorySave: async () => {
       const status = manager.getStatus();

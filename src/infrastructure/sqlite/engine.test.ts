@@ -81,6 +81,15 @@ describe("real SQLite WASM memory engine", () => {
   afterEach(async () => {
     await client.close();
   });
+  it("public snapshots contain all committed records and exclude in-progress writes and backup-only data", async () => {
+    await client.begin("s");
+    await client.putEntity("s", "record", record("r", "小红"));
+    expect((await client.readSnapshot("s")).records).toHaveLength(0);
+    await client.commit("s");
+    const snapshot = await client.readSnapshot("s");
+    expect(snapshot.records.map((item) => item.id)).toEqual(["r"]);
+    expect(Object.keys(snapshot).sort()).toEqual(["fields", "records", "space", "tables"]);
+  });
   it("classifies inline semantic dependencies during prepare without executing input expressions", async () => {
     const data = fixture();
     const sessionId = await client.openEvaluation(data);

@@ -1,4 +1,5 @@
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
+import type { MemoryReadSnapshot } from "../../features/public-read/public-read-api.ts";
 import type { MacroSqlEvaluationPort } from "../../features/macros/macro-evaluation-port.ts";
 import type { SemanticSqlEvaluationPort } from "../../features/semantic-query/semantic-sql-port.ts";
 import type { SqlExecutionResult, SqlSchemaEntry } from "../../features/sql-console/sql-console.ts";
@@ -43,6 +44,7 @@ export interface SqliteMemoryClient extends MacroSqlEvaluationPort, SemanticSqlE
   consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;
   exportSpace(spaceId: string, view?: SqliteView): Promise<MemorySpaceBackup>;
+  readSnapshot(spaceId: string): Promise<MemoryReadSnapshot>;
   getEntity<K extends SqliteEntityKind>(
     spaceId: string,
     kind: K,

@@ -265,6 +265,26 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await store.repositories().records.list(id(), tableId())).toHaveLength(2);
   });
 
+  it("a reader notified after discarding runtime databases can reload the cached space", async () => {
+    let read: Promise<MemorySpaceBackup | undefined> | undefined;
+    store.onPublished = () => {
+      read ??= store.snapshot("space");
+    };
+    await store.discardLoaded();
+    expect((await read)?.space.id).toBe("space");
+  });
+  it("notifies readers of committed content even when snapshot caching fails", async () => {
+    const published = vi.fn();
+    store.onPublished = published;
+    vi.spyOn(store, "cache").mockRejectedValueOnce(new Error("缓存保存失败"));
+    await expect(store.repositories().records.create(row("saved", "已提交"), [])).rejects.toThrow(
+      "缓存保存失败",
+    );
+    expect(published).toHaveBeenCalledWith("space");
+    expect((await client.readSnapshot("space")).records.map((record) => record.id)).toEqual([
+      "saved",
+    ]);
+  });
   it("ordinary short writes preserve committed state when saving fails", async () => {
     store.onCommitted = async () => {
       throw new Error("保存失败");

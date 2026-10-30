@@ -40,6 +40,8 @@ export class SqliteMemoryStore {
   #wholeStoreIdle: Promise<void> | undefined;
   #savepoint = 0;
   onCommitted: (snapshot: MemorySpaceBackup) => Promise<void> = async () => {};
+  /** Publication precedes persistence: readers must invalidate even if caching/saving fails. */
+  onPublished: (spaceId: string) => void = () => {};
 
   constructor(client: SqliteMemoryClient, db: SteMemoryDatabase) {
     this.client = client;
@@ -59,6 +61,7 @@ export class SqliteMemoryStore {
         return false;
       }
       await this.client.importSpace(snapshot);
+      this.onPublished(spaceId);
       return true;
     })();
     this.#loaded.set(spaceId, loading);
@@ -77,6 +80,7 @@ export class SqliteMemoryStore {
     try {
       await this.client.importSpace(snapshot);
       this.#loaded.set(id, Promise.resolve(true));
+      this.onPublished(id);
       try {
         await this.cache(snapshot);
       } catch (cause) {
@@ -105,8 +109,12 @@ export class SqliteMemoryStore {
   async discardLoaded(token?: symbol): Promise<void> {
     if (token === undefined) this.assertIdle();
     else this.assertWritable("", token);
-    for (const id of this.#loaded.keys()) await this.client.removeSpace(id);
+    const removed = [...this.#loaded.keys()];
+    for (const id of removed) {
+      await this.client.removeSpace(id);
+    }
     this.#loaded.clear();
+    for (const id of removed) this.onPublished(id);
   }
 
   async exclusive<T>(spaceId: string, work: (token: symbol) => Promise<T>): Promise<T> {
@@ -180,6 +188,7 @@ export class SqliteMemoryStore {
           await this.client.rollback(spaceId);
           throw error;
         }
+        this.onPublished(spaceId);
         const snapshot = await this.client.exportSpace(spaceId);
         await this.cache(snapshot);
         await this.onCommitted(snapshot);
@@ -210,6 +219,7 @@ export class SqliteMemoryStore {
       const result = await work();
       await this.client.commit(spaceId);
       committed = true;
+      this.onPublished(spaceId);
       const snapshot = await this.client.exportSpace(spaceId);
       await this.cache(snapshot);
       await this.onCommitted(snapshot);
@@ -314,6 +324,7 @@ export class SqliteMemoryStore {
     if (!this.#loaded.has(spaceId)) return;
     await this.client.removeSpace(spaceId);
     this.#loaded.delete(spaceId);
+    this.onPublished(spaceId);
   }
 
   async cache(unit: MemorySpaceBackup): Promise<void> {
@@ -428,7 +439,9 @@ export class SqliteMemoryStore {
         // Auxiliary task/vector deletion remains the responsibility of the local storage adapter.
         const { DexieMemorySpaceRepository } =
           await import("../indexeddb/memory/memory-space-repository.ts");
-        return new DexieMemorySpaceRepository(this.#db).delete(id);
+        const deleted = await new DexieMemorySpaceRepository(this.#db).delete(id);
+        this.onPublished(id);
+        return deleted;
       },
       clearRecords: async (id) => {
         if (!(await get(id, "space", id))) return false;
