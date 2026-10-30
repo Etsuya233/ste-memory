@@ -99,7 +99,7 @@ describe("architecture", () => {
   it("功能不能依赖基础设施与 UI，Memory 不能反向依赖其他功能", () => {
     for (const path of [
       "../../infrastructure/indexeddb/database.ts",
-      "../../ui/primitives/button.tsx",
+      "../../frontend/primitives/button.tsx",
       "../../frontend/models/memory/record-form-model.ts",
     ]) {
       expect(dependencyViolations(`import "${path}";`, featureFile, SRC, options)).toHaveLength(1);
@@ -144,7 +144,7 @@ describe("architecture", () => {
     );
     expect(valid!.messages).toEqual([]);
     const [uiImport] = await lint.lintText('export { Button } from "./button.tsx";', {
-      filePath: join(SRC, "ui/primitives/probe.ts"),
+      filePath: join(SRC, "frontend/primitives/probe.ts"),
     });
     expect(uiImport!.messages).toEqual([]);
   });

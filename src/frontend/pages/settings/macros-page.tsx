@@ -13,16 +13,16 @@ import {
   macroFromEditorDraft,
   type ExpressionMacroDraft,
 } from "../../models/settings/expression-macro-editor-model.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Badge } from "../../primitives/badge.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+} from "../../primitives/accordion.tsx";
+import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
 import {
   Item,
   ItemActions,
@@ -30,7 +30,7 @@ import {
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import { PageHeader, PageContent } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { copyText } from "../../components/copy-text.ts";

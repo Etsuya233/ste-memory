@@ -7,7 +7,7 @@
 
 ## 边界
 
-- `src/ui/primitives/`：通用组件、主题、portal 容器上下文；禁止导入插件业务与
+- `src/frontend/primitives/`：通用组件、主题、portal 容器上下文；禁止导入插件业务与
   SillyTavern，允许单独复制或未来抽为依赖。
 - `src/ui/memory/record-*`：记录领域文案、查询与编辑接线、工具栏和列表组合。
   数据服务、字段校验、记录身份、备份和持久化契约不变。

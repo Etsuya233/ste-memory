@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { ArchiveRestore, Download, Trash2 } from "lucide-react";
 import type { RecordsContext } from "../records-workspace.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from "../../../ui/primitives/card.tsx";
+} from "../../primitives/card.tsx";
 import { PageContent, PageHeader, type PageControls } from "../../components/page-layout.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";

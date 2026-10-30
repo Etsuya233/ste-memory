@@ -5,16 +5,16 @@
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "src/ui/primitives/theme.css",
+    "css": "src/frontend/primitives/theme.css",
     "baseColor": "zinc",
     "cssVariables": true,
     "prefix": "ste"
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@/ui",
-    "utils": "@/ui/primitives/utils",
-    "ui": "@/ui/primitives",
+    "components": "@/frontend/components",
+    "utils": "@/frontend/primitives/utils",
+    "ui": "@/frontend/primitives",
     "lib": "@/lib",
     "hooks": "@/hooks"
   }

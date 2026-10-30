@@ -1,7 +1,7 @@
 import type { MemoryField, MemoryRecord, MemoryRecordId } from "../../features/memory/index.ts";
 import { recordFieldValueText } from "../models/memory/record-form-model.ts";
-import { Badge } from "../../ui/primitives/badge.tsx";
-import { Button } from "../../ui/primitives/button.tsx";
+import { Badge } from "../primitives/badge.tsx";
+import { Button } from "../primitives/button.tsx";
 import { Pencil } from "lucide-react";
 
 /**

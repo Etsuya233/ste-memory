@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { NativeSelect, NativeSelectOption } from "../../../ui/primitives/native-select.tsx";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { NativeSelect, NativeSelectOption } from "../../primitives/native-select.tsx";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../primitives/field.tsx";
 import {
   Item,
   ItemContent,
@@ -11,7 +11,7 @@ import {
   ItemDescription,
   ItemActions,
   ItemGroup,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { ConfirmAction, usePageLeave } from "../../components/confirmation.tsx";

@@ -3,7 +3,7 @@ import {
   validateAutoFillSettings,
   type AutoFillSettings,
 } from "../../../features/fill-tasks/auto-fill-settings.ts";
-import { FieldDescription, FieldGroup } from "../../../ui/primitives/field.tsx";
+import { FieldDescription, FieldGroup } from "../../primitives/field.tsx";
 import { AutoFillFields } from "../../components/auto-fill-fields.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { SettingsEditor, type SettingsSubpageProps } from "./connection-settings-editor.tsx";

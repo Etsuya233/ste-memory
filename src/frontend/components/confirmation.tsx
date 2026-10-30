@@ -8,8 +8,8 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from "../../ui/primitives/alert-dialog.tsx";
-import { Alert, AlertDescription } from "../../ui/primitives/alert.tsx";
+} from "../primitives/alert-dialog.tsx";
+import { Alert, AlertDescription } from "../primitives/alert.tsx";
 
 export type NavigationGuard = (action: () => void) => void;
 export type RegisterLeaveGuard = (guard: NavigationGuard | null) => void;

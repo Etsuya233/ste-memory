@@ -1,5 +1,5 @@
 /* This entry deliberately excludes the legacy kit and page styles. */
-@import "../ui/primitives/theme.css";
+@import "./primitives/theme.css";
 @source "./";
 
 /* ST applies text shadows globally, including directly to form controls. */

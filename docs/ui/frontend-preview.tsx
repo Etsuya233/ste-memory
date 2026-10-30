@@ -66,8 +66,8 @@ import {
   MemoryRecordService,
   MemoryRecordSaveError,
 } from "../../src/features/memory/index.ts";
-import { Button } from "../../src/ui/primitives/button.tsx";
-import { NativeSelect } from "../../src/ui/primitives/native-select.tsx";
+import { Button } from "../../src/frontend/primitives/button.tsx";
+import { NativeSelect } from "../../src/frontend/primitives/native-select.tsx";
 
 const date = "2026-10-28T09:00:00.000Z";
 const contexts = {

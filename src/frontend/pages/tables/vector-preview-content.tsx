@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import type { VectorPreview } from "../../../features/vector-index/types.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Field, FieldGroup, FieldLabel } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Field, FieldGroup, FieldLabel } from "../../primitives/field.tsx";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from "../../../ui/primitives/card.tsx";
+} from "../../primitives/card.tsx";
 import {
   Item,
   ItemGroup,
@@ -19,8 +19,8 @@ import {
   ItemTitle,
   ItemDescription,
   ItemActions,
-} from "../../../ui/primitives/item.tsx";
-import { Skeleton } from "../../../ui/primitives/skeleton.tsx";
+} from "../../primitives/item.tsx";
+import { Skeleton } from "../../primitives/skeleton.tsx";
 import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";
 import type { TablesWorkspace, VectorRecordPreview } from "./tables-workspace.ts";
 

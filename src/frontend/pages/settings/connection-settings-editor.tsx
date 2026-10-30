@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
 import {
   PageContent,
   PageHeader,

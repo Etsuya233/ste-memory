@@ -228,8 +228,8 @@ SillyTavern 通过该分支安装/更新）。默认只更新本地分支，`--p
 
 ```text
 src/
-├── frontend/                              # 新前端入口、ST 挂载、记录浏览与编辑
-├── index.ts / bootstrap.ts / runtime.ts   # 入口、ST 环境守卫、组合根
+├── frontend/                              # 前端入口、页面、共用模型、基础组件与 ST 挂载
+├── bootstrap.ts / runtime.ts              # ST 环境守卫、组合根
 ├── features/                              # 业务功能（直接函数/服务调用，无事件总线）
 │   ├── memory/                            # 共享记忆模型与写入规则（唯一来源）+ 公开入口
 │   ├── agent/                             # 提案/记忆助手 运行与工具
@@ -238,7 +238,6 @@ src/
 │   ├── backup/  chat-mirror/              # 备份文件格式、镜像格式与导出辅助
 │   └── settings/ cleaning/ chat-binding/ space-maintenance/ logging/ agent-presets/
 ├── infrastructure/                        # 具体实现：IndexedDB（Dexie）、SillyTavern 适配器、浏览器
-├── ui/                                    # 面板 React 组件与纯逻辑模型（shell/memory/tasks/…）
 └── common/                                # 跨功能的小工具（定时器端口、轮询骨架）
 ```
 
@@ -247,7 +246,7 @@ src/
 - 其他功能与 UI 只能通过 `src/features/memory/index.ts` 使用 Memory（领域类型、
   完整操作与持久化接口都在入口导出）；内部步骤（校验、修订、历史写入、显示文本
   计算）不对外暴露。
-- 功能层不依赖 `infrastructure/` 与 `ui/`；具体实现由 `runtime.ts` 装配注入。
+- 功能层不依赖 `infrastructure/` 与 `frontend/`；具体实现由 `runtime.ts` 装配注入。
 - `tests/architecture/` 与 ESLint `no-restricted-imports` 同时强制以上方向。
 - 填表与问答通过记录服务的 `commitProposal` 提交，仓库、ID、时钟和显示计算由
   Memory 内部管理；填表任务每个批次独立使用 SQLite 事务，批内工具即时写入并返回

@@ -2,9 +2,9 @@ import { Settings2 } from "lucide-react";
 import type { AgentPresetSettings } from "../../../features/agent-presets/preset-model.ts";
 import { BUILTIN_AGENT_PRESET_ID } from "../../../features/agent-presets/preset-model.ts";
 import type { CleaningRule } from "../../../features/cleaning/cleaning-rules.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Field, FieldDescription, FieldLabel } from "../../../ui/primitives/field.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Field, FieldDescription, FieldLabel } from "../../primitives/field.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
 import { isAgentPresetOverrideStale } from "./task-submit-summary.ts";
 
 export function TaskChatConfig({

@@ -3,27 +3,21 @@ import { ChevronDown, ListTodo } from "lucide-react";
 import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Checkbox } from "../../../ui/primitives/checkbox.tsx";
-import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemGroup,
-  ItemMedia,
-} from "../../../ui/primitives/item.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/primitives/tabs.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Checkbox } from "../../primitives/checkbox.tsx";
+import { Field, FieldLabel } from "../../primitives/field.tsx";
+import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia } from "../../primitives/item.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../primitives/tabs.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "../../../ui/primitives/accordion.tsx";
+} from "../../primitives/accordion.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { formatCompactTime } from "../../components/format-time.ts";
 import {

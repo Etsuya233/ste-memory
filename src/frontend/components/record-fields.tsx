@@ -1,9 +1,9 @@
 import type { MemoryField, MemoryRecord, MemoryTableId } from "../../features/memory/index.ts";
-import { Input } from "../../ui/primitives/input.tsx";
-import { Textarea } from "../../ui/primitives/textarea.tsx";
-import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Switch } from "../../ui/primitives/switch.tsx";
-import { Checkbox } from "../../ui/primitives/checkbox.tsx";
+import { Input } from "../primitives/input.tsx";
+import { Textarea } from "../primitives/textarea.tsx";
+import { NativeSelect } from "../primitives/native-select.tsx";
+import { Switch } from "../primitives/switch.tsx";
+import { Checkbox } from "../primitives/checkbox.tsx";
 import {
   Field,
   FieldLabel,
@@ -11,7 +11,7 @@ import {
   FieldError,
   FieldSet,
   FieldLegend,
-} from "../../ui/primitives/field.tsx";
+} from "../primitives/field.tsx";
 import { recordFieldValueText, type RecordFormValue } from "../models/memory/record-form-model.ts";
 
 export function RecordFieldInput({

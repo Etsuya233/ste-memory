@@ -12,18 +12,18 @@ import {
 } from "../../../features/table-presets/preset-model.ts";
 import { SYSTEM_TABLE_PRESET } from "../../../features/table-presets/system-preset.ts";
 import { serializeTablePresetExport } from "../../../features/table-presets/preset-transfer.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Checkbox } from "../../../ui/primitives/checkbox.tsx";
-import { Field, FieldLabel, FieldGroup } from "../../../ui/primitives/field.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Card, CardHeader, CardTitle, CardContent } from "../../../ui/primitives/card.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Checkbox } from "../../primitives/checkbox.tsx";
+import { Field, FieldLabel, FieldGroup } from "../../primitives/field.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Card, CardHeader, CardTitle, CardContent } from "../../primitives/card.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
+} from "../../primitives/accordion.tsx";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -32,7 +32,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
-} from "../../../ui/primitives/alert-dialog.tsx";
+} from "../../primitives/alert-dialog.tsx";
 import { PageHeader, PageContent, PageFooter } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";

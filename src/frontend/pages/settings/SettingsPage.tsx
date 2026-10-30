@@ -18,9 +18,9 @@ import { SearchPage, type SearchServices, type SearchPageProps } from "../search
 import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
 import type { LogRepository } from "../../../features/logging/log.ts";
 import type { PluginSettings } from "../../../features/settings/plugin-settings.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
 import {
   Item,
   ItemActions,
@@ -28,7 +28,7 @@ import {
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";

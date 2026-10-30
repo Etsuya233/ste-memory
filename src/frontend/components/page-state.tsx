@@ -7,9 +7,9 @@ import {
   EmptyTitle,
   EmptyDescription,
   EmptyContent,
-} from "../../ui/primitives/empty.tsx";
-import { Alert, AlertTitle, AlertDescription } from "../../ui/primitives/alert.tsx";
-import { Button } from "../../ui/primitives/button.tsx";
+} from "../primitives/empty.tsx";
+import { Alert, AlertTitle, AlertDescription } from "../primitives/alert.tsx";
+import { Button } from "../primitives/button.tsx";
 
 export function PageEmpty({
   title,

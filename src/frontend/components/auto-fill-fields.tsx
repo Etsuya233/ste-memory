@@ -1,7 +1,7 @@
 import type { AutoFillSettings } from "../../features/fill-tasks/auto-fill-settings.ts";
-import { Input } from "../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../ui/primitives/field.tsx";
+import { Input } from "../primitives/input.tsx";
+import { NativeSelect } from "../primitives/native-select.tsx";
+import { Field, FieldLabel, FieldDescription } from "../primitives/field.tsx";
 import { SwitchField } from "./form-fields.tsx";
 
 export const AUTO_FILL_NUMERIC_FIELDS = [

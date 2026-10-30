@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { MemoryField, MemoryFieldId } from "../../../features/memory/index.ts";
 import type { ResolvedTablePreset } from "../../../features/table-presets/preset-model.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
+import { Button } from "../../primitives/button.tsx";
 import {
   Item,
   ItemActions,
@@ -10,7 +10,7 @@ import {
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import { PageHeader, PageContent, PageFooter } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import {

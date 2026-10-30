@@ -24,14 +24,14 @@ import type { RecordsWorkspace } from "./records-workspace.ts";
 import { recordPreview, referenceLabels } from "../components/record-fields.tsx";
 import { RecordSortMenu } from "../components/record-sort-menu.tsx";
 import { RecordsTable } from "../components/records-table.tsx";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/primitives/tabs.tsx";
-import { cn } from "../../ui/primitives/utils.ts";
-import { Button } from "../../ui/primitives/button.tsx";
-import { Input } from "../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Field } from "../../ui/primitives/field.tsx";
-import { Alert, AlertDescription, AlertTitle } from "../../ui/primitives/alert.tsx";
-import { Skeleton } from "../../ui/primitives/skeleton.tsx";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../primitives/tabs.tsx";
+import { cn } from "../primitives/utils.ts";
+import { Button } from "../primitives/button.tsx";
+import { Input } from "../primitives/input.tsx";
+import { NativeSelect } from "../primitives/native-select.tsx";
+import { Field } from "../primitives/field.tsx";
+import { Alert, AlertDescription, AlertTitle } from "../primitives/alert.tsx";
+import { Skeleton } from "../primitives/skeleton.tsx";
 import {
   Empty,
   EmptyHeader,
@@ -39,7 +39,7 @@ import {
   EmptyTitle,
   EmptyDescription,
   EmptyContent,
-} from "../../ui/primitives/empty.tsx";
+} from "../primitives/empty.tsx";
 import {
   Item,
   ItemGroup,
@@ -47,7 +47,7 @@ import {
   ItemTitle,
   ItemDescription,
   ItemActions,
-} from "../../ui/primitives/item.tsx";
+} from "../primitives/item.tsx";
 import { PagePagination } from "../components/page-pagination.tsx";
 
 export interface RecordsPageProps {

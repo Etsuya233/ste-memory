@@ -20,15 +20,15 @@ import type {
   QueryChatSegment,
   QueryChatCommitResult,
 } from "../../../features/query-chat/query-chat-state.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Badge } from "../../primitives/badge.tsx";
 import {
   Message,
   MessageContent,
   MessageHeader,
   MessageFooter,
-} from "../../../ui/primitives/message.tsx";
-import { Bubble, BubbleContent } from "../../../ui/primitives/bubble.tsx";
+} from "../../primitives/message.tsx";
+import { Bubble, BubbleContent } from "../../primitives/bubble.tsx";
 import {
   Trace,
   TraceLine,
@@ -38,7 +38,7 @@ import {
   TraceCollapsible,
   TraceCollapsibleTrigger,
   TraceCollapsibleContent,
-} from "../../../ui/primitives/trace.tsx";
+} from "../../primitives/trace.tsx";
 import {
   CodeBlock,
   CodeBlockActions,
@@ -46,8 +46,8 @@ import {
   CodeBlockCopyButton,
   CodeBlockHeader,
   CodeBlockTitle,
-} from "../../../ui/primitives/code-block.tsx";
-import { cn } from "../../../ui/primitives/utils.ts";
+} from "../../primitives/code-block.tsx";
+import { cn } from "../../primitives/utils.ts";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { copyText } from "../../components/copy-text.ts";
 

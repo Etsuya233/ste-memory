@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Copy, Download, Trash2, Save } from "lucide-react";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
-import { Field, FieldDescription, FieldLabel } from "../../../ui/primitives/field.tsx";
-import { NativeSelect, NativeSelectOption } from "../../../ui/primitives/native-select.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
+import { Field, FieldDescription, FieldLabel } from "../../primitives/field.tsx";
+import { NativeSelect, NativeSelectOption } from "../../primitives/native-select.tsx";
 import {
   Item,
   ItemActions,
@@ -12,7 +12,7 @@ import {
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -21,7 +21,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
-} from "../../../ui/primitives/alert-dialog.tsx";
+} from "../../primitives/alert-dialog.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { usePageScroll } from "../../components/use-page-scroll.ts";

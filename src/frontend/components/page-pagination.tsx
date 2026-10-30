@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { Button } from "../../ui/primitives/button.tsx";
-import { Input } from "../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "../../ui/primitives/popover.tsx";
+import { Button } from "../primitives/button.tsx";
+import { Input } from "../primitives/input.tsx";
+import { NativeSelect } from "../primitives/native-select.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../primitives/popover.tsx";
 import {
   Pagination,
   PaginationContent,
   PaginationItem,
   PaginationNext,
   PaginationPrevious,
-} from "../../ui/primitives/pagination.tsx";
+} from "../primitives/pagination.tsx";
 
 /** Shared paging footer: previous/next, page-size choice and direct page jump. */
 export function PagePagination({

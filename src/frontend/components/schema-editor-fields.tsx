@@ -1,13 +1,13 @@
 import { Plus } from "lucide-react";
 import type { MemoryField, VectorIndexConfiguration } from "../../features/memory/index.ts";
 import { effectiveVectorIndexGroups } from "../../features/memory/index.ts";
-import { Button } from "../../ui/primitives/button.tsx";
-import { Input } from "../../ui/primitives/input.tsx";
-import { Textarea } from "../../ui/primitives/textarea.tsx";
-import { NativeSelect } from "../../ui/primitives/native-select.tsx";
-import { Switch } from "../../ui/primitives/switch.tsx";
-import { Checkbox } from "../../ui/primitives/checkbox.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../ui/primitives/field.tsx";
+import { Button } from "../primitives/button.tsx";
+import { Input } from "../primitives/input.tsx";
+import { Textarea } from "../primitives/textarea.tsx";
+import { NativeSelect } from "../primitives/native-select.tsx";
+import { Switch } from "../primitives/switch.tsx";
+import { Checkbox } from "../primitives/checkbox.tsx";
+import { Field, FieldLabel, FieldDescription } from "../primitives/field.tsx";
 import {
   fieldTypeNeedsOptions,
   fieldTypeNeedsReference,

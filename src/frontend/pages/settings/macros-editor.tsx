@@ -3,17 +3,17 @@ import type { MemoryMacro, MemoryTable, MemoryField } from "../../../features/me
 import { effectiveVectorIndexGroups } from "../../../features/memory/index.ts";
 import type { MacroExecutionResult } from "../../../features/macros/memory-macro-service.ts";
 import type { ExpressionMacroDraft } from "../../models/settings/expression-macro-editor-model.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
+} from "../../primitives/accordion.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";

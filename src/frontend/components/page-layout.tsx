@@ -9,8 +9,8 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Button } from "../../ui/primitives/button.tsx";
-import { cn } from "../../ui/primitives/utils.ts";
+import { Button } from "../primitives/button.tsx";
+import { cn } from "../primitives/utils.ts";
 
 export interface PageControls {
   onClose: () => void;

@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-import { cn } from "../../ui/primitives/utils.ts";
+import { cn } from "../primitives/utils.ts";
 
 /** Bordered page grouping used by settings, tasks and other detail surfaces. */
 export function PageSection({

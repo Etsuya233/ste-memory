@@ -4,7 +4,7 @@ import {
   type CoverageStatus,
   type CoverageViewModel,
 } from "../../models/tasks/task-panel-model.ts";
-import { cn } from "../../../ui/primitives/utils.ts";
+import { cn } from "../../primitives/utils.ts";
 
 const coverageClasses: Record<CoverageStatus, string> = {
   processed: "ste:bg-muted-foreground",

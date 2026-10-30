@@ -5,15 +5,15 @@ import type {
   SqlExecutionResult,
   SqlSchemaEntry,
 } from "../../../features/sql-console/sql-console.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
-import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
+import { Field, FieldLabel } from "../../primitives/field.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
+} from "../../primitives/accordion.tsx";
 import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
 import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";
 import type { RecordsContext } from "../records-workspace.ts";

@@ -19,7 +19,7 @@
 新样式入口为 `frontend/theme.css`，不合并旧 kit 或页面 CSS。
 这替代 ADR 0028 中逐页混合新旧 UI 的迁移策略。
 
-通用组件仍位于 `ui/primitives`，新前端仅复用旧 UI 中无 React 的表单值转换逻辑。
+通用组件仍位于 `frontend/primitives`，新前端仅复用旧 UI 中无 React 的表单值转换逻辑。
 不增加路由、全局状态库、表单配置引擎或通用组件适配层。
 
 ## 对话与编辑
@@ -49,6 +49,6 @@
 ## 2026-10-29：完成旧前端清理
 
 上述“保留旧源码”是迁移期安排，现已结束。旧入口、页面、kit、样式和旧预览已删除；
-新前端使用的 11 个纯模型/辅助模块及其测试迁至 `frontend/models`，基础组件继续位于 `ui/primitives`。
+新前端使用的 11 个纯模型/辅助模块及其测试迁至 `frontend/models`，基础组件继续位于 `frontend/primitives`。
 依赖旧 DOM 的浏览器验收脚本一并退役；当前验收入口和真实 ST 覆盖边界见
 [浏览器验收说明](../../playwright-st-extension/README.md)。业务服务、存储格式及用户数据不变。

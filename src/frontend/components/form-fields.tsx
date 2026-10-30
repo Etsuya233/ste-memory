@@ -1,6 +1,6 @@
 import { useId } from "react";
-import { Field, FieldContent, FieldDescription, FieldLabel } from "../../ui/primitives/field.tsx";
-import { Switch } from "../../ui/primitives/switch.tsx";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "../primitives/field.tsx";
+import { Switch } from "../primitives/switch.tsx";
 
 /** Labeled switches keep label activation, help text and spacing consistent across pages. */
 export function SwitchField({

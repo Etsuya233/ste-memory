@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PrimitivesProvider } from "../../ui/primitives/provider.tsx";
+import { PrimitivesProvider } from "../primitives/provider.tsx";
 import { usePanelWindow } from "./use-panel-window.ts";
 
 /** Native top layer keeps ST transforms from changing viewport positioning. */

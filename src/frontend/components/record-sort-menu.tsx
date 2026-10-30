@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { MemoryField, MemoryRecordListOrder } from "../../features/memory/index.ts";
 import { recordSortOptions } from "../models/memory/record-sort-model.ts";
-import { Button } from "../../ui/primitives/button.tsx";
+import { Button } from "../primitives/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -10,7 +10,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-} from "../../ui/primitives/dropdown-menu.tsx";
+} from "../primitives/dropdown-menu.tsx";
 
 export function RecordSortMenu({
   fields,

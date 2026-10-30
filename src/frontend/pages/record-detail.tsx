@@ -9,23 +9,23 @@ import type { RecordsWorkspace, RecordsSnapshot } from "./records-workspace.ts";
 import { RecordFieldInput, referenceLabels } from "../components/record-fields.tsx";
 import { copyText } from "../components/copy-text.ts";
 import { recordFieldValueText } from "../models/memory/record-form-model.ts";
-import { Button } from "../../ui/primitives/button.tsx";
-import { Badge } from "../../ui/primitives/badge.tsx";
-import { Field, FieldLabel, FieldGroup } from "../../ui/primitives/field.tsx";
-import { Alert, AlertTitle, AlertDescription } from "../../ui/primitives/alert.tsx";
-import { Skeleton } from "../../ui/primitives/skeleton.tsx";
+import { Button } from "../primitives/button.tsx";
+import { Badge } from "../primitives/badge.tsx";
+import { Field, FieldLabel, FieldGroup } from "../primitives/field.tsx";
+import { Alert, AlertTitle, AlertDescription } from "../primitives/alert.tsx";
+import { Skeleton } from "../primitives/skeleton.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../ui/primitives/accordion.tsx";
+} from "../primitives/accordion.tsx";
 import {
   Tooltip,
   TooltipProvider,
   TooltipTrigger,
   TooltipContent,
-} from "../../ui/primitives/tooltip.tsx";
+} from "../primitives/tooltip.tsx";
 export function RecordDetailPage({
   state,
   workspace,

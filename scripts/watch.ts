@@ -24,7 +24,7 @@ const distDir = path.join(PACKAGE_ROOT, "dist");
 // manifest + 全部样式源：不在 esbuild 依赖图中，单独 watch（改动只需重聚合，无需重建 bundle）
 const staticFiles = [
   path.join(PACKAGE_ROOT, "manifest.json"),
-  path.join(PACKAGE_ROOT, "src/ui/primitives/theme.css"),
+  path.join(PACKAGE_ROOT, "src/frontend/primitives/theme.css"),
   path.join(PACKAGE_ROOT, "src/frontend/theme.css"),
 ];
 

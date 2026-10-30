@@ -21,8 +21,7 @@ Single-context repo (this repo):
 `- src/
    |- features/                       <- memory, agent, fill-tasks, query-chat, macros, …
    |- infrastructure/                 <- indexeddb, sillytavern
-   |- frontend/                       <- current pages / workspaces / pure UI models / ST wiring
-   |- ui/                             <- shared primitives and theme
+   |- frontend/                       <- pages / workspaces / pure UI models / primitives / ST wiring
    `- common/
 ```
 

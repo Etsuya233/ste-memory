@@ -8,12 +8,12 @@ import {
 } from "../../../features/cleaning/cleaning-rules.ts";
 import type { FillSourceMessage } from "../../../features/fill-tasks/fill-task.ts";
 import { draftToRule } from "../../models/settings/cleaning-rules-manager-model.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel, FieldDescription } from "../../../ui/primitives/field.tsx";
-import { Card, CardContent } from "../../../ui/primitives/card.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
+import { Card, CardContent } from "../../primitives/card.tsx";
 import {
   Item,
   ItemActions,
@@ -21,7 +21,7 @@ import {
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from "../../../ui/primitives/item.tsx";
+} from "../../primitives/item.tsx";
 import { PageContent, PageHeader } from "../../components/page-layout.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { PageEmpty, StatusNotice } from "../../components/page-state.tsx";

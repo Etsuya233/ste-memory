@@ -10,18 +10,18 @@ import type {
   VectorRetrievalService,
 } from "../../../features/vector-retrieval/vector-retrieval-service.ts";
 import { recordFieldValueText } from "../../models/memory/record-form-model.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Textarea } from "../../../ui/primitives/textarea.tsx";
-import { Checkbox } from "../../../ui/primitives/checkbox.tsx";
-import { Skeleton } from "../../../ui/primitives/skeleton.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Textarea } from "../../primitives/textarea.tsx";
+import { Checkbox } from "../../primitives/checkbox.tsx";
+import { Skeleton } from "../../primitives/skeleton.tsx";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from "../../../ui/primitives/accordion.tsx";
+} from "../../primitives/accordion.tsx";
 import {
   Card,
   CardHeader,
@@ -29,7 +29,7 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-} from "../../../ui/primitives/card.tsx";
+} from "../../primitives/card.tsx";
 import {
   Field,
   FieldLabel,
@@ -37,7 +37,7 @@ import {
   FieldGroup,
   FieldSet,
   FieldLegend,
-} from "../../../ui/primitives/field.tsx";
+} from "../../primitives/field.tsx";
 import { PageHeader, PageContent, type PageControls } from "../../components/page-layout.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";
 import { PageEmpty, PageError, StatusNotice } from "../../components/page-state.tsx";

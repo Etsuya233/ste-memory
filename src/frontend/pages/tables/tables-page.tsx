@@ -2,8 +2,8 @@ import { SchemaEditorFields } from "../../components/schema-editor-fields.tsx";
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChevronRight, Plus, Table2, Trash2 } from "lucide-react";
 import type { MemoryFieldId } from "../../../features/memory/index.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { usePrimitivesActive } from "../../../ui/primitives/provider.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { usePrimitivesActive } from "../../primitives/provider.tsx";
 import {
   Item,
   ItemGroup,
@@ -11,8 +11,8 @@ import {
   ItemTitle,
   ItemDescription,
   ItemActions,
-} from "../../../ui/primitives/item.tsx";
-import { cn } from "../../../ui/primitives/utils.ts";
+} from "../../primitives/item.tsx";
+import { cn } from "../../primitives/utils.ts";
 import {
   PageHeader,
   PageContent,

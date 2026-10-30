@@ -15,13 +15,13 @@ import { MessageScroller } from "@shadcn/react/message-scroller";
 import { QueryTranscript } from "./query-transcript.tsx";
 import type { QueryChatService } from "../../../features/query-chat/query-chat-service.ts";
 import type { QueryChatStore } from "../../../features/query-chat/session-store.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
+import { Button } from "../../primitives/button.tsx";
 import {
   InputGroup,
   InputGroupTextarea,
   InputGroupAddon,
   InputGroupButton,
-} from "../../../ui/primitives/input-group.tsx";
+} from "../../primitives/input-group.tsx";
 import {
   Item,
   ItemHeader,
@@ -32,10 +32,10 @@ import {
   ItemFooter,
   ItemGroup,
   ItemMedia,
-} from "../../../ui/primitives/item.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
+} from "../../primitives/item.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Field, FieldLabel } from "../../primitives/field.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,8 +44,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "../../../ui/primitives/dropdown-menu.tsx";
-import { cn } from "../../../ui/primitives/utils.ts";
+} from "../../primitives/dropdown-menu.tsx";
+import { cn } from "../../primitives/utils.ts";
 import {
   PageHeader,
   PageContent,

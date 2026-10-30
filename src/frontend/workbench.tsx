@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BookOpen, TableProperties, ListTodo, Settings, MessageCircle } from "lucide-react";
-import { Button } from "../ui/primitives/button.tsx";
+import { Button } from "./primitives/button.tsx";
 import { RecordsPage, type RecordsPageProps } from "./pages/records-page.tsx";
 import type { NavigationGuard } from "./components/confirmation.tsx";
 import { TablesPage } from "./pages/tables/tables-page.tsx";

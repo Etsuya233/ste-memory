@@ -11,7 +11,9 @@ const require = createRequire(import.meta.url);
  * Keep compilation inside the shared build path so build, watch and sync cannot
  * accidentally publish raw @theme/@utility directives. No runtime CDN is used.
  */
-export function compileLumaStyles(input = path.join(root, "src/ui/primitives/theme.css")): string {
+export function compileLumaStyles(
+  input = path.join(root, "src/frontend/primitives/theme.css"),
+): string {
   const cli = path.join(
     path.dirname(require.resolve("@tailwindcss/cli/package.json")),
     "dist/index.mjs",
@@ -29,7 +31,7 @@ export function compileLumaStyles(input = path.join(root, "src/ui/primitives/the
   const notices = ["LICENSE.md", "LICENSE.Inter.txt"]
     .map(
       (name) =>
-        `/*! ${readFileSync(path.join(root, "src/ui/primitives", name), "utf8").replaceAll("*/", "* /")} */\n`,
+        `/*! ${readFileSync(path.join(root, "src/frontend/primitives", name), "utf8").replaceAll("*/", "* /")} */\n`,
     )
     .join("");
   return notices + fontFace + isolateLumaStyles(css);

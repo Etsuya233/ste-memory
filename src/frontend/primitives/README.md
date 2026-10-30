@@ -1,6 +1,6 @@
 # Portable UI primitives
 
-This directory is a host-independent shadcn/ui **Base UI / Luma** layer. It must not import SillyTavern globals, extension state, schemas, or record services. Business composition belongs to `../memory`.
+This directory is a host-independent shadcn/ui **Base UI / Luma** layer. It must not import SillyTavern globals, extension state, schemas, or record services. Business composition belongs to `../components` and `../pages`.
 
 ## Provenance
 

@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import type { SteMemoryRuntime } from "../../runtime.ts";
-import { Button } from "../../ui/primitives/button.tsx";
+import { Button } from "../primitives/button.tsx";
 import { BookOpen } from "lucide-react";
 import { RecordsWorkspace } from "../pages/records-workspace.ts";
 import type { RecordsContext } from "../pages/records-workspace.ts";

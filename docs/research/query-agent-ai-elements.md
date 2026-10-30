@@ -43,7 +43,7 @@ Message Scroller 的手动安装说明明确列出 `@shadcn/react`。它负责�
 
 Code Block 的高亮路径使用 Shiki JavaScript 引擎，语言按需加载；纯文本可跳过高亮 hook。当前 CLI 注册项会一并添加高亮支持，因此应分别确认安装依赖与最终 bundle 的实际引用，避免把“可选高亮”理解为 CLI 不会增加相关依赖。[Code Block](https://ui.shadcn.com/docs/components/base/code-block)
 
-项目当前为 React 19、Tailwind 4、Base UI / Luma，基础方向匹配。仍需适配 `@/ui/primitives` 别名、`ste:` 类名前缀、主题与 Portal 容器；本地规范要求保留这些隔离措施。上述兼容判断属于静态评估，尚未通过浏览器验收。[项目前端规范](../ui/frontend-development.md)
+项目当前为 React 19、Tailwind 4、Base UI / Luma，基础方向匹配。仍需适配 `@/frontend/primitives` 别名、`ste:` 类名前缀、主题与 Portal 容器；本地规范要求保留这些隔离措施。上述兼容判断属于静态评估，尚未通过浏览器验收。[项目前端规范](../ui/frontend-development.md)
 
 ## Markdown、流式体验与体积取舍
 
@@ -92,7 +92,7 @@ Streamdown 默认同时使用 HTML 清理与 URL 加固处理，但默认允许�
 
 **滚动。** 当前 PageContent 与 usePageScroll 按会话保存位置，query-page.tsx 还主动写 scrollTop。引入 Message Scroller 时需明确由谁控制流式滚动，移除同一容器上竞争的主动定位逻辑；保留会话间阅读位置、列表返回、关闭重开、用户主动上翻后的停跟随与“最新消息”入口。官方按用户问题锚定的新策略也会改变现有体验，应通过小范围验证后采用。
 
-**样式。** 使用 Base UI 版本，新增基础控件归 src/ui/primitives，助手相关组合放在 src/frontend/pages/query；有明确复用需求后再提升至公共组件。沿用 ste: 类名前缀、stm-luma 主题、现有 cn 和 PrimitivesProvider。生产样式入口为 src/frontend/theme.css，聚合 primitives/theme.css，现有扫描范围覆盖这两个目录；如果另放 src/ui/ai-elements 等目录，需要显式检查扫描覆盖。新 Portal 必须接入插件容器，尤其关注 Tooltip、Hover Card 和弹层在 ST 原生 top-layer 面板中的位置。参考 [前端规范](../ui/frontend-development.md)、[样式构建](../../scripts/luma-styles.ts) 和 [PrimitivesProvider](../../src/ui/primitives/provider.tsx)。
+**样式。** 使用 Base UI 版本，新增基础控件归 src/frontend/primitives，助手相关组合放在 src/frontend/pages/query；有明确复用需求后再提升至公共组件。沿用 ste: 类名前缀、stm-luma 主题、现有 cn 和 PrimitivesProvider。生产样式入口为 src/frontend/theme.css，聚合 primitives/theme.css，现有扫描范围覆盖这两个目录；如果另放 src/ui/ai-elements 等目录，需要显式检查扫描覆盖。新 Portal 必须接入插件容器，尤其关注 Tooltip、Hover Card 和弹层在 ST 原生 top-layer 面板中的位置。参考 [前端规范](../ui/frontend-development.md)、[样式构建](../../scripts/luma-styles.ts) 和 [PrimitivesProvider](../../src/frontend/primitives/provider.tsx)。
 
 **Markdown 和引用。** 第一轮保留现有 react-markdown 渲染路径：已有测试锁定原始 HTML、javascript 链接和远程图片行为，换消息外壳无需同时换 Markdown 引擎。Code Block 高亮或 Streamdown 可作为独立评估，核查依赖、ste: 前缀、扫描路径与产物大小后再决定。工具命中记录只说明读取了哪些数据；句子级引用还需模型输出与记录身份的明确关联。query_sql 的语义 sources 记录表、组和查询覆盖，不能直接等同于每句话的记录证据；任意 SQL 结果也未必包含记录 ID。
 

@@ -37,7 +37,7 @@ const server = await build.serve({
   port: Number(process.env.PORT ?? 18825),
   servedir: output,
 });
-const watchers = ["src/frontend/theme.css", "src/ui/primitives/theme.css"].map((file) =>
+const watchers = ["src/frontend/theme.css", "src/frontend/primitives/theme.css"].map((file) =>
   watch(path.join(PACKAGE_ROOT, file), styles),
 );
 console.log(`记忆工作台预览：http://127.0.0.1:${server.port}/ （?dark 暗色）`);

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../primitives/field.tsx";
 import { ConfirmAction } from "../../components/confirmation.tsx";
 import { PageSection } from "../../components/page-section.tsx";
 import { SwitchField } from "../../components/form-fields.tsx";

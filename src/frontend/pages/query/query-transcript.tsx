@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MessageScroller, useMessageScroller } from "@shadcn/react/message-scroller";
 import { ArrowDown } from "lucide-react";
-import { Button } from "../../../ui/primitives/button.tsx";
+import { Button } from "../../primitives/button.tsx";
 
 interface ReadingPosition {
   messageId: string;

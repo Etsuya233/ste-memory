@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Button } from "../../../ui/primitives/button.tsx";
+import { Button } from "../../primitives/button.tsx";
 import type { AutoFillSettings } from "../../../features/fill-tasks/auto-fill-settings.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import type { TasksWorkspace } from "./tasks-workspace.ts";

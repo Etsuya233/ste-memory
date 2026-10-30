@@ -6,20 +6,20 @@ import {
   type LogLevel,
   type LogRepository,
 } from "../../../features/logging/log.ts";
-import { Button } from "../../../ui/primitives/button.tsx";
-import { Badge } from "../../../ui/primitives/badge.tsx";
-import { Input } from "../../../ui/primitives/input.tsx";
-import { NativeSelect } from "../../../ui/primitives/native-select.tsx";
-import { Field, FieldLabel } from "../../../ui/primitives/field.tsx";
+import { Button } from "../../primitives/button.tsx";
+import { Badge } from "../../primitives/badge.tsx";
+import { Input } from "../../primitives/input.tsx";
+import { NativeSelect } from "../../primitives/native-select.tsx";
+import { Field, FieldLabel } from "../../primitives/field.tsx";
 import {
   Item,
   ItemActions,
   ItemContent,
   ItemDescription,
   ItemGroup,
-} from "../../../ui/primitives/item.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "../../../ui/primitives/popover.tsx";
-import { Skeleton } from "../../../ui/primitives/skeleton.tsx";
+} from "../../primitives/item.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../../primitives/popover.tsx";
+import { Skeleton } from "../../primitives/skeleton.tsx";
 import { ConfirmAction } from "../../components/confirmation.tsx";
 import {
   PageHeader,
