@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ChevronDown, ListTodo } from "lucide-react";
-import type { FillTaskView } from "../../../features/fill-tasks/fill-task.ts";
+import type { FillTaskView, FloorFillStatus } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
 import { Button } from "../../primitives/button.tsx";
 import { Badge } from "../../primitives/badge.tsx";
 import { Checkbox } from "../../primitives/checkbox.tsx";
-import { Field, FieldLabel } from "../../primitives/field.tsx";
+import { Field, FieldGroup, FieldLabel } from "../../primitives/field.tsx";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia } from "../../primitives/item.tsx";
 import { Input } from "../../primitives/input.tsx";
 import { NativeSelect } from "../../primitives/native-select.tsx";
@@ -290,6 +290,7 @@ function TasksMain({
                   </div>
                 </form>
               </PageSection>
+              <FloorProgressForm key={scope} workspace={workspace} state={state} />
               <PageSection
                 title="本对话配置"
                 meta={<span className="ste:text-xs ste:text-muted-foreground">随对话保存</span>}
@@ -417,6 +418,94 @@ function TasksMain({
         onConfirm={confirmFill}
       />
     </section>
+  );
+}
+
+function FloorProgressForm({
+  workspace,
+  state,
+}: {
+  workspace: TasksWorkspace;
+  state: TasksSnapshot;
+}) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [status, setStatus] = useState<FloorFillStatus>("processed");
+  const [error, setError] = useState<string | null>(null);
+  const running = state.pending.some((task) => task.status === "running");
+  const disabled = state.busy || state.messageCount === 0 || running;
+  return (
+    <Accordion>
+      <AccordionItem value="floor-progress">
+        <AccordionTrigger>标记楼层进度</AccordionTrigger>
+        <AccordionContent>
+          <form
+            className="ste:flex ste:flex-col ste:gap-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setError(null);
+              const result = await workspace.markFloors(from, to, status);
+              setError(result.error);
+            }}
+          >
+            <p id="floor-progress-help" className="ste:text-xs ste:text-muted-foreground">
+              仅修改当前记忆空间的楼层进度，不执行填表或修改记忆内容。楼层从 0
+              开始，范围包含起止楼层。
+            </p>
+            <FieldGroup className="ste:grid ste:grid-cols-2 ste:gap-3">
+              <Field>
+                <FieldLabel htmlFor="floor-progress-from">标记起始楼层</FieldLabel>
+                <Input
+                  id="floor-progress-from"
+                  inputMode="numeric"
+                  required
+                  value={from}
+                  disabled={disabled}
+                  aria-describedby="floor-progress-help"
+                  placeholder="0"
+                  onChange={(event) => setFrom(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="floor-progress-to">标记结束楼层</FieldLabel>
+                <Input
+                  id="floor-progress-to"
+                  inputMode="numeric"
+                  required
+                  value={to}
+                  disabled={disabled}
+                  aria-describedby="floor-progress-help"
+                  placeholder={String(Math.max(0, state.messageCount - 1))}
+                  onChange={(event) => setTo(event.target.value)}
+                />
+              </Field>
+              <Field className="ste:col-span-2">
+                <FieldLabel htmlFor="floor-progress-status">目标状态</FieldLabel>
+                <NativeSelect
+                  id="floor-progress-status"
+                  value={status}
+                  disabled={disabled}
+                  onChange={(event) => setStatus(event.target.value as FloorFillStatus)}
+                >
+                  <option value="processed">已处理</option>
+                  <option value="untracked">未处理</option>
+                  <option value="error">出错</option>
+                </NativeSelect>
+              </Field>
+            </FieldGroup>
+            {error && <PageError title="标记失败" error={error} />}
+            {running && (
+              <p className="ste:text-xs ste:text-muted-foreground">
+                请等待运行中的填表任务结束后再标记。
+              </p>
+            )}
+            <Button type="submit" disabled={disabled} className="ste:self-end">
+              标记进度
+            </Button>
+          </form>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 

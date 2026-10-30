@@ -884,6 +884,7 @@ const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
   })),
 );
 const agentPresetOverrides = new Map<string, string>();
+const floorProgressOverrides = new Map<string, Map<number, "processed" | "untracked" | "error">>();
 const taskServices: TasksServices = {
   tasks: {
     pendingTasks: async (spaceId) =>
@@ -901,14 +902,20 @@ const taskServices: TasksServices = {
           .slice(-limit)
           .reverse(),
       ),
-    ledgerStatuses: async (_spaceId, from, to) =>
+    ledgerStatuses: async (spaceId, from, to) =>
       Array.from({ length: to - from + 1 }, (_, i) => ({
         floor: from + i,
         status:
-          from + i < 4 || from + i === 8
-            ? ("processed" as const)
-            : ("untracked" as const),
+          floorProgressOverrides.get(spaceId)?.get(from + i) ??
+          (from + i < 4 || from + i === 8 ? ("processed" as const) : ("untracked" as const)),
       })),
+    markFloorStatuses: async (spaceId, from, to, status) => {
+      if (fillTasks.some((task) => task.memorySpaceId === spaceId && task.status === "running"))
+        throw new Error("请等待运行中的填表任务结束后再标记");
+      const floors = floorProgressOverrides.get(spaceId) ?? new Map();
+      for (let floor = from; floor <= to; floor++) floors.set(floor, status);
+      floorProgressOverrides.set(spaceId, floors);
+    },
     submit: async (input) => {
       const task: FillTaskView = {
         runId: `fill-${++serial}`,

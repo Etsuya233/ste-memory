@@ -67,6 +67,7 @@ $env:CHROME='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 node verify-frontend.mjs
 node verify-tables.mjs
 node verify-workbench.mjs
+node verify-floor-progress.mjs
 node verify-connections.mjs
 node verify-search.mjs
 node verify-cleaning.mjs

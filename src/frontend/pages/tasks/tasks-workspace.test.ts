@@ -10,6 +10,7 @@ function setup() {
       pendingTasks: vi.fn().mockResolvedValue([]),
       recentTasks: vi.fn().mockResolvedValue([]),
       ledgerStatuses: vi.fn().mockResolvedValue([]),
+      markFloorStatuses: vi.fn(),
       submit: vi.fn(),
       submitInit: vi.fn(),
       cancel: vi.fn(),
@@ -41,6 +42,72 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("TasksWorkspace", () => {
+  it("marks the current space and refreshes its floor ledger", async () => {
+    vi.stubGlobal("document", {
+      hidden: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const { services, workspace } = setup();
+    const stop = workspace.startPolling();
+    await workspace.refresh();
+    vi.mocked(services.tasks.markFloorStatuses).mockImplementation(async () => {
+      vi.mocked(services.tasks.ledgerStatuses).mockResolvedValue([
+        { floor: 2, status: "processed" },
+      ]);
+    });
+    expect(await workspace.markFloors("2", "4", "processed")).toMatchObject({ ok: true });
+    await workspace.refresh();
+    expect(services.tasks.markFloorStatuses).toHaveBeenCalledWith(a.spaceId, 2, 4, "processed");
+    expect(workspace.getSnapshot()).toMatchObject({
+      ledger: [{ floor: 2, status: "processed" }],
+      notice: "楼层进度已更新",
+    });
+    stop();
+  });
+  it("rejects empty, reversed and out-of-bounds ranges before marking", async () => {
+    const { services, workspace } = setup();
+    for (const [from, to] of [
+      ["", "2"],
+      ["0", ""],
+      ["4", "2"],
+      ["0", "10"],
+      ["1.5", "3"],
+    ]) {
+      expect(await workspace.markFloors(from!, to!, "untracked")).toMatchObject({ ok: false });
+    }
+    expect(services.tasks.markFloorStatuses).not.toHaveBeenCalled();
+  });
+  it("shows service errors and keeps a completed mark from leaking into another chat", async () => {
+    const { services, workspace } = setup();
+    vi.mocked(services.tasks.markFloorStatuses).mockRejectedValueOnce(
+      new Error("已有运行中的任务"),
+    );
+    expect(await workspace.markFloors("0", "2", "error")).toMatchObject({
+      ok: false,
+      error: "已有运行中的任务",
+    });
+    expect(workspace.getSnapshot().error).toBeNull();
+    let finish!: () => void;
+    vi.mocked(services.tasks.markFloorStatuses).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const marking = workspace.markFloors("0", "2", "untracked");
+    await workspace.markFloors("0", "2", "untracked");
+    expect(services.tasks.markFloorStatuses).toHaveBeenCalledTimes(2);
+    workspace.setContext(b);
+    finish();
+    await marking;
+    expect(workspace.getSnapshot()).toMatchObject({
+      context: b,
+      busy: false,
+      notice: null,
+      error: null,
+    });
+  });
   it("keeps the submission busy across A to B to A and clears its draft on success", async () => {
     const { services, workspace } = setup();
     let finish!: () => void;

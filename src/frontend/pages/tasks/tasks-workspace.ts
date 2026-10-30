@@ -1,5 +1,9 @@
 import type { FillTaskService } from "../../../features/fill-tasks/fill-task-service.ts";
-import type { FillTaskView, FloorLedgerEntry } from "../../../features/fill-tasks/fill-task.ts";
+import type {
+  FillTaskView,
+  FloorFillStatus,
+  FloorLedgerEntry,
+} from "../../../features/fill-tasks/fill-task.ts";
 import type { VectorIndexService } from "../../../features/vector-index/vector-index-service.ts";
 import type {
   VectorTask,
@@ -18,7 +22,14 @@ export interface TasksChatConfigServices {
 export interface TasksServices {
   tasks: Pick<
     FillTaskService,
-    "pendingTasks" | "recentTasks" | "ledgerStatuses" | "submit" | "submitInit" | "cancel" | "retry"
+    | "pendingTasks"
+    | "recentTasks"
+    | "ledgerStatuses"
+    | "markFloorStatuses"
+    | "submit"
+    | "submitInit"
+    | "cancel"
+    | "retry"
   >;
   vector: Pick<VectorIndexService, "listTasks" | "cancel" | "cancelMany" | "retry">;
   chatConfig: TasksChatConfigServices;
@@ -322,6 +333,17 @@ export class TasksWorkspace {
       },
       "填表任务已加入队列",
       // 提交流程在确认弹窗内展示失败原因，避免弹窗关闭后才发现错误。
+      { surfaceError: false },
+    );
+  markFloors = (from: string, to: string, status: FloorFillStatus) =>
+    this.perform(
+      async (context) => {
+        if (!from.trim() || !to.trim()) throw new Error("请输入起始楼层和结束楼层");
+        const range = validateFloorRange(from, to, this.services.messageCount());
+        if (range.kind === "error") throw new Error(range.message);
+        await this.services.tasks.markFloorStatuses(context.spaceId, range.from, range.to, status);
+      },
+      "楼层进度已更新",
       { surfaceError: false },
     );
   submitInit = () => {
