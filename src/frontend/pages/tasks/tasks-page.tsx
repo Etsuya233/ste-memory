@@ -127,7 +127,6 @@ function TasksMain({
       (task) => task.kind === "floor" && (task.status === "queued" || task.status === "running"),
     ),
   });
-  const firstUnprocessed = unprocessedRanges(state.ledger, state.messageCount)[0];
   const running = state.pending.find((task) => task.status === "running");
   const queued = state.pending.filter((task) => task.status !== "running");
   const history = state.history.filter(
@@ -171,11 +170,10 @@ function TasksMain({
     if (!outcome.ok) throw new Error(outcome.error);
     setPendingSubmit(null);
   }
-  function useFirstUnprocessed() {
-    if (!firstUnprocessed) return;
+  function applyFillRange(next: { readonly from: number; readonly to: number }) {
     setRange({
-      from: String(firstUnprocessed.from),
-      to: String(firstUnprocessed.to),
+      from: String(next.from),
+      to: String(next.to),
       block: range.block || defaultBlock,
     });
     setRangeError(null);
@@ -219,9 +217,8 @@ function TasksMain({
                 coverage={coverage}
                 running={running}
                 last={history[0]}
-                firstUnprocessed={firstUnprocessed}
                 busy={state.busy}
-                onUseRange={useFirstUnprocessed}
+                onSelectRange={applyFillRange}
                 onOpenLog={onOpenLog}
                 onCancel={(task) => void workspace.fillAction(task.runId, "cancel")}
                 onRetry={(task) => void workspace.fillAction(task.runId, "retry")}
@@ -513,9 +510,8 @@ function ProgressSection({
   coverage,
   running,
   last,
-  firstUnprocessed,
   busy,
-  onUseRange,
+  onSelectRange,
   onOpenLog,
   onCancel,
   onRetry,
@@ -523,9 +519,8 @@ function ProgressSection({
   coverage: ReturnType<typeof buildCoverageViewModel>;
   running: FillTaskView | undefined;
   last: FillTaskView | undefined;
-  firstUnprocessed: { from: number; to: number } | undefined;
   busy: boolean;
-  onUseRange: () => void;
+  onSelectRange: (range: { readonly from: number; readonly to: number }) => void;
   onOpenLog: (key: string, summary?: string) => void;
   onCancel: (task: FillTaskView) => void;
   onRetry: (task: FillTaskView) => void;
@@ -534,9 +529,7 @@ function ProgressSection({
     <PageSection
       title="填表进度"
       meta={
-        <span className="ste:text-xs ste:text-muted-foreground">
-          {coverage.totalCount} 层 · 未处理 {coverage.untrackedCount}
-        </span>
+        <span className="ste:text-xs ste:text-muted-foreground">共 {coverage.totalCount} 层</span>
       }
     >
       <div className="ste:flex ste:flex-col ste:gap-3">
@@ -547,17 +540,7 @@ function ProgressSection({
         ) : (
           <p className="ste:text-sm ste:text-muted-foreground">还没有填表任务。</p>
         )}
-        <CoverageBar coverage={coverage} />
-        {firstUnprocessed && (
-          <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2 ste:text-xs">
-            <span className="ste:text-muted-foreground">
-              未处理楼层 {firstUnprocessed.from}–{firstUnprocessed.to}
-            </span>
-            <Button variant="outline" size="sm" onClick={onUseRange}>
-              按此范围填表
-            </Button>
-          </div>
-        )}
+        <CoverageBar coverage={coverage} onSelectRange={onSelectRange} />
       </div>
     </PageSection>
   );

@@ -73,6 +73,17 @@ try {
       "出错 3",
     ),
   );
+  const coverage = page
+    .locator("section")
+    .filter({ has: page.getByText("填表进度", { exact: true }) })
+    .first();
+  assert.equal(await coverage.locator("[data-coverage-floor]").count(), 12);
+  const gaps = coverage.getByRole("button", { name: /^填入楼层/ });
+  assert.deepEqual(await gaps.allTextContents(), ["#7", "#9–#11"]);
+  await gaps.last().click();
+  assert.equal(await page.locator("#task-from").inputValue(), "9");
+  assert.equal(await page.locator("#task-to").inputValue(), "11");
+  console.log("PASS coverage grid renders per floor and gap buttons fill the fill range");
   await from.fill("7");
   await to.fill("2");
   await button("标记进度").click();
