@@ -12,6 +12,7 @@ export interface SettingsServices {
     | "save"
     | "setEmbeddingConnection"
     | "setRerankSettings"
+    | "setEntryPlacement"
   >;
   testAgentConnection: (connection: AgentConnection) => Promise<ConnectionTestResult>;
   onChanged: () => void | Promise<void>;

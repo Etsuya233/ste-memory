@@ -185,7 +185,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
   };
 }
 
-function isEntryPlacement(value: unknown): value is EntryPlacement {
+export function isEntryPlacement(value: unknown): value is EntryPlacement {
   return value === "top" || value === "wand" || value === "both";
 }
 

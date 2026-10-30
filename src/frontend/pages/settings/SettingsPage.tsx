@@ -17,9 +17,13 @@ import type { QueryServices } from "../query/query-page.tsx";
 import { SearchPage, type SearchServices, type SearchPageProps } from "../search/search-page.tsx";
 import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
 import type { LogRepository } from "../../../features/logging/log.ts";
-import type { PluginSettings } from "../../../features/settings/plugin-settings.ts";
+import {
+  isEntryPlacement,
+  type PluginSettings,
+} from "../../../features/settings/plugin-settings.ts";
 import { Button } from "../../primitives/button.tsx";
 import { Input } from "../../primitives/input.tsx";
+import { NativeSelect, NativeSelectOption } from "../../primitives/native-select.tsx";
 import { Field, FieldLabel, FieldDescription } from "../../primitives/field.tsx";
 import {
   Item,
@@ -319,6 +323,31 @@ function SettingsOverview({
           meta={<span className="ste:text-xs ste:text-muted-foreground">全局生效</span>}
         >
           <div className="ste:flex ste:flex-col ste:gap-5">
+            <Field>
+              <FieldLabel htmlFor="settings-entry-placement">入口位置</FieldLabel>
+              <NativeSelect
+                id="settings-entry-placement"
+                value={settings.entryPlacement}
+                disabled={busy}
+                aria-describedby="settings-entry-placement-description"
+                onChange={(event) => {
+                  const placement = event.target.value;
+                  if (!isEntryPlacement(placement)) throw new Error("无效的入口位置");
+                  void save(async () => {
+                    services.settings.setEntryPlacement(placement);
+                    await services.onChanged();
+                    return { settings: services.settings.read(), saved: true };
+                  });
+                }}
+              >
+                <NativeSelectOption value="top">顶栏</NativeSelectOption>
+                <NativeSelectOption value="wand">魔法棒</NativeSelectOption>
+                <NativeSelectOption value="both">顶栏和魔法棒</NativeSelectOption>
+              </NativeSelect>
+              <FieldDescription id="settings-entry-placement-description">
+                选择记忆工作台的入口，修改后立即保存并生效。
+              </FieldDescription>
+            </Field>
             <SwitchField
               label="启用记忆插件"
               description="关闭后暂停同步和记忆宏；仍可在这里重新开启。"

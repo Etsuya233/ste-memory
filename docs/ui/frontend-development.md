@@ -184,6 +184,10 @@ ST 与插件共处一个文档。Tailwind 类名前缀仅隔离类名，无法�
 保持 Base UI 的焦点和关闭流程；禁止默认 Portal 到 `document.body` 或叠加第二套焦点陷阱。
 新增 CSS 放到对应公共主题或前端样式入口，选择器限定作用域；不要通过修改宿主全局选择器解决插件问题。
 
+ST 入口由 `host/st-entry.tsx` Portal 到顶栏与魔法棒菜单，沿用宿主的 Font Awesome、
+`drawer-icon` 与 `list-group-item` 样式，保持在 `.stm-luma` 主题作用域之外。
+工作台继续由 `FrontendPanel` 隔离主题；入口位置使用既有全局 `entryPlacement` 设置。
+
 新增浮层以 [alert-dialog.tsx](../../src/frontend/primitives/alert-dialog.tsx) 为接线范例：
 `usePrimitivesContainer` 提供 Portal 目标，`usePrimitivesActive` 控制可见生命周期，
 `useDismissWithSurface` 通过 Base UI actions 正式关闭，`canRestoreSurfaceFocus` 校验最终焦点目标是否可见。

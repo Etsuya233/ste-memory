@@ -2,8 +2,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import type { SteMemoryRuntime } from "../../runtime.ts";
-import { Button } from "../primitives/button.tsx";
-import { BookOpen } from "lucide-react";
+import { StEntry } from "./st-entry.tsx";
 import { RecordsWorkspace } from "../pages/records-workspace.ts";
 import type { RecordsContext } from "../pages/records-workspace.ts";
 import { TablesWorkspace } from "../pages/tables/tables-workspace.ts";
@@ -17,11 +16,8 @@ import { createMaintenanceServices } from "./maintenance-services.ts";
 export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const host = document.createElement("div");
   host.id = "ste-memory-frontend-host";
-  host.className = "stm-luma ste:contents";
-  host.style.color = "var(--SmartThemeBodyColor)";
-  const toolbar = document.getElementById("top-settings-holder");
-  if (!toolbar) throw new Error("ST 顶部工具栏尚未就绪，无法挂载记忆工作台");
-  toolbar.appendChild(host);
+  host.style.display = "contents";
+  document.body.appendChild(host);
   const assertContext = (context: RecordsContext) => {
     const status = runtime.manager.getStatus();
     if (
@@ -226,16 +222,11 @@ function StFrontend({
   );
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="打开记忆工作台"
-        aria-expanded={open}
-        data-action="open-frontend"
-        onClick={() => setOpen(true)}
-      >
-        <BookOpen />
-      </Button>
+      <StEntry
+        placement={runtime.settings.read().entryPlacement}
+        open={open}
+        onOpen={() => setOpen(true)}
+      />
       <FrontendPanel open={open} tone={tone}>
         <WorkbenchApp
           workspace={workspace}
