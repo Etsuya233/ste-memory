@@ -1244,6 +1244,10 @@ export async function startSteMemory(
       if (!(await memoryStore.ensure(spaceId))) throw new Error("当前记忆空间已不存在");
       return sqlite.readSnapshot(spaceId);
     },
+    sqlite,
+    async (spaceId) => {
+      if (!(await memoryStore.ensure(spaceId))) throw new Error("当前记忆空间已不存在");
+    },
   );
   manager.onStatusChange(() => publicRead.invalidate());
   memoryStore.onPublished = (spaceId) => {

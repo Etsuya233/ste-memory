@@ -273,6 +273,45 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await store.discardLoaded();
     expect((await read)?.space.id).toBe("space");
   });
+  it("public SQL views follow short edits and the shared manual/automatic fill commit publication", async () => {
+    const schema = await client.describeDatabase("space");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "space",
+      schemaKey: schema.schemaKey,
+      namespace: "phone",
+    };
+    await client.registerDatabaseViews({
+      ...binding,
+      views: [
+        {
+          name: "phone_people",
+          select: 'SELECT "$record_id", name FROM characters ORDER BY "$record_id"',
+        },
+      ],
+    });
+    const published = vi.fn();
+    store.onPublished = published;
+    await store.repositories().records.create(row("a", "手动编辑"), []);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
+    ).toEqual([["a", "手动编辑"]]);
+    const token = await store.begin(id());
+    await store.repositories("write", token).records.create(row("b", "填表提交"), []);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
+    ).toHaveLength(1);
+    expect(published).toHaveBeenCalledTimes(1);
+    await store.finish(id(), token, true);
+    expect(published).toHaveBeenCalledTimes(2);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
+    ).toEqual([
+      ["a", "手动编辑"],
+      ["b", "填表提交"],
+    ]);
+    expect((await client.describeDatabase("space")).schemaKey).toBe(schema.schemaKey);
+  });
   it("notifies readers of committed content even when snapshot caching fails", async () => {
     const published = vi.fn();
     store.onPublished = published;

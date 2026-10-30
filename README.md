@@ -55,7 +55,7 @@ Agent 从主导航直接进入；向量搜索、运行日志、备份与空间�
 真实 SillyTavern 验收脚本在 [`docs/playwright-st-extension`](./docs/playwright-st-extension)，
 通过 `window.__STE_MEMORY_RUNTIME__`（调试入口）驱动面板与数据流。
 
-其他扩展可通过正式的 `globalThis.STE_MEMORY_API` v1 读取当前对话的已提交资料并订阅变更；不需要访问调试 runtime 或数据库。契约、加载次序与一致性说明见 [公共只读接口](./docs/public-read-api.md)。
+其他扩展可通过正式的 `globalThis.STE_MEMORY_API` v1 读取当前对话的已提交资料并订阅变更，或使用可选 `database` v1 能力描述结构、注册适配器自己的临时 SELECT 视图并查询既有 committed SQLite，无需复制全部记录。契约、加载次序与一致性说明见 [公共只读接口](./docs/public-read-api.md)。
 
 ## 记录排序
 

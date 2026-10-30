@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
-import type { MemoryRecord } from "../../features/memory/index.ts";
+import {
+  memoryFieldKey,
+  memoryTableKey,
+  type MemoryRecord,
+  type MemoryFieldId,
+  type MemoryTableId,
+} from "../../features/memory/index.ts";
 import { createInProcessSqliteMemoryClient } from "./node-client.ts";
 import type { SqliteMemoryClient } from "./types.ts";
 import { querySqliteRecords } from "./query-executor.ts";
@@ -90,6 +96,309 @@ describe("real SQLite WASM memory engine", () => {
     expect(snapshot.records.map((item) => item.id)).toEqual(["r"]);
     expect(Object.keys(snapshot).sort()).toEqual(["fields", "records", "space", "tables"]);
   });
+  it("public database views query committed data and survive record publication without a snapshot copy", async () => {
+    const schema = await client.describeDatabase("s");
+    expect(Object.keys(schema).sort()).toEqual([
+      "columns",
+      "databaseKey",
+      "fields",
+      "schemaKey",
+      "space",
+      "tables",
+    ]);
+    expect(schema.columns["角色"]).toContain("$record_id");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "s",
+      schemaKey: schema.schemaKey,
+      namespace: "phone",
+    };
+    await client.registerDatabaseViews({
+      ...binding,
+      views: [
+        { name: 'src_角"色', select: 'SELECT "$record_id", "姓名" FROM "角色"' },
+        { name: "phone_contacts", select: 'SELECT "$record_id" id, "姓名" name FROM "src_角""色"' },
+      ],
+    });
+    await client.begin("s");
+    await client.putEntity("s", "record", record("r", "小红"));
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_contacts" })).rows,
+    ).toEqual([]);
+    await client.commit("s");
+    expect((await client.describeDatabase("s")).schemaKey).toBe(schema.schemaKey);
+    expect((await client.describeDatabase("s")).databaseKey).toBe(schema.databaseKey);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_contacts" })).rows,
+    ).toEqual([["r", "小红"]]);
+    await client.exec({ spaceId: "s", access: "host", sql: "UPDATE 角色 SET 姓名='实时库'" });
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT name FROM phone_contacts" })).rows,
+    ).toEqual([["实时库"]]);
+    const backup = await client.exportSpace("s");
+    expect(JSON.stringify(backup)).not.toContain("phone_contacts");
+    await client.removeSpace("s");
+    await client.importSpace(backup);
+    expect((await client.describeDatabase("s")).databaseKey).not.toBe(schema.databaseKey);
+    await expect(
+      client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_contacts" }),
+    ).rejects.toThrow("尚未注册");
+  });
+
+  it("public database schema changes invalidate views without blocking commit and can be registered again", async () => {
+    const initial = await client.describeDatabase("s");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "s",
+      schemaKey: initial.schemaKey,
+      namespace: "phone",
+    };
+    await client.registerDatabaseViews({
+      ...binding,
+      views: [{ name: "phone_people", select: 'SELECT "姓名" FROM "角色"' }],
+    });
+    await client.begin("s");
+    const field = (await client.getEntity("s", "field", "f", "write"))!;
+    await client.putEntity("s", "field", { ...field, key: memoryFieldKey("名字"), name: "新标签" });
+    await client.commit("s");
+    await expect(
+      client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" }),
+    ).rejects.toThrow("结构已变化");
+    const latest = await client.describeDatabase("s");
+    expect(latest.schemaKey).not.toBe(initial.schemaKey);
+    await expect(
+      client.queryDatabase({
+        ...binding,
+        schemaKey: latest.schemaKey,
+        sql: "SELECT * FROM phone_people",
+      }),
+    ).rejects.toThrow("结构已失效");
+    await client.registerDatabaseViews({
+      ...binding,
+      schemaKey: latest.schemaKey,
+      views: [{ name: "phone_people", select: 'SELECT "名字" FROM "角色"' }],
+    });
+    expect(
+      (
+        await client.queryDatabase({
+          ...binding,
+          schemaKey: latest.schemaKey,
+          sql: "SELECT * FROM phone_people",
+        })
+      ).columns,
+    ).toEqual(["名字"]);
+    await client.begin("s");
+    await client.putEntity("s", "field", {
+      ...field,
+      key: memoryFieldKey("名字"),
+      name: "仅改显示名",
+      position: 3,
+    });
+    await client.commit("s");
+    expect((await client.describeDatabase("s")).schemaKey).not.toBe(latest.schemaKey);
+  });
+
+  it("public database registration is atomic and rejects namespace, business table and duplicate-name collisions", async () => {
+    const schema = await client.describeDatabase("s");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "s",
+      schemaKey: schema.schemaKey,
+      namespace: "phone",
+    };
+    await client.registerDatabaseViews({
+      ...binding,
+      views: [{ name: "phone_people", select: "SELECT 1 AS id" }],
+    });
+    for (const views of [
+      [{ name: "角色", select: "SELECT 1" }],
+      [{ name: "__entities", select: "SELECT 1" }],
+      [{ name: "sqlite_schema", select: "SELECT 1" }],
+      [
+        { name: "one", select: "SELECT 1" },
+        { name: "ONE", select: "SELECT 2" },
+      ],
+      [
+        { name: "new_people", select: "SELECT 2" },
+        { name: "bad", select: "SELECT * FROM missing" },
+      ],
+      [{ name: "phone_people", columns: ["same", "SAME"], select: "SELECT 1,2" }],
+    ])
+      await expect(client.registerDatabaseViews({ ...binding, views })).rejects.toThrow();
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
+    ).toEqual([[1]]);
+    await expect(
+      client.registerDatabaseViews({
+        ...binding,
+        namespace: "other",
+        views: [{ name: "PHONE_PEOPLE", select: "SELECT 1" }],
+      }),
+    ).rejects.toThrow("冲突");
+    await client.registerDatabaseViews({
+      ...binding,
+      namespace: "other",
+      views: [{ name: "private_view", select: "SELECT 1" }],
+    });
+    await expect(
+      client.queryDatabase({ ...binding, sql: "SELECT * FROM private_view" }),
+    ).rejects.toThrow();
+    await client.registerDatabaseViews({
+      ...binding,
+      namespace: "other",
+      views: [{ name: "json_each", select: "SELECT 1 AS value" }],
+    });
+    await expect(
+      client.queryDatabase({ ...binding, sql: "SELECT * FROM json_each" }),
+    ).rejects.toThrow();
+    await expect(
+      client.registerDatabaseViews({ ...binding, namespace: "bad;DROP", views: [] }),
+    ).rejects.toThrow("namespace");
+  });
+
+  it("public database authorizes expanded view source columns and rejects internal metadata and SQL writes", async () => {
+    const source = fixture();
+    const data: MemorySpaceBackup = {
+      ...source,
+      fields: [
+        ...source.fields,
+        {
+          ...source.fields[0]!,
+          id: "hidden" as MemoryFieldId,
+          key: memoryFieldKey("秘密"),
+          enabled: false,
+        },
+      ],
+      tables: [
+        ...source.tables,
+        {
+          ...source.tables[0]!,
+          id: "disabled" as MemoryTableId,
+          key: memoryTableKey("hidden_table"),
+          enabled: false,
+        },
+      ],
+    };
+    await client.importSpace(data);
+    const schema = await client.describeDatabase("s");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "s",
+      schemaKey: schema.schemaKey,
+      namespace: "phone",
+    };
+    expect(schema.fields.map((field) => field.key)).toEqual(["姓名"]);
+    await client.registerDatabaseViews({ ...binding, views: [] });
+    await client.exec({
+      spaceId: "s",
+      sql: "CREATE VIEW legacy_leak AS SELECT data FROM __entities",
+      access: "host",
+    });
+    for (const sql of [
+      "SELECT * FROM __entities",
+      "SELECT * FROM legacy_leak",
+      "SELECT name FROM sqlite_schema",
+      "SELECT * FROM pragma_table_info('角色')",
+      'SELECT "秘密" FROM "角色"',
+      "SELECT * FROM hidden_table",
+      "SELECT sqlite_compileoption_get(0)",
+      "SELECT load_extension('x')",
+      "INSERT INTO 角色 DEFAULT VALUES",
+      "CREATE TABLE bad(id)",
+      "PRAGMA database_list",
+      "ATTACH ':memory:' AS other",
+      "SELECT 1; SELECT 2",
+      "BEGIN",
+      "SELECT * FROM (SELECT data FROM __entities)",
+    ]) {
+      await expect(client.queryDatabase({ ...binding, sql })).rejects.toThrow();
+      await expect(
+        client.registerDatabaseViews({ ...binding, views: [{ name: "leak", select: sql }] }),
+      ).rejects.toThrow();
+    }
+    await expect(
+      client.registerDatabaseViews({
+        ...binding,
+        views: [{ name: "hidden_table", select: "SELECT 1" }],
+      }),
+    ).rejects.toThrow("冲突");
+    await client.registerDatabaseViews({
+      ...binding,
+      views: [{ name: "safe", select: 'SELECT "姓名" FROM "角色"' }],
+    });
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT count(*) FROM safe" })).rows,
+    ).toEqual([[0]]);
+  });
+
+  it("public database binds named scalars, truncates rows and restores the connection after native timeout and size errors", async () => {
+    const schema = await client.describeDatabase("s");
+    const binding = {
+      chatIdentity: "chat",
+      spaceId: "s",
+      schemaKey: schema.schemaKey,
+      namespace: "phone",
+    };
+    await client.registerDatabaseViews({ ...binding, views: [] });
+    const sql = "SELECT :text AS text,:number AS number,:empty AS empty";
+    expect(
+      (
+        await client.queryDatabase({
+          ...binding,
+          sql,
+          params: { text: "引号'值", number: 3, empty: null },
+        })
+      ).rows,
+    ).toEqual([["引号'值", 3, null]]);
+    expect(
+      (
+        await client.queryDatabase({
+          ...binding,
+          sql: "SELECT value FROM json_each(:list)",
+          params: { list: '["公开JSON"]' },
+        })
+      ).rows,
+    ).toEqual([["公开JSON"]]);
+    for (const input of [
+      { sql: "SELECT ?", params: { x: 1 } },
+      { sql: "SELECT :x" },
+      { sql: "SELECT 1", params: { x: 1 } },
+      { sql: "SELECT :x", params: { x: Infinity } },
+      { sql: "SELECT 1\0; DROP TABLE 角色" },
+      { sql: "SELECT zeroblob(8)" },
+      { sql: "SELECT printf('%.*c', 1100000, 'x')" },
+      {
+        sql: "WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000000) SELECT sum(x) FROM n",
+        budgetMs: 1,
+      },
+      {
+        sql: "WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10) SELECT printf('%.*c',400000,'x') FROM n",
+      },
+    ])
+      await expect(client.queryDatabase({ ...binding, ...input })).rejects.toThrow();
+    const result = await client.queryDatabase({
+      ...binding,
+      maxRows: 2,
+      sql: "SELECT 1 n UNION ALL SELECT 2 UNION ALL SELECT 3",
+    });
+    expect(result).toMatchObject({ columns: ["n"], rows: [[1], [2]], maxRows: 2, truncated: true });
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT 1; -- trailing comment" })).rows,
+    ).toEqual([[1]]);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: "SELECT 9223372036854775807" })).rows,
+    ).toEqual([["9223372036854775807"]]);
+    expect(
+      typeof (await client.queryDatabase({ ...binding, sql: "SELECT sqlite_version()" }))
+        .rows[0]![0],
+    ).toBe("string");
+    await client.begin("s");
+    await client.putEntity("s", "record", record("after-errors", "恢复"));
+    await client.commit("s");
+    expect((await client.readSnapshot("s")).records).toHaveLength(1);
+  });
+
   it("classifies inline semantic dependencies during prepare without executing input expressions", async () => {
     const data = fixture();
     const sessionId = await client.openEvaluation(data);

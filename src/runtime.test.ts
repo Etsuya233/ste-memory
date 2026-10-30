@@ -104,11 +104,37 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const latest = await runtime.publicRead.read();
     expect(latest.context.revision).toBeGreaterThan(initial.context.revision);
     expect(latest.snapshot.tables.some((table) => table.key === "read_probe")).toBe(true);
+    const database = runtime.publicRead.database!;
+    const binding = {
+      chatIdentity: latest.context.chatIdentity!,
+      spaceId: latest.snapshot.space.id,
+    };
+    const schema = await database.describe(binding);
+    const queryBinding = { ...binding, schemaKey: schema.schemaKey, namespace: "public_probe" };
+    await database.registerViews({
+      ...queryBinding,
+      views: [{ name: "probe_counts", select: "SELECT count(*) total FROM characters" }],
+    });
+    const characters = schema.tables.find((table) => table.key === "characters")!;
+    const name = schema.fields.find(
+      (field) => field.tableId === characters.id && field.key === "name",
+    )!;
+    await runtime.records.create(latest.snapshot.space.id, characters.id, {
+      payload: { [name.id]: "SQL读取测试" },
+    });
+    expect(
+      (await database.query({ ...queryBinding, sql: "SELECT * FROM probe_counts" })).rows,
+    ).toEqual([[1]]);
+    expect((await database.describe(binding)).schemaKey).toBe(schema.schemaKey);
     context.chatId = "other-read-chat";
     expect(runtime.publicRead.getContext().available).toBe(false);
+    await expect(
+      database.query({ ...queryBinding, sql: "SELECT * FROM probe_counts" }),
+    ).rejects.toThrow("对话");
     context.chatMetadata = {};
     await handlers.get("chat_id_changed")?.();
     expect((await runtime.publicRead.read()).context.chatIdentity).toContain("other-read-chat");
+    await expect(database.describe(binding)).rejects.toThrow("对话");
     unsubscribe();
   });
   it("启动和切对话时清除旧清洗选择，保留 v3 选择", async () => {

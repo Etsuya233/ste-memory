@@ -1,5 +1,12 @@
 import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import { SemanticScoresModule } from "./semantic-scores-module.ts";
+import { PublicSqlDatabase } from "./public-query.ts";
+import type {
+  MemoryDatabaseSchema,
+  MemoryRegisterViewsInput,
+  MemoryDatabaseQueryInput,
+  MemoryDatabaseQueryResult,
+} from "../../features/public-read/database-api.ts";
 import type {
   PreparedSemanticSqlSource,
   SemanticSqlEvaluationInput,
@@ -41,6 +48,7 @@ const collections = {
 const isList = (field: MemoryField): boolean =>
   ["short_text_list", "multi_select", "multi_reference"].includes(field.type);
 interface SpaceDatabase {
+  databaseKey: string;
   write: Database;
   committed: Database;
   snapshot: MemorySpaceBackup;
@@ -56,9 +64,13 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   >();
   private readonly consoleModules = new WeakMap<Database, SemanticScoresModule>();
   private evaluationSequence = 0;
+  private readonly databaseInstance = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  private databaseSequence = 0;
   private readonly sqlite: Sqlite3Static;
+  private readonly publicDatabase: PublicSqlDatabase;
   constructor(sqlite: Sqlite3Static) {
     this.sqlite = sqlite;
+    this.publicDatabase = new PublicSqlDatabase(sqlite);
   }
 
   async openEvaluation(snapshot: MemorySpaceBackup): Promise<string> {
@@ -578,6 +590,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     const old = this.spaces.get(snapshot.space.id);
     const committed = this.newDatabase();
     const session = {
+      databaseKey: `${this.databaseInstance}/${++this.databaseSequence}`,
       write: db,
       committed,
       snapshot: structuredClone(snapshot),
@@ -655,6 +668,40 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       fields: this.entities(db, "field"),
       records: this.entities(db, "record"),
     };
+  }
+
+  private publicSchema(db: Database, databaseKey: string): MemoryDatabaseSchema {
+    return PublicSqlDatabase.schema({
+      databaseKey,
+      space: this.entities(db, "space")[0]!,
+      tables: this.entities(db, "table"),
+      fields: this.entities(db, "field"),
+    });
+  }
+
+  async describeDatabase(spaceId: string): Promise<MemoryDatabaseSchema> {
+    return this.publicSchema(
+      this.database(spaceId, "committed"),
+      this.session(spaceId).databaseKey,
+    );
+  }
+
+  async registerDatabaseViews(input: MemoryRegisterViewsInput): Promise<void> {
+    const db = this.database(input.spaceId, "committed");
+    this.publicDatabase.register(
+      db,
+      this.publicSchema(db, this.session(input.spaceId).databaseKey),
+      input,
+    );
+  }
+
+  async queryDatabase(input: MemoryDatabaseQueryInput): Promise<MemoryDatabaseQueryResult> {
+    const db = this.database(input.spaceId, "committed");
+    return this.publicDatabase.query(
+      db,
+      this.publicSchema(db, this.session(input.spaceId).databaseKey),
+      input,
+    );
   }
 
   private schema(db: Database): { tables: MemoryTable[]; fields: MemoryField[] } {
@@ -887,6 +934,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       db.close();
       throw error;
     }
+    this.publicDatabase.published(db, this.publicSchema(db, session.databaseKey));
     session.committed.close();
     session.committed = db;
   }
@@ -970,6 +1018,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     session.write.close();
     session.committed.close();
     this.spaces.delete(spaceId);
+    this.publicDatabase.remove(spaceId);
   }
   async close(): Promise<void> {
     for (const sessionId of this.evaluations.keys()) await this.closeEvaluation(sessionId);

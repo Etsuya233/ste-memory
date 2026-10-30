@@ -1,5 +1,6 @@
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type { MemoryReadSnapshot } from "../../features/public-read/public-read-api.ts";
+import type { MemoryDatabasePort } from "../../features/public-read/database-api.ts";
 import type { MacroSqlEvaluationPort } from "../../features/macros/macro-evaluation-port.ts";
 import type { SemanticSqlEvaluationPort } from "../../features/semantic-query/semantic-sql-port.ts";
 import type { SqlExecutionResult, SqlSchemaEntry } from "../../features/sql-console/sql-console.ts";
@@ -39,7 +40,8 @@ export interface SqliteConsoleResult extends SqlExecutionResult {
   /** Ordinary statements before this query have already executed exactly once. */
   readonly semanticStatement?: { readonly sql: string; readonly remainingSql: string };
 }
-export interface SqliteMemoryClient extends MacroSqlEvaluationPort, SemanticSqlEvaluationPort {
+export interface SqliteMemoryClient
+  extends MacroSqlEvaluationPort, SemanticSqlEvaluationPort, MemoryDatabasePort {
   executeConsole(spaceId: string, sql: string): Promise<SqliteConsoleResult>;
   consoleSchema(spaceId: string): Promise<readonly SqlSchemaEntry[]>;
   importSpace(snapshot: MemorySpaceBackup): Promise<void>;

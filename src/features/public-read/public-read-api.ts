@@ -1,4 +1,10 @@
 import type { MemoryField, MemoryRecord, MemorySpace, MemoryTable } from "../memory/index.ts";
+import type {
+  MemoryDatabaseApi,
+  MemoryDatabaseBinding,
+  MemoryDatabasePort,
+} from "./database-api.ts";
+export type * from "./database-api.ts";
 
 /** Versioned, read-only cross-extension contract. No settings, credentials or write handles. */
 export interface MemoryReadSnapshot {
@@ -20,6 +26,7 @@ export interface MemoryReadContext {
 
 export interface MemoryReadApi {
   readonly version: 1;
+  readonly database?: MemoryDatabaseApi;
   getContext(): MemoryReadContext;
   subscribe(listener: () => void): () => void;
   read(): Promise<{ readonly context: MemoryReadContext; readonly snapshot: MemoryReadSnapshot }>;
@@ -27,6 +34,7 @@ export interface MemoryReadApi {
 
 export class PublicMemoryReader implements MemoryReadApi {
   readonly version = 1;
+  readonly database?: MemoryDatabaseApi;
   readonly #context: () => Omit<MemoryReadContext, "revision">;
   readonly #capture: (spaceId: string) => Promise<MemoryReadSnapshot>;
   readonly #listeners = new Set<() => void>();
@@ -35,9 +43,40 @@ export class PublicMemoryReader implements MemoryReadApi {
   constructor(
     context: () => Omit<MemoryReadContext, "revision">,
     capture: (spaceId: string) => Promise<MemoryReadSnapshot>,
+    database?: MemoryDatabasePort,
+    prepareDatabase?: (spaceId: string) => Promise<void>,
   ) {
     this.#context = context;
     this.#capture = capture;
+    if (database) {
+      const bound = async <T>(
+        input: MemoryDatabaseBinding,
+        operation: () => Promise<T>,
+      ): Promise<T> => {
+        this.#assertBinding(input);
+        await prepareDatabase?.(input.spaceId);
+        this.#assertBinding(input);
+        const result = await operation();
+        this.#assertBinding(input);
+        return result;
+      };
+      this.database = {
+        version: 1,
+        describe: (input) => bound(input, () => database.describeDatabase(input.spaceId)),
+        registerViews: (input) => bound(input, () => database.registerDatabaseViews(input)),
+        query: (input) => bound(input, () => database.queryDatabase(input)),
+      };
+    }
+  }
+
+  #assertBinding(input: MemoryDatabaseBinding): void {
+    const context = this.getContext();
+    if (
+      !context.available ||
+      context.chatIdentity !== input.chatIdentity ||
+      context.spaceId !== input.spaceId
+    )
+      throw new Error("当前对话或记忆空间已变化，请重新加载结构");
   }
 
   getContext(): MemoryReadContext {
