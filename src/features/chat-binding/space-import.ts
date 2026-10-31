@@ -77,7 +77,12 @@ export function planSpaceImport(
     status?.kind === "space-missing"
       ? status.binding
       : null;
-  const action = resolveImportAction(decoded, currentBinding);
+  const selected = resolveImportAction(decoded, currentBinding);
+  // 分支沿用源对话的空间 ID，但绑定归属不同；克隆后由 manager 写入当前对话身份。
+  const action: ImportAction =
+    status?.kind === "branch-detected" && selected.kind === "restore"
+      ? { kind: "clone-and-rebind", unit: selected.unit, currentSpaceId: status.binding.spaceId }
+      : selected;
   if (action.kind === "no-match") {
     return { kind: "error", message: "文件中不包含当前记忆空间的数据" };
   }

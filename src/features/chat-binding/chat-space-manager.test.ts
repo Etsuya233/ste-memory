@@ -9,6 +9,8 @@ import type {
   MemoryTableKey,
 } from "../memory/index.ts";
 import type { MemorySpaceBackup } from "../backup/index.ts";
+import { createBackupFile, serializeBackupFile } from "../backup/index.ts";
+import { executeSpaceImport, planSpaceImport } from "./space-import.ts";
 import { describe, expect, it, vi } from "vitest";
 import { DexieMemoryBackupRepository } from "../../infrastructure/indexeddb/backup/memory-backup-repository.ts";
 import { DexieMemoryChangeSource } from "../../infrastructure/indexeddb/memory-change-source.ts";
@@ -100,6 +102,63 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("ChatSpaceManager（对话 → 记忆空间上下文）", () => {
+  it("跨 ST 导入同 ID 空间：保留源空间，创建副本并以当前对话身份同步", async () => {
+    const h = createHarness();
+    const { context } = chatContext("original", "爱丽丝", 10);
+    const backup = new DexieMemoryBackupRepository(h.db);
+    const adapter = new StChatAdapter(() => context);
+    const savedBindings = vi.fn(async () => undefined);
+    let seq = 0;
+    const manager = new ChatSpaceManager({
+      getChat: () => adapter.getChatSnapshot(),
+      bindingStore: adapter.bindingStore,
+      spaces: h.services.spaces,
+      installer: { installDefaultStructure: (id) => installDefaultPreset(h.db, id) },
+      backup,
+      createId: (prefix) => `imported-${prefix}-${++seq}`,
+      onReady: savedBindings,
+    });
+    await manager.syncToCurrentChat();
+    const source = (await backup.loadSnapshot()).spaces[0]!;
+    context.characterId = 6;
+    context.chatId = "imported";
+    const branch = await manager.syncToCurrentChat();
+    expect(branch.kind).toBe("branch-detected");
+    savedBindings.mockClear();
+    const plan = planSpaceImport(
+      serializeBackupFile(
+        createBackupFile({ spaces: [source] }, "0.2.4", "2026-10-31T00:00:00.000Z"),
+      ),
+      branch,
+    );
+    if (plan.kind !== "ready") throw new Error("expect ready");
+    await executeSpaceImport(plan, {
+      backup,
+      normalizeImportedSpace: async (unit) => unit,
+      manager,
+      kickMacros: vi.fn(),
+      kickMirror: vi.fn(),
+      onDataChanged: vi.fn(),
+    });
+    const status = manager.getStatus();
+    expect(status?.kind).toBe("active");
+    if (status?.kind !== "active") throw new Error("expect active");
+    expect(status.space.id).not.toBe(source.space.id);
+    expect(status.binding).toEqual({
+      version: 2,
+      spaceId: status.space.id,
+      chatIdentity: "char:6:imported",
+    });
+    expect(adapter.bindingStore.read()).toEqual({ kind: "bound", binding: status.binding });
+    expect(savedBindings).toHaveBeenCalledWith(status.binding);
+    const snapshot = await backup.loadSnapshot();
+    expect(snapshot.spaces).toHaveLength(2);
+    expect(snapshot.spaces.find((unit) => unit.space.id === source.space.id)).toEqual(source);
+    expect(snapshot.spaces.find((unit) => unit.space.id === status.space.id)?.tables).toHaveLength(
+      source.tables.length,
+    );
+  });
+
   it("首次打开对话：自动建空间 + 按默认预设初始化结构 + 写绑定，状态 active(created)", async () => {
     const h = createHarness();
     const { context, chatMetadata } = chatContext("story", "爱丽丝", 3);

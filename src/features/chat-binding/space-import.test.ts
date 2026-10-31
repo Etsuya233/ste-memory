@@ -74,6 +74,40 @@ function deps(overrides: Partial<SpaceImportExecutionDeps> = {}): {
 }
 
 describe("space-import（单空间导入编排，issue 26）", () => {
+  it.each([false, true])(
+    "分支绑定与备份空间 ID 相同也克隆重绑（多空间文件：%s）",
+    async (multiple) => {
+      const source = unit("A");
+      const text = serializeBackupFile(
+        createBackupFile(
+          { spaces: multiple ? [unit("B"), source] : [source] },
+          "0.2.4",
+          "2026-10-31T00:00:00.000Z",
+        ),
+      );
+      const plan = planSpaceImport(text, {
+        kind: "branch-detected",
+        binding: { version: 2, spaceId: source.space.id, chatIdentity: "char:10:original" },
+        space: source.space,
+        originalChatIdentity: "char:10:original",
+      });
+      expect(plan.kind).toBe("ready");
+      if (plan.kind !== "ready") throw new Error("expect ready");
+      expect(plan.action).toMatchObject({
+        kind: "clone-and-rebind",
+        unit: source,
+        currentSpaceId: source.space.id,
+      });
+      expect(plan.confirmMessage).toContain("将创建新的记忆空间并绑定到当前对话");
+      const harness = deps();
+      await executeSpaceImport(plan, harness.deps);
+      expect(harness.importSpace).toHaveBeenCalledWith(
+        expect.objectContaining({ space: expect.objectContaining(source.space) }),
+      );
+      expect(harness.restoreSpace).not.toHaveBeenCalled();
+    },
+  );
+
   it("导入先编译分类再关闭语义宏，伪造false不能绕过且普通SQL保持启用", async () => {
     const source = unit("A");
     const macros = [true, false].map((semantic, index) => ({
