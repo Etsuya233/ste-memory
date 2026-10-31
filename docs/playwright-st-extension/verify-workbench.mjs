@@ -52,6 +52,7 @@ try {
   );
   check("failed fill retries in current space", true);
   await failed.getByRole("button", { name: "取消任务", exact: true }).click();
+  await button("确认取消任务").click();
   await page.waitForFunction(
     () =>
       window.frontendPreview
@@ -67,7 +68,10 @@ try {
     .getByText(/结束楼层超出范围/)
     .first()
     .waitFor();
-  check("invalid floor range creates no task", (await snapshot()).fillTasks.length === beforeInvalid);
+  check(
+    "invalid floor range creates no task",
+    (await snapshot()).fillTasks.length === beforeInvalid,
+  );
   check(
     "invalid floor range does not open confirmation",
     (await page.getByRole("alertdialog").count()) === 0,
@@ -95,8 +99,9 @@ try {
   check(
     "running task exposes progress semantics",
     (await page.getByRole("progressbar", { name: "当前填表任务进度" }).count()) === 1 &&
-      (await page.getByRole("progressbar", { name: "当前填表任务进度" }).getAttribute("aria-valuenow")) ===
-        "1",
+      (await page
+        .getByRole("progressbar", { name: "当前填表任务进度" })
+        .getAttribute("aria-valuenow")) === "1",
   );
   await page.getByLabel("清洗规则", { exact: true }).selectOption("preview-cleaning");
   await page.getByLabel("Agent 预设", { exact: true }).selectOption("preview-chat-preset");
@@ -131,8 +136,7 @@ try {
   check(
     "returning restores chat config",
     (await page.getByLabel("清洗规则", { exact: true }).inputValue()) === "preview-cleaning" &&
-      (await page.getByLabel("Agent 预设", { exact: true }).inputValue()) ===
-        "preview-chat-preset",
+      (await page.getByLabel("Agent 预设", { exact: true }).inputValue()) === "preview-chat-preset",
   );
   await button("提交初始化任务").click();
   await page.waitForFunction(() =>
@@ -165,6 +169,7 @@ try {
   check("vector status and source filters combine", true);
   await page.getByRole("checkbox", { name: "选择 爱丽丝 全部字段", exact: true }).click();
   await button("取消选中（1）").click();
+  await button("确认取消任务").click();
   await page.waitForFunction(
     () =>
       window.frontendPreview

@@ -92,13 +92,22 @@ function TasksMain({
   const [range, setRange] = useState({ from: "", to: "", block: defaultBlock });
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [pendingSubmit, setPendingSubmit] = useState<FillSubmitSummary | null>(null);
+  const [pendingCancel, setPendingCancel] = useState<
+    | { scope: string; kind: "fill"; task: FillTaskView }
+    | { scope: string; kind: "vector"; ids: readonly string[] }
+    | null
+  >(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const prefilledScope = useRef<string | null>(null);
   useEffect(() => (active ? workspace.startPolling() : undefined), [workspace, active]);
   useEffect(() => {
+    if (!active) setPendingCancel(null);
+  }, [active]);
+  useEffect(() => {
     setRange({ from: "", to: "", block: String(autoFill.settings().blockSize) });
     setRangeError(null);
     setPendingSubmit(null);
+    setPendingCancel(null);
     setShowAllHistory(false);
   }, [autoFill, scope]);
   useEffect(() => {
@@ -142,6 +151,51 @@ function TasksMain({
   const autoFillMode = autoFillModeLabels[autoFill.settings().mode];
   const autoFillOverridden = Object.keys(autoFill.read().overrides).length > 0;
   const autoFillSummary = `${autoFillOverridden ? "本对话覆盖" : "跟随全局"} · ${autoFillMode} · 每 ${autoFill.settings().interval} 层`;
+
+  const cancelFill =
+    pendingCancel?.kind === "fill"
+      ? state.pending.find((task) => task.runId === pendingCancel.task.runId)
+      : undefined;
+  const cancelVectors =
+    pendingCancel?.kind === "vector"
+      ? state.vectors.filter(
+          (task) =>
+            pendingCancel.ids.includes(task.id) &&
+            (task.status === "queued" || task.status === "running"),
+        )
+      : [];
+  const cancellationAvailable =
+    pendingCancel?.scope === scope &&
+    (pendingCancel.kind === "fill"
+      ? !!cancelFill &&
+        cancelFill.phase !== "saving" &&
+        (cancelFill.status === "queued" ||
+          cancelFill.status === "running" ||
+          !!cancelFill.blocksQueue)
+      : cancelVectors.length > 0);
+
+  function fillAction(task: FillTaskView, action: "cancel" | "retry") {
+    if (action === "cancel") setPendingCancel({ scope, kind: "fill", task });
+    else void workspace.fillAction(task.runId, action);
+  }
+  async function confirmCancellation() {
+    const current = workspace.getSnapshot().context;
+    if (
+      !pendingCancel ||
+      !cancellationAvailable ||
+      pendingCancel.scope !== JSON.stringify([current?.chatKey, current?.spaceId])
+    )
+      throw new Error("对话或任务状态已变化，请重新选择任务");
+    const result =
+      pendingCancel.kind === "fill"
+        ? await workspace.fillAction(pendingCancel.task.runId, "cancel")
+        : await workspace.vectorAction(
+            cancelVectors.map((task) => task.id),
+            "cancel",
+          );
+    if (!result.ok) throw new Error(result.error);
+    setPendingCancel(null);
+  }
 
   function requestFill(event: FormEvent) {
     event.preventDefault();
@@ -220,7 +274,7 @@ function TasksMain({
                 busy={state.busy}
                 onSelectRange={applyFillRange}
                 onOpenLog={onOpenLog}
-                onCancel={(task) => void workspace.fillAction(task.runId, "cancel")}
+                onCancel={(task) => fillAction(task, "cancel")}
                 onRetry={(task) => void workspace.fillAction(task.runId, "retry")}
               />
               <PageSection
@@ -311,7 +365,7 @@ function TasksMain({
                 items={queued}
                 busy={state.busy}
                 onOpenLog={onOpenLog}
-                onAction={(task, action) => void workspace.fillAction(task.runId, action)}
+                onAction={fillAction}
               />
               {history.length > 0 && (
                 <PageSection
@@ -330,9 +384,7 @@ function TasksMain({
                           task={task}
                           busy={state.busy}
                           onOpenLog={onOpenLog}
-                          onAction={(target, action) =>
-                            void workspace.fillAction(target.runId, action)
-                          }
+                          onAction={fillAction}
                         />
                       </div>
                     ))}
@@ -388,12 +440,32 @@ function TasksMain({
               </Accordion>
             </TabsContent>
             <TabsContent value="vector" className="ste:space-y-4">
-              <VectorList state={state} workspace={workspace} />
+              <VectorList
+                state={state}
+                workspace={workspace}
+                onCancel={(ids) => setPendingCancel({ scope, kind: "vector", ids })}
+              />
             </TabsContent>
           </Tabs>
         )}
       </PageContent>
       {confirmation}
+      <ConfirmAction
+        open={active && cancellationAvailable}
+        onOpenChange={(open) => {
+          if (!open) setPendingCancel(null);
+        }}
+        title="确认取消任务？"
+        description={
+          pendingCancel?.kind === "fill"
+            ? `${taskRangeText(pendingCancel.task)}：尚未完成的批次将停止，当前批次未提交的修改会回滚，已保存的批次会保留。`
+            : `将取消选中的 ${cancelVectors.length} 个向量任务，已生成的向量会保留。`
+        }
+        cancelLabel="继续运行"
+        confirmLabel="确认取消任务"
+        destructive
+        onConfirm={confirmCancellation}
+      />
       <ConfirmAction
         open={pendingSubmit !== null}
         onOpenChange={(open) => {
@@ -576,7 +648,7 @@ function RunningTask({
             查看日志
           </Button>
           <Button
-            variant="outline"
+            variant="destructive"
             size="sm"
             disabled={busy || task.phase === "saving"}
             data-action="cancel-task"
@@ -792,7 +864,7 @@ function FillRow({
         <ItemActions className="ste:basis-full ste:justify-end ste:gap-1 ste:px-4 ste:pb-3 ste:sm:basis-auto ste:sm:px-3 ste:sm:py-3">
           {canCancel && (
             <Button
-              variant="outline"
+              variant="destructive"
               size="sm"
               disabled={busy || task.phase === "saving"}
               data-action="cancel-task"
@@ -820,7 +892,15 @@ function FillRow({
   );
 }
 
-function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: TasksWorkspace }) {
+function VectorList({
+  state,
+  workspace,
+  onCancel,
+}: {
+  state: TasksSnapshot;
+  workspace: TasksWorkspace;
+  onCancel: (ids: readonly string[]) => void;
+}) {
   const selected = state.vectors.filter((task) => state.selected.includes(task.id));
   const cancelIds = selected
     .filter((task) => task.status === "queued" || task.status === "running")
@@ -871,10 +951,10 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
         </div>
         <div className="ste:flex ste:flex-wrap ste:gap-2">
           <Button
-            variant="outline"
+            variant="destructive"
             size="sm"
             disabled={state.busy || !cancelIds.length}
-            onClick={() => void workspace.vectorAction(cancelIds, "cancel")}
+            onClick={() => onCancel(cancelIds)}
           >
             取消选中（{cancelIds.length}）
           </Button>
@@ -940,9 +1020,9 @@ function VectorList({ state, workspace }: { state: TasksSnapshot; workspace: Tas
                   {task.status === "queued" || task.status === "running" ? (
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="destructive"
                       disabled={state.busy}
-                      onClick={() => void workspace.vectorAction([task.id], "cancel")}
+                      onClick={() => onCancel([task.id])}
                     >
                       取消任务
                     </Button>

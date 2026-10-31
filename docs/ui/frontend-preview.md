@@ -67,6 +67,7 @@ $env:CHROME='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 node verify-frontend.mjs
 node verify-tables.mjs
 node verify-workbench.mjs
+node verify-task-cancellation.mjs
 node verify-floor-progress.mjs
 node verify-connections.mjs
 node verify-search.mjs
@@ -143,3 +144,10 @@ verify-connections 仍查找“查询 Agent”；verify-cleaning 假设初始无
 `verify-frontend.mjs` 主流程通过；类型检查、ESLint、相关文件格式检查和生产构建通过。
 覆盖工作台收起后的显示、重开后的层级、任务跳转与草稿离开保护、范围更新、对话切换隔离、
 320px 长错误文本、亮暗主题、F6 聚焦和自动消失。使用独立预览模拟数据，未写入真实 ST 聊天。
+
+## 任务取消确认验证（2026-10-31）
+
+填表、单个向量及批量向量任务统一使用危险操作按钮与确认弹窗，默认聚焦「继续运行」。
+取消专项 13 项浏览器检查、现有工作台流程和 12 项工作区测试通过；类型检查、ESLint 和生产构建通过。
+验证首次点击不取消、继续运行与 Esc 保留任务、确认后取消、320px 弹窗布局，以及切换对话后旧确认失效。
+使用独立预览模拟任务，未取消真实 ST 任务。
