@@ -19,6 +19,33 @@ const BINDING: ChatSpaceBinding = {
   spaceId: "space-1" as MemorySpaceId,
 };
 
+describe("StChatAdapter.recentStoryMessages", () => {
+  it("selects the latest eligible window, retaining normal narrator and excluding hidden narrator", () => {
+    const { adapter } = stableAdapter({
+      chat: [
+        { name: "角色", mes: "窗口外的旧消息" },
+        { name: "用户", mes: "你好", is_user: true },
+        { name: "系统", mes: "系统消息", is_system: true },
+        { name: "旁白", mes: "正常旁白", extra: { type: "narrator" } },
+        { name: "旁白", mes: "隐藏旁白", is_system: true, extra: { type: "narrator" } },
+        { name: "角色", mes: "工具调用", extra: { tool_invocations: [] } },
+        { name: "角色", mes: "隐藏消息", is_hidden: true },
+        {
+          name: "角色",
+          mes: "当前正文",
+          swipes: ["旧分支", "当前正文"],
+          extra: { reasoning: "思考" },
+        },
+      ],
+    });
+    expect(adapter.recentStoryMessages(3)).toEqual([
+      { floor: 1, name: "用户", role: "user", content: "你好" },
+      { floor: 3, name: "旁白", role: "narrator", content: "正常旁白" },
+      { floor: 7, name: "角色", role: "assistant", content: "当前正文" },
+    ]);
+  });
+});
+
 /** 建一个可变 fake ST 上下文（adapter 持有 getContext 工厂，测试可中途改字段模拟 ST 行为） */
 function fakeContext(overrides: Partial<StContext> = {}): StContext & {
   chatMetadata: Record<string, unknown>;

@@ -1,4 +1,6 @@
 import type { MemoryField, MemoryRecord, MemorySpace, MemoryTable } from "../memory/index.ts";
+import type { MemoryChatApi } from "./chat-api.ts";
+export type * from "./chat-api.ts";
 import type {
   MemoryDatabaseApi,
   MemoryDatabaseBinding,
@@ -27,6 +29,7 @@ export interface MemoryReadContext {
 export interface MemoryReadApi {
   readonly version: 1;
   readonly database?: MemoryDatabaseApi;
+  readonly chat?: MemoryChatApi;
   getContext(): MemoryReadContext;
   subscribe(listener: () => void): () => void;
   read(): Promise<{ readonly context: MemoryReadContext; readonly snapshot: MemoryReadSnapshot }>;
@@ -35,6 +38,7 @@ export interface MemoryReadApi {
 export class PublicMemoryReader implements MemoryReadApi {
   readonly version = 1;
   readonly database?: MemoryDatabaseApi;
+  readonly chat?: MemoryChatApi;
   readonly #context: () => Omit<MemoryReadContext, "revision">;
   readonly #capture: (spaceId: string) => Promise<MemoryReadSnapshot>;
   readonly #listeners = new Set<() => void>();
@@ -45,9 +49,11 @@ export class PublicMemoryReader implements MemoryReadApi {
     capture: (spaceId: string) => Promise<MemoryReadSnapshot>,
     database?: MemoryDatabasePort,
     prepareDatabase?: (spaceId: string) => Promise<void>,
+    chat?: MemoryChatApi,
   ) {
     this.#context = context;
     this.#capture = capture;
+    this.chat = chat;
     if (database) {
       const bound = async <T>(
         input: MemoryDatabaseBinding,

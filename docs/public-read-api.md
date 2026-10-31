@@ -8,6 +8,7 @@
 interface MemoryReadApi {
   readonly version: 1;
   readonly database?: MemoryDatabaseApi; // capability version 1
+  readonly chat?: MemoryChatApi; // cleaned chat capability version 1
   getContext(): MemoryReadContext;
   subscribe(listener: () => void): () => void;
   read(): Promise<{ context: MemoryReadContext; snapshot: MemoryReadSnapshot }>;
@@ -23,6 +24,16 @@ interface MemoryReadApi {
 读取前后检查 revision、聊天身份、空间及就绪状态，变化时拒绝结果。消费方仍需在异步调用外跟踪自己的聊天与请求代次，防止已经返回的旧结果覆盖新页面。SQL 控制台直接未保存的调试操作不提供变更通知保证。
 
 接口只暴露读取能力；没有数据库对象或业务写入方法。只读快照的修改不会写回 Memory。
+
+## 清洗后的最近聊天
+
+`chat` 是可选的 v1 能力，类型位于 `src/features/public-read/chat-api.ts`。调用方检查 `api.chat?.version === 1`，将 `getContext().chatIdentity` 与条数传入 `api.chat.readRecent({ chatIdentity, count })`；`count` 必须为正整数。聊天身份使用 Memory 公开身份，调用方其他系统的身份不能直接替用。
+
+返回固定只读快照 `{ chatIdentity, messages, cleaning }`。每条消息保留原始 `floor`、发送者 `name`、`role`（`user` / `assistant` / `narrator`）及清洗后的 `content`。`cleaning` 返回 `enabled` 与可空的 `ruleId/ruleName`，仅为本次处理摘要，不暴露规则内容、其他设置或凭据。
+
+输入取自 ST 当前聊天数组中当前生效的 `mes`；不读取其他 swipe、思考或附件。先过滤系统、隐藏和工具消息，再取最近 N 条并按楼层升序排列。正常旁白保留且不套用 AI 输出清洗；ST 的 `is_system` 同时表示消息隐藏，因此该标记为真的旁白同样排除。当前选定的命名规则仅作用于 AI 输出，用户与旁白原文保留。清洗为空的消息移除，不向前补齐窗口；未选择或停用规则明确返回 `enabled: false`，所选规则不存在时拒绝读取，不自动退回原文。
+
+读取过程同步固定当前窗口与当前清洗规则的结果，返回 Promise；聊天身份不符、窗口无效或读取失败会拒绝。它不依赖 SQLite 资料提交，不代表模型认知、剧情时间过滤或严格 OOC 去除。现有 `subscribe()` 的资料通知不承诺通知聊天正文修改，消费方在每次生成前重新读取即可。
 
 ## 已提交数据库查询能力
 

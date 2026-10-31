@@ -34,6 +34,7 @@ import {
   type CleaningRuleStore,
 } from "../../features/cleaning/cleaning-rules.ts";
 import { resolveFloorJump } from "./floor-jump.ts";
+import type { MemoryChatMessage } from "../../features/public-read/chat-api.ts";
 import {
   mergeChatScopeMacros,
   type ChatScopeMacroStore,
@@ -805,6 +806,34 @@ export class StChatAdapter {
     if (total === 0) return [];
     const from = Math.max(0, total - count);
     return this.messagesInRange(from, total - 1);
+  }
+
+  /** Public story input: filter excluded kinds before selecting the latest window. */
+  recentStoryMessages(count: number): readonly MemoryChatMessage[] {
+    const chat = this.#getContext().chat;
+    if (!Array.isArray(chat)) throw new Error("当前聊天消息尚未就绪");
+    const messages: MemoryChatMessage[] = [];
+    for (let floor = chat.length - 1; floor >= 0 && messages.length < count; floor--) {
+      const message = chat[floor] as {
+        name: string;
+        mes: string;
+        is_user?: boolean;
+        is_system?: boolean;
+        is_hidden?: boolean;
+        extra?: { type?: string; tool_invocations?: readonly unknown[] };
+      };
+      const narrator = message.extra?.type === "narrator";
+      if (message.is_hidden || message.extra?.tool_invocations || message.is_system) continue;
+      if (typeof message.mes !== "string" || typeof message.name !== "string")
+        throw new Error(`聊天第 ${floor} 楼缺少正文或发送者`);
+      messages.push({
+        floor,
+        name: message.name,
+        role: narrator ? "narrator" : message.is_user ? "user" : "assistant",
+        content: message.mes,
+      });
+    }
+    return messages.reverse();
   }
 }
 

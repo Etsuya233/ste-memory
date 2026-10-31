@@ -86,6 +86,49 @@ function startTestRuntime(
 }
 
 describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）", () => {
+  it("公开聊天按当前对话清洗配置读取，并拒绝悬空规则和旧对话", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      chat: [
+        { name: "用户", is_user: true, mes: "<story>用户原文</story>" },
+        { name: "角色", mes: "<story>剧情正文</story><panel>附加面板</panel>" },
+      ],
+    });
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      settingsStore: {
+        read: () => ({
+          ...DEFAULT_SETTINGS,
+          cleaningRules: [
+            {
+              id: "story",
+              name: "剧情正文",
+              enabled: true,
+              keepTags: [{ pre: "<story>", post: "</story>" }],
+              excludeTags: [],
+            },
+          ],
+        }),
+        write: () => {},
+      },
+    });
+    const chat = runtime.publicRead.chat!;
+    const request = { chatIdentity: runtime.publicRead.getContext().chatIdentity!, count: 20 };
+    expect((await chat.readRecent(request)).cleaning.enabled).toBe(false);
+    runtime.cleaning.writeSelection("story");
+    const snapshot = await chat.readRecent(request);
+    expect(snapshot.messages.map((message) => message.content)).toEqual([
+      "<story>用户原文</story>",
+      "剧情正文",
+    ]);
+    expect(snapshot.cleaning).toEqual({ enabled: true, ruleId: "story", ruleName: "剧情正文" });
+    runtime.cleaning.writeSelection("deleted");
+    await expect(chat.readRecent(request)).rejects.toThrow("清洗规则已不存在");
+    context.chatId = "other";
+    await expect(chat.readRecent(request)).rejects.toThrow("对话已变化");
+  });
+
   it("公共读取在提交后通知，切换聊天立即拒绝旧空间归属", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();

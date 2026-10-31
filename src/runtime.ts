@@ -1,5 +1,6 @@
 import { QueryChatStore } from "./features/query-chat/session-store.ts";
 import { PublicMemoryReader, type MemoryReadApi } from "./features/public-read/public-read-api.ts";
+import { createMemoryChatApi } from "./features/public-read/chat-api.ts";
 import { IndexedDbAssistantSessions } from "./infrastructure/indexeddb/assistant-session-repository.ts";
 import { HttpRerankPort } from "./infrastructure/sillytavern/embedding/http-rerank.ts";
 import type { RerankPort } from "./features/semantic-query/rerank.ts";
@@ -1252,6 +1253,17 @@ export async function startSteMemory(
     async (spaceId) => {
       if (!(await memoryStore.ensure(spaceId))) throw new Error("当前记忆空间已不存在");
     },
+    createMemoryChatApi({
+      getChatIdentity: () => chatIdentityKey(adapter.getChatSnapshot()) ?? null,
+      readRecentMessages: (count) => adapter.recentStoryMessages(count),
+      readCleaningRule: () => {
+        const selection = adapter.cleaningRuleStore.read();
+        const rule = findSelectedCleaningRule(settings.read().cleaningRules, selection);
+        if (selection !== undefined && !rule)
+          throw new Error("当前聊天所选清洗规则已不存在，请在 Memory 中重新选择");
+        return rule;
+      },
+    }),
   );
   manager.onStatusChange(() => publicRead.invalidate());
   memoryStore.onPublished = (spaceId) => {
