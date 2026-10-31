@@ -1145,6 +1145,7 @@ function Preview() {
         }),
       dismissAutoFillReminder: () => autoFillNotifications.dismissReminder(),
       switchChat,
+      setLogText: toolsFixture.setLogText,
       workspace,
       queryStore: toolsFixture.queryStore,
       assistantService: toolsFixture.tools.query.service,

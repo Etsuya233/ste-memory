@@ -80,6 +80,7 @@ node verify-assistant-concurrency.mjs
 node verify-assistant-scroll.mjs
 node verify-sql.mjs
 node verify-logs.mjs
+node verify-log-layout.mjs
 node verify-maintenance.mjs
 node verify-auto-fill.mjs
 node verify-fill-notifications.mjs
@@ -151,3 +152,10 @@ verify-connections 仍查找“查询 Agent”；verify-cleaning 假设初始无
 取消专项 13 项浏览器检查、现有工作台流程和 12 项工作区测试通过；类型检查、ESLint 和生产构建通过。
 验证首次点击不取消、继续运行与 Esc 保留任务、确认后取消、320px 弹窗布局，以及切换对话后旧确认失效。
 使用独立预览模拟任务，未取消真实 ST 任务。
+
+## 日志滚动与详情布局验证（2026-10-31）
+
+日志列表组保留自然行高，详情按内容高度排布，防止 Flex 收缩后裁掉列表或压扁正文。
+320px 与桌面布局专项 17 项检查及原有日志流程通过，覆盖滚轮、长日志正文滚动、元信息、
+关联日志可达、返回列表的位置恢复与横向溢出。类型检查、ESLint、相关文件格式检查和生产构建通过。
+使用独立预览模拟日志，未清空或修改真实 ST 日志。

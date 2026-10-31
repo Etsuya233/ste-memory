@@ -186,7 +186,7 @@ export function LogsPage({
             ref={scroll.ref}
             onScroll={scroll.onScroll}
             data-page-scroll="log-detail"
-            className="ste:flex ste:min-h-0 ste:flex-1 ste:flex-col ste:gap-3 ste:overflow-y-auto ste:overscroll-contain"
+            className="ste:grid ste:min-h-0 ste:flex-1 ste:auto-rows-max ste:content-start ste:gap-3 ste:overflow-y-auto ste:overscroll-contain"
           >
             <dl className="ste:grid ste:grid-cols-[auto_minmax(0,1fr)] ste:gap-x-3 ste:gap-y-1.5 ste:rounded-xl ste:border ste:border-border ste:p-3 ste:text-xs">
               <dt className="ste:text-muted-foreground">时间</dt>
@@ -404,7 +404,7 @@ export function LogsPage({
                   ))}
                 </div>
               ) : filtered.length ? (
-                <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
+                <ItemGroup className="ste:shrink-0 ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
                   {filtered
                     .slice(currentPage * pageSize, (currentPage + 1) * pageSize)
                     .map((entry) => (

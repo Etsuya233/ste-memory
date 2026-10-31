@@ -327,6 +327,9 @@ export function createToolsFixture(options: {
   };
   return {
     tools,
+    setLogText: (id: number, text: string) => {
+      logs = logs.map((entry) => (entry.id === id ? { ...entry, text } : entry));
+    },
     queryStore,
     delaySQL: (ms: number) => {
       sqlDelay = ms;
