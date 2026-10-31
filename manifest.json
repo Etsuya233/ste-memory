@@ -7,6 +7,6 @@
   "css": "style.css",
   "generate_interceptor": "steMemoryGenerationInterceptor",
   "author": "ste-memory",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "auto_update": false
 }
