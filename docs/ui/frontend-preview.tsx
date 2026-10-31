@@ -1,7 +1,12 @@
 import { MemoryRecordQueryService } from "../../src/features/memory/index.ts";
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
 import { createRoot } from "react-dom/client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import {
+  AutoFillToasts,
+  autoFillNotifications,
+} from "../../src/frontend/host/auto-fill-notifications.tsx";
+import type { AutoFillNotification } from "../../src/features/fill-tasks/auto-fill-service.ts";
 import { WorkbenchApp } from "../../src/frontend/workbench.tsx";
 import { createToolsFixture } from "./frontend-tools-fixture.ts";
 import { createPresetUpdateFixture } from "./frontend-preset-update-fixture.ts";
@@ -1092,6 +1097,12 @@ function Preview() {
     location.search.includes("dark") ? "dark" : "light",
   );
   const [open, setOpen] = useState(true);
+  const [taskNavigationRequest, setTaskNavigationRequest] = useState(0);
+  const openTasks = useCallback((identity: string) => {
+    if (contexts[current].chatKey !== identity) return;
+    setOpen(true);
+    setTaskNavigationRequest((request) => request + 1);
+  }, []);
   const [, setSettingsRevision] = useState(0);
   notifySettingsChanged = async () => {
     ready = settingsValue.enabled;
@@ -1127,6 +1138,12 @@ function Preview() {
   }
   Object.assign(window, {
     frontendPreview: {
+      notifyAutoFill: (notice: Omit<AutoFillNotification, "identity"> & { identity?: string }) =>
+        autoFillNotifications.show({
+          ...notice,
+          identity: notice.identity ?? contexts[current].chatKey,
+        }),
+      dismissAutoFillReminder: () => autoFillNotifications.dismissReminder(),
       switchChat,
       workspace,
       queryStore: toolsFixture.queryStore,
@@ -1246,6 +1263,7 @@ function Preview() {
           </div>
           <div className="ste:min-h-0 ste:flex-1">
             <WorkbenchApp
+              taskNavigationRequest={taskNavigationRequest}
               active={open}
               tables={tablesWorkspace}
               tasks={tasksWorkspace}
@@ -1280,6 +1298,12 @@ function Preview() {
           </div>
         </div>
       </FrontendPanel>
+      <AutoFillToasts
+        tone={tone}
+        panelOpen={open}
+        identity={contexts[current].chatKey}
+        onOpenTasks={openTasks}
+      />
     </>
   );
 }

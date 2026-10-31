@@ -81,6 +81,7 @@ node verify-sql.mjs
 node verify-logs.mjs
 node verify-maintenance.mjs
 node verify-auto-fill.mjs
+node verify-fill-notifications.mjs
 node verify-preset-update.mjs
 node verify-vector-preview.mjs
 node verify-record-sorting.mjs
@@ -135,3 +136,10 @@ Edge 独立预览完成助手 21 项、维护工具 13 项检查，覆盖多会�
 另有 4 组现有脚本未通过，已在清理前的 HEAD 副本同样复现：verify-presets 假设删除后无其他预设；
 verify-connections 仍查找“查询 Agent”；verify-cleaning 假设初始无清洗规则；verify-macros 仍查找旧删除按钮。
 本次未修改这些既有断言或相关产品行为，不能将这 4 组计为通过。未执行真实 ST 对话写入验收。
+
+## 自动填表通知验证（2026-10-31）
+
+自动填表通知改用 shadcn Base UI Toast。77 项定向单元测试、通知专项 17 项浏览器检查及现有
+`verify-frontend.mjs` 主流程通过；类型检查、ESLint、相关文件格式检查和生产构建通过。
+覆盖工作台收起后的显示、重开后的层级、任务跳转与草稿离开保护、范围更新、对话切换隔离、
+320px 长错误文本、亮暗主题、F6 聚焦和自动消失。使用独立预览模拟数据，未写入真实 ST 聊天。

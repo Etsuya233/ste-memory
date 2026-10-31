@@ -12,6 +12,7 @@ import { FrontendPanel } from "./panel.tsx";
 import { testAgentConnection } from "../../infrastructure/sillytavern/llm/st-backends-status.ts";
 import { createPresetSettingsServices } from "./preset-settings.ts";
 import { createMaintenanceServices } from "./maintenance-services.ts";
+import { AutoFillToasts } from "./auto-fill-notifications.tsx";
 
 export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const host = document.createElement("div");
@@ -98,6 +99,15 @@ function StFrontend({
   assertContext: (context: RecordsContext) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [taskNavigationRequest, setTaskNavigationRequest] = useState(0);
+  const openTasks = useCallback(
+    (identity: string) => {
+      if (chatIdentityKey(runtime.adapter.getChatSnapshot()) !== identity) return;
+      setOpen(true);
+      setTaskNavigationRequest((request) => request + 1);
+    },
+    [runtime],
+  );
   const queryStore = runtime.queryChat.store;
   const [tone, setTone] = useState<"light" | "dark">(() =>
     matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
@@ -229,6 +239,7 @@ function StFrontend({
       />
       <FrontendPanel open={open} tone={tone}>
         <WorkbenchApp
+          taskNavigationRequest={taskNavigationRequest}
           workspace={workspace}
           tables={tables}
           tasks={tasks}
@@ -258,6 +269,12 @@ function StFrontend({
           onJumpFloor={(floor) => runtime.adapter.scrollToFloor(floor)}
         />
       </FrontendPanel>
+      <AutoFillToasts
+        tone={tone}
+        panelOpen={open}
+        identity={chatIdentityKey(runtime.adapter.getChatSnapshot())}
+        onOpenTasks={openTasks}
+      />
     </>
   );
 }

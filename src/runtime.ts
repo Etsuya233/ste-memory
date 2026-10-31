@@ -14,13 +14,15 @@ import {
   isAgentPresetSelectable,
   setActiveAgentPreset,
 } from "./features/agent-presets/preset-model.ts";
-import { AutoFillService } from "./features/fill-tasks/auto-fill-service.ts";
+import {
+  AutoFillService,
+  type AutoFillNotification,
+} from "./features/fill-tasks/auto-fill-service.ts";
 import {
   buildPresetUpdate,
   previewPresetUpdate,
   type PresetSpaceUpdateService,
 } from "./features/table-presets/preset-space-update.ts";
-import { showAutoFillNotification } from "./infrastructure/browser/auto-fill-notifications.ts";
 import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
 import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
@@ -204,6 +206,11 @@ export interface SteMemoryRuntime {
 }
 
 export interface StartSteMemoryOptions {
+  /** UI notifications are supplied by the mounted frontend. */
+  readonly autoFillNotifications?: {
+    show: (notice: AutoFillNotification) => void;
+    dismissReminder: () => void;
+  };
   /** Explicit host adapter; tests use the real WASM engine in-process. */
   readonly createSqlite?: () => SqliteMemoryClient | Promise<SqliteMemoryClient>;
   readonly snapshotFiles?: ChatSnapshotFileStore;
@@ -916,7 +923,7 @@ export async function startSteMemory(
         aiFloor: adapter.latestAiFloor(),
       };
     },
-    notify: showAutoFillNotification,
+    notify: (notice) => options.autoFillNotifications?.show(notice),
     confirmResume: async (task) => {
       const context = getContext() as StContext;
       const result = await context.callGenericPopup?.(
@@ -927,10 +934,7 @@ export async function startSteMemory(
       );
       return result === 1;
     },
-    dismissReminder: () => {
-      if (typeof document !== "undefined")
-        document.getElementById("stm-auto-fill-reminder")?.remove();
-    },
+    dismissReminder: () => options.autoFillNotifications?.dismissReminder(),
     reportError: (error) => log.error(`[${PLUGIN_DISPLAY_NAME}] 自动填表调度失败`, error),
   });
 

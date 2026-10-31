@@ -33,6 +33,7 @@ export interface WorkbenchProps extends RecordsPageProps {
   presets: PresetSettingsServices;
   tools: SettingsTools;
   active?: boolean;
+  taskNavigationRequest?: number;
 }
 
 export function WorkbenchApp(props: WorkbenchProps) {
@@ -48,10 +49,13 @@ export function WorkbenchApp(props: WorkbenchProps) {
   const registerLeaveGuard = useCallback((guard: NavigationGuard | null) => {
     leaveGuard.current = guard;
   }, []);
-  function navigate(action: () => void) {
+  const navigate = useCallback((action: () => void) => {
     if (leaveGuard.current) leaveGuard.current(action);
     else action();
-  }
+  }, []);
+  useEffect(() => {
+    if (props.taskNavigationRequest) navigate(() => setPage("tasks"));
+  }, [props.taskNavigationRequest, navigate]);
   useEffect(() => {
     const onUnload = (event: BeforeUnloadEvent) => {
       if (

@@ -1,7 +1,7 @@
 import { getStContext } from "./infrastructure/sillytavern/context.ts";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import { startSteMemory } from "./runtime.ts";
-import type { SteMemoryRuntime } from "./runtime.ts";
+import type { SteMemoryRuntime, StartSteMemoryOptions } from "./runtime.ts";
 
 export { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 
@@ -12,6 +12,7 @@ export interface PluginLog {
 }
 
 export interface BootstrapOptions {
+  autoFillNotifications?: StartSteMemoryOptions["autoFillNotifications"];
   /** ST 上下文获取器；缺省走全局 SillyTavern.getContext()，测试可注入 */
   getContext?: () => unknown;
   /** 插件版本（构建时注入，与 manifest/package.json 同源） */
@@ -43,7 +44,11 @@ export function bootstrap(options: BootstrapOptions): BootstrapStatus {
   const start =
     options.start ??
     ((getCtx) =>
-      startSteMemory(getCtx, { log, version: options.version }).then((runtime) => {
+      startSteMemory(getCtx, {
+        log,
+        version: options.version,
+        autoFillNotifications: options.autoFillNotifications,
+      }).then((runtime) => {
         // 调试/真机验收入口（非公开 API，勿在产品代码依赖）：
         // 暴露运行时与 LLM 端口工厂，供 docs/playwright-st-extension 验收脚本调用
         (globalThis as Record<string, unknown>).__STE_MEMORY_RUNTIME__ = runtime;

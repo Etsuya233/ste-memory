@@ -33,7 +33,7 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | [src/frontend/pages/](../../src/frontend/pages/)                                                           | 页面组合、表单草稿和展示；页面需要的能力用明确的 Services/Props 接口表达。                   |
 | `pages/records-workspace.ts`、`pages/tables/tables-workspace.ts`、`pages/tasks/tasks-workspace.ts`         | 相应流程的快照、请求归属、加载、编辑和保存状态。通过订阅供 React 使用。                      |
 | [src/frontend/components/](../../src/frontend/components/)                                                 | 跨页面的布局、表单组合、导航守卫和滚动管理。                                                 |
-| [src/frontend/primitives/](../../src/frontend/primitives/)                                                             | shadcn 组件、主题、Portal 容器和基础工具；保持与插件业务及 ST 解耦。                         |
+| [src/frontend/primitives/](../../src/frontend/primitives/)                                                 | shadcn 组件、主题、Portal 容器和基础工具；保持与插件业务及 ST 解耦。                         |
 | [src/features/](../../src/features/) 与 [src/infrastructure/](../../src/infrastructure/)                   | 既有业务规则、任务、数据与 ST 适配能力。前端沿用服务，避免另建一套持久化或任务调度。         |
 | [scripts/build-lib.ts](../../scripts/build-lib.ts)、[scripts/luma-styles.ts](../../scripts/luma-styles.ts) | 生产与预览共享的构建及样式编译规则。                                                         |
 
@@ -68,7 +68,7 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 | 密钥显示/隐藏                        | `connection-settings-editor.tsx` 的 `SecretInput`                                      | 显隐状态为局部状态；沿用表单保存流程。                                                 |
 | 记录排序                             | [RecordSortMenu](../../src/frontend/components/record-sort-menu.tsx)                   | 复用可排序字段模型，服务对完整匹配集排序后分页。                                       |
 | 记录表格展示                         | [RecordsTable](../../src/frontend/components/records-table.tsx)                        | 只读展示当前页字段值，复用字段格式化；点击进入工作区的记录编辑流程。                   |
-| 下拉框、按钮、输入、确认框等基础控件 | [primitives](../../src/frontend/primitives/) 中已安装的组件                                  | 使用实际 Base UI API，组件 class 合并使用 `cn`。先检查目录，再决定是否添加组件。       |
+| 下拉框、按钮、输入、确认框等基础控件 | [primitives](../../src/frontend/primitives/) 中已安装的组件                            | 使用实际 Base UI API，组件 class 合并使用 `cn`。先检查目录，再决定是否添加组件。       |
 
 表单使用 `Field`、`FieldLabel`、`FieldDescription`、`FieldError` 等现有组合，关联控件 ID 与说明。
 校验状态同时传递到字段和控件，图标按钮提供明确的 `aria-label`。保留可见键盘焦点；
@@ -170,19 +170,26 @@ ST 与插件共处一个文档。Tailwind 类名前缀仅隔离类名，无法�
 同为 important 的声明还受层叠层顺序影响，不能仅凭选择器更长或加载更晚判断胜负。
 窗口坐标等动态值沿用 CSS 变量与现有工具类接线，避免被基础 `ste:inset-0` 等 important 工具类覆盖。
 
-| 隔离措施                          | 作用与代码位置                                                                                                                                                                |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 隔离措施                          | 作用与代码位置                                                                                                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ste:` 前缀与 important utilities | 降低类名冲突并应对 ST 未分层的样式；见 [primitives/theme.css](../../src/frontend/primitives/theme.css)。页面新增工具类也使用此前缀。                                                |
-| `.stm-luma` 与 `data-tone`        | 主题变量和局部基础规则限定在插件子树；亮暗色从面板传入。不要修改宿主 `html` / `body`。                                                                                        |
-| 局部样式入口，无全局 Preflight    | [frontend/theme.css](../../src/frontend/theme.css) 引入 primitives theme；仅扫描显式源码。旧 kit 和旧页面 CSS 不合并。                                                        |
-| 变量、动画和初始化器命名空间      | [isolateLumaStyles](../../scripts/luma-styles.ts) 处理生成的 Tailwind 内部变量、keyframes 与 fallback 初始化器，避免向宿主或其他插件泄漏。                                    |
-| 原生 top-layer popover            | 面板不受 ST 祖先 transform 改变 fixed 定位参照的影响；继续沿用 `FrontendPanel`，无需靠扩大 z-index 穿透宿主。                                                                 |
+| `.stm-luma` 与 `data-tone`        | 主题变量和局部基础规则限定在插件子树；亮暗色从面板传入。不要修改宿主 `html` / `body`。                                                                                              |
+| 局部样式入口，无全局 Preflight    | [frontend/theme.css](../../src/frontend/theme.css) 引入 primitives theme；仅扫描显式源码。旧 kit 和旧页面 CSS 不合并。                                                              |
+| 变量、动画和初始化器命名空间      | [isolateLumaStyles](../../scripts/luma-styles.ts) 处理生成的 Tailwind 内部变量、keyframes 与 fallback 初始化器，避免向宿主或其他插件泄漏。                                          |
+| 原生 top-layer popover            | 面板不受 ST 祖先 transform 改变 fixed 定位参照的影响；继续沿用 `FrontendPanel`，无需靠扩大 z-index 穿透宿主。                                                                       |
 | 同一 Portal 容器                  | [PrimitivesProvider](../../src/frontend/primitives/provider.tsx) 注入面板容器；菜单、Tooltip、AlertDialog 保持在主题与 top-layer 子树。面板隐藏时关闭浮层，避免恢复焦点到隐藏元素。 |
-| 构建嵌入字体                      | `compileLumaStyles` 将 Inter 嵌入产物；运行时不额外请求字体 CDN。                                                                                                             |
+| 构建嵌入字体                      | `compileLumaStyles` 将 Inter 嵌入产物；运行时不额外请求字体 CDN。                                                                                                                   |
 
 通用组件不直接读取 ST 设置或查找 ST DOM。新增浮层复用 provider 的容器与 active 状态，
 保持 Base UI 的焦点和关闭流程；禁止默认 Portal 到 `document.body` 或叠加第二套焦点陷阱。
 新增 CSS 放到对应公共主题或前端样式入口，选择器限定作用域；不要通过修改宿主全局选择器解决插件问题。
+
+自动填表的全局通知使用 shadcn Base UI `Toast`，公共组件位于 `primitives/toast.tsx`，
+宿主接线位于 `host/auto-fill-notifications.tsx`。通知在工作台关闭时仍需可见，因此由宿主提供独立的
+`#ste-memory-notifications` 原生 manual popover 与 `.stm-luma` 主题；Toast Portal 必须传入该容器。
+工作台打开或关闭后重新排列通知的 top layer，保持通知可点击，不截获其他区域的鼠标操作或主动抢焦点。
+运行时只通过 bootstrap 注入的通知接口发送状态；React 挂载前暂存启动通知，切换对话清除旧通知。
+「查看任务」通过工作台导航请求进入任务页，沿用未保存离开保护，并核对通知所属对话。
 
 ST 入口由 `host/st-entry.tsx` Portal 到顶栏与魔法棒菜单，沿用宿主的 Font Awesome、
 `drawer-icon` 与 `list-group-item` 样式，保持在 `.stm-luma` 主题作用域之外。
