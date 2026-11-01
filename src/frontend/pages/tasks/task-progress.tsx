@@ -48,17 +48,20 @@ export function CoverageBar({
   const untrackedRuns = coverage.runs.filter((run) => run.status === "untracked");
   return (
     <div className="ste:flex ste:flex-col ste:gap-2">
-      {/* 比例条：区间宽度按楼层数分配，用于总览；逐层位置看下方方格 */}
+      {/* 比例条统一绘制圆角外框，避免未计划区间的方形边框在圆角处被裁断。 */}
       <div
         role="img"
         aria-label={`楼层覆盖：${summary}`}
-        className="ste:flex ste:h-2.5 ste:w-full ste:overflow-hidden ste:rounded-full ste:bg-muted"
+        className="ste:flex ste:h-2.5 ste:w-full ste:overflow-hidden ste:rounded-full ste:border ste:border-foreground/25 ste:bg-muted"
       >
         {coverage.runs.map((run) => (
           <div
             key={`${run.status}-${run.from}-${run.to}`}
             title={`#${run.from}–#${run.to} · ${COVERAGE_STATUS_LABELS[run.status]}`}
-            className={cn("ste:h-full", coverageClasses[run.status])}
+            className={cn(
+              "ste:h-full",
+              run.status === "untracked" ? "ste:bg-background" : coverageClasses[run.status],
+            )}
             style={{ flexGrow: run.to - run.from + 1, flexBasis: 0, minWidth: 2 }}
           />
         ))}
