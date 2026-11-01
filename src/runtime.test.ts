@@ -529,7 +529,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("本地已有较新空间时，同步开启仍以较旧文件快照初始化 SQLite", async () => {
     const db = createTestDatabase();
     const fileUnit: MemorySpaceBackup = {
+      schemaVersion: 1 as const,
       space: {
+        macros: [],
         id: "file-first" as MemorySpaceId,
         name: "文件中的旧版本",
         initializationSource: null,
@@ -701,7 +703,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("绑定在、空间缺失、文件里有有效镜像：启动即从镜像恢复（active/restored，数据落地）", async () => {
     const db = createTestDatabase();
     const unit: MemorySpaceBackup = {
+      schemaVersion: 1 as const,
       space: {
+        macros: [],
         id: "space-ghost" as MemorySpaceId,
         name: "爱丽丝 - story",
         initializationSource: null,

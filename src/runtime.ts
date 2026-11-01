@@ -1,3 +1,4 @@
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "./features/memory-snapshot/snapshot.ts";
 import { QueryChatStore } from "./features/query-chat/session-store.ts";
 import { PublicMemoryReader, type MemoryReadApi } from "./features/public-read/public-read-api.ts";
 import { createMemoryChatApi } from "./features/public-read/chat-api.ts";
@@ -535,6 +536,7 @@ export async function startSteMemory(
       if (!structure.macros.length) return structure;
       const at = now();
       const snapshot: MemorySpaceBackup = {
+        schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
         space: {
           id: structure.tables[0]?.memorySpaceId ?? ("preset-validation" as MemorySpaceId),
           name: "预设校验",
@@ -868,10 +870,7 @@ export async function startSteMemory(
   };
   const normalizeImportedSpace = async (unit: MemorySpaceBackup): Promise<MemorySpaceBackup> => ({
     ...unit,
-    space: { ...unit.space, macros: await classifyMacros(unit, unit.space.macros ?? []) },
-    ...(unit.chatScopeMacros === undefined
-      ? {}
-      : { chatScopeMacros: await classifyMacros(unit, unit.chatScopeMacros) }),
+    space: { ...unit.space, macros: await classifyMacros(unit, unit.space.macros) },
   });
   const writeChatMacros = async (macros: readonly MemoryMacro[]) => {
     const id = currentSpaceId();

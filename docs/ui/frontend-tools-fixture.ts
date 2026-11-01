@@ -98,7 +98,9 @@ export function createToolsFixture(options: {
           for (const entries of Object.values(record.fieldEvidence))
             for (const entry of entries) evidence.set(entry.evidence_id, entry);
         return {
+          schemaVersion: 1 as const,
           space: {
+            macros: [],
             id: context.spaceId,
             name: context.title,
             initializationSource: null,

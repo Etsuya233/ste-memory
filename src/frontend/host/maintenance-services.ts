@@ -169,10 +169,6 @@ export function createMaintenanceServices(
                 kickMacros: () => {},
                 kickMirror: () => {},
                 onDataChanged: () => {},
-                writeChatScopeMacros: async (macros) => {
-                  assertChat(chatKey);
-                  await runtime.settingsService.setChatScopeMacros(macros);
-                },
               });
             await synchronize();
             return { kind: "done", message: `已导入 ${units.length} 个记忆空间。` };

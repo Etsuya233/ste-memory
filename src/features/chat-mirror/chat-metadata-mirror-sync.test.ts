@@ -37,7 +37,9 @@ const EMPTY_FINGERPRINT = fingerprint("", { tables: 0 });
 
 function unit(spaceId: string, updatedAt: string = BASE_TIME): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: spaceId as MemorySpaceId,
       name: `空间-${spaceId}`,
       initializationSource: null,
@@ -305,7 +307,7 @@ describe("ChatMetadataMirrorSync 写回（本地 → 对话文件）", () => {
     expect(h.writeCalls).toHaveLength(1);
     const file = h.writeCalls[0]!;
     expect(file.format).toBe("ste-memory-chat-mirror");
-    expect(file.version).toBe(2);
+    expect(file.version).toBe(3);
     expect(file.spaceId).toBe("space-1");
     expect(file.updatedAt).toBe("2026-08-10T01:00:00.000Z");
     expect(file.appVersion).toBe("0.1.0");

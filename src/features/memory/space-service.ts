@@ -19,6 +19,7 @@ export class MemorySpaceService {
       id: this.createId(),
       name: memorySpaceName(name),
       initializationSource: null,
+      macros: [],
       createdAt: now,
       updatedAt: now,
     };

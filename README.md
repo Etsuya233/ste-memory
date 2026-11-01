@@ -246,7 +246,8 @@ src/
 │   ├── agent/                             # 提案/记忆助手 运行与工具
 │   ├── fill-tasks/  query-chat/  macros/  # 填表任务、问答面板、宏
 │   ├── table-presets/                     # 表格预设：预设库、实例化、应用（原子重建）
-│   ├── backup/  chat-mirror/              # 备份文件格式、镜像格式与导出辅助
+│   ├── memory-snapshot/                  # 共享空间快照契约、领域迁移与完整性校验
+│   ├── backup/  chat-mirror/              # 备份/镜像外壳编解码与导出辅助
 │   └── settings/ cleaning/ chat-binding/ space-maintenance/ logging/ agent-presets/
 ├── infrastructure/                        # 具体实现：IndexedDB（Dexie）、SillyTavern 适配器、浏览器
 └── common/                                # 跨功能的小工具（定时器端口、轮询骨架）

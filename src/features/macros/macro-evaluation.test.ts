@@ -17,7 +17,9 @@ import { QueryVectorCache } from "../semantic-query/query-vector-cache.ts";
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(count = 120): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: "s",
       name: "空间",
       initializationSource: null,

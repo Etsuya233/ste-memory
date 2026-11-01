@@ -14,7 +14,7 @@ import type {
   MemoryTableId,
 } from "../../../features/memory/index.ts";
 import { memoryTableDisplayFieldIds } from "../../../features/memory/index.ts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 // 必须先于 ./database.ts 导入：dexie 在模块加载时捕获全局 indexedDB，
 // fake-indexeddb 必须在它之前求值（否则 MissingAPIError）
 import { createServices, createTestDatabase, installDefaultPreset, NOW } from "../test-support.ts";
@@ -246,6 +246,7 @@ describe("Dexie memory backup repository", () => {
     await repo.restoreSnapshot({
       spaces: [
         {
+          schemaVersion: 1 as const,
           space: snapshot.spaces[0]!.space,
           tables: [],
           fields: [],
@@ -821,78 +822,31 @@ describe("Dexie memory backup repository", () => {
     expect(() => parseBackupFile(text)).not.toThrow();
   });
 
-  it("克隆带旧版损坏残留的空间（缺 recordId 的历史 / 悬挂字段证据键）产出干净单元", async () => {
+  it("当前版本损坏历史在恢复和克隆前拒绝，原空间保持完整", async () => {
     const db = createTestDatabase();
     await seedDatabase(db);
     const repo = new DexieMemoryBackupRepository(db);
     const unit = (await repo.loadSnapshot()).spaces[0]!;
-
-    // 模拟旧版克隆留在库里的损坏形态：历史行缺 recordId（undefined）+ 字段证据键指向不存在的字段
-    const poisoned: MemoryBackupSnapshot = {
-      spaces: [
-        {
-          ...unit,
-          history: [
-            {
-              ...unit.history[0]!,
-              id: "poisoned-history" as MemoryRecordHistoryId,
-              recordId: undefined as unknown as MemoryRecordId,
-            },
-            ...unit.history,
-          ],
-          records: unit.records.map((record) => ({
-            ...record,
-            fieldEvidence: { ...record.fieldEvidence, ["ghost-field" as MemoryFieldId]: [] },
-          })),
-        },
-      ],
+    const invalid = {
+      ...unit,
+      history: [{ ...unit.history[0]!, recordId: undefined as unknown as MemoryRecordId }],
     };
-    await repo.restoreSpace(poisoned.spaces[0]!);
-
-    // 先确认这份库数据确实是坏的：直接导出通不过导入校验（旧版克隆的产物形态）
-    const poisonedText = serializeBackupFile(
-      createBackupFile(
-        { spaces: [(await repo.loadSnapshot()).spaces[0]!] },
-        "test",
-        "2026-07-28T00:00:00.000Z",
-      ),
-    );
-    expect(() => parseBackupFile(poisonedText)).toThrow();
-
-    // 再克隆一次：缺 recordId 的历史补全新归属、悬挂字段证据键丢弃 → 产出干净单元
-    let seq = 0;
-    const newSpaceId = await repo.cloneSpace(unit.space.id, {
-      space: () => `repaired-space-${++seq}` as MemorySpaceId,
-      table: () => `repaired-table-${++seq}` as MemoryTableId,
-      field: () => `repaired-field-${++seq}` as MemoryFieldId,
-      record: () => `repaired-record-${++seq}` as MemoryRecordId,
-      history: () => `repaired-history-${++seq}` as MemoryRecordHistoryId,
-      task: () => `cloned-task-${++seq}`,
-      group: () => `cloned-group-${++seq}`,
-      evidence: () => `repaired-evidence-${++seq}` as MemoryEvidenceId,
-    });
-    const clonedUnit = (await repo.loadSnapshot()).spaces.find(
-      (space) => space.space.id === newSpaceId,
-    )!;
-
-    const clonedRecordIds = new Set(clonedUnit.records.map((item) => item.id));
-    expect(
-      clonedUnit.history.every((item) => typeof item.recordId === "string" && item.recordId !== ""),
-    ).toBe(true);
-    // 缺 recordId 的那条历史拿到全新归属（不属于任何克隆记录），存活记录的归档历史仍归其名下
-    expect(clonedUnit.history.filter((item) => !clonedRecordIds.has(item.recordId))).toHaveLength(
-      1,
-    );
-    const clonedFieldIds = new Set<string>(clonedUnit.fields.map((field) => field.id));
-    expect(
-      [...clonedUnit.records, ...clonedUnit.history].every((row) =>
-        Object.keys(row.fieldEvidence).every((fieldId) => clonedFieldIds.has(fieldId)),
-      ),
-    ).toBe(true);
-
-    const repairedText = serializeBackupFile(
-      createBackupFile({ spaces: [clonedUnit] }, "test", "2026-07-28T00:00:00.000Z"),
-    );
-    expect(() => parseBackupFile(repairedText)).not.toThrow();
+    // 版本已经为当前，缺失 ID 不得通过克隆分配新身份掩盖。
+    await expect(repo.restoreSpace(invalid)).rejects.toThrow("recordId");
+    expect((await repo.loadSnapshot()).spaces[0]).toEqual(unit);
+    const allocateId = vi.fn();
+    await expect(
+      repo.cloneSpaceFromUnit(invalid, {
+        space: allocateId,
+        table: allocateId,
+        field: allocateId,
+        record: allocateId,
+        history: allocateId,
+        task: allocateId,
+        group: allocateId,
+        evidence: allocateId,
+      }),
+    ).rejects.toThrow("recordId");
+    expect(allocateId).not.toHaveBeenCalled();
   });
 });

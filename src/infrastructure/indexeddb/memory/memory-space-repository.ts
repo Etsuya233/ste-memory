@@ -1,3 +1,5 @@
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../../features/memory-snapshot/snapshot.ts";
+import { toDomainSpace } from "./space-row.ts";
 import { parseMemoryMacros, type MemoryMacro } from "../../../features/macros/macro-expression.ts";
 import { Dexie } from "dexie";
 import type { MemorySpace, MemorySpaceId, MemoryTableId } from "../../../features/memory/index.ts";
@@ -13,7 +15,10 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
   }
 
   async create(memorySpace: MemorySpace): Promise<void> {
-    await this.#db.memorySpaces.add(memorySpace);
+    await this.#db.memorySpaces.add({
+      ...memorySpace,
+      snapshotSchemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+    });
   }
 
   async delete(id: MemorySpaceId): Promise<boolean> {
@@ -51,7 +56,8 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
   }
 
   async find(id: MemorySpaceId): Promise<MemorySpace | undefined> {
-    return this.#db.memorySpaces.get(id);
+    const row = await this.#db.memorySpaces.get(id);
+    return row && toDomainSpace(row);
   }
 
   /**
@@ -120,10 +126,12 @@ export class DexieMemorySpaceRepository implements MemorySpaceRepository {
   async list(): Promise<MemorySpace[]> {
     const spaces = await this.#db.memorySpaces.toArray();
     // 与 SQLite 参照实现同语义：创建时间倒序（id 兜底，保证确定性）
-    return spaces.sort(
-      (left, right) =>
-        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
-    );
+    return spaces
+      .map(toDomainSpace)
+      .sort(
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+      );
   }
 
   async setMacros(

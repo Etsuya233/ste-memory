@@ -94,10 +94,7 @@ export async function executeFullBackupImport(
   await deps.backup.restoreSnapshot({
     spaces: normalized.map((unit) => ({
       ...unit,
-      space: { ...unit.space, macros: restoredMemoryMacros(unit.space.macros ?? []) },
-      ...(unit.chatScopeMacros === undefined
-        ? {}
-        : { chatScopeMacros: restoredMemoryMacros(unit.chatScopeMacros) }),
+      space: { ...unit.space, macros: restoredMemoryMacros(unit.space.macros) },
     })),
   });
   deps.onDataChanged();

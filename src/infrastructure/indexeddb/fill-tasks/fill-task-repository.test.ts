@@ -358,6 +358,19 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
       createdAt: NOW,
       updatedAt: NOW,
     });
+    // 旧记录仍须有所属表；统一快照迁移会完整校验旧库的领域归属。
+    await v2.table("memoryTables").add({
+      id: "table-1",
+      memorySpaceId: SPACE_A,
+      key: "old",
+      name: "旧表",
+      description: "",
+      prompt: "",
+      enabled: true,
+      displayStrategy: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
     const record: MemoryRecord = {
       id: "record-1" as MemoryRecordId,
       memorySpaceId: SPACE_A,

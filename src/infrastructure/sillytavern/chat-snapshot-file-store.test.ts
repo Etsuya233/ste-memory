@@ -11,7 +11,9 @@ import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
 
 function unit(): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: "s1" as MemorySpaceId,
       name: "空间",
       initializationSource: null,

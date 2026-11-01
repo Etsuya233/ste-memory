@@ -1,6 +1,7 @@
+import type { MemorySpaceRow } from "./memory/space-row.ts";
 import { Dexie, type Table } from "dexie";
 import type { AssistantSession } from "../../features/query-chat/session-store.ts";
-import { upgradeVectorIndexKeys } from "../../features/memory/index.ts";
+import { upgradeLocalMemorySnapshots } from "./snapshot-upgrade.ts";
 import type {
   MemoryEvidenceId,
   MemoryEvidenceReference,
@@ -11,7 +12,6 @@ import type {
   MemoryRecordHistory,
   MemoryRecordHistoryId,
   MemoryRecordId,
-  MemorySpace,
   MemorySpaceId,
   MemoryTable,
   MemoryTableId,
@@ -93,7 +93,7 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
  */
 export class SteMemoryDatabase extends Dexie {
   assistantSessions!: Table<AssistantSession, string>;
-  memorySpaces!: Table<MemorySpace, MemorySpaceId>;
+  memorySpaces!: Table<MemorySpaceRow, MemorySpaceId>;
   memoryTables!: Table<MemoryTable, MemoryTableId>;
   memoryFields!: Table<MemoryField, MemoryFieldId>;
   memoryRecords!: Table<MemoryRecord, MemoryRecordId>;
@@ -125,49 +125,15 @@ export class SteMemoryDatabase extends Dexie {
     this.version(4).stores({
       memoryLogs: "++id, [type+createdAt], [key+createdAt], [spaceId+createdAt]",
     });
-    this.version(5)
-      .stores({})
-      .upgrade(async (transaction) => {
-        const spaces = await transaction.table("memorySpaces").toArray();
-        for (const space of spaces) {
-          await transaction.table("memorySpaces").put({ ...space, initializationSource: null });
-        }
-        const tables = (await transaction.table("memoryTables").toArray()) as Record<
-          string,
-          unknown
-        >[];
-        // 旧表格行按创建顺序赋显式顺序（新库由实例化与建表流程写入 position）
-        tables.sort(
-          (left, right) =>
-            String(left.createdAt).localeCompare(String(right.createdAt)) ||
-            String(left.id).localeCompare(String(right.id)),
-        );
-        const nextPositionBySpace = new Map<string, number>();
-        for (const table of tables) {
-          const spaceId = String(table.memorySpaceId);
-          const position = nextPositionBySpace.get(spaceId) ?? 0;
-          nextPositionBySpace.set(spaceId, position + 1);
-          delete table.kind;
-          table.position = position;
-        }
-        if (tables.length > 0) await transaction.table("memoryTables").bulkPut(tables);
-      });
+    this.version(5).stores({});
     this.version(6).stores({
       vectorTasks:
         "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId], [status+createdAt]",
       recordVectors: "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId]",
       vectorSuppressions: "id, memorySpaceId",
     });
-    this.version(7)
-      .stores({})
-      .upgrade(async (transaction) => {
-        await transaction
-          .table("memoryTables")
-          .toCollection()
-          .modify((table) => {
-            table.vectorIndex = upgradeVectorIndexKeys(table.vectorIndex);
-          });
-      });
+    this.version(7).stores({});
+    this.version(8).stores({});
     this.version(9).stores({ assistantSessions: "id, spaceId, [chatKey+spaceId], updatedAt" });
     this.version(10)
       .stores({})
@@ -179,16 +145,8 @@ export class SteMemoryDatabase extends Dexie {
             session.storageRevision = 0;
           });
       });
-    this.version(8)
-      .stores({})
-      .upgrade(async (transaction) => {
-        await transaction
-          .table("memorySpaces")
-          .toCollection()
-          .modify((space) => {
-            space.macros = [];
-          });
-      });
+    // v5/v7/v8 的领域内容升级统一由 v11 执行，任意旧数据库均只走一次规则。
+    this.version(11).stores({}).upgrade(upgradeLocalMemorySnapshots);
   }
 }
 

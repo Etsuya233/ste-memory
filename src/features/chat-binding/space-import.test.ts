@@ -12,7 +12,9 @@ import type { MemorySpaceBackup } from "../backup/index.ts";
 
 function unit(spaceId: string, overrides: Partial<MemorySpaceBackup> = {}): MemorySpaceBackup {
   return {
+    schemaVersion: 1,
     space: {
+      macros: [],
       id: spaceId as MemorySpaceId,
       name: `空间 ${spaceId}`,
       initializationSource: null,
@@ -48,15 +50,12 @@ function deps(overrides: Partial<SpaceImportExecutionDeps> = {}): {
   readonly deps: SpaceImportExecutionDeps;
   readonly restoreSpace: ReturnType<typeof vi.fn>;
   readonly importSpace: ReturnType<typeof vi.fn>;
-  readonly writeChatScopeMacros: ReturnType<typeof vi.fn>;
 } {
   const restoreSpace = vi.fn(async () => undefined);
   const importSpace = vi.fn(async () => undefined);
-  const writeChatScopeMacros = vi.fn();
   return {
     restoreSpace,
     importSpace,
-    writeChatScopeMacros,
     deps: {
       normalizeImportedSpace: async (unit) => unit,
       backup: { restoreSpace } as unknown as Pick<MemoryBackupRepository, "restoreSpace">,
@@ -67,7 +66,6 @@ function deps(overrides: Partial<SpaceImportExecutionDeps> = {}): {
       kickMacros: vi.fn(),
       kickMirror: vi.fn(),
       onDataChanged: vi.fn(),
-      writeChatScopeMacros,
       ...overrides,
     },
   };
@@ -215,6 +213,5 @@ describe("space-import（单空间导入编排，issue 26）", () => {
     expect(harness.restoreSpace).toHaveBeenCalledWith(
       expect.objectContaining({ space: expect.objectContaining({ macros }) }),
     );
-    expect(harness.writeChatScopeMacros).not.toHaveBeenCalled();
   });
 });

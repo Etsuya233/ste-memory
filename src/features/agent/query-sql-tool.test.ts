@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { MemorySpaceReader, MemorySpace } from "../memory/index.ts";
+import type { MemorySpaceReader } from "../memory/index.ts";
 import { createInProcessSqliteMemoryClient } from "../../infrastructure/sqlite/node-client.ts";
 import type { SqliteMemoryClient, SqliteView } from "../../infrastructure/sqlite/types.ts";
 import { createTestMemorySpace } from "./memory-space-fixture.ts";
@@ -16,13 +16,15 @@ describe("Agent read-only SQL tool with real SQLite", () => {
     client = await createInProcessSqliteMemoryClient();
     view = "committed";
     await client.importSpace({
+      schemaVersion: 1 as const,
       space: {
+        macros: [],
         id: spaceId,
         name: "测试",
         initializationSource: null,
         createdAt: "2026-10-24",
         updatedAt: "2026-10-24",
-      } as MemorySpace,
+      },
       tables: fixture.tables,
       fields: [...fixture.fieldsByTableId.values()].flat(),
       records: [...fixture.recordsByTableId.values()].flat(),

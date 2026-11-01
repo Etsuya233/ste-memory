@@ -12,7 +12,9 @@ import type { MemoryRecord, MemorySpaceId } from "../../features/memory/index.ts
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: "space",
       name: "空间",
       initializationSource: null,

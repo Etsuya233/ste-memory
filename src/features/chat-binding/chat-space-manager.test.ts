@@ -836,7 +836,9 @@ describe("buildChatSpaceName（空间显示名）", () => {
 
     // 构造一个与当前空间无关的文件单元（记忆空间「旧名」）
     const unit: MemorySpaceBackup = {
+      schemaVersion: 1 as const,
       space: {
+        macros: [],
         id: "imported-space" as MemorySpaceId,
         name: "旧名",
         initializationSource: {

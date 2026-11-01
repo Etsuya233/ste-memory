@@ -80,21 +80,6 @@ export function validateVectorIndexConfiguration(
   }
 }
 
-/** 旧空间没有分组 Key，升级时以原 ID 补齐；不推断与历史预设的对应关系。 */
-export function upgradeVectorIndexKeys(
-  configuration: VectorIndexConfiguration | undefined,
-): VectorIndexConfiguration | undefined {
-  if (!configuration) return undefined;
-  const upgrade = (groups: readonly VectorIndexGroup[]) =>
-    groups.map((group) => ({ ...group, key: group.key ?? group.id }));
-  return {
-    ...configuration,
-    groups: upgrade(configuration.groups),
-    presetGroups:
-      configuration.presetGroups === undefined ? undefined : upgrade(configuration.presetGroups),
-  };
-}
-
 export function remapVectorIndexConfiguration(
   configuration: VectorIndexConfiguration | undefined,
   fieldIdMap: ReadonlyMap<string, MemoryFieldId>,

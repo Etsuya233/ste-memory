@@ -1,6 +1,5 @@
 import { restoredMemoryMacros } from "../macros/macro-expression.ts";
 import type { MemoryBackupRepository } from "../backup/index.ts";
-import type { MemoryMacro } from "../macros/macro-expression.ts";
 import { parseBackupFile, type MemorySpaceBackup } from "../backup/index.ts";
 import type { SpaceContextStatus } from "./chat-space-manager.ts";
 import { BINDING_UNRECOGNIZED_MESSAGE } from "./chat-space-manager.ts";
@@ -28,11 +27,6 @@ export interface SpaceImportExecutionDeps {
   readonly kickMirror: () => void;
   /** 面板数据刷新（依赖数据的区块重取） */
   readonly onDataChanged: () => void;
-  /**
-   * 写回文件携带的对话级宏（spec 表格预设 6.3：单空间导出会带上导出时该对话的
-   * 对话级宏，导入到当前对话时恢复）；文件缺省该键时不调用（保持当前对话的宏）。
-   */
-  readonly writeChatScopeMacros?: (macros: readonly MemoryMacro[]) => void | Promise<void>;
 }
 
 interface SpaceImportManager {
@@ -105,10 +99,7 @@ export async function executeSpaceImport(
   const normalized = await deps.normalizeImportedSpace(plan.action.unit);
   const unit: MemorySpaceBackup = {
     ...normalized,
-    space: { ...normalized.space, macros: restoredMemoryMacros(normalized.space.macros ?? []) },
-    ...(normalized.chatScopeMacros === undefined
-      ? {}
-      : { chatScopeMacros: restoredMemoryMacros(normalized.chatScopeMacros) }),
+    space: { ...normalized.space, macros: restoredMemoryMacros(normalized.space.macros) },
   };
   if (plan.action.kind === "restore") {
     await deps.backup.restoreSpace(unit);
@@ -117,10 +108,6 @@ export async function executeSpaceImport(
   } else {
     // clone-and-rebind / create-and-bind 共用：克隆新空间 + 重建/建立绑定
     await deps.manager.importSpace(unit);
-  }
-  // 文件携带对话级宏时写回当前对话（缺省 = 保持当前对话的宏）
-  if (unit.chatScopeMacros !== undefined) {
-    await deps.writeChatScopeMacros?.(unit.chatScopeMacros);
   }
   deps.onDataChanged();
   deps.kickMacros();

@@ -7,7 +7,9 @@ import { resolveImportAction } from "./import-action.ts";
 /** 造一个最小可序列化的单空间单元（解析器只读取 unit.space.id）。 */
 function unit(spaceId: string): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: spaceId as MemorySpaceId,
       name: `空间 ${spaceId}`,
       initializationSource: null,
@@ -25,7 +27,7 @@ function unit(spaceId: string): MemorySpaceBackup {
 function file(spaces: MemorySpaceBackup[]): MemoryBackupFile {
   return {
     format: "ste-memory-backup",
-    version: 2,
+    version: 3,
     exportedAt: "2026-08-30T00:00:00.000Z",
     appVersion: "0.1.0",
     data: { spaces },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
-import { normalizeBackupData } from "../backup/backup-codec.ts";
+import { migrateMemorySpaceSnapshot } from "../memory-snapshot/snapshot-migration.ts";
 import type { MemoryFieldId, MemorySpaceId, MemoryTableId, MemoryTable } from "../memory/index.ts";
 import { remapVectorIndexConfiguration } from "../memory/index.ts";
 import { instantiateTablePreset } from "./preset-instantiation.ts";
@@ -28,10 +28,12 @@ function fixture() {
   const spaceId = "space" as MemorySpaceId;
   const structure = instantiateTablePreset(preset, spaceId, ids, stamp);
   const unit: MemorySpaceBackup = {
+    schemaVersion: 1,
     space: {
       id: spaceId,
       name: "测试空间",
       prompt: preset.prompt,
+      macros: structure.macros,
       initializationSource: { presetId: preset.id, presetName: preset.name, appliedAt: stamp },
       createdAt: stamp,
       updatedAt: stamp,
@@ -295,7 +297,9 @@ describe("从表格预设选择性更新空间", () => {
     const legacy = structuredClone(unit);
     for (const group of legacy.tables[0]!.vectorIndex!.presetGroups!)
       delete (group as { key?: string }).key;
-    const updated = normalizeBackupData({ spaces: [legacy] }).spaces[0]!;
+    const oldSnapshot = { ...legacy };
+    Reflect.deleteProperty(oldSnapshot, "schemaVersion");
+    const updated = migrateMemorySpaceSnapshot({ version: "legacy-macros", snapshot: oldSnapshot });
     expect(updated.tables[0]!.vectorIndex!.presetGroups![0]!.key).toBe(
       unit.tables[0]!.vectorIndex!.presetGroups![0]!.id,
     );

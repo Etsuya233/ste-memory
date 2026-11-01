@@ -1,3 +1,5 @@
+import { toDomainSpace } from "../indexeddb/memory/space-row.ts";
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../features/memory-snapshot/snapshot.ts";
 import { parseMemoryMacros } from "../../features/macros/macro-expression.ts";
 import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
 import type { Table } from "dexie";
@@ -341,7 +343,10 @@ export class SqliteMemoryStore {
         this.#db.memoryEvidence,
       ],
       async () => {
-        await this.#db.memorySpaces.put(unit.space);
+        await this.#db.memorySpaces.put({
+          ...unit.space,
+          snapshotSchemaVersion: unit.schemaVersion,
+        });
         await syncRows(
           this.#db.memoryTables,
           unit.tables,
@@ -398,7 +403,8 @@ export class SqliteMemoryStore {
         this.assertWritable(space.id);
         if (await this.#db.memorySpaces.get(space.id)) throw new Error("记忆空间 ID 已存在");
         await this.replace({
-          space,
+          schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+          space: { ...space, macros: parseMemoryMacros(space.macros) },
           tables: [],
           fields: [],
           records: [],
@@ -408,9 +414,9 @@ export class SqliteMemoryStore {
       },
       find: (id) => get(id, "space", id),
       list: async () =>
-        (await this.#db.memorySpaces.toArray()).sort(
-          (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
-        ),
+        (await this.#db.memorySpaces.toArray())
+          .map(toDomainSpace)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)),
       setMacros: async (id, macros, updatedAt) => {
         return this.write(
           id,
@@ -605,6 +611,7 @@ export class SqliteMemoryStore {
           if (!unit) return false;
           await this.replace(
             {
+              schemaVersion: unit.schemaVersion,
               space: {
                 ...unit.space,
                 prompt: input.prompt ?? "",

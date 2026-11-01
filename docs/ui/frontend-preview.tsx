@@ -1,3 +1,4 @@
+import { parseMemoryMacros } from "../../src/features/macros/macro-expression.ts";
 import { MemoryRecordQueryService } from "../../src/features/memory/index.ts";
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
 import { createRoot } from "react-dom/client";
@@ -296,6 +297,7 @@ const spaces: MemorySpace[] = Object.values(contexts).map((context) => ({
   id: context.spaceId,
   name: context.title,
   initializationSource: null,
+  macros: [],
   createdAt: date,
   updatedAt: date,
 }));
@@ -611,6 +613,7 @@ const assertPresetContext = (context: PresetContext) =>
   assertContext({ chatKey: context.chatIdentity, spaceId: context.spaceId, title: context.title });
 const presetUpdateFixture = createPresetUpdateFixture({
   read: (spaceId) => {
+    const space = spaces.find((space) => space.id === spaceId)!;
     const ownRecords = records.filter((record) => record.memorySpaceId === spaceId);
     const ownHistory = history.filter((record) => record.memorySpaceId === spaceId);
     const evidence = new Map(
@@ -619,7 +622,8 @@ const presetUpdateFixture = createPresetUpdateFixture({
         .map((entry) => [entry.evidence_id, entry]),
     );
     return structuredClone({
-      space: spaces.find((space) => space.id === spaceId)!,
+      schemaVersion: 1 as const,
+      space: { ...space, macros: parseMemoryMacros(space.macros) },
       tables: tables.filter((table) => table.memorySpaceId === spaceId),
       fields: fields.filter((field) => field.memorySpaceId === spaceId),
       records: ownRecords,

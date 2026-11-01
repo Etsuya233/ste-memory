@@ -5,7 +5,9 @@ import { buildSpaceExportUnit, executeFullBackupImport } from "./space-transfer.
 
 function unit(spaceId: string, withHistory: boolean): MemorySpaceBackup {
   return {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: spaceId as MemorySpaceId,
       name: `空间 ${spaceId}`,
       initializationSource: null,
@@ -148,7 +150,6 @@ describe("executeFullBackupImport", () => {
     const source = {
       ...original,
       space: { ...original.space, macros: [macro] },
-      chatScopeMacros: [macro],
     };
     const restoreSnapshot = vi.fn(async (_snapshot: MemoryBackupSnapshot) => {});
     const normalizeImportedSpace = vi.fn(async (input: MemorySpaceBackup) => ({
@@ -157,7 +158,6 @@ describe("executeFullBackupImport", () => {
         ...input.space,
         macros: [{ ...macro, expression: { ...macro.expression, usesSemantic: true } }],
       },
-      chatScopeMacros: [{ ...macro, expression: { ...macro.expression, usesSemantic: true } }],
     }));
     await executeFullBackupImport(
       { kind: "ready", data: { spaces: [source] }, spaceCount: 1, confirmMessage: "" },
@@ -172,7 +172,6 @@ describe("executeFullBackupImport", () => {
     expect(normalizeImportedSpace).toHaveBeenCalledWith(source);
     const restored = restoreSnapshot.mock.calls[0]!;
     expect(restored[0].spaces[0]!.space.macros![0]!.enabled).toBe(false);
-    expect(restored[0].spaces[0]!.chatScopeMacros![0]!.enabled).toBe(false);
     expect(macro.enabled).toBe(true);
   });
 

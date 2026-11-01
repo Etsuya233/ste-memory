@@ -1,3 +1,4 @@
+import { migrateMemorySpaceSnapshot } from "../../features/memory-snapshot/snapshot-migration.ts";
 import type { MemoryBackupSnapshot } from "../../features/backup/backup-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
@@ -21,6 +22,8 @@ export class SqliteMemoryBackupRepository extends DexieMemoryBackupRepository {
   }
 
   private async validate(units: readonly MemorySpaceBackup[]): Promise<void> {
+    for (const unit of units)
+      migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
     const validator = await this.createClient();
     try {
       for (const unit of units) await validator.importSpace(unit);

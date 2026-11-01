@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 /** 一个小而完整的备份数据：一个空间 + 表格定义 + 字段 + 记录（含证据与修订历史）。 */
 function sampleSnapshot(): MemoryBackupData {
   const space: MemorySpaceBackup = {
+    schemaVersion: 1 as const,
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
@@ -210,8 +211,17 @@ describe("备份文件编解码", () => {
   it("旧文件（无初始化来源与表格顺序键）解码时归一化：来源补 null、顺序按数组顺序", () => {
     const file = createBackupFile(sampleSnapshot(), "0.2.0", "2026-08-05T10:00:00.000Z");
     const legacy = JSON.parse(JSON.stringify(file)) as {
-      data: { spaces: { space: Record<string, unknown>; tables: Record<string, unknown>[] }[] };
+      version: number;
+      data: {
+        spaces: {
+          schemaVersion?: number;
+          space: Record<string, unknown>;
+          tables: Record<string, unknown>[];
+        }[];
+      };
     };
+    legacy.version = 1;
+    delete legacy.data.spaces[0]!.schemaVersion;
     delete legacy.data.spaces[0]!.space.initializationSource;
     for (const table of legacy.data.spaces[0]!.tables) delete table.position;
 
@@ -303,7 +313,7 @@ describe("备份文件信封校验", () => {
     (bad.data.spaces[0]!.records[0]!.payload as Record<string, unknown>)["field-1"] = { x: 1 };
     const error = decodeError(bad);
     expect(error.type).toBe("memory_backup_format_invalid");
-    expect(error.humanMsg).toContain("data.spaces[0].records[0].payload");
+    expect(error.humanMsg).toContain("records[0].payload");
   });
 
   it("JSON 解析失败报 invalid_json 并携带原因", () => {
@@ -321,6 +331,7 @@ describe("备份数据完整性校验", () => {
   it("跨空间重复的表格 id 报格式错误", () => {
     const unit = sampleSnapshot().spaces[0]!;
     const second: MemorySpaceBackup = {
+      schemaVersion: 1 as const,
       space: { ...unit.space, id: "space-2" as MemorySpaceId },
       tables: [
         {
@@ -335,7 +346,10 @@ describe("备份数据完整性校验", () => {
       evidence: [],
     };
     const snapshot: MemoryBackupData = { spaces: [unit, second] };
-    const error = decodeError(createBackupFile(snapshot, "0.2.0", "2026-08-05T10:00:00.000Z"));
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: snapshot,
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("table-1");
   });
@@ -349,9 +363,10 @@ describe("备份数据完整性校验", () => {
         memorySpaceId: "space-9" as MemorySpaceId,
       })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("space-9");
   });
@@ -362,9 +377,10 @@ describe("备份数据完整性校验", () => {
       ...unit,
       fields: unit.fields.map((field) => ({ ...field, tableId: "table-9" as MemoryTableId })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("table-9");
   });
@@ -378,9 +394,10 @@ describe("备份数据完整性校验", () => {
         referenceTableId: "table-9" as MemoryTableId,
       })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("table-9");
   });
@@ -394,9 +411,10 @@ describe("备份数据完整性校验", () => {
         tableId: "table-9" as MemoryTableId,
       })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("table-9");
   });
@@ -407,9 +425,10 @@ describe("备份数据完整性校验", () => {
       ...unit,
       evidence: [unit.evidence[0]!, unit.evidence[0]!],
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [duplicated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [duplicated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("evidence-1");
   });
@@ -423,9 +442,10 @@ describe("备份数据完整性校验", () => {
         payload: { "field-9": "林夏" },
       })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("field-9");
   });
@@ -439,9 +459,10 @@ describe("备份数据完整性校验", () => {
         fieldEvidence: { "field-9": record.fieldEvidence["field-1"] ?? [] },
       })),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("field-9");
   });
@@ -452,9 +473,10 @@ describe("备份数据完整性校验", () => {
       ...unit,
       evidence: unit.evidence.filter((entry) => entry.evidence_id !== "evidence-1"),
     };
-    const error = decodeError(
-      createBackupFile({ spaces: [mutated] }, "0.2.0", "2026-08-05T10:00:00.000Z"),
-    );
+    const error = decodeError({
+      ...createBackupFile(sampleSnapshot(), "test", "now"),
+      data: { spaces: [mutated] },
+    });
     expect(error.type).toBe("memory_backup_format_invalid");
     expect(error.humanMsg).toContain("evidence-1");
   });

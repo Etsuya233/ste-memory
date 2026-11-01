@@ -17,6 +17,7 @@ describe("Dexie memory space repository", () => {
       id: "space-1",
       name: "会话",
       initializationSource: null,
+      macros: [],
       createdAt: NOW,
       updatedAt: NOW,
     });
@@ -54,6 +55,7 @@ describe("Dexie memory space repository", () => {
       id: space.id,
       name: "重命名会话",
       initializationSource: null,
+      macros: [],
       createdAt: NOW,
       updatedAt: "2026-07-28T02:00:00.000Z",
     });

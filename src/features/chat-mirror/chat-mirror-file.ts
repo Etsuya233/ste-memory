@@ -6,16 +6,16 @@ import { memorySpaceBackupSchema } from "../backup/backup-file.ts";
  * 对话文件镜像格式（ADR 0023）：随聊天文件（chat_metadata.steMemoryMirror）走的
  * 记忆快照。
  *
- * - 信封 `{ format: "ste-memory-chat-mirror", version: 1, spaceId, updatedAt,
- *   appVersion, data }`；data 与备份单元**完全同构**（space/tables/fields/
+ * - 信封 `{ format: "ste-memory-chat-mirror", version: 3, spaceId, updatedAt,
+ *   appVersion, data }`；data 携带领域 schemaVersion，与备份单元**完全同构**（space/tables/fields/
  *   records/history/evidence 六要素）——结构校验复用 memorySpaceBackupSchema、
- *   完整性校验复用 validateSpaceBackupUnit，零裁剪。
+ *   完整性校验复用 validateSnapshotIntegrity，零裁剪。
  * - updatedAt 记录快照时间；当前 SQLite 初始化固定采用文件快照，不按时间戳竞争。
  * - 未知版本/损坏由解码器返回 null；当前初始化与保存调用方据此报告错误并停止覆盖。
  */
 
 export const CHAT_MIRROR_FORMAT = "ste-memory-chat-mirror" as const;
-export const CHAT_MIRROR_VERSION = 2 as const;
+export const CHAT_MIRROR_VERSION = 3 as const;
 
 /** 对话文件镜像信封。 */
 export interface ChatMirrorFile {

@@ -26,7 +26,9 @@ function harness(timeoutMs = 1000) {
     macros: [definition()] as readonly MemoryMacro[],
   };
   const snapshot: MemorySpaceBackup = {
+    schemaVersion: 1 as const,
     space: {
+      macros: [],
       id: "space" as MemorySpaceId,
       name: "测试",
       initializationSource: null,

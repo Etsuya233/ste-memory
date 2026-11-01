@@ -145,7 +145,9 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
     const { context, adapter } = stableAdapter({ saveMetadataDebounced });
     const mirror = createChatMirrorFile(
       {
+        schemaVersion: 1 as const,
         space: {
+          macros: [],
           id: "space-1" as MemorySpaceId,
           initializationSource: null,
           name: "爱丽丝 - story",
@@ -178,7 +180,9 @@ describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）",
       adapter.mirrorStore.write(
         createChatMirrorFile(
           {
+            schemaVersion: 1 as const,
             space: {
+              macros: [],
               id: "space-1" as MemorySpaceId,
               name: "爱丽丝 - story",
               initializationSource: null,

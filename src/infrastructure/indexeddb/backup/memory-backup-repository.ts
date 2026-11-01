@@ -1,3 +1,6 @@
+import { migrateMemorySpaceSnapshot } from "../../../features/memory-snapshot/snapshot-migration.ts";
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../../features/memory-snapshot/snapshot.ts";
+import { toDomainSpace } from "../memory/space-row.ts";
 import { copyMemoryMacros } from "../../../features/macros/macro-expression.ts";
 import type {
   BackupIdFactory,
@@ -48,7 +51,7 @@ function taskWithoutExecutor(task: FillTask): FillTask {
  * - restoreSnapshot：整体替换——六张表 + 任务/进度表清空后按空间单元依次写入，
  *   全部包在同一个读写事务里：任一步失败（如主键冲突）整体回滚，绝不产生半导入
  *   状态（导入前校验由 Memory codec 负责，这里只兜底物理约束）。
- * - 任务/进度/对话级宏是可选集合（spec 表格预设 6.3）：单元带这些键 = 替换目标
+ * - 任务/进度是可选集合（spec 表格预设 6.3）：单元带这些键 = 替换目标
  *   空间的对应内容；缺省 = 不涉及，保持目标原有值（对话文件镜像即如此）。
  */
 export class DexieMemoryBackupRepository implements MemoryBackupRepository {
@@ -85,24 +88,33 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
       ),
     };
     return {
-      spaces: sorted.spaces.map((space) => ({
-        space,
-        tables: sorted.tables.filter((table) => table.memorySpaceId === space.id),
-        fields: sorted.fields.filter((field) => field.memorySpaceId === space.id),
-        records: sorted.records.filter((record) => record.memorySpaceId === space.id),
-        history: sorted.history.filter((item) => item.memorySpaceId === space.id),
-        evidence: sorted.evidence
-          .filter((row) => row.memorySpaceId === space.id)
-          .map(toDomainEvidence),
-        fillTasks: sorted.tasks.filter((task) => task.memorySpaceId === space.id),
-        floorLedger: sorted.ledger
-          .filter((row) => row.memorySpaceId === space.id)
-          .map((row) => ({ floor: row.floor, status: row.status, updatedAt: row.updatedAt })),
-      })),
+      spaces: sorted.spaces.map((row) => {
+        const space = toDomainSpace(row);
+        return migrateMemorySpaceSnapshot({
+          version: row.snapshotSchemaVersion,
+          snapshot: {
+            schemaVersion: row.snapshotSchemaVersion,
+            space,
+            tables: sorted.tables.filter((table) => table.memorySpaceId === space.id),
+            fields: sorted.fields.filter((field) => field.memorySpaceId === space.id),
+            records: sorted.records.filter((record) => record.memorySpaceId === space.id),
+            history: sorted.history.filter((item) => item.memorySpaceId === space.id),
+            evidence: sorted.evidence
+              .filter((row) => row.memorySpaceId === space.id)
+              .map(toDomainEvidence),
+            fillTasks: sorted.tasks.filter((task) => task.memorySpaceId === space.id),
+            floorLedger: sorted.ledger
+              .filter((row) => row.memorySpaceId === space.id)
+              .map((row) => ({ floor: row.floor, status: row.status, updatedAt: row.updatedAt })),
+          },
+        });
+      }),
     };
   }
 
   async restoreSnapshot(snapshot: MemoryBackupSnapshot): Promise<void> {
+    for (const unit of snapshot.spaces)
+      migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
     await this.#db.transaction(
       "rw",
       [
@@ -146,6 +158,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
    * 缺省（镜像不带）保持原有值与既有行为。
    */
   async restoreSpace(unit: MemorySpaceBackup): Promise<void> {
+    migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
     const spaceId = unit.space.id;
     await this.#db.transaction(
       "rw",
@@ -194,37 +207,9 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
     sourceSpaceId: MemorySpaceId,
     createId: BackupIdFactory,
   ): Promise<MemorySpaceId> {
-    const sourceSpace = await this.#db.memorySpaces.get(sourceSpaceId);
-    if (!sourceSpace) {
-      throw new Error(`源空间不存在: ${sourceSpaceId}`);
-    }
-    // 读取源空间完整单元
-    const [tables, fields, records, history, evidenceRows, tasks, ledgerRows] = await Promise.all([
-      this.#db.memoryTables.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-      this.#db.memoryFields.filter((field) => field.memorySpaceId === sourceSpaceId).toArray(),
-      this.#db.memoryRecords.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-      this.#db.memoryRecordHistory.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-      this.#db.memoryEvidence.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-      this.#db.memoryFillTasks.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-      this.#db.floorFillLedger.where("memorySpaceId").equals(sourceSpaceId).toArray(),
-    ]);
-    return this.#writeClonedUnit(
-      {
-        space: sourceSpace,
-        tables,
-        fields,
-        records,
-        history,
-        evidenceRows,
-        fillTasks: tasks.map(normalizeTaskRow),
-        floorLedger: ledgerRows.map((row) => ({
-          floor: row.floor,
-          status: row.status,
-          updatedAt: row.updatedAt,
-        })),
-      },
-      createId,
-    );
+    const unit = (await this.loadSnapshot()).spaces.find((item) => item.space.id === sourceSpaceId);
+    if (!unit) throw new Error(`源空间不存在: ${sourceSpaceId}`);
+    return this.cloneSpaceFromUnit(unit, createId);
   }
 
   /**
@@ -236,6 +221,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
     unit: MemorySpaceBackup,
     createId: BackupIdFactory,
   ): Promise<MemorySpaceId> {
+    migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
     const evidenceRows: MemoryEvidenceRow[] = unit.evidence.map((evidence) =>
       toEvidenceRow(unit.space.id, evidence),
     );
@@ -376,6 +362,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
         // 写入新空间行
         await this.#db.memorySpaces.add({
           ...source.space,
+          snapshotSchemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
           macros: copyMemoryMacros(source.space.macros ?? [], () => crypto.randomUUID()),
           id: newSpaceId,
           createdAt: new Date().toISOString(),
@@ -489,7 +476,7 @@ export class DexieMemoryBackupRepository implements MemoryBackupRepository {
 
   /** 写入单个空间单元（restoreSnapshot / restoreSpace 共用；调用方已包事务）。 */
   async #writeUnit(unit: MemorySpaceBackup): Promise<void> {
-    await this.#db.memorySpaces.add(unit.space);
+    await this.#db.memorySpaces.add({ ...unit.space, snapshotSchemaVersion: unit.schemaVersion });
     if (unit.tables.length > 0) await this.#db.memoryTables.bulkAdd([...unit.tables]);
     if (unit.fields.length > 0) await this.#db.memoryFields.bulkAdd([...unit.fields]);
     if (unit.records.length > 0) await this.#db.memoryRecords.bulkAdd([...unit.records]);

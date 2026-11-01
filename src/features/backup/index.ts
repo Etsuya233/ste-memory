@@ -14,7 +14,6 @@ export type {
 export {
   createBackupFile,
   decodeBackupFile,
-  normalizeBackupData,
   parseBackupFile,
   serializeBackupFile,
   validateBackupData,

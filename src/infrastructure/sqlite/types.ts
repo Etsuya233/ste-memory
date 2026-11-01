@@ -9,12 +9,12 @@ import type {
   MemoryField,
   MemoryRecord,
   MemoryRecordHistory,
-  MemorySpace,
   MemoryTable,
 } from "../../features/memory/index.ts";
 
 export interface SqliteEntities {
-  space: MemorySpace;
+  /** SQLite 只装载经来源边界迁移和校验的当前空间。 */
+  space: MemorySpaceBackup["space"];
   table: MemoryTable;
   field: MemoryField;
   record: MemoryRecord;

@@ -93,7 +93,6 @@ export type {
 export {
   DomainError,
   effectiveVectorIndexGroups,
-  upgradeVectorIndexKeys,
   validateVectorIndexConfiguration,
   remapVectorIndexConfiguration,
   derivedDisplayTemplate,

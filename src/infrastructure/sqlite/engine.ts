@@ -1,3 +1,4 @@
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../features/memory-snapshot/snapshot.ts";
 import type { Database, Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import { SemanticScoresModule } from "./semantic-scores-module.ts";
 import { PublicSqlDatabase } from "./public-query.ts";
@@ -651,6 +652,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       db = this.database(spaceId, view);
     return {
       ...structuredClone(session.snapshot),
+      schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
       space: this.entities(db, "space")[0]!,
       tables: this.entities(db, "table"),
       fields: this.entities(db, "field"),

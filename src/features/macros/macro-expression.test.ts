@@ -149,6 +149,7 @@ describe("宏定义与持久化边界", () => {
 
   it("备份和普通镜像加载保留宏启用态，旧独立视图集合显式迁入空间", () => {
     const unit = {
+      schemaVersion: 1 as const,
       space: {
         id: "space" as MemorySpaceId,
         name: "对话",
@@ -169,8 +170,10 @@ describe("宏定义与持久化边界", () => {
       decodeChatMirrorFile(createChatMirrorFile(unit, "space", "now", "test"))!.data.space
         .macros![0]!.enabled,
     ).toBe(true);
+    const legacyUnit = { ...unit };
+    Reflect.deleteProperty(legacyUnit, "schemaVersion");
     const legacy = {
-      ...unit,
+      ...legacyUnit,
       space: { ...unit.space, macros: undefined },
       chatScopeMacros: [
         { name: "旧宏", tableKey: "chronicle", condition: null, projection: [], limit: null },
