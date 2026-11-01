@@ -28,7 +28,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "ste:pointer-events-none ste:fixed ste:inset-x-4 ste:bottom-4 ste:z-50 ste:mx-auto ste:w-auto ste:max-w-sm ste:outline-none ste:sm:right-4 ste:sm:left-auto ste:sm:mx-0 ste:sm:w-full",
+        "ste:pointer-events-none ste:fixed ste:inset-x-4 ste:top-[max(1rem,env(safe-area-inset-top))] ste:z-50 ste:mx-auto ste:w-auto ste:max-w-sm ste:outline-none ste:sm:right-4 ste:sm:left-auto ste:sm:mx-0 ste:sm:w-full",
         className,
       )}
       {...props}
@@ -40,14 +40,15 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   return (
     <ToastPrimitive.Root
       data-slot="toast"
+      swipeDirection={["up", "right"]}
       className={cn(
-        "ste:group/toast ste:pointer-events-auto ste:absolute ste:right-0 ste:bottom-0 ste:z-[calc(1000-var(--toast-index))] ste:w-full ste:origin-bottom ste:rounded-2xl ste:border ste:bg-popover ste:text-popover-foreground ste:shadow-lg ste:will-change-transform ste:outline-none ste:select-none ste:focus-visible:border-ring ste:focus-visible:ring-[3px] ste:focus-visible:ring-ring/50",
-        "ste:[--gap:0.75rem] ste:[--height:var(--toast-frontmost-height,var(--toast-height))] ste:[--offset-y:calc(var(--toast-offset-y)*-1+calc(var(--toast-index)*var(--gap)*-1)+var(--toast-swipe-movement-y))] ste:[--peek:0.75rem] ste:[--scale:calc(max(0,1-(var(--toast-index)*0.1)))] ste:[--shrink:calc(1-var(--scale))]",
-        "ste:h-(--height) ste:[transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)-(var(--toast-index)*var(--peek))-(var(--shrink)*var(--height))))_scale(var(--scale))] ste:[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_500ms,height_150ms]",
-        "ste:after:absolute ste:after:top-full ste:after:left-0 ste:after:h-[calc(var(--gap)+1px)] ste:after:w-full ste:after:content-[]",
+        "ste:group/toast ste:pointer-events-auto ste:absolute ste:right-0 ste:top-0 ste:z-[calc(1000-var(--toast-index))] ste:w-full ste:origin-top ste:rounded-2xl ste:border ste:bg-popover ste:text-popover-foreground ste:shadow-lg ste:will-change-transform ste:outline-none ste:select-none ste:focus-visible:border-ring ste:focus-visible:ring-[3px] ste:focus-visible:ring-ring/50",
+        "ste:[--gap:0.75rem] ste:[--height:var(--toast-frontmost-height,var(--toast-height))] ste:[--offset-y:calc(var(--toast-offset-y)+var(--toast-index)*var(--gap)+var(--toast-swipe-movement-y))] ste:[--peek:0.75rem] ste:[--scale:calc(max(0,1-(var(--toast-index)*0.1)))] ste:[--shrink:calc(1-var(--scale))]",
+        "ste:h-(--height) ste:[transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))] ste:[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_500ms,height_150ms]",
+        "ste:after:absolute ste:after:bottom-full ste:after:left-0 ste:after:h-[calc(var(--gap)+1px)] ste:after:w-full ste:after:content-[]",
         "ste:data-expanded:h-(--toast-height) ste:data-expanded:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
-        "ste:data-limited:opacity-0 ste:data-starting-style:[transform:translateY(150%)]",
-        "ste:[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(150%)]",
+        "ste:data-limited:opacity-0 ste:data-starting-style:[transform:translateY(-150%)]",
+        "ste:[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(-150%)]",
         "ste:data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]",
         "ste:data-ending-style:data-[swipe-direction=left]:[transform:translateX(calc(var(--toast-swipe-movement-x)-150%))_translateY(var(--offset-y))]",
         "ste:data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]",

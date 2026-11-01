@@ -208,6 +208,7 @@ ST 与插件共处一个文档。Tailwind 类名前缀仅隔离类名，无法�
 `#ste-memory-notifications` 原生 manual popover 与 `.stm-luma` 主题；Toast Portal 必须传入该容器。
 工作台打开或关闭后重新排列通知的 top layer，保持通知可点击，不截获其他区域的鼠标操作或主动抢焦点。
 运行时只通过 bootstrap 注入的通知接口发送状态；React 挂载前暂存启动通知，切换对话清除旧通知。
+通知固定在视口顶部并避开顶部安全区，桌面靠右、手机居中；堆叠向下展开，支持向上或向右滑动收起。
 「查看任务」通过工作台导航请求进入任务页，沿用未保存离开保护，并核对通知所属对话。
 
 ST 入口由 `host/st-entry.tsx` Portal 到顶栏与魔法棒菜单，沿用宿主的 Font Awesome、
