@@ -15,12 +15,15 @@ export async function persistCleaningRule(
   original: CleaningRule | null,
 ) {
   const error = validateCleaningRule(rule);
-  if (error) throw new Error(error);
+  if (error) {
+    throw new Error(error);
+  }
   const normalized = draftToRule(rule, rule.id);
   const settings = services.settings.read();
   const current = settings.cleaningRules.find((item) => item.id === rule.id) ?? null;
-  if (JSON.stringify(current) !== JSON.stringify(original))
+  if (JSON.stringify(current) !== JSON.stringify(original)) {
     throw new Error("清洗规则已被其他操作修改，请保留草稿并重新打开编辑。");
+  }
   return persistSettingsEdit(
     services,
     () =>
@@ -37,8 +40,9 @@ export async function persistCleaningRule(
 export async function deleteCleaningRule(services: SettingsServices, original: CleaningRule) {
   const settings = services.settings.read();
   const current = settings.cleaningRules.find((item) => item.id === original.id);
-  if (JSON.stringify(current) !== JSON.stringify(original))
+  if (JSON.stringify(current) !== JSON.stringify(original)) {
     throw new Error("清洗规则已被其他操作修改，请重新打开后删除。");
+  }
   return persistSettingsEdit(
     services,
     () =>

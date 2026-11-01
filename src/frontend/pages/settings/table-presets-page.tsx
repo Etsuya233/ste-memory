@@ -65,7 +65,7 @@ export function TablePresetsPage(props: Props) {
     setDetail(null);
     setCapture(null);
   };
-  if (detail)
+  if (detail) {
     return (
       <TablePresetDetail
         {...props}
@@ -75,7 +75,8 @@ export function TablePresetsPage(props: Props) {
         onSaved={saved}
       />
     );
-  if (capture)
+  }
+  if (capture) {
     return (
       <CaptureTablePreset
         {...props}
@@ -84,6 +85,7 @@ export function TablePresetsPage(props: Props) {
         onSaved={saved}
       />
     );
+  }
   return <TablePresetList {...props} notice={notice} onOpen={setDetail} onCapture={setCapture} />;
 }
 
@@ -131,11 +133,13 @@ function TablePresetList({
         (value) => wasSaved(value.tablePresets),
       );
       setSettings(result.settings.tablePresets);
-      if (result.error)
+      if (result.error) {
         setError(
           `${result.saved ? "预设设置已保存，后续刷新失败" : "预设设置未保存"}：${result.error}`,
         );
-      else setNotice(text);
+      } else {
+        setNotice(text);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -274,7 +278,9 @@ function TablePresetList({
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
-                if (file) void importFile(file);
+                if (file) {
+                  void importFile(file);
+                }
               }}
             />
           </Field>
@@ -326,13 +332,15 @@ function CaptureTablePreset({
         },
         (value) => value.tablePresets.userPresets.some((preset) => preset.id === id),
       );
-      if (result.saved)
+      if (result.saved) {
         onSaved(
           result.error
             ? `预设已保存，后续刷新失败：${result.error}`
             : `已将「${context.title}」的表结构另存为预设。`,
         );
-      else setError(result.error ?? "预设未保存");
+      } else {
+        setError(result.error ?? "预设未保存");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -473,7 +481,9 @@ function TablePresetDetail({
             ? `预设已保存，后续刷新失败：${result.error}`
             : "预设已保存，不影响已有空间。",
         );
-      } else setError(result.error ?? "预设未保存");
+      } else {
+        setError(result.error ?? "预设未保存");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -494,7 +504,9 @@ function TablePresetDetail({
         listTablePresets(latest.tablePresets, SYSTEM_TABLE_PRESET).map((preset) => preset.name),
       );
       let name = `${draft.name} 副本`;
-      for (let suffix = 2; names.has(name); suffix++) name = `${draft.name} 副本 (${suffix})`;
+      for (let suffix = 2; names.has(name); suffix++) {
+        name = `${draft.name} 副本 (${suffix})`;
+      }
       const result = await persistSettingsEdit(
         services,
         () => {
@@ -510,11 +522,13 @@ function TablePresetDetail({
         },
         (value) => value.tablePresets.userPresets.some((preset) => preset.id === id),
       );
-      if (result.saved)
+      if (result.saved) {
         onSaved(
           result.error ? `副本已保存，后续刷新失败：${result.error}` : `已保存副本「${name}」。`,
         );
-      else setError(result.error ?? "副本未保存");
+      } else {
+        setError(result.error ?? "副本未保存");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -535,7 +549,9 @@ function TablePresetDetail({
         },
         (value) => !value.tablePresets.userPresets.some((preset) => preset.id === draft.id),
       );
-      if (!result.saved) throw new Error(result.error ?? "预设未删除");
+      if (!result.saved) {
+        throw new Error(result.error ?? "预设未删除");
+      }
       onSaved(
         result.error
           ? `预设已删除，后续刷新失败：${result.error}`
@@ -553,7 +569,9 @@ function TablePresetDetail({
   }
   async function apply(withBackup: boolean) {
     const target = applying;
-    if (!target || busy) return;
+    if (!target || busy) {
+      return;
+    }
     setBusy(true);
     setApplyError(null);
     try {
@@ -574,7 +592,7 @@ function TablePresetDetail({
       setBusy(false);
     }
   }
-  if (updateTarget)
+  if (updateTarget) {
     return (
       <PresetUpdatePage
         services={services}
@@ -586,7 +604,8 @@ function TablePresetDetail({
         onBack={() => setUpdateTarget(null)}
       />
     );
-  if (structureOpen)
+  }
+  if (structureOpen) {
     return (
       <TablePresetStructureEditor
         services={services}
@@ -599,6 +618,7 @@ function TablePresetDetail({
         onDiscard={() => setDraft(baseline)}
       />
     );
+  }
   return (
     <SettingsEditor
       title={draft.builtIn ? "内置表格预设" : "编辑表格预设"}
@@ -774,7 +794,9 @@ function TablePresetDetail({
       <AlertDialog
         open={applying !== null}
         onOpenChange={(open) => {
-          if (!open && !busy) setApplying(null);
+          if (!open && !busy) {
+            setApplying(null);
+          }
         }}
       >
         <AlertDialogContent initialFocus={cancel}>

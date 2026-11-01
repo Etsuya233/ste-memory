@@ -30,11 +30,19 @@ export function connectionHeaderError(
 ): string | undefined {
   const names = new Set<string>();
   for (const [name, value] of entries) {
-    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) return "请求头名称不合法";
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
+      return "请求头名称不合法";
+    }
     const lower = name.toLowerCase();
-    if (lower === "content-type") return "Content-Type 固定为 application/json";
-    if (names.has(lower)) return "请求头名称重复（不区分大小写）";
-    if (/[\r\n]/.test(value)) return "请求头值不能包含换行";
+    if (lower === "content-type") {
+      return "Content-Type 固定为 application/json";
+    }
+    if (names.has(lower)) {
+      return "请求头名称重复（不区分大小写）";
+    }
+    if (/[\r\n]/.test(value)) {
+      return "请求头值不能包含换行";
+    }
     names.add(lower);
   }
   return undefined;
@@ -44,7 +52,9 @@ export function connectionHeaderError(
 export function connectionUpstreamHeaders(connection: AgentConnection): string {
   const entries = Object.entries(connection.customHeaders ?? {});
   const error = connectionHeaderError(entries);
-  if (error) throw new Error(error);
+  if (error) {
+    throw new Error(error);
+  }
   return JSON.stringify(
     Object.fromEntries([
       ["Authorization", connection.apiKey ? `Bearer ${connection.apiKey}` : ""],
@@ -90,7 +100,9 @@ export function upsertAgentConnection(
   connection: AgentConnection,
 ): PluginSettings {
   const error = connectionHeaderError(Object.entries(connection.customHeaders ?? {}));
-  if (error) throw new Error(error);
+  if (error) {
+    throw new Error(error);
+  }
   const exists = settings.agentConnections.some((c) => c.id === connection.id);
   return {
     ...settings,
@@ -108,7 +120,9 @@ export function removeAgentConnection(
   settings: PluginSettings,
   connectionId: string,
 ): PluginSettings {
-  if (!settings.agentConnections.some((c) => c.id === connectionId)) return settings;
+  if (!settings.agentConnections.some((c) => c.id === connectionId)) {
+    return settings;
+  }
   return {
     ...settings,
     agentConnections: settings.agentConnections.filter((c) => c.id !== connectionId),
@@ -140,7 +154,9 @@ export function resolveAgentConnection(
   target: AgentConnectionTarget,
 ): AgentConnection | undefined {
   const id = agentConnectionSelection(settings, target);
-  if (id === undefined) return undefined;
+  if (id === undefined) {
+    return undefined;
+  }
   return settings.agentConnections.find((c) => c.id === id);
 }
 
@@ -150,10 +166,14 @@ export function resolveAgentConnection(
  */
 export function normalizeBaseUrl(url: string): string {
   let result = url.trim();
-  while (result.endsWith("/")) result = result.slice(0, -1);
+  while (result.endsWith("/")) {
+    result = result.slice(0, -1);
+  }
   if (/\/chat\/completions$/i.test(result)) {
     result = result.slice(0, -"/chat/completions".length);
-    while (result.endsWith("/")) result = result.slice(0, -1);
+    while (result.endsWith("/")) {
+      result = result.slice(0, -1);
+    }
   }
   return result;
 }

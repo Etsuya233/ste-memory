@@ -154,40 +154,47 @@ export function validateTablePresetContent(raw: unknown): ImportedTablePreset {
   }
   const preset = raw;
   parseMemoryMacros(preset.macros ?? []);
-  if (!preset.name.trim() || preset.name.trim().length > 120)
+  if (!preset.name.trim() || preset.name.trim().length > 120) {
     throw new Error("预设名称须为 1–120 个字符");
+  }
   // 引用和显示策略按实例化的真实规则校验，导入阶段失败不会写设置。
   const tableKeys = new Set<string>();
   for (const table of preset.tables) {
-    if (table.key !== table.key.trim() || tableKeys.has(table.key))
+    if (table.key !== table.key.trim() || tableKeys.has(table.key)) {
       throw new Error(`表 Key 重复或含首尾空白：${table.key}`);
+    }
     tableKeys.add(table.key);
     const fieldKeys = new Set<string>();
     for (const field of table.fields) {
-      if (field.key !== field.key.trim() || fieldKeys.has(field.key))
+      if (field.key !== field.key.trim() || fieldKeys.has(field.key)) {
         throw new Error(`字段 Key 重复或含首尾空白：${table.key}.${field.key}`);
+      }
       fieldKeys.add(field.key);
     }
     if (table.vectorIndex) {
       const groupKeys = new Set<string>();
-      if (table.vectorIndex.enabled && table.vectorIndex.groups.length === 0)
+      if (table.vectorIndex.enabled && table.vectorIndex.groups.length === 0) {
         throw new Error(`预设表「${table.key}」启用索引但没有向量分组`);
+      }
       for (const group of table.vectorIndex.groups) {
-        if (!group.key.trim() || group.key !== group.key.trim() || groupKeys.has(group.key))
+        if (!group.key.trim() || group.key !== group.key.trim() || groupKeys.has(group.key)) {
           throw new Error(`预设表「${table.key}」的向量分组 Key 为空或重复：${group.key}`);
+        }
         groupKeys.add(group.key);
         if (
           !group.name.trim() ||
           group.fieldKeys.length === 0 ||
           new Set(group.fieldKeys).size !== group.fieldKeys.length
-        )
+        ) {
           throw new Error(`预设表「${table.key}」的向量分组名称或字段无效`);
+        }
         for (const key of group.fieldKeys) {
           const field = table.fields.find((candidate) => candidate.key === key);
-          if (!field || !field.enabled)
+          if (!field || !field.enabled) {
             throw new Error(
               `预设表「${table.key}」的向量分组「${group.name}」引用了不存在或停用的字段「${key}」`,
             );
+          }
         }
       }
     }

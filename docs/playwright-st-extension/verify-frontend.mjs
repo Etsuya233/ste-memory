@@ -298,6 +298,8 @@ try {
   check("no browser exceptions", errors.length === 0);
   console.log(`Screenshots: ${screenshots}`);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

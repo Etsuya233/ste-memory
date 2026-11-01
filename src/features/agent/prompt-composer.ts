@@ -123,12 +123,17 @@ function tableLines(
   includePrompts: boolean,
 ): string[] {
   const lines = [`【${table.key}｜${table.name}】`];
-  if (includePrompts && table.prompt) lines.push(`填写规则：${table.prompt}`);
-  if (table.description.length > 0) lines.push(`说明：${table.description}`);
-  for (const field of table.fields)
+  if (includePrompts && table.prompt) {
+    lines.push(`填写规则：${table.prompt}`);
+  }
+  if (table.description.length > 0) {
+    lines.push(`说明：${table.description}`);
+  }
+  for (const field of table.fields) {
     lines.push(
       `- ${field.key}｜${field.name}：${field.type}${fieldLineSuffix(field, includePrompts)}`,
     );
+  }
   return lines;
 }
 
@@ -137,11 +142,23 @@ function fieldLineSuffix(
   includePrompts: boolean,
 ): string {
   const parts: string[] = [];
-  if (includePrompts && field.prompt) parts.push(field.prompt);
-  if (field.required) parts.push("必填");
-  if (field.maxChars != null) parts.push(`≤${field.maxChars}字`);
-  if (field.valuePatternMessage != null) parts.push(`格式：${field.valuePatternMessage}`);
-  if (field.options.length > 0) parts.push(`选项：${field.options.join(" / ")}`);
-  if (field.referenceTableKey) parts.push(`引用：${field.referenceTableKey}（值为记录 id）`);
+  if (includePrompts && field.prompt) {
+    parts.push(field.prompt);
+  }
+  if (field.required) {
+    parts.push("必填");
+  }
+  if (field.maxChars != null) {
+    parts.push(`≤${field.maxChars}字`);
+  }
+  if (field.valuePatternMessage != null) {
+    parts.push(`格式：${field.valuePatternMessage}`);
+  }
+  if (field.options.length > 0) {
+    parts.push(`选项：${field.options.join(" / ")}`);
+  }
+  if (field.referenceTableKey) {
+    parts.push(`引用：${field.referenceTableKey}（值为记录 id）`);
+  }
   return parts.length > 0 ? `，${parts.join("，")}` : "";
 }

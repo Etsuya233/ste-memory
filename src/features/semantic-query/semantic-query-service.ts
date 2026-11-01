@@ -77,7 +77,9 @@ export function createSemanticQueryExecutor(input: {
         { cause: error },
       );
     } finally {
-      if (session) await session.close().catch(input.onCleanupError);
+      if (session) {
+        await session.close().catch(input.onCleanupError);
+      }
     }
   };
 }

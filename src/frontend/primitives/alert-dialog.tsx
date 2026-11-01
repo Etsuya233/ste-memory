@@ -27,7 +27,9 @@ function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
 function AlertDialogPortal({ ...props }: Omit<AlertDialogPrimitive.Portal.Props, "container">) {
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
-  if (!container || !active) return null;
+  if (!container || !active) {
+    return null;
+  }
   return (
     <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} container={container} />
   );
@@ -62,7 +64,9 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         finalFocus={(interaction) => {
-          if (!canRestoreSurfaceFocus(container)) return false;
+          if (!canRestoreSurfaceFocus(container)) {
+            return false;
+          }
           return typeof finalFocus === "function"
             ? finalFocus(interaction)
             : typeof finalFocus === "object"

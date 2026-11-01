@@ -232,9 +232,12 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
                       const errors = await validateOperations(
                         compileProposalOperations(digest, state),
                       );
-                      if (errors.length)
+                      if (errors.length) {
                         throw new Error(errors.map((error) => error.message).join("；"));
-                      if (!state.operations.length) throw new Error("提案为空，无需提交");
+                      }
+                      if (!state.operations.length) {
+                        throw new Error("提案为空，无需提交");
+                      }
                       const details = {
                         status: "awaiting_confirmation",
                         version: state.snapshot().version,
@@ -273,7 +276,8 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
         { signal: input.signal, onEvent: input.onEvent },
         input.timeoutMs,
       );
-  if (summary.errorMessage === undefined && summary.stopReason !== "aborted")
+  if (summary.errorMessage === undefined && summary.stopReason !== "aborted") {
     taskTools?.assertCompleted();
+  }
   return { ...summary, proposal: state.frozenProposal };
 }

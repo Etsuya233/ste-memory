@@ -69,11 +69,16 @@ export class QueryVectorCache {
     return {
       get: async (raw) => {
         signal.throwIfAborted();
-        if (closed) throw new Error("查询向量执行已关闭");
+        if (closed) {
+          throw new Error("查询向量执行已关闭");
+        }
         const text = raw.trim();
-        if (!profile) throw new Error("尚未配置 embedding 连接");
-        if (!text || text.length > Math.min(4000, profile.maxInputChars))
+        if (!profile) {
+          throw new Error("尚未配置 embedding 连接");
+        }
+        if (!text || text.length > Math.min(4000, profile.maxInputChars)) {
           throw new Error("查询向量输入为空或超过字符上限");
+        }
         const key = JSON.stringify([
           input.revision,
           profile.model,
@@ -136,7 +141,9 @@ export class QueryVectorCache {
         try {
           return { values: await request, calls: 1, executionHits: 0, sharedHits: 0 };
         } catch (error) {
-          if (pending.get(key) === request) pending.delete(key);
+          if (pending.get(key) === request) {
+            pending.delete(key);
+          }
           throw error;
         }
       },
@@ -153,10 +160,15 @@ export class QueryVectorCache {
 function validateVector(values: readonly number[], profile: VectorEmbeddingProfile): void {
   let norm = 0;
   for (const value of values) {
-    if (!Number.isFinite(value)) throw new Error("查询向量包含非法数值");
+    if (!Number.isFinite(value)) {
+      throw new Error("查询向量包含非法数值");
+    }
     norm = Math.hypot(norm, value);
   }
-  if (!values.length || !norm || !Number.isFinite(norm)) throw new Error("查询向量维度或数值异常");
-  if (profile.dimensions !== undefined && values.length !== profile.dimensions)
+  if (!values.length || !norm || !Number.isFinite(norm)) {
     throw new Error("查询向量维度或数值异常");
+  }
+  if (profile.dimensions !== undefined && values.length !== profile.dimensions) {
+    throw new Error("查询向量维度或数值异常");
+  }
 }

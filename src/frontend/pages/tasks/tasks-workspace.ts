@@ -143,11 +143,15 @@ export class TasksWorkspace {
         : "",
     };
     this.publish({});
-    if (this.active && !document.hidden) void this.refresh();
+    if (this.active && !document.hidden) {
+      void this.refresh();
+    }
   }
   private saveChatConfig(write: () => void, notice: string) {
     const context = this.state.context;
-    if (!context) return;
+    if (!context) {
+      return;
+    }
     try {
       this.services.assertContext(context);
       write();
@@ -175,7 +179,9 @@ export class TasksWorkspace {
     );
   setDraft = (draft: string) => {
     const context = this.state.context;
-    if (!context) throw new Error("请先打开对话");
+    if (!context) {
+      throw new Error("请先打开对话");
+    }
     this.drafts.set(JSON.stringify([context.chatKey, context.spaceId]), draft);
     this.publish({ draft });
   };
@@ -185,17 +191,22 @@ export class TasksWorkspace {
     let pollToken = ++this.pollVersion;
     const tick = async () => {
       const tickToken = pollToken;
-      if (!this.active || document.hidden) return;
+      if (!this.active || document.hidden) {
+        return;
+      }
       await this.refresh();
-      if (tickToken === this.pollVersion && this.active && !document.hidden)
+      if (tickToken === this.pollVersion && this.active && !document.hidden) {
         this.timer = setTimeout(() => void tick(), 1000);
+      }
     };
     const visibility = () => {
       clearTimeout(this.timer);
       pollToken = ++this.pollVersion;
       this.generation++;
       this.requested = false;
-      if (!document.hidden) void tick();
+      if (!document.hidden) {
+        void tick();
+      }
     };
     document.addEventListener("visibilitychange", visibility);
     void tick();
@@ -210,7 +221,9 @@ export class TasksWorkspace {
   };
   refresh = (): Promise<void> => {
     this.requested = true;
-    if (this.reading) return this.reading;
+    if (this.reading) {
+      return this.reading;
+    }
     this.reading = this.readLoop().finally(() => {
       this.reading = null;
     });
@@ -220,7 +233,9 @@ export class TasksWorkspace {
     while (this.requested) {
       this.requested = false;
       const { context, status, source, vectorPage } = this.state;
-      if (!context) return;
+      if (!context) {
+        return;
+      }
       const token = this.generation;
       this.publish({ loading: true });
       try {
@@ -241,15 +256,23 @@ export class TasksWorkspace {
           }),
         ]);
         const [pendingResult, historyResult, ledgerResult, vectorsResult] = results;
-        if (pendingResult.status === "rejected") throw pendingResult.reason;
-        if (historyResult.status === "rejected") throw historyResult.reason;
-        if (ledgerResult.status === "rejected") throw ledgerResult.reason;
-        if (vectorsResult.status === "rejected") throw vectorsResult.reason;
+        if (pendingResult.status === "rejected") {
+          throw pendingResult.reason;
+        }
+        if (historyResult.status === "rejected") {
+          throw historyResult.reason;
+        }
+        if (ledgerResult.status === "rejected") {
+          throw ledgerResult.reason;
+        }
+        if (vectorsResult.status === "rejected") {
+          throw vectorsResult.reason;
+        }
         const pending = pendingResult.value;
         const history = historyResult.value;
         const ledger = ledgerResult.value;
         const vectors = vectorsResult.value;
-        if (token === this.generation)
+        if (token === this.generation) {
           this.publish({
             pending,
             history,
@@ -262,12 +285,14 @@ export class TasksWorkspace {
             loading: false,
             loadError: null,
           });
+        }
       } catch (error) {
-        if (token === this.generation)
+        if (token === this.generation) {
           this.publish({
             loading: false,
             loadError: error instanceof Error ? error.message : String(error),
           });
+        }
       }
     }
   }
@@ -292,9 +317,13 @@ export class TasksWorkspace {
     options: { surfaceError?: boolean } = {},
   ): Promise<{ ok: true; error: null } | { ok: false; error: string }> {
     const context = this.state.context;
-    if (!context) return { ok: false, error: "请先打开对话" };
+    if (!context) {
+      return { ok: false, error: "请先打开对话" };
+    }
     const key = JSON.stringify([context.chatKey, context.spaceId]);
-    if (this.pendingOperations.has(key)) return { ok: false, error: "任务正在处理中，请稍候" };
+    if (this.pendingOperations.has(key)) {
+      return { ok: false, error: "任务正在处理中，请稍候" };
+    }
     this.pendingOperations.add(key);
     this.publish({ busy: true, error: null, notice: null });
     let result: Partial<TasksSnapshot>;
@@ -314,7 +343,9 @@ export class TasksWorkspace {
       this.state.context.spaceId === context.spaceId
     ) {
       this.publish({ ...result, busy: false });
-      if (this.active && !document.hidden) void this.refresh();
+      if (this.active && !document.hidden) {
+        void this.refresh();
+      }
     }
     return failure === null ? { ok: true, error: null } : { ok: false, error: failure };
   }
@@ -323,8 +354,12 @@ export class TasksWorkspace {
       async (context) => {
         const range = validateFloorRange(from, to, this.services.messageCount());
         const size = validateBlockSize(block);
-        if (range.kind === "error") throw new Error(range.message);
-        if (size.kind === "error") throw new Error(size.message);
+        if (range.kind === "error") {
+          throw new Error(range.message);
+        }
+        if (size.kind === "error") {
+          throw new Error(size.message);
+        }
         await this.services.tasks.submit({
           memorySpaceId: context.spaceId,
           from: range.from,
@@ -339,9 +374,13 @@ export class TasksWorkspace {
   markFloors = (from: string, to: string, status: FloorFillStatus) =>
     this.perform(
       async (context) => {
-        if (!from.trim() || !to.trim()) throw new Error("请输入起始楼层和结束楼层");
+        if (!from.trim() || !to.trim()) {
+          throw new Error("请输入起始楼层和结束楼层");
+        }
         const range = validateFloorRange(from, to, this.services.messageCount());
-        if (range.kind === "error") throw new Error(range.message);
+        if (range.kind === "error") {
+          throw new Error(range.message);
+        }
         try {
           await this.services.tasks.markFloorStatuses(
             context.spaceId,
@@ -351,7 +390,9 @@ export class TasksWorkspace {
           );
         } catch (cause) {
           // 台账已随记忆提交时保留提交结果；宿主保存失败由顶部统一状态提供重试。
-          if (!(cause instanceof MemoryCommitPersistenceError)) throw cause;
+          if (!(cause instanceof MemoryCommitPersistenceError)) {
+            throw cause;
+          }
         }
       },
       "楼层进度已提交，保存状态见工作台顶部",
@@ -360,7 +401,9 @@ export class TasksWorkspace {
   submitInit = () => {
     const text = this.state.draft;
     return this.perform(async (context) => {
-      if (!text.trim()) throw new Error("请输入初始化文本");
+      if (!text.trim()) {
+        throw new Error("请输入初始化文本");
+      }
       await this.services.tasks.submitInit({ memorySpaceId: context.spaceId, text });
       const key = JSON.stringify([context.chatKey, context.spaceId]);
       if (this.drafts.get(key) === text) {
@@ -368,8 +411,9 @@ export class TasksWorkspace {
         if (
           this.state.context?.chatKey === context.chatKey &&
           this.state.context.spaceId === context.spaceId
-        )
+        ) {
           this.publish({ draft: "" });
+        }
       }
     }, "初始化任务已加入队列");
   };
@@ -388,14 +432,17 @@ export class TasksWorkspace {
                 (task) => task.id === id && task.memorySpaceId === context.spaceId,
               ),
           )
-        )
+        ) {
           throw new Error("任务列表已变化，请重新选择");
-        if (action === "cancel") await this.services.vector.cancelMany(ids);
-        else
+        }
+        if (action === "cancel") {
+          await this.services.vector.cancelMany(ids);
+        } else {
           for (const id of ids) {
             this.services.assertContext(context);
             await this.services.vector.retry(id);
           }
+        }
       },
       action === "cancel" ? "已处理取消请求" : "已处理重试请求",
     );

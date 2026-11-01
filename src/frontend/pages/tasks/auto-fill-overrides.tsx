@@ -42,14 +42,18 @@ export function AutoFillOverrides({
   useEffect(() => {
     setError(null);
     setNotice(null);
-    if (!context) return;
+    if (!context) {
+      return;
+    }
     try {
       autoFill.assertContext(context);
       const saved = autoFill.read().overrides;
       const effective = autoFill.settings();
       setSessions((previous) => {
         const current = previous.get(scope);
-        if (current && overridesDirty(current.saved, current.draft)) return previous;
+        if (current && overridesDirty(current.saved, current.draft)) {
+          return previous;
+        }
         return new Map(previous).set(scope, {
           context,
           saved,

@@ -147,8 +147,9 @@ try {
       IDBObjectStore.prototype.put = original;
     };
     IDBObjectStore.prototype.put = function (...args) {
-      if (this.name === "assistantSessions")
+      if (this.name === "assistantSessions") {
         throw new DOMException("injected quota failure", "QuotaExceededError");
+      }
       return original.apply(this, args);
     };
   });

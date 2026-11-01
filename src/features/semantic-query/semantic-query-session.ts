@@ -57,8 +57,12 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
   let cleanupError: unknown;
   const check = () => {
     signal.throwIfAborted();
-    if (closed) throw new DOMException("语义查询会话已关闭", "AbortError");
-    if (performance.now() >= deadline) throw new DOMException("语义查询超时", "TimeoutError");
+    if (closed) {
+      throw new DOMException("语义查询会话已关闭", "AbortError");
+    }
+    if (performance.now() >= deadline) {
+      throw new DOMException("语义查询超时", "TimeoutError");
+    }
   };
   const yieldExecution = createExecutionCheckpoint(check);
   check();
@@ -70,7 +74,9 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
   });
   const fresh: MemoryRecord[] = [];
   for (let i = 0; i < snapshot.records.length; i++) {
-    if (i % 100 === 0) await yieldExecution();
+    if (i % 100 === 0) {
+      await yieldExecution();
+    }
     const record = snapshot.records[i]!;
     fresh.push({ ...record, displayText: await display(record) });
   }
@@ -94,7 +100,9 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
     });
   };
   signal.addEventListener("abort", aborted, { once: true });
-  if (signal.aborted) aborted();
+  if (signal.aborted) {
+    aborted();
+  }
   let sessionId: string;
   try {
     sessionId = await opening;
@@ -121,7 +129,9 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
     for (let pass = 1; pass <= 17; pass++) {
       progress.sqlPasses = pass;
       check();
-      if (sqlMs >= 1000) throw new Error("语义 SQL 累计执行超过 1 秒");
+      if (sqlMs >= 1000) {
+        throw new Error("语义 SQL 累计执行超过 1 秒");
+      }
       const result = await sql.evaluateSemanticSql({
         params: options.params,
         maxRows: options.maxRows,
@@ -135,8 +145,10 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
       sqlMs += result.elapsedMs;
       progress.sqlMs = sqlMs;
       check();
-      if (sqlMs > 1000) throw new Error("语义 SQL 累计执行超过 1 秒");
-      if (result.status === "complete")
+      if (sqlMs > 1000) {
+        throw new Error("语义 SQL 累计执行超过 1 秒");
+      }
+      if (result.status === "complete") {
         return {
           columns: result.columns,
           rows: result.rows,
@@ -144,12 +156,18 @@ export async function createSemanticQuerySession(input: SemanticQuerySessionInpu
           truncated: result.truncated ?? false,
           execution: { sqlPasses: pass, sqlMs },
         };
+      }
       const request = result.request;
       const key = semanticSourceKey(request);
-      if (prepared.has(key)) throw new Error("语义评分源已供给，但 SQL 仍重复请求准备");
-      if (prepared.size >= 16) throw new Error("单条 SQL 的语义评分源超过 16 个");
-      if (!texts.has(request.query) && texts.size >= 4)
+      if (prepared.has(key)) {
+        throw new Error("语义评分源已供给，但 SQL 仍重复请求准备");
+      }
+      if (prepared.size >= 16) {
+        throw new Error("单条 SQL 的语义评分源超过 16 个");
+      }
+      if (!texts.has(request.query) && texts.size >= 4) {
         throw new Error("单条 SQL 的不同查询文本超过 4 种");
+      }
       texts.add(request.query);
       progress.queryTexts = texts.size;
       const scored = await scoring.get(request);

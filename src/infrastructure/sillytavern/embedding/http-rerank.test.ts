@@ -101,6 +101,7 @@ it("defaults old settings to disabled and rejects invalid explicit settings and 
     { candidateLimit: 0 },
     { textFields: [] },
     { extra: true },
-  ])
+  ]) {
     expect(() => parseSemanticOptions(options)).toThrow();
+  }
 });

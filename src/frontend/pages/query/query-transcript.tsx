@@ -56,8 +56,9 @@ function TranscriptViewport({
   useLayoutEffect(() => {
     const viewport = viewportRef.current!;
     const content = contentRef.current!;
-    if (position && !position.atEnd)
+    if (position && !position.atEnd) {
       scrollToMessage(position.messageId, { scrollMargin: position.offset });
+    }
     return () => {
       const top = viewport.getBoundingClientRect().top;
       const padding = Number.parseFloat(getComputedStyle(content).paddingBlockStart);

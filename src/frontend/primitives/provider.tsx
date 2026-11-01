@@ -28,10 +28,16 @@ export function useDismissWithSurface(actions: RefObject<{ close: () => void } |
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
   useEffect(() => {
-    if (!container || !active) actions.current?.close();
-    if (!container) return;
+    if (!container || !active) {
+      actions.current?.close();
+    }
+    if (!container) {
+      return;
+    }
     const onToggle = (event: Event) => {
-      if ((event as Event & { newState?: string }).newState === "closed") actions.current?.close();
+      if ((event as Event & { newState?: string }).newState === "closed") {
+        actions.current?.close();
+      }
     };
     container.addEventListener("beforetoggle", onToggle);
     return () => container.removeEventListener("beforetoggle", onToggle);
@@ -44,7 +50,8 @@ export function canRestoreSurfaceFocus(container: HTMLElement | null): boolean {
     !container.isConnected ||
     container.hidden ||
     container.getAttribute("aria-hidden") === "true"
-  )
+  ) {
     return false;
+  }
   return !container.hasAttribute("popover") || container.matches(":popover-open");
 }

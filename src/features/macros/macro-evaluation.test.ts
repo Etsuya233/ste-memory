@@ -92,8 +92,12 @@ function fixture(count = 120): MemorySpaceBackup {
 const clients: SqliteMemoryClient[] = [];
 const batches: MacroEvaluationBatch[] = [];
 afterEach(async () => {
-  for (const batch of batches.splice(0)) await batch.close();
-  for (const client of clients.splice(0)) await client.close();
+  for (const batch of batches.splice(0)) {
+    await batch.close();
+  }
+  for (const client of clients.splice(0)) {
+    await client.close();
+  }
 });
 async function setup(
   snapshot = fixture(),
@@ -621,11 +625,12 @@ it("clones each table's vector list once so later SQL rounds cannot mix new vect
   const execute = sql.evaluateSemanticSql.bind(sql);
   vi.spyOn(sql, "evaluateSemanticSql").mockImplementation(async (input) => {
     const result = await execute(input);
-    if (result.status === "needs-semantic-source" && input.sources.length === 1)
+    if (result.status === "needs-semantic-source" && input.sources.length === 1) {
       Object.assign(
         vectors.find((vector) => vector.groupId === "g2")!,
         { fingerprint: "new record version", values: [1, 0] },
       );
+    }
     return result;
   });
   const result = await batch.evaluate({
@@ -674,8 +679,9 @@ it("standalone semantic SQL rejects invalid bindings and writes before requestin
     { sql: "SELECT @query", params: { query: "text" } },
     { sql: "SELECT :query", params: { query: Infinity } },
   ];
-  for (const request of invalidRequests)
+  for (const request of invalidRequests) {
     await expect(query(snapshot.space.id, request)).rejects.toThrow();
+  }
   expect(embedding.embed).not.toHaveBeenCalled();
   expect(
     (await query(snapshot.space.id, { sql: "SELECT :name AS value", params: { name: "星港'；" } }))
@@ -811,7 +817,9 @@ it("large ordinary and rerank-disabled Query macros avoid the candidate scope pr
     delay?: number,
     ...args: unknown[]
   ) => {
-    if (delay !== 0) return nativeTimer(callback, delay, ...args);
+    if (delay !== 0) {
+      return nativeTimer(callback, delay, ...args);
+    }
     return nativeTimer(() => {
       schedulingDelay += 100;
       callback(...args);

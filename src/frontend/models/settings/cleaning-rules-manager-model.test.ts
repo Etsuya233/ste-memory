@@ -16,7 +16,9 @@ describe("单规则清洗测试与草稿", () => {
     ];
     const result = runCleaningTest(rule, messages);
     expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") throw new Error("测试未执行");
+    if (result.kind !== "ok") {
+      throw new Error("测试未执行");
+    }
     result.messages.forEach((message, i) => {
       expect(message.output).toBe(applyCleaningRule(messages[i]!.content, rule));
       expect(message.input).toBe(messages[i]!.content);

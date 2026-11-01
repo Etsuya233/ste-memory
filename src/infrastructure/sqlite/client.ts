@@ -14,19 +14,28 @@ export function createSqliteMemoryClient(): SqliteMemoryClient {
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   worker.onmessage = (event: MessageEvent<SqliteResponse>) => {
     const waiter = pending.get(event.data.id);
-    if (!waiter) return;
+    if (!waiter) {
+      return;
+    }
     pending.delete(event.data.id);
-    if (event.data.error !== undefined) waiter.reject(new Error(event.data.error));
-    else waiter.resolve(event.data.result);
+    if (event.data.error !== undefined) {
+      waiter.reject(new Error(event.data.error));
+    } else {
+      waiter.resolve(event.data.result);
+    }
   };
   worker.onerror = (event) => {
-    for (const waiter of pending.values()) waiter.reject(new Error(event.message));
+    for (const waiter of pending.values()) {
+      waiter.reject(new Error(event.message));
+    }
     pending.clear();
   };
   return new Proxy({} as SqliteMemoryClient, {
     get(_target, property: string) {
       // A client is not a Promise; async factories must not accidentally invoke a "then" RPC.
-      if (property === "then") return undefined;
+      if (property === "then") {
+        return undefined;
+      }
       return (...args: unknown[]) =>
         new Promise<unknown>((resolve, reject) => {
           const id = ++sequence;
@@ -36,7 +45,7 @@ export function createSqliteMemoryClient(): SqliteMemoryClient {
             method: property as keyof SqliteMemoryClient,
             args,
           } satisfies SqliteRequest);
-          if (property === "close")
+          if (property === "close") {
             pending.set(id, {
               resolve(value) {
                 resolve(value);
@@ -44,6 +53,7 @@ export function createSqliteMemoryClient(): SqliteMemoryClient {
               },
               reject,
             });
+          }
         });
     },
   });

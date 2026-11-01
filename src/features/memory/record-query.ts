@@ -62,17 +62,23 @@ export class MemoryRecordQueryService {
 
   static validateDefinition(input: QueryRecordsInput, fields: readonly MemoryField[]): void {
     const byId = new Map(fields.map((field) => [field.id as string, field]));
-    for (const id of input.fieldIds ?? [])
-      if (!byId.has(id)) MemoryRecordQueryService.#invalid(input, "projection_field_not_found", id);
-    for (const condition of input.conditions ?? [])
+    for (const id of input.fieldIds ?? []) {
+      if (!byId.has(id)) {
+        MemoryRecordQueryService.#invalid(input, "projection_field_not_found", id);
+      }
+    }
+    for (const condition of input.conditions ?? []) {
       MemoryRecordQueryService.#validateCondition(input, condition, byId);
+    }
     MemoryRecordQueryService.#validateOrder(input, byId);
   }
 
   async query(memorySpaceId: MemorySpaceId, input: QueryRecordsInput): Promise<QueryRecordsPage> {
     this.#validateShape(input);
     const table = await this.#tables.find(memorySpaceId, input.tableId);
-    if (!table) MemoryRecordQueryService.#invalid(input, "table_not_found");
+    if (!table) {
+      MemoryRecordQueryService.#invalid(input, "table_not_found");
+    }
     this.#validatePaging(input);
 
     const fields = await this.#fields.list(memorySpaceId, input.tableId);
@@ -194,8 +200,9 @@ export class MemoryRecordQueryService {
       return;
     }
     const field = fieldsById.get(condition.fieldId);
-    if (!field)
+    if (!field) {
       MemoryRecordQueryService.#invalid(input, "condition_field_not_found", condition.fieldId);
+    }
     const operators = MemoryRecordQueryService.#operatorsFor(field.type);
     if (
       !operators.has(condition.operator) ||
@@ -210,13 +217,19 @@ export class MemoryRecordQueryService {
     fieldsById: ReadonlyMap<string, MemoryField>,
   ): void {
     const order = input.order;
-    if (!order) return;
+    if (!order) {
+      return;
+    }
     if (order.direction !== "asc" && order.direction !== "desc") {
       MemoryRecordQueryService.#invalid(input, "order_invalid", order.fieldId);
     }
-    if (systemFields.has(order.fieldId as QueryRecordSystemFieldId)) return;
+    if (systemFields.has(order.fieldId as QueryRecordSystemFieldId)) {
+      return;
+    }
     const field = fieldsById.get(order.fieldId);
-    if (!field) MemoryRecordQueryService.#invalid(input, "order_field_not_found", order.fieldId);
+    if (!field) {
+      MemoryRecordQueryService.#invalid(input, "order_field_not_found", order.fieldId);
+    }
     if (
       field.type === "short_text_list" ||
       field.type === "multi_select" ||
@@ -255,13 +268,17 @@ export class MemoryRecordQueryService {
         condition.value.every((item) => isValidFieldValue(field, item))
       );
     }
-    if (condition.value === null) return equalityOperators.has(condition.operator);
+    if (condition.value === null) {
+      return equalityOperators.has(condition.operator);
+    }
     if (
       field.type === "short_text_list" ||
       field.type === "multi_select" ||
       field.type === "multi_reference"
     ) {
-      if (typeof condition.value !== "string" || condition.value.length === 0) return false;
+      if (typeof condition.value !== "string" || condition.value.length === 0) {
+        return false;
+      }
       return field.type !== "multi_select" || field.options.includes(condition.value);
     }
     switch (field.type) {
@@ -319,7 +336,9 @@ export class MemoryRecordQueryService {
             : leftValue < rightValue
               ? -1
               : 1;
-    if (order.direction === "desc") compared *= -1;
+    if (order.direction === "desc") {
+      compared *= -1;
+    }
     return compared || left.id.localeCompare(right.id);
   }
 
@@ -339,7 +358,9 @@ export class MemoryRecordQueryService {
   }
 
   #project(record: MemoryRecord, fieldIds: readonly MemoryFieldId[] | undefined): MemoryRecord {
-    if (fieldIds === undefined) return record;
+    if (fieldIds === undefined) {
+      return record;
+    }
     const entries = fieldIds.flatMap((fieldId) => {
       const value = record.payload[fieldId];
       return value === undefined ? [] : [[fieldId, value] as const];

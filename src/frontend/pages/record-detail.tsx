@@ -271,7 +271,9 @@ function EvidenceChip({
           onClick={() => {
             setOpen(true);
             const result = onJump(floor);
-            if (result.kind !== "jumped") setHint("当前对话中未找到对应消息");
+            if (result.kind !== "jumped") {
+              setHint("当前对话中未找到对应消息");
+            }
           }}
         >
           #{floor}

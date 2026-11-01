@@ -14,7 +14,9 @@ const options = ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT).optio
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const child = join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(child);
+    if (entry.isDirectory()) {
+      return sourceFiles(child);
+    }
     return /\.tsx?$/.test(entry.name) ? [child] : [];
   });
 }

@@ -83,9 +83,13 @@ export async function previewProposal(
   // 其余回退仓库——与提交路径同一份领域规则，预览不再显示空白引用。
   const resolveReference = createBatchReferenceResolver({
     pending: operations.flatMap((operation) => {
-      if (operation.type !== "create") return [];
+      if (operation.type !== "create") {
+        return [];
+      }
       const table = tableById.get(operation.tableId);
-      if (!table) return [];
+      if (!table) {
+        return [];
+      }
       return [
         {
           id: operation.tempId,
@@ -115,7 +119,9 @@ export async function previewProposal(
   });
   for (const operation of operations) {
     const table = tableById.get(operation.tableId);
-    if (!table) continue;
+    if (!table) {
+      continue;
+    }
     if (!seenTableKeys.has(table.key)) {
       seenTableKeys.add(table.key);
       tableKeys.push(table.key);
@@ -229,7 +235,9 @@ async function previewDisplayText(
   resolveReference: MemoryRecordDisplayTextResolver,
   fallback: string,
 ): Promise<string> {
-  if (!table.displayStrategy) return "";
+  if (!table.displayStrategy) {
+    return "";
+  }
   try {
     return await computeMemoryRecordDisplayText(
       ports.records,

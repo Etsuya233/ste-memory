@@ -41,7 +41,9 @@ export async function saveTextFile(
   try {
     handle = await handlePromise;
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return false;
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return false;
+    }
     throw error;
   }
 

@@ -121,7 +121,9 @@ export async function validateProposalOperations(
   const previousByKey = new Map<string, MemoryRecord>();
   for (const operation of operations) {
     const check = await checkSingleOperation(ports, memorySpaceId, operation);
-    if (check.error) errors.push(check.error);
+    if (check.error) {
+      errors.push(check.error);
+    }
     if (operation.type === "create") {
       if (createsByTempId.has(operation.tempId)) {
         errors.push(memoryProposalError(operation, `临时 ID ${operation.tempId} 在本批次中重复`));
@@ -174,7 +176,9 @@ async function collectReferenceErrors(
   errors: MemoryProposalError[],
 ): Promise<void> {
   for (const operation of operations) {
-    if (operation.type === "delete") continue;
+    if (operation.type === "delete") {
+      continue;
+    }
     const fields = fieldsByTableId.get(operation.tableId) ?? [];
     const payload =
       operation.type === "create"
@@ -184,7 +188,9 @@ async function collectReferenceErrors(
             ...operation.patch,
           };
     for (const field of fields) {
-      if (!field.referenceTableId) continue;
+      if (!field.referenceTableId) {
+        continue;
+      }
       const value = payload[field.id];
       const recordIds = Array.isArray(value)
         ? value
@@ -192,7 +198,9 @@ async function collectReferenceErrors(
           ? []
           : [value];
       for (const recordId of recordIds) {
-        if (typeof recordId !== "string") continue;
+        if (typeof recordId !== "string") {
+          continue;
+        }
         if (isProposalTempId(recordId)) {
           const target = createsByTempId.get(recordId);
           if (!target || target.tableId !== field.referenceTableId) {
@@ -233,7 +241,9 @@ async function collectDeletionSafetyErrors(
   errors: MemoryProposalError[],
 ): Promise<void> {
   const deleted = operations.filter((operation) => operation.type === "delete");
-  if (deleted.length === 0) return;
+  if (deleted.length === 0) {
+    return;
+  }
 
   const tables = [...fieldsByTableId.keys()];
   const finalRecordsByTableId = new Map(
@@ -250,11 +260,12 @@ async function collectDeletionSafetyErrors(
       records.delete(operation.recordId);
     } else if (operation.type === "update") {
       const previous = previousByKey.get(recordKey(operation.tableId, operation.recordId));
-      if (previous)
+      if (previous) {
         records.set(previous.id, {
           ...previous,
           payload: { ...previous.payload, ...operation.patch },
         });
+      }
     } else {
       records.set(operation.tempId as MemoryRecord["id"], {
         id: operation.tempId as MemoryRecord["id"],

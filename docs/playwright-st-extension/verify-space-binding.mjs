@@ -8,16 +8,23 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
-const ST_CHATS_ROOT = process.env.STE_ST_DATA
-  ?? "/home/etsuya/programming/ste-memory/tmp/SillyTavern_Source_Code/data/default-user/chats";
+const ST_CHATS_ROOT =
+  process.env.STE_ST_DATA ??
+  "/home/etsuya/programming/ste-memory/tmp/SillyTavern_Source_Code/data/default-user/chats";
 const TEST_CHARACTER = "Seraphina";
 
 function findChrome() {
-  if (process.env.CHROME && existsSync(process.env.CHROME)) return process.env.CHROME;
+  if (process.env.CHROME && existsSync(process.env.CHROME)) {
+    return process.env.CHROME;
+  }
   const cache = path.join(homedir(), ".cache/ms-playwright");
-  if (!existsSync(cache)) throw new Error("未找到 playwright chromium 缓存");
+  if (!existsSync(cache)) {
+    throw new Error("未找到 playwright chromium 缓存");
+  }
   const dirs = readdirSync(cache).filter((d) => d.startsWith("chromium-"));
-  if (dirs.length === 0) throw new Error("playwright chromium 缓存为空");
+  if (dirs.length === 0) {
+    throw new Error("playwright chromium 缓存为空");
+  }
   const latest = dirs.sort().at(-1);
   const candidates = [
     path.join(cache, latest, "chrome-linux64/chrome"),
@@ -25,7 +32,9 @@ function findChrome() {
     path.join(cache, latest, "chrome-linux/chrome-headless-shell"),
   ];
   const found = candidates.find((c) => existsSync(c));
-  if (!found) throw new Error(`chromium 可执行文件缺失：${candidates.join(" / ")}`);
+  if (!found) {
+    throw new Error(`chromium 可执行文件缺失：${candidates.join(" / ")}`);
+  }
   return found;
 }
 
@@ -44,7 +53,9 @@ async function waitForNewSteLog(page, matcher, since, label, timeoutMs = 20000) 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const found = page.__steLogs.slice(since).find((t) => matcher(t));
-    if (found) return found;
+    if (found) {
+      return found;
+    }
     await waitMs(250);
   }
   throw new Error(`等待 STE Memory 日志超时：${label}（日志总数=${page.__steLogs.length}）`);
@@ -54,7 +65,9 @@ async function waitForNewSteLog(page, matcher, since, label, timeoutMs = 20000) 
 async function waitUntil(page, predicate, label, timeoutMs = 20000, ...args) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await page.evaluate(predicate, ...args)) return;
+    if (await page.evaluate(predicate, ...args)) {
+      return;
+    }
     await waitMs(300);
   }
   throw new Error(`等待条件超时：${label}`);
@@ -101,7 +114,9 @@ async function openChat(page, chatId) {
     if (ctx.characterId === undefined) {
       // 刷新后未选角色：先选中测试角色
       const idx = ctx.characters.findIndex((c) => c.name === "Seraphina");
-      if (idx >= 0) await ctx.selectCharacterById(idx);
+      if (idx >= 0) {
+        await ctx.selectCharacterById(idx);
+      }
     }
     await ctx.openCharacterChat(cid);
   }, chatId);
@@ -127,11 +142,17 @@ async function openChat(page, chatId) {
 
 /** 在角色聊天目录（形如 chats/default_Seraphina/）里找对话文件 */
 function findChatFile(chatsRoot, characterName, chatId) {
-  if (!existsSync(chatsRoot)) return null;
+  if (!existsSync(chatsRoot)) {
+    return null;
+  }
   for (const dir of readdirSync(chatsRoot)) {
-    if (!dir.includes(characterName)) continue;
+    if (!dir.includes(characterName)) {
+      continue;
+    }
     const candidate = path.join(chatsRoot, dir, `${chatId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
   return null;
 }
@@ -140,7 +161,9 @@ async function main() {
   // 清掉测试残留对话文件（仅测试实例；角色目录名形如 chats/default_Seraphina/）
   if (existsSync(ST_CHATS_ROOT)) {
     for (const dir of readdirSync(ST_CHATS_ROOT)) {
-      if (!dir.includes(TEST_CHARACTER)) continue;
+      if (!dir.includes(TEST_CHARACTER)) {
+        continue;
+      }
       for (const file of readdirSync(path.join(ST_CHATS_ROOT, dir))) {
         rmSync(path.join(ST_CHATS_ROOT, dir, file));
       }
@@ -153,15 +176,21 @@ async function main() {
     args: ["--no-proxy-server"],
     env: {
       ...process.env,
-      HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "",
-      ALL_PROXY: "", all_proxy: "",
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      http_proxy: "",
+      https_proxy: "",
+      ALL_PROXY: "",
+      all_proxy: "",
     },
   });
   const page = await browser.newPage();
   page.__steLogs = [];
   page.on("console", (msg) => {
     const text = msg.text();
-    if (text.includes("[STE Memory]")) page.__steLogs.push(text);
+    if (text.includes("[STE Memory]")) {
+      page.__steLogs.push(text);
+    }
   });
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -173,12 +202,19 @@ async function main() {
     check("插件加载：初始化日志", initText.includes("v0.1.0"), initText);
 
     // 2. 打开测试角色的对话 → 自动建空间 + 写绑定 + 系统表就位
-    await page.waitForFunction(() => SillyTavern.getContext().characters.length > 0, null, { timeout: 15000 });
+    await page.waitForFunction(() => SillyTavern.getContext().characters.length > 0, null, {
+      timeout: 15000,
+    });
     const logCountBeforeOpen = page.__steLogs.length;
     await page.evaluate(async () => {
       await SillyTavern.getContext().selectCharacterById(0);
     });
-    const createdText = await waitForNewSteLog(page, (t) => t.includes("已为对话"), logCountBeforeOpen, "首次建空间日志");
+    const createdText = await waitForNewSteLog(
+      page,
+      (t) => t.includes("已为对话"),
+      logCountBeforeOpen,
+      "首次建空间日志",
+    );
     check(
       "首次打开对话：自动创建记忆空间",
       /已为对话「.+」创建记忆空间「.+」（.+）/.test(createdText),
@@ -192,7 +228,11 @@ async function main() {
       JSON.stringify(first.binding),
     );
     const db1 = await readSteMemoryDb(page);
-    check("系统表就位（8 张，含世界状态表）", db1.tablesPerSpace === 8, `tables=${db1.tablesPerSpace}`);
+    check(
+      "系统表就位（8 张，含世界状态表）",
+      db1.tablesPerSpace === 8,
+      `tables=${db1.tablesPerSpace}`,
+    );
     check("仅一个记忆空间", db1.spaces.length === 1, JSON.stringify(db1.spaces.map((s) => s.name)));
     const firstSpaceId = first.binding.spaceId;
     const firstChatId = first.chatId;
@@ -220,7 +260,12 @@ async function main() {
       document.querySelector("dialog.popup .popup-button-ok")?.click();
     });
     const logCountBeforeNewChat = page.__steLogs.length;
-    await waitForNewSteLog(page, (t) => t.includes("已为对话"), logCountBeforeNewChat, "新对话建空间日志");
+    await waitForNewSteLog(
+      page,
+      (t) => t.includes("已为对话"),
+      logCountBeforeNewChat,
+      "新对话建空间日志",
+    );
     await waitUntil(
       page,
       () => SillyTavern.getContext().chatId !== undefined,
@@ -231,15 +276,22 @@ async function main() {
 
     await openChat(page, firstChatId);
     const back = await readCurrentBinding(page);
-    check("切回原对话：绑定指向原空间", back.binding?.spaceId === firstSpaceId, `spaceId=${back.binding?.spaceId}`);
+    check(
+      "切回原对话：绑定指向原空间",
+      back.binding?.spaceId === firstSpaceId,
+      `spaceId=${back.binding?.spaceId}`,
+    );
     const db3 = await readSteMemoryDb(page);
     check("切回不重复建空间", db3.spaces.length === 2, `spaces=${db3.spaces.length}`);
 
     // 5. 重命名对话 → 绑定跟随（chatMetadata 在文件内），空间显示名保持
     const renamedChatId = `${firstChatId}-已改名`;
-    await page.evaluate(async ({ oldName, newName }) => {
-      await SillyTavern.getContext().renameChat(oldName, newName);
-    }, { oldName: firstChatId, newName: renamedChatId });
+    await page.evaluate(
+      async ({ oldName, newName }) => {
+        await SillyTavern.getContext().renameChat(oldName, newName);
+      },
+      { oldName: firstChatId, newName: renamedChatId },
+    );
     await waitUntil(
       page,
       (cid) => SillyTavern.getContext().chatId === cid,
@@ -280,7 +332,12 @@ async function main() {
     const logsBeforeReload = page.__steLogs.length;
     pageErrors.length = 0;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await waitForNewSteLog(page, (t) => t.includes("已加载"), logsBeforeReload, "刷新后插件初始化日志");
+    await waitForNewSteLog(
+      page,
+      (t) => t.includes("已加载"),
+      logsBeforeReload,
+      "刷新后插件初始化日志",
+    );
     await openChat(page, renamedChatId);
     await waitMs(1500);
     const db5 = await readSteMemoryDb(page);
@@ -296,7 +353,10 @@ async function main() {
     check("刷新后绑定指向原空间", refreshedBinding.binding?.spaceId === firstSpaceId);
 
     // 截图留证
-    const shotPath = path.join(process.env.TMPDIR ?? "/tmp", `ste-memory-acceptance-${Date.now()}.png`);
+    const shotPath = path.join(
+      process.env.TMPDIR ?? "/tmp",
+      `ste-memory-acceptance-${Date.now()}.png`,
+    );
     await page.screenshot({ path: shotPath });
     console.log(`截图：${shotPath}`);
   } finally {

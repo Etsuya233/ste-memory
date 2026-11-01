@@ -104,7 +104,9 @@ export function RecordsPage(props: RecordsPageProps) {
   }, [state.context?.chatKey, state.context?.spaceId, state.tableId]);
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (state.context && search.trim() !== state.search) void workspace.setSearch(search.trim());
+      if (state.context && search.trim() !== state.search) {
+        void workspace.setSearch(search.trim());
+      }
     }, 250);
     return () => clearTimeout(timeout);
   }, [search, state.context, state.search, workspace]);
@@ -116,11 +118,13 @@ export function RecordsPage(props: RecordsPageProps) {
 
   useLayoutEffect(() => {
     if (showingDetail) {
-      if (state.editor)
+      if (state.editor) {
         formRef.current
           ?.querySelector<HTMLElement>("input, textarea, select, button[role=switch]")
           ?.focus();
-      else detailRef.current?.focus();
+      } else {
+        detailRef.current?.focus();
+      }
     }
   }, [
     showingDetail,
@@ -134,17 +138,19 @@ export function RecordsPage(props: RecordsPageProps) {
       const previous = listPosition.get(viewKey);
       listRef.current.scrollTop = previous?.top ?? 0;
       listRef.current.scrollLeft = previous?.left ?? 0;
-      if (previous?.recordId)
+      if (previous?.recordId) {
         listRef.current
           .querySelector<HTMLButtonElement>(
             `[data-record-id="${CSS.escape(previous.recordId)}"]${previous.fieldId ? `[data-record-field="${CSS.escape(previous.fieldId)}"]` : ""}`,
           )
           ?.focus({ preventScroll: true });
+      }
     }
   }, [showingDetail, state.listLoading, viewKey, listPosition]);
   useEffect(() => {
-    if (state.editor && Object.keys(state.editor.errors).length)
+    if (state.editor && Object.keys(state.editor.errors).length) {
       formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+    }
   }, [state.editor?.errors]);
 
   const { requestLeave: navigate, confirmation } = usePageLeave({
@@ -155,17 +161,22 @@ export function RecordsPage(props: RecordsPageProps) {
     register: props.registerLeaveGuard,
   });
   async function runHost(action: () => Promise<unknown>) {
-    if (hostBusy) return;
+    if (hostBusy) {
+      return;
+    }
     const operation = ++hostOperation.current;
     setHostError(null);
     setHostBusy(true);
     try {
       await action();
     } catch (error) {
-      if (operation === hostOperation.current)
+      if (operation === hostOperation.current) {
         setHostError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      if (operation === hostOperation.current) setHostBusy(false);
+      if (operation === hostOperation.current) {
+        setHostBusy(false);
+      }
     }
   }
   function openRecord(id: MemoryRecordId, fieldId: string | null = null) {
@@ -289,7 +300,9 @@ export function RecordsPage(props: RecordsPageProps) {
           <Tabs
             value={state.viewMode}
             onValueChange={(value) => {
-              if (value === "list" || value === "table") workspace.setViewMode(value);
+              if (value === "list" || value === "table") {
+                workspace.setViewMode(value);
+              }
             }}
             hidden={showingDetail}
             className={cn(
@@ -389,7 +402,9 @@ export function RecordsPage(props: RecordsPageProps) {
                     state.viewMode === "table" && "ste:rounded-xl ste:border ste:border-border",
                   )}
                   onScroll={(event) => {
-                    if (showingDetail || state.listLoading) return;
+                    if (showingDetail || state.listLoading) {
+                      return;
+                    }
                     const previous = listPosition.get(viewKey);
                     listPosition.set(viewKey, {
                       top: event.currentTarget.scrollTop,

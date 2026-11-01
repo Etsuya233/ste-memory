@@ -225,9 +225,13 @@ const tableRepository: MemoryTableRepository = {
   update: async (table) => {
     const delay = delaySchemaSave;
     delaySchemaSave = 0;
-    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (delay) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
     const index = tables.findIndex((item) => item.id === table.id);
-    if (index < 0) return false;
+    if (index < 0) {
+      return false;
+    }
     tables[index] = structuredClone(table);
     if (failSchemaPersistence) {
       failSchemaPersistence = false;
@@ -272,7 +276,9 @@ const fieldRepository: MemoryFieldRepository = {
         item.tableId === field.tableId &&
         item.id === field.id,
     );
-    if (index < 0) return false;
+    if (index < 0) {
+      return false;
+    }
     fields[index] = structuredClone(field);
     return true;
   },
@@ -280,7 +286,9 @@ const fieldRepository: MemoryFieldRepository = {
     const index = fields.findIndex(
       (field) => field.memorySpaceId === spaceId && field.tableId === tableId && field.id === id,
     );
-    if (index < 0) return false;
+    if (index < 0) {
+      return false;
+    }
     fields.splice(index, 1);
     return true;
   },
@@ -302,11 +310,14 @@ const recordRepository: MemoryRecordRepository = {
   },
   commit: async (mutations) => {
     for (const mutation of mutations) {
-      if (mutation.kind === "create") records.push(structuredClone(mutation.current));
-      else {
+      if (mutation.kind === "create") {
+        records.push(structuredClone(mutation.current));
+      } else {
         history.push(structuredClone(mutation.history));
         records = records.filter((record) => record.id !== mutation.previous.id);
-        if (mutation.current) records.push(structuredClone(mutation.current));
+        if (mutation.current) {
+          records.push(structuredClone(mutation.current));
+        }
       }
     }
     return true;
@@ -374,8 +385,9 @@ const assertContext = (context: RecordsContext) => {
     !ready ||
     context.chatKey !== contexts[current].chatKey ||
     context.spaceId !== contexts[current].spaceId
-  )
+  ) {
     throw new Error("对话已切换，请返回原对话保存");
+  }
 };
 const workspace = new RecordsWorkspace({
   sortStorage: localStorage,
@@ -403,7 +415,9 @@ const workspace = new RecordsWorkspace({
     update: async (spaceId, tableId, id, input) => {
       const delay = delaySave;
       delaySave = 0;
-      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (delay) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
       if (failSave) {
         failSave = false;
         throw new Error("模拟保存失败，请重试；草稿仍然保留");
@@ -412,11 +426,14 @@ const workspace = new RecordsWorkspace({
         (record) =>
           record.id === id && record.memorySpaceId === spaceId && record.tableId === tableId,
       );
-      if (!record) return undefined;
-      if (record.revisionId !== input.expectedRevisionId)
+      if (!record) {
+        return undefined;
+      }
+      if (record.revisionId !== input.expectedRevisionId) {
         throw Object.assign(new Error("记录已被其他操作更新，请保留草稿后重新编辑"), {
           type: "memory_record_revision_conflict",
         });
+      }
       const payload = { ...record.payload, ...input.patch };
       const updated = {
         ...record,
@@ -499,7 +516,9 @@ const tablesWorkspace = new TablesWorkspace({
   },
   assertContext,
   onChanged: async (context) => {
-    if (workspace.getSnapshot().context?.chatKey === context.chatKey) await workspace.refresh();
+    if (workspace.getSnapshot().context?.chatKey === context.chatKey) {
+      await workspace.refresh();
+    }
   },
 });
 let settingsValue: PluginSettings = {
@@ -575,8 +594,11 @@ const settingsServices: SettingsServices = {
 const cleaningServices: CleaningServices = {
   readSelection: () => cleaningSelections.get(contexts[current].chatKey),
   writeSelection: (id) => {
-    if (id) cleaningSelections.set(contexts[current].chatKey, id);
-    else cleaningSelections.delete(contexts[current].chatKey);
+    if (id) {
+      cleaningSelections.set(contexts[current].chatKey, id);
+    } else {
+      cleaningSelections.delete(contexts[current].chatKey);
+    }
   },
   readRecentMessages: () => [
     {
@@ -604,7 +626,9 @@ const macroServices: MacroServices = {
     getRecentResults: () => macroResults,
     subscribe: () => () => {},
     testMacro: async ({ macro, scope }) => {
-      if (macroTestDelay) await new Promise((resolve) => setTimeout(resolve, macroTestDelay));
+      if (macroTestDelay) {
+        await new Promise((resolve) => setTimeout(resolve, macroTestDelay));
+      }
       validateMemoryMacro(macro);
       return {
         id: macro.id,
@@ -749,7 +773,9 @@ const searchRepository: VectorIndexRepository = {
   getVector: async (id) => searchVectors.find((vector) => vector.id === id),
   deleteVector: async (id) => {
     const i = searchVectors.findIndex((vector) => vector.id === id);
-    if (i >= 0) searchVectors.splice(i, 1);
+    if (i >= 0) {
+      searchVectors.splice(i, 1);
+    }
   },
   deleteVectors: async (scope) => {
     for (let i = searchVectors.length - 1; i >= 0; i--) {
@@ -757,8 +783,9 @@ const searchRepository: VectorIndexRepository = {
       if (
         vector.memorySpaceId === scope.memorySpaceId &&
         (!scope.tableId || vector.tableId === scope.tableId)
-      )
+      ) {
         searchVectors.splice(i, 1);
+      }
     }
   },
   saveTask: async () => {
@@ -945,12 +972,16 @@ const taskServices: TasksServices = {
         status: floorProgress.get(spaceId)!.get(from + i) ?? ("untracked" as const),
       })),
     markFloorStatuses: async (spaceId, from, to, status) => {
-      if (fillTasks.some((task) => task.memorySpaceId === spaceId && task.status === "running"))
+      if (fillTasks.some((task) => task.memorySpaceId === spaceId && task.status === "running")) {
         throw new Error("请等待运行中的填表任务结束后再标记");
+      }
       const floors = floorProgress.get(spaceId)!;
       for (let floor = from; floor <= to; floor++) {
-        if (status === "untracked") floors.delete(floor);
-        else floors.set(floor, status);
+        if (status === "untracked") {
+          floors.delete(floor);
+        } else {
+          floors.set(floor, status);
+        }
       }
     },
     submit: async (input) => {
@@ -997,7 +1028,9 @@ const taskServices: TasksServices = {
       const index = fillTasks.findIndex(
         (task) => task.memorySpaceId === spaceId && task.runId === id,
       );
-      if (index < 0) throw new Error("任务不存在");
+      if (index < 0) {
+        throw new Error("任务不存在");
+      }
       const task = { ...fillTasks[index]!, status: "interrupted" as const, blocksQueue: false };
       delete task.pendingCommit;
       fillTasks[index] = task;
@@ -1007,7 +1040,9 @@ const taskServices: TasksServices = {
       const index = fillTasks.findIndex(
         (task) => task.memorySpaceId === spaceId && task.runId === id,
       );
-      if (index < 0) throw new Error("任务不存在");
+      if (index < 0) {
+        throw new Error("任务不存在");
+      }
       const task = {
         ...fillTasks[index]!,
         status: "queued" as const,
@@ -1037,21 +1072,27 @@ const taskServices: TasksServices = {
     },
     cancel: async (id) => {
       const index = vectorTasks.findIndex((task) => task.id === id);
-      if (index < 0) throw new Error("向量任务不存在");
+      if (index < 0) {
+        throw new Error("向量任务不存在");
+      }
       vectorTasks[index] = { ...vectorTasks[index]!, status: "cancelled" };
       return true;
     },
     cancelMany: async (ids) => {
       for (const id of ids) {
         const index = vectorTasks.findIndex((task) => task.id === id);
-        if (index < 0) throw new Error("向量任务不存在");
+        if (index < 0) {
+          throw new Error("向量任务不存在");
+        }
         vectorTasks[index] = { ...vectorTasks[index]!, status: "cancelled" };
       }
       return ids.length;
     },
     retry: async (id) => {
       const index = vectorTasks.findIndex((task) => task.id === id);
-      if (index < 0) throw new Error("向量任务不存在");
+      if (index < 0) {
+        throw new Error("向量任务不存在");
+      }
       vectorTasks[index] = { ...vectorTasks[index]!, status: "queued", error: null };
       return { created: 1, reused: 0, promoted: 0, skipped: 0 };
     },
@@ -1059,13 +1100,19 @@ const taskServices: TasksServices = {
   chatConfig: {
     readCleaningSelection: () => cleaningSelections.get(contexts[current].chatKey),
     writeCleaningSelection: (id) => {
-      if (id) cleaningSelections.set(contexts[current].chatKey, id);
-      else cleaningSelections.delete(contexts[current].chatKey);
+      if (id) {
+        cleaningSelections.set(contexts[current].chatKey, id);
+      } else {
+        cleaningSelections.delete(contexts[current].chatKey);
+      }
     },
     readAgentPresetOverride: () => agentPresetOverrides.get(contexts[current].chatKey),
     writeAgentPresetOverride: (id) => {
-      if (id) agentPresetOverrides.set(contexts[current].chatKey, id);
-      else agentPresetOverrides.delete(contexts[current].chatKey);
+      if (id) {
+        agentPresetOverrides.set(contexts[current].chatKey, id);
+      } else {
+        agentPresetOverrides.delete(contexts[current].chatKey);
+      }
     },
   },
   messageCount: () => 12,
@@ -1143,7 +1190,9 @@ function Preview() {
   const [open, setOpen] = useState(true);
   const [taskNavigationRequest, setTaskNavigationRequest] = useState(0);
   const openTasks = useCallback((identity: string) => {
-    if (contexts[current].chatKey !== identity) return;
+    if (contexts[current].chatKey !== identity) {
+      return;
+    }
     setOpen(true);
     setTaskNavigationRequest((request) => request + 1);
   }, []);

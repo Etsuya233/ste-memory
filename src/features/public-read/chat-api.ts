@@ -34,10 +34,12 @@ export function createMemoryChatApi(source: {
   return {
     version: 1,
     async readRecent(request) {
-      if (!request.chatIdentity || source.getChatIdentity() !== request.chatIdentity)
+      if (!request.chatIdentity || source.getChatIdentity() !== request.chatIdentity) {
         throw new Error("当前对话已变化，请重新读取聊天");
-      if (!Number.isSafeInteger(request.count) || request.count <= 0)
+      }
+      if (!Number.isSafeInteger(request.count) || request.count <= 0) {
         throw new Error("最近聊天条数须为正整数");
+      }
       const rule = source.readCleaningRule();
       const messages = source.readRecentMessages(request.count).flatMap((message) => {
         const content =
@@ -46,8 +48,9 @@ export function createMemoryChatApi(source: {
             : message.content;
         return content.trim() ? [Object.freeze({ ...message, content })] : [];
       });
-      if (source.getChatIdentity() !== request.chatIdentity)
+      if (source.getChatIdentity() !== request.chatIdentity) {
         throw new Error("读取期间对话已变化，请重新读取聊天");
+      }
       return Object.freeze({
         chatIdentity: request.chatIdentity,
         messages: Object.freeze(messages),

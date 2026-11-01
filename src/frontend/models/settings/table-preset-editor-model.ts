@@ -30,9 +30,12 @@ export function renamePresetDisplayField(
   newKey: string,
 ): TablePresetTable["displayStrategy"] {
   const strategy = table.displayStrategy;
-  if (!strategy) return null;
-  if (strategy.type === "field")
+  if (!strategy) {
+    return null;
+  }
+  if (strategy.type === "field") {
     return { ...strategy, fieldKey: strategy.fieldKey === oldKey ? newKey : strategy.fieldKey };
+  }
   return {
     ...strategy,
     template: strategy.template.replace(/\{([^{}]+)\}/g, (match, key: string) =>
@@ -44,7 +47,9 @@ export function renamePresetDisplayField(
 /** 显示策略摘要：与真实表格详情使用同一行文案口径。 */
 export function presetDisplayStrategySummary(table: TablePresetTable): string {
   const strategy = table.displayStrategy;
-  if (!strategy) return "默认";
+  if (!strategy) {
+    return "默认";
+  }
   if (strategy.type === "field") {
     const field = table.fields.find((candidate) => candidate.key === strategy.fieldKey);
     return `显示字段：${field?.name ?? "未知字段"}`;

@@ -231,7 +231,9 @@ function buildEmptyResultTips(
   const referenceKeys = [
     ...new Set(
       conditions.flatMap((condition) => {
-        if (condition.fieldId.startsWith("$")) return [];
+        if (condition.fieldId.startsWith("$")) {
+          return [];
+        }
         const field = table.fields.find((candidate) => candidate.id === condition.fieldId);
         return field?.referenceTableKey ? [field.key] : [];
       }),
@@ -267,7 +269,9 @@ function resolveQueryFieldKey(
   key: string,
   usage: string,
 ): QueryRecordFieldId {
-  if (key.startsWith("$")) return key as QueryRecordFieldId;
+  if (key.startsWith("$")) {
+    return key as QueryRecordFieldId;
+  }
   return resolveUserFieldKey(table, key, usage);
 }
 

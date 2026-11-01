@@ -80,7 +80,9 @@ export class MemoryFieldService {
     tableId: MemoryTableId,
     input: CreateMemoryFieldInput,
   ): Promise<MemoryField | undefined> {
-    if (!(await this.tables.find(memorySpaceId, tableId))) return undefined;
+    if (!(await this.tables.find(memorySpaceId, tableId))) {
+      return undefined;
+    }
     const key = memoryFieldKey(input.key);
     if (await this.fields.findByKey(memorySpaceId, tableId, key)) {
       throw new DomainError({
@@ -154,7 +156,9 @@ export class MemoryFieldService {
     strategy: MemoryTableDisplayStrategy,
   ): Promise<MemoryTable | undefined> {
     const table = await this.tables.find(memorySpaceId, tableId);
-    if (!table) return undefined;
+    if (!table) {
+      return undefined;
+    }
     if (strategy.type === "field") {
       const field = await this.fields.find(memorySpaceId, tableId, strategy.fieldId);
       if (!field || field.type !== "short_text" || !field.enabled) {
@@ -187,7 +191,9 @@ export class MemoryFieldService {
     input: UpdateMemoryFieldInput,
   ): Promise<MemoryFieldUpdateResult | undefined> {
     const field = await this.fields.find(memorySpaceId, tableId, id);
-    if (!field) return undefined;
+    if (!field) {
+      return undefined;
+    }
     const key = input.key === undefined ? field.key : memoryFieldKey(input.key);
     const conflict = await this.fields.findByKey(memorySpaceId, tableId, key);
     if (conflict && conflict.id !== id) {

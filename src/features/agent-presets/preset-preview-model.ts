@@ -95,7 +95,9 @@ export function buildAgentPresetPreviewItems(
 
 /** 来源名：命名消息用名，空名回退内容首行，再兜底「未命名消息」 */
 function previewSourceName(message: AgentPresetMessage): string {
-  if (message.name.trim() !== "") return message.name;
+  if (message.name.trim() !== "") {
+    return message.name;
+  }
   const firstLine = (message.content.split("\n")[0] ?? "").trim();
   return firstLine === "" ? "未命名消息" : firstLine;
 }
@@ -110,8 +112,12 @@ function previewNote(
     return "{{msg}} 依赖任务块消息，预览中无输入 → 展开为空串";
   }
   if (message.content.includes(AGENT_PRESET_PLACEHOLDERS.worldbook)) {
-    if (worldbookState === "skipped") return "输入为空，未执行世界书扫描 → 展开为空串";
-    if (worldbookState === "failed") return "世界书扫描失败（旧版 ST 或扫描异常）→ 展开为空串";
+    if (worldbookState === "skipped") {
+      return "输入为空，未执行世界书扫描 → 展开为空串";
+    }
+    if (worldbookState === "failed") {
+      return "世界书扫描失败（旧版 ST 或扫描异常）→ 展开为空串";
+    }
   }
   return undefined;
 }

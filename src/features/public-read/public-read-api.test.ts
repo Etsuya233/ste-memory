@@ -84,7 +84,9 @@ describe("public memory read boundary", () => {
       },
       async () => {
         prepareCalls++;
-        if (prepareCalls === 2) identity = "other";
+        if (prepareCalls === 2) {
+          identity = "other";
+        }
       },
     );
     const input = {

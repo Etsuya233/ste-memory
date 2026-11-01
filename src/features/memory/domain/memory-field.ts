@@ -128,9 +128,13 @@ export function memoryFieldName(value: string): string {
  * 空/null 返回 null（不校验），非法正则抛错。
  */
 export function memoryFieldValuePattern(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined) {
+    return null;
+  }
   const pattern = value.trim();
-  if (pattern.length === 0) return null;
+  if (pattern.length === 0) {
+    return null;
+  }
   try {
     new RegExp(pattern);
   } catch {

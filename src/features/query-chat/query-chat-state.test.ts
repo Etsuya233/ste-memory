@@ -10,7 +10,9 @@ import {
 
 function segmentsOf(messages: readonly QueryChatMessage[], index: number) {
   const message = messages[index]!;
-  if (message.kind !== "assistant") throw new Error("expected assistant");
+  if (message.kind !== "assistant") {
+    throw new Error("expected assistant");
+  }
   return message.segments;
 }
 
@@ -54,7 +56,9 @@ describe("applyQueryChatEvent（事件 → 片段时间线）", () => {
       { kind: "thinking", text: "再确认" },
     ]);
     const assistant = afterT3[1]!;
-    if (assistant.kind !== "assistant") throw new Error("unreachable");
+    if (assistant.kind !== "assistant") {
+      throw new Error("unreachable");
+    }
     expect(assistant.status).toBe("streaming");
   });
 
@@ -231,7 +235,9 @@ describe("applyQueryChatEvent（事件 → 片段时间线）", () => {
       commit: { status: "committed", created: 1, updated: 0, deleted: 0 },
     });
     const doneAssistant = committed[1]!;
-    if (doneAssistant.kind !== "assistant") throw new Error("unreachable");
+    if (doneAssistant.kind !== "assistant") {
+      throw new Error("unreachable");
+    }
     expect(doneAssistant.status).toBe("done");
     expect(doneAssistant.commit).toEqual({
       status: "committed",
@@ -243,7 +249,9 @@ describe("applyQueryChatEvent（事件 → 片段时间线）", () => {
     const withText = applyQueryChatEvent(base, "a1", { type: "message_delta", text: "部分回答" });
     const errored = applyQueryChatEvent(withText, "a1", { type: "error", message: "模型调用失败" });
     const errorAssistant = errored[1]!;
-    if (errorAssistant.kind !== "assistant") throw new Error("unreachable");
+    if (errorAssistant.kind !== "assistant") {
+      throw new Error("unreachable");
+    }
     expect(errorAssistant.status).toBe("error");
     expect(errorAssistant.error).toBe("模型调用失败");
     expect(errorAssistant.segments).toEqual([{ kind: "text", text: "部分回答" }]);

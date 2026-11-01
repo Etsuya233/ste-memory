@@ -114,28 +114,10 @@ export default tseslint.config(
     },
   },
   prettier,
-  // 空间加载、提交与保存的控制流必须展开；Prettier 会保留无花括号的短分支，
-  // 所以在格式规则之后明确约束这些模块，避免状态转换再次被压成一行。
+  // 所有 JS/TS 控制流必须使用花括号，且每行最多一条语句。
+  // 放在 Prettier 之后，明确保留这两条可读性约束。
   {
-    files: [
-      "src/runtime.ts",
-      "src/features/agent-presets/agent-macro-service.ts",
-      "src/features/chat-binding/**/*.{ts,tsx}",
-      "src/features/chat-mirror/**/*.{ts,tsx}",
-      "src/features/memory-snapshot/**/*.{ts,tsx}",
-      "src/features/fill-tasks/**/*.{ts,tsx}",
-      "src/features/vector-index/**/*.{ts,tsx}",
-      "src/infrastructure/memory-runtime/**/*.{ts,tsx}",
-      "src/infrastructure/indexeddb/fill-tasks/**/*.{ts,tsx}",
-      "src/frontend/host/maintenance-services.ts",
-      "src/frontend/host/preset-settings.ts",
-      "src/frontend/components/snapshot-save-notice.tsx",
-      "src/frontend/models/shell/space-info.ts",
-      "src/frontend/models/tasks/task-panel-model.ts",
-      "src/frontend/pages/records-workspace.ts",
-      "src/frontend/pages/tables/tables-workspace.ts",
-      "src/frontend/pages/settings/settings-actions.ts",
-    ],
+    files: ["**/*.{js,mjs,cjs,ts,tsx}"],
     rules: {
       curly: ["error", "all"],
       "max-statements-per-line": ["error", { max: 1 }],

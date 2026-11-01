@@ -224,7 +224,9 @@ describe("备份文件编解码", () => {
     legacy.version = 1;
     delete legacy.data.spaces[0]!.schemaVersion;
     delete legacy.data.spaces[0]!.space.initializationSource;
-    for (const table of legacy.data.spaces[0]!.tables) delete table.position;
+    for (const table of legacy.data.spaces[0]!.tables) {
+      delete table.position;
+    }
 
     const decoded = decodeBackupFile(legacy);
     expect(decoded.data.spaces[0]!.space.initializationSource).toBeNull();

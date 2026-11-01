@@ -6,7 +6,9 @@ export function createExecutionCheckpoint(check: () => void): () => Promise<void
   let resumedAt = -Infinity;
   return async () => {
     check();
-    if (performance.now() - resumedAt < 8) return;
+    if (performance.now() - resumedAt < 8) {
+      return;
+    }
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     resumedAt = performance.now();
     check();

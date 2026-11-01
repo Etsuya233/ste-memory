@@ -28,13 +28,15 @@ export function AutoFillFields(
 ) {
   const inherited = props.kind === "overrides";
   function change(patch: Partial<AutoFillSettings>) {
-    if (props.kind === "global") props.onChange({ ...props.value, ...patch });
-    else
+    if (props.kind === "global") {
+      props.onChange({ ...props.value, ...patch });
+    } else {
       props.onChange(
         Object.fromEntries(
           Object.entries({ ...props.value, ...patch }).filter(([, value]) => value !== undefined),
         ),
       );
+    }
   }
   return (
     <>

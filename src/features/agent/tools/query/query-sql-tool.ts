@@ -99,7 +99,9 @@ export function createQuerySqlTool(
             diagnostics: response.diagnostics,
           };
         } catch (error) {
-          if (!(error instanceof SemanticQueryError)) throw error;
+          if (!(error instanceof SemanticQueryError)) {
+            throw error;
+          }
           throw new Error(
             JSON.stringify({ error: error.message, diagnostics: error.diagnostics }),
             { cause: error },

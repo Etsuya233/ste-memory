@@ -23,7 +23,9 @@ export async function validateMemoryRecordReferences(
   ) => Promise<MemoryRecord | undefined>,
 ): Promise<void> {
   for (const field of fields) {
-    if (!field.referenceTableId) continue;
+    if (!field.referenceTableId) {
+      continue;
+    }
     const value = payload[field.id];
     const recordIds = Array.isArray(value)
       ? value
@@ -56,7 +58,9 @@ export function findMemoryRecordReferenceLocations(
   const locations: MemoryRecordReferenceLocation[] = [];
   for (const record of records) {
     for (const field of fieldsByTable.get(record.tableId)!) {
-      if (field.referenceTableId !== targetTableId) continue;
+      if (field.referenceTableId !== targetTableId) {
+        continue;
+      }
       const value = record.payload[field.id];
       if (value === targetRecordId || (Array.isArray(value) && value.includes(targetRecordId))) {
         locations.push({ tableId: record.tableId, recordId: record.id, fieldId: field.id });

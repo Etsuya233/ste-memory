@@ -134,13 +134,17 @@ export function createReadTimeDisplayTextResolver(
   const displayByText = new Map<string, string>();
 
   const loadTable = async (tableId: MemoryTableId): Promise<MemoryTable | undefined> => {
-    if (!tables.has(tableId)) tables.set(tableId, await lookups.getTable(tableId));
+    if (!tables.has(tableId)) {
+      tables.set(tableId, await lookups.getTable(tableId));
+    }
     return tables.get(tableId);
   };
 
   const loadFields = async (tableId: MemoryTableId): Promise<readonly MemoryField[]> => {
     const cached = fieldsByTable.get(tableId);
-    if (cached) return cached;
+    if (cached) {
+      return cached;
+    }
     const loaded = await lookups.getFields(tableId);
     fieldsByTable.set(tableId, loaded);
     return loaded;
@@ -153,7 +157,9 @@ export function createReadTimeDisplayTextResolver(
   ): Promise<string> => {
     const table = await loadTable(record.tableId);
     const strategy = table?.displayStrategy;
-    if (!strategy || strategy.type !== "template") return record.displayText;
+    if (!strategy || strategy.type !== "template") {
+      return record.displayText;
+    }
     return renderMemoryRecordDisplayTemplate(
       strategy.template,
       await loadFields(record.tableId),
@@ -170,8 +176,12 @@ export function createReadTimeDisplayTextResolver(
   ): Promise<string> => {
     const key = `${tableId}:${recordId}`;
     const cached = displayByText.get(key);
-    if (cached !== undefined) return cached;
-    if (ancestry.has(key)) return ""; // 引用环：该链路无解，按未找到渲染
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (ancestry.has(key)) {
+      return "";
+    } // 引用环：该链路无解，按未找到渲染
     const record = await lookups.findRecord(tableId, recordId);
     if (!record) {
       displayByText.set(key, ""); // 未找到与解析路径无关，可安全缓存
@@ -190,7 +200,9 @@ export function createReadTimeDisplayTextResolver(
   return async (record) => {
     const key = `${record.tableId}:${record.id}`;
     const cached = displayByText.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
     try {
       const text = await renderRecord(record, new Set([key]));
       displayByText.set(key, text);
@@ -227,10 +239,16 @@ export function createBatchReferenceResolver(options: {
   const computing = new Set<string>();
   const resolve: MemoryRecordDisplayTextResolver = async (tableId, recordId) => {
     const cached = cache.get(recordId);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
     const pending = byId.get(recordId);
-    if (!pending || pending.table.id !== tableId) return options.fallback(tableId, recordId);
-    if (computing.has(recordId)) return ""; // 引用环：该链路显示文本无解，按未找到渲染
+    if (!pending || pending.table.id !== tableId) {
+      return options.fallback(tableId, recordId);
+    }
+    if (computing.has(recordId)) {
+      return "";
+    } // 引用环：该链路显示文本无解，按未找到渲染
     computing.add(recordId);
     try {
       const text = await options.compute(pending, resolve);

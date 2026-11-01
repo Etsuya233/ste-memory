@@ -23,7 +23,9 @@ function DropdownMenu({ actionsRef, ...props }: MenuPrimitive.Root.Props) {
 function DropdownMenuPortal({ ...props }: Omit<MenuPrimitive.Portal.Props, "container">) {
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
-  if (!container || !active) return null;
+  if (!container || !active) {
+    return null;
+  }
   return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} container={container} />;
 }
 
@@ -43,7 +45,9 @@ function DropdownMenuContent({
   Pick<MenuPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
-  if (!container || !active) return null;
+  if (!container || !active) {
+    return null;
+  }
   return (
     <DropdownMenuPortal>
       <MenuPrimitive.Positioner
@@ -56,7 +60,9 @@ function DropdownMenuContent({
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
           finalFocus={(interaction) => {
-            if (!canRestoreSurfaceFocus(container)) return false;
+            if (!canRestoreSurfaceFocus(container)) {
+              return false;
+            }
             return typeof finalFocus === "function"
               ? finalFocus(interaction)
               : typeof finalFocus === "object"

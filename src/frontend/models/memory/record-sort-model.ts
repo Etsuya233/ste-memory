@@ -29,9 +29,13 @@ export function loadRecordSort(
 ): MemoryRecordListOrder {
   const key = storageKey(spaceId, tableId);
   const saved = storage.getItem(key);
-  if (saved === null) return DEFAULT_RECORD_LIST_ORDER;
+  if (saved === null) {
+    return DEFAULT_RECORD_LIST_ORDER;
+  }
   const order = JSON.parse(saved) as MemoryRecordListOrder;
-  if (recordSortOptions(fields).some((option) => option.fieldId === order.fieldId)) return order;
+  if (recordSortOptions(fields).some((option) => option.fieldId === order.fieldId)) {
+    return order;
+  }
   storage.removeItem(key);
   return DEFAULT_RECORD_LIST_ORDER;
 }

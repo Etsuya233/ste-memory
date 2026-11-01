@@ -78,7 +78,9 @@ export interface RetrievalState {
 
 function vectorNorm(values: readonly number[]): number {
   let norm = 0;
-  for (const value of values) norm = Math.hypot(norm, value);
+  for (const value of values) {
+    norm = Math.hypot(norm, value);
+  }
   return norm;
 }
 
@@ -146,10 +148,14 @@ export class VectorRetrievalService {
   };
   private update(change: Partial<RetrievalState>): void {
     this.state = { ...this.state, ...change };
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
   setContext(context: string, spaceId: MemorySpaceId | null, force = false): void {
-    if (!force && context === this.context && spaceId === this.spaceId) return;
+    if (!force && context === this.context && spaceId === this.spaceId) {
+      return;
+    }
     this.controller?.abort();
     this.generation++;
     this.activeKey = null;
@@ -179,7 +185,9 @@ export class VectorRetrievalService {
     });
   }
   invalidate(spaceId: MemorySpaceId, reason = "资料已变更，请重新搜索"): void {
-    if (spaceId !== this.spaceId) return;
+    if (spaceId !== this.spaceId) {
+      return;
+    }
     if (this.state.status === "idle") {
       this.update({ dataVersion: this.state.dataVersion + 1 });
       return;
@@ -202,10 +210,14 @@ export class VectorRetrievalService {
           (!scope.tableId || range.tableId === scope.tableId) &&
           (!scope.groupId || range.groupIds.includes(scope.groupId)),
       )
-    )
+    ) {
       return;
-    if (deleted) this.invalidate(scope.memorySpaceId, "所选范围索引已清除或删除，请重新搜索");
-    else this.update({ indexUpdated: true });
+    }
+    if (deleted) {
+      this.invalidate(scope.memorySpaceId, "所选范围索引已清除或删除，请重新搜索");
+    } else {
+      this.update({ indexUpdated: true });
+    }
   }
   profileChanged(): void {
     const profile = this.embedding.getProfile();
@@ -213,7 +225,9 @@ export class VectorRetrievalService {
       (this.state.result && this.state.result.profile !== profile?.version) ||
       (this.activeKey && this.activeProfile !== profile?.version)
     ) {
-      if (this.spaceId) this.invalidate(this.spaceId, "向量连接已变更，请重新搜索");
+      if (this.spaceId) {
+        this.invalidate(this.spaceId, "向量连接已变更，请重新搜索");
+      }
     }
   }
   async ranges(spaceId: MemorySpaceId): Promise<RetrievalRange[]> {
@@ -252,7 +266,9 @@ export class VectorRetrievalService {
   async search(request: RetrievalRequest): Promise<void> {
     request = { ...request, query: request.query.trim() };
     const key = JSON.stringify(request);
-    if (this.activeKey === key) return;
+    if (this.activeKey === key) {
+      return;
+    }
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
@@ -265,8 +281,9 @@ export class VectorRetrievalService {
         controller.signal.aborted ||
         generation !== this.generation ||
         context !== this.currentContext()
-      )
+      ) {
         throw new DOMException("搜索已失效", "AbortError");
+      }
     };
     this.activeKey = key;
     this.update({
@@ -282,24 +299,33 @@ export class VectorRetrievalService {
     let remote = 0;
     let checkTime = 0;
     try {
-      if (!spaceId) throw new Error("请先绑定有效记忆空间");
+      if (!spaceId) {
+        throw new Error("请先绑定有效记忆空间");
+      }
       const query = request.query.trim();
       const profile = this.embedding.getProfile();
-      if (!profile) throw new Error("请在设置中配置 embedding 连接");
+      if (!profile) {
+        throw new Error("请在设置中配置 embedding 连接");
+      }
       this.activeProfile = profile.version;
-      if (!query) throw new Error("请输入查询文本");
+      if (!query) {
+        throw new Error("请输入查询文本");
+      }
       const limit = Math.min(4000, profile.maxInputChars);
-      if (query.length > limit)
+      if (query.length > limit) {
         throw new Error(`查询长度 ${query.length} 超过上限 ${limit} 字符，请缩短查询`);
-      if (!Number.isInteger(request.topK) || request.topK < 1 || request.topK > 50)
+      }
+      if (!Number.isInteger(request.topK) || request.topK < 1 || request.topK > 50) {
         throw new Error("Top K 必须是 1–50 的整数");
+      }
       if (
         request.minimumScore !== null &&
         (!Number.isFinite(request.minimumScore) ||
           request.minimumScore < -1 ||
           request.minimumScore > 1)
-      )
+      ) {
         throw new Error("最低分必须在 [-1, 1] 内");
+      }
       const ranges = await this.ranges(spaceId);
       check();
       const selection: readonly RetrievalSelection[] =
@@ -310,19 +336,23 @@ export class VectorRetrievalService {
             tableId: range.table.id,
             groupIds: range.groups.map((group) => group.id),
           }));
-      if (!selection.length) throw new Error("没有合法搜索范围，请选择已启用索引的表和分组");
+      if (!selection.length) {
+        throw new Error("没有合法搜索范围，请选择已启用索引的表和分组");
+      }
       for (const selected of selection) {
         const range = ranges.find((range) => range.table.id === selected.tableId);
-        if (!range || range.error || !selected.groupIds.length)
+        if (!range || range.error || !selected.groupIds.length) {
           throw new Error(
             `${range?.table.name ?? selected.tableId}：${range?.error ?? "表或组选区已失效，请修正选择"}`,
           );
+        }
         for (const id of selected.groupIds) {
           const group = range.groups.find((group) => group.id === id);
-          if (!group || group.error)
+          if (!group || group.error) {
             throw new Error(
               `${range.table.name} / ${group?.name ?? id}：${group?.error ?? "分组已删除"}`,
             );
+          }
         }
       }
       this.selectedRanges = selection;
@@ -342,7 +372,9 @@ export class VectorRetrievalService {
       const records = new Set<string>();
       const checkedTargets = new Set<string>();
       for (const range of selection) {
-        if (range.recordIds?.length === 0) continue;
+        if (range.recordIds?.length === 0) {
+          continue;
+        }
         const selectedRecords = range.recordIds === undefined ? null : new Set(range.recordIds);
         const [targets, vectors] = await Promise.all([
           this.index.targets(
@@ -364,10 +396,13 @@ export class VectorRetrievalService {
           if (
             !range.groupIds.includes(target.groupId) ||
             (selectedRecords !== null && !selectedRecords.has(target.record.id))
-          )
+          ) {
             continue;
+          }
           const targetKey = JSON.stringify([target.table.id, target.record.id, target.groupId]);
-          if (checkedTargets.has(targetKey)) continue;
+          if (checkedTargets.has(targetKey)) {
+            continue;
+          }
           checkedTargets.add(targetKey);
           records.add(JSON.stringify([target.table.id, target.record.id]));
           if (target.status === "empty") {
@@ -401,7 +436,9 @@ export class VectorRetrievalService {
             coverage.ready++;
             candidates.push({ target, vector });
           }
-          if (reason) coverage.issues.push(`${label}：${reason}`);
+          if (reason) {
+            coverage.issues.push(`${label}：${reason}`);
+          }
         }
       }
       coverage.records = records.size;
@@ -458,20 +495,23 @@ export class VectorRetrievalService {
         );
         return;
       }
-      if (profile.version !== this.embedding.getProfile()?.version)
+      if (profile.version !== this.embedding.getProfile()?.version) {
         throw new Error("向量连接已变更，请重新搜索");
+      }
       this.update({ status: "embedding", calls: 1 });
       const remoteStart = performance.now();
       const queryVector = await this.embedding.embed(query, controller.signal);
       remote = performance.now() - remoteStart;
       check();
-      if (profile.version !== this.embedding.getProfile()?.version)
+      if (profile.version !== this.embedding.getProfile()?.version) {
         throw new Error("向量连接已变更，请重新搜索");
+      }
       if (
         !validVector(queryVector) ||
         (profile.dimensions !== undefined && profile.dimensions !== queryVector.length)
-      )
+      ) {
         throw new Error("查询向量维度或数值异常");
+      }
       this.update({ status: "sorting" });
       const sortStart = performance.now();
       const grouped = new Map<string, RetrievalGroupHit[]>();
@@ -492,11 +532,14 @@ export class VectorRetrievalService {
         }
         const norm = vectorNorm(vector.values);
         let score = 0;
-        for (let j = 0; j < queryVector.length; j++)
+        for (let j = 0; j < queryVector.length; j++) {
           score += (queryVector[j]! / queryNorm) * (vector.values[j]! / norm);
+        }
         score = Math.max(-1, Math.min(1, score));
         const id = JSON.stringify([target.table.id, target.record.id]);
-        if (!grouped.has(id)) grouped.set(id, []);
+        if (!grouped.has(id)) {
+          grouped.set(id, []);
+        }
         grouped.get(id)!.push({ target, vector, score });
       }
       const hits = [...grouped.values()]
@@ -525,15 +568,18 @@ export class VectorRetrievalService {
         performance.now() - sortStart,
       );
     } catch (error) {
-      if (generation !== this.generation) return;
-      if (context !== this.currentContext() || controller.signal.aborted)
+      if (generation !== this.generation) {
+        return;
+      }
+      if (context !== this.currentContext() || controller.signal.aborted) {
         this.update({ status: "stale", error: "搜索已失效，请重新搜索" });
-      else
+      } else {
         this.update({
           elapsedMs: performance.now() - started,
           status: "error",
           error: error instanceof Error ? error.message : String(error),
         });
+      }
     } finally {
       if (generation === this.generation) {
         this.activeKey = null;

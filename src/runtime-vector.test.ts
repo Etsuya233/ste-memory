@@ -55,7 +55,9 @@ async function setup(embedding: VectorEmbeddingPort) {
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   });
   const status = runtime.manager.getStatus();
-  if (status?.kind !== "active") throw new Error("测试空间未激活");
+  if (status?.kind !== "active") {
+    throw new Error("测试空间未激活");
+  }
   const spaceId = status.space.id;
   const table = await runtime.tables.create(spaceId, {
     key: "vector_test",
@@ -64,7 +66,9 @@ async function setup(embedding: VectorEmbeddingPort) {
     prompt: "",
     position: 100,
   });
-  if (!table) throw new Error("表格创建失败");
+  if (!table) {
+    throw new Error("表格创建失败");
+  }
   const field = await runtime.fields.create(spaceId, table.id, {
     key: "content",
     name: "内容",
@@ -74,7 +78,9 @@ async function setup(embedding: VectorEmbeddingPort) {
     enabled: true,
     position: 0,
   });
-  if (!field) throw new Error("字段创建失败");
+  if (!field) {
+    throw new Error("字段创建失败");
+  }
   await runtime.fields.setDisplayStrategy(spaceId, table.id, { type: "field", fieldId: field.id });
   return { runtime, db, spaceId, tableId: table.id, fieldId: field.id, context, handlers, ports };
 }
@@ -114,7 +120,9 @@ describe("runtime 向量索引接线", () => {
     const record = await runtime.records.create(spaceId, tableId, {
       payload: { [fieldId]: "星港" },
     });
-    if (!record) throw new Error("记录创建失败");
+    if (!record) {
+      throw new Error("记录创建失败");
+    }
     await waitFor(async () => {
       expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1);
     });
@@ -151,7 +159,9 @@ describe("runtime 向量索引接线", () => {
     const record = await runtime.records.create(spaceId, tableId, {
       payload: { [fieldId]: "手动内容" },
     });
-    if (!record) throw new Error("记录创建失败");
+    if (!record) {
+      throw new Error("记录创建失败");
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(inputs).toEqual([]);
     expect(await db.vectorTasks.where("memorySpaceId").equals(spaceId).count()).toBe(0);
@@ -231,7 +241,9 @@ describe("runtime 向量检索接线", () => {
     const record = await runtime.records.create(spaceId, tableId, {
       payload: { [fieldId]: "森林" },
     });
-    if (!record) throw new Error("创建失败");
+    if (!record) {
+      throw new Error("创建失败");
+    }
     await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
     await waitFor(async () => {
       expect(await db.recordVectors.count()).toBe(1);
@@ -290,7 +302,9 @@ describe("runtime 向量检索接线", () => {
     const record = await runtime.records.create(spaceId, tableId, {
       payload: { [fieldId]: "森林" },
     });
-    if (!record) throw new Error("创建失败");
+    if (!record) {
+      throw new Error("创建失败");
+    }
     await runtime.vector.submit({ memorySpaceId: spaceId, tableId }, { source: "manual" });
     await waitFor(async () => {
       expect(pending).toHaveLength(1);
@@ -369,7 +383,9 @@ describe("预设更新的运行时接线", () => {
     );
     const originalVector = (await db.recordVectors.toArray())[0]!;
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+    if (status?.kind !== "active" || status.binding.version !== 2) {
+      throw new Error("空间未就绪");
+    }
     const structure = await captureSpaceStructure(
       {
         listTables: (id) => runtime.tables.list(id),
@@ -448,7 +464,9 @@ describe("预设更新的运行时接线", () => {
     });
     await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "现有内容" } });
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+    if (status?.kind !== "active" || status.binding.version !== 2) {
+      throw new Error("空间未就绪");
+    }
     const structure = await captureSpaceStructure(
       {
         listTables: (id) => runtime.tables.list(id),
@@ -531,7 +549,9 @@ it("废弃旧召回后删除分组不再被旧绑定阻止，并清理向量", a
     expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1),
   );
   const status = runtime.manager.getStatus();
-  if (status?.kind !== "active" || status.binding.version !== 2) throw new Error("空间未就绪");
+  if (status?.kind !== "active" || status.binding.version !== 2) {
+    throw new Error("空间未就绪");
+  }
   const structure = await captureSpaceStructure(
     {
       listTables: (id) => runtime.tables.list(id),

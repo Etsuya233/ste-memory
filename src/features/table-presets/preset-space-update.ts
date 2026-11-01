@@ -85,18 +85,24 @@ function displayStrategy(
   fields: readonly MemoryField[],
 ): TablePresetDisplayStrategy | null {
   const strategy = table.displayStrategy;
-  if (!strategy) return null;
+  if (!strategy) {
+    return null;
+  }
   const byId = new Map(fields.map((field) => [field.id, field.key]));
   if (strategy.type === "field") {
     const key = byId.get(strategy.fieldId);
-    if (!key) throw new Error(`表「${table.key}」的显示字段不存在：${strategy.fieldId}`);
+    if (!key) {
+      throw new Error(`表「${table.key}」的显示字段不存在：${strategy.fieldId}`);
+    }
     return { type: "field", fieldKey: key };
   }
   return {
     type: "template",
     template: strategy.template.replace(/\{([^{}]+)\}/g, (_, id: MemoryField["id"]) => {
       const key = byId.get(id);
-      if (!key) throw new Error(`表「${table.key}」的显示模板字段不存在：${id}`);
+      if (!key) {
+        throw new Error(`表「${table.key}」的显示模板字段不存在：${id}`);
+      }
       return `{${key}}`;
     }),
   };
@@ -108,8 +114,9 @@ function groupsOf(table: MemoryTable, fields: readonly MemoryField[]) {
     name: group.name,
     fieldKeys: group.fieldIds.map((id) => {
       const field = fields.find((item) => item.id === id);
-      if (!field)
+      if (!field) {
         throw new Error(`表「${table.key}」的向量分组「${group.key}」引用了不存在的字段：${id}`);
+      }
       return field.key;
     }),
   }));
@@ -147,7 +154,7 @@ export function previewPresetUpdate(
     for (const property of names) {
       const oldValue = before[property];
       const newValue = after[property];
-      if (JSON.stringify(oldValue) !== JSON.stringify(newValue))
+      if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
         children.push(
           leaf(propertyLabels[property], {
             entity,
@@ -159,6 +166,7 @@ export function previewPresetUpdate(
             after: newValue,
           }),
         );
+      }
     }
   };
   properties(nodes, "space", { prompt: unit.space.prompt ?? "" }, { prompt: preset.prompt ?? "" }, [
@@ -191,7 +199,7 @@ export function previewPresetUpdate(
     const fieldNodes: PresetUpdateNode[] = [];
     for (const field of target.fields) {
       const existing = fields.find((item) => item.key === field.key);
-      if (!existing)
+      if (!existing) {
         fieldNodes.push(
           leaf(`${field.name} · ${field.key}`, {
             entity: "field",
@@ -201,7 +209,7 @@ export function previewPresetUpdate(
             after: field,
           }),
         );
-      else {
+      } else {
         const attributes: PresetUpdateNode[] = [];
         properties(
           attributes,
@@ -216,17 +224,18 @@ export function previewPresetUpdate(
           existing.type !== field.type
             ? `类型不同：${existing.type} → ${field.type}；保留当前类型`
             : undefined;
-        if (attributes.length || note)
+        if (attributes.length || note) {
           fieldNodes.push({
             id: `field:${target.key}:${field.key}`,
             label: `${field.name} · ${field.key}`,
             children: attributes,
             note,
           });
+        }
       }
     }
     for (const field of fields) {
-      if (!target.fields.some((item) => item.key === field.key))
+      if (!target.fields.some((item) => item.key === field.key)) {
         fieldNodes.push(
           leaf(
             `${field.name} · ${field.key}`,
@@ -240,9 +249,11 @@ export function previewPresetUpdate(
             "删除字段值及相关历史、证据；保留记录的其他字段",
           ),
         );
+      }
     }
-    if (fieldNodes.length)
+    if (fieldNodes.length) {
       children.push({ id: `fields:${target.key}`, label: "字段", children: fieldNodes });
+    }
     if (target.vectorIndex) {
       const vectorNodes: PresetUpdateNode[] = [];
       const config = current.vectorIndex ?? { enabled: false, updateMode: "manual" };
@@ -257,14 +268,16 @@ export function previewPresetUpdate(
       const oldGroups = groupsOf(current, fields);
       const seen = new Set<string>();
       for (const group of [...oldGroups, ...target.vectorIndex.groups]) {
-        if (!group.key?.trim())
+        if (!group.key?.trim()) {
           throw new Error(`表「${target.key}」的向量分组缺少 Key，请先编辑分组 Key`);
+        }
       }
       for (const list of [oldGroups, target.vectorIndex.groups]) {
         seen.clear();
         for (const group of list) {
-          if (seen.has(group.key))
+          if (seen.has(group.key)) {
             throw new Error(`表「${target.key}」的向量分组 Key 重复：${group.key}`);
+          }
           seen.add(group.key);
         }
       }
@@ -274,7 +287,7 @@ export function previewPresetUpdate(
           !existing ||
           existing.name !== group.name ||
           JSON.stringify(existing.fieldKeys) !== JSON.stringify(group.fieldKeys)
-        )
+        ) {
           vectorNodes.push(
             leaf(
               `${group.name} · ${group.key}`,
@@ -289,9 +302,10 @@ export function previewPresetUpdate(
               "按分组 Key 匹配；输入变化后旧索引过期",
             ),
           );
+        }
       }
       for (const group of oldGroups) {
-        if (!target.vectorIndex.groups.some((item) => item.key === group.key))
+        if (!target.vectorIndex.groups.some((item) => item.key === group.key)) {
           vectorNodes.push(
             leaf(
               `${group.name} · ${group.key}`,
@@ -305,8 +319,9 @@ export function previewPresetUpdate(
               "删除该分组的索引；记忆正文保留",
             ),
           );
+        }
       }
-      if (vectorNodes.length)
+      if (vectorNodes.length) {
         children.push({
           id: `vector:${target.key}`,
           label: "向量配置",
@@ -316,9 +331,11 @@ export function previewPresetUpdate(
               ? "选择分组变更后切换为固定预设分组；保留的自动组采用当前字段快照"
               : undefined,
         });
+      }
     }
-    if (children.length)
+    if (children.length) {
       nodes.push({ id: `table:${target.key}`, label: `${current.name} · ${target.key}`, children });
+    }
   }
   for (const table of unit.tables) {
     if (!targetTables.has(table.key)) {
@@ -356,12 +373,14 @@ export function buildPresetUpdate(
   ids: PresetInstantiationIds,
   now: string,
 ): MemorySpaceBackup {
-  if (unit.space.id !== plan.spaceId || presetUpdateFingerprint(unit) !== plan.baseline)
+  if (unit.space.id !== plan.spaceId || presetUpdateFingerprint(unit) !== plan.baseline) {
     throw new Error("空间内容已变化，请重新比较后执行");
+  }
   const selected = new Set(selectedIds);
   const changes = presetUpdateChanges(plan.nodes).filter((change) => selected.has(change.id));
-  if (changes.length !== selected.size || changes.length === 0)
+  if (changes.length !== selected.size || changes.length === 0) {
     throw new Error("请选择有效的变更项");
+  }
   const preset = plan.preset;
   let tableIndex = 0,
     fieldIndex = 0;
@@ -397,7 +416,9 @@ export function buildPresetUpdate(
       space = { ...space, prompt: preset.prompt ?? "", updatedAt: now };
       continue;
     }
-    if (change.entity !== "table" || change.action === "update") continue;
+    if (change.entity !== "table" || change.action === "update") {
+      continue;
+    }
     if (change.action === "delete") {
       const table = tables.find((item) => item.key === change.tableKey)!;
       deletedTableIds.add(table.id);
@@ -417,8 +438,9 @@ export function buildPresetUpdate(
       change.entity === "space" ||
       change.entity === "group" ||
       (change.entity === "table" && change.action !== "update")
-    )
+    ) {
       continue;
+    }
     const table = tables.find((item) => item.key === change.tableKey)!;
     const targetTable = target.tables.find((item) => item.key === change.tableKey)!;
     if (change.entity === "table") {
@@ -483,7 +505,9 @@ export function buildPresetUpdate(
     const groupChanges = changes.filter(
       (change) => change.entity === "group" && change.tableKey === table.key,
     );
-    if (!groupChanges.length) continue;
+    if (!groupChanges.length) {
+      continue;
+    }
     const config: VectorIndexConfiguration = table.vectorIndex ?? {
       enabled: false,
       source: "preset",
@@ -494,15 +518,18 @@ export function buildPresetUpdate(
     let groups = [...effectiveVectorIndexGroups(config, oldFields)];
     for (const change of groupChanges) {
       const existing = groups.find((group) => group.key === change.groupKey);
-      if (change.action === "delete")
+      if (change.action === "delete") {
         groups = groups.filter((group) => group.key !== change.groupKey);
-      else {
+      } else {
         const desired = target.tables
           .find((item) => item.key === table.key)!
           .vectorIndex!.presetGroups!.find((group) => group.key === change.groupKey)!;
         const next = { ...desired, id: existing?.id ?? desired.id };
-        if (existing) groups = groups.map((group) => (group.id === existing.id ? next : group));
-        else groups.push(next);
+        if (existing) {
+          groups = groups.map((group) => (group.id === existing.id ? next : group));
+        } else {
+          groups.push(next);
+        }
       }
     }
     tables = tables.map((item) =>
@@ -523,13 +550,16 @@ export function buildPresetUpdate(
         if (
           !field?.enabled ||
           (table.displayStrategy.type === "field" && field.type !== "short_text")
-        )
+        ) {
           throw new Error(
             `表「${table.key}」的显示策略依赖字段「${field?.key ?? id}」，请同时更新显示策略`,
           );
+        }
       }
     }
-    if (table.vectorIndex) validateVectorIndexConfiguration(table.vectorIndex, tableFields);
+    if (table.vectorIndex) {
+      validateVectorIndexConfiguration(table.vectorIndex, tableFields);
+    }
   }
   const strip = <
     T extends MemorySpaceBackup["records"][number] | MemorySpaceBackup["history"][number],

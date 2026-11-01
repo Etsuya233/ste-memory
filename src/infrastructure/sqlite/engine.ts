@@ -75,14 +75,18 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
 
   async openEvaluation(snapshot: MemorySpaceBackup): Promise<string> {
-    if (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === "semantic_scores"))
+    if (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === "semantic_scores")) {
       throw new Error("业务表 Key 与语义函数保留名称冲突：semantic_scores");
+    }
     const db = this.newDatabase();
     try {
       db.exec("BEGIN");
       this.store(db, "space", snapshot.space);
-      for (const kind of Object.keys(collections) as (keyof typeof collections)[])
-        for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
+      for (const kind of Object.keys(collections) as (keyof typeof collections)[]) {
+        for (const entity of snapshot[collections[kind]]) {
+          this.store(db, kind, entity);
+        }
+      }
       for (const entry of snapshot.floorLedger) {
         this.store(db, "floor", { ...entry, id: String(entry.floor) });
       }
@@ -100,14 +104,18 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
 
   async closeEvaluation(sessionId: string): Promise<void> {
     const db = this.evaluations.get(sessionId);
-    if (!db) throw new Error(`宏求值会话不存在：${sessionId}`);
+    if (!db) {
+      throw new Error(`宏求值会话不存在：${sessionId}`);
+    }
     db.db.close();
     this.evaluations.delete(sessionId);
   }
 
   async evaluateMacro(input: MacroSqlEvaluationInput): Promise<MacroSqlResult> {
     const result = await this.executeEvaluation(input);
-    if (result.status !== "complete") throw new Error("内联语义函数须通过语义 SQL 执行端口运行");
+    if (result.status !== "complete") {
+      throw new Error("内联语义函数须通过语义 SQL 执行端口运行");
+    }
     return { columns: result.columns, rows: result.rows };
   }
 
@@ -122,7 +130,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     inlineSources?: readonly PreparedSemanticSqlSource[],
   ): Promise<SemanticSqlEvaluationResult> {
     const evaluation = this.evaluations.get(input.sessionId);
-    if (!evaluation) throw new Error(`宏求值会话不存在：${input.sessionId}`);
+    if (!evaluation) {
+      throw new Error(`宏求值会话不存在：${input.sessionId}`);
+    }
     const { db, semantic } = evaluation;
     const started = performance.now();
     let usesSemantic = false;
@@ -161,15 +171,18 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       const names = new Set(businessNames);
       for (const relation of input.sources) {
         const name = sqliteIdentifierKey(relation.name);
-        if (names.has(name) || name.startsWith("__") || name.startsWith("sqlite_"))
+        if (names.has(name) || name.startsWith("__") || name.startsWith("sqlite_")) {
           throw new Error(`语义源名称冲突或使用保留名称：${relation.name}`);
+        }
         names.add(name);
         db.exec(
           `CREATE TEMP TABLE ${quote(relation.name)}(record_id TEXT NOT NULL,score REAL NOT NULL,group_key TEXT NOT NULL,rerank_score REAL,rerank_rank INTEGER,rank INTEGER) STRICT`,
         );
         created.push(relation.name);
         for (const row of relation.rows) {
-          if (performance.now() >= totalDeadline) throw new Error("宏求值超时");
+          if (performance.now() >= totalDeadline) {
+            throw new Error("宏求值超时");
+          }
           this.rows(db, `INSERT INTO ${quote(relation.name)} VALUES(?,?,?,?,?,?)`, [
             row.recordId,
             row.score,
@@ -200,28 +213,34 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       capi.sqlite3_set_authorizer(
         db.pointer!,
         (_arg, action, tableName, columnName, databaseName) => {
-          if (!readActions.has(action)) return capi.SQLITE_DENY;
+          if (!readActions.has(action)) {
+            return capi.SQLITE_DENY;
+          }
           if (
             action === capi.SQLITE_FUNCTION &&
             ["load_extension", "readfile", "writefile"].includes(String(columnName))
-          )
+          ) {
             return capi.SQLITE_DENY;
+          }
           if (action === capi.SQLITE_READ) {
             const table = sqliteIdentifierKey(String(tableName));
             // COUNT(*) can omit the schema name; the native planner disambiguates that case.
             if (
               table === "semantic_scores" &&
               !(legacySemanticTable && (databaseName === "temp" || !databaseName))
-            )
+            ) {
               usesSemantic = true;
-            if (["json_each", "json_tree"].includes(table) && !businessNames.has(table))
+            }
+            if (["json_each", "json_tree"].includes(table) && !businessNames.has(table)) {
               return capi.SQLITE_OK;
+            }
             const columns = allowed.get(table);
             if (
               !columns ||
               (columnName !== "" && !columns.has(sqliteIdentifierKey(String(columnName))))
-            )
+            ) {
               return capi.SQLITE_DENY;
+            }
           }
           return capi.SQLITE_OK;
         },
@@ -249,61 +268,85 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         const next = wasm.peekPtr(statementPointer);
         db.checkRc(code);
         cursor = wasm.peekPtr(tailPointer);
-        if (!next) continue;
+        if (!next) {
+          continue;
+        }
         if (statement) {
           capi.sqlite3_finalize(next);
           throw new Error("SQL 只允许一条语句");
         }
         statement = next;
       }
-      if (!statement) throw new Error("SQL 需要一条查询语句");
+      if (!statement) {
+        throw new Error("SQL 需要一条查询语句");
+      }
       usesSemantic ||= semantic.planned;
-      if (usesSemantic && input.sources.length)
+      if (usesSemantic && input.sources.length) {
         throw new Error("非空旧 sources 与内联 semantic_scores 不能混用");
-      if (usesSemantic && inlineSources === undefined)
+      }
+      if (usesSemantic && inlineSources === undefined) {
         throw new Error("内联语义函数须通过语义 SQL 执行端口运行");
-      if (performance.now() >= deadline) throw new Error("语义 SQL 超出执行预算");
+      }
+      if (performance.now() >= deadline) {
+        throw new Error("语义 SQL 超出执行预算");
+      }
       const columns = Array.from({ length: capi.sqlite3_column_count(statement) }, (_, i) =>
         capi.sqlite3_column_name(statement, i),
       );
-      if (columns.length === 0) throw new Error("SQL 必须返回查询结果");
-      if (new Set(columns).size !== columns.length)
+      if (columns.length === 0) {
+        throw new Error("SQL 必须返回查询结果");
+      }
+      if (new Set(columns).size !== columns.length) {
         throw new Error("SQL 返回重复列名，请使用不同别名");
+      }
       let positional = 0;
       const unused = new Set(Object.keys(input.params ?? {}));
       for (const [key, value] of Object.entries(input.params ?? {})) {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`SQL 参数名无效：${key}`);
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+          throw new Error(`SQL 参数名无效：${key}`);
+        }
         if (
           value !== null &&
           typeof value !== "string" &&
           !(typeof value === "number" && Number.isFinite(value))
-        )
+        ) {
           throw new Error(`SQL 参数值无效：${key}`);
+        }
       }
       if (
         input.maxRows !== undefined &&
         (!Number.isSafeInteger(input.maxRows) || input.maxRows < 1)
-      )
+      ) {
         throw new Error("SQL 返回行数上限必须为正整数");
+      }
       for (let i = 1; i <= capi.sqlite3_bind_parameter_count(statement); i++) {
         const name = capi.sqlite3_bind_parameter_name(statement, i);
         let value: string | number | null | undefined;
         if (input.params !== undefined) {
-          if (!name || !/^:[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+          if (!name || !/^:[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
             throw new Error("语义查询只接受 :name 命名参数");
+          }
           const key = name.slice(1);
-          if (!Object.hasOwn(input.params, key)) throw new Error(`SQL 缺少绑定参数：${name}`);
+          if (!Object.hasOwn(input.params, key)) {
+            throw new Error(`SQL 缺少绑定参数：${name}`);
+          }
           unused.delete(key);
           value = input.params[key];
         } else {
-          if (name && name !== ":last_user_message") throw new Error(`SQL 参数未声明：${name}`);
+          if (name && name !== ":last_user_message") {
+            throw new Error(`SQL 参数未声明：${name}`);
+          }
           value =
             name === ":last_user_message"
               ? (input.lastUserMessage ?? null)
               : input.bind?.[positional++];
         }
-        if (value === undefined) throw new Error("SQL 缺少绑定参数");
-        if (input.prepareOnly) continue;
+        if (value === undefined) {
+          throw new Error("SQL 缺少绑定参数");
+        }
+        if (input.prepareOnly) {
+          continue;
+        }
         if (typeof value === "string") {
           const text = wasm.allocCString(value, false);
           try {
@@ -319,14 +362,17 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           } finally {
             wasm.dealloc(text);
           }
-        } else
+        } else {
           db.checkRc(
             value === null
               ? capi.sqlite3_bind_null(statement, i)
               : capi.sqlite3_bind_double(statement, i, value),
           );
+        }
       }
-      if (unused.size) throw new Error(`SQL 包含未使用参数：${[...unused].join("、")}`);
+      if (unused.size) {
+        throw new Error(`SQL 包含未使用参数：${[...unused].join("、")}`);
+      }
       if (input.prepareOnly) {
         const result = {
           status: "complete" as const,
@@ -346,10 +392,14 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           truncated = true;
           break;
         }
-        if (rows.length === 10000) throw new Error("SQL 查询结果超过 10000 行");
+        if (rows.length === 10000) {
+          throw new Error("SQL 查询结果超过 10000 行");
+        }
         rows.push(columns.map((_, i) => capi.sqlite3_column_js(statement, i)));
       }
-      if (semantic.error) throw semantic.error;
+      if (semantic.error) {
+        throw semantic.error;
+      }
       if (semantic.pending && step === capi.SQLITE_ABORT) {
         const result = {
           status: "needs-semantic-source" as const,
@@ -359,8 +409,12 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         timedResult = result;
         return result;
       }
-      if (!truncated && step !== capi.SQLITE_DONE) db.checkRc(step);
-      if (performance.now() >= deadline) throw new Error("语义 SQL 超出执行预算");
+      if (!truncated && step !== capi.SQLITE_DONE) {
+        db.checkRc(step);
+      }
+      if (performance.now() >= deadline) {
+        throw new Error("语义 SQL 超出执行预算");
+      }
       const result = {
         status: "complete" as const,
         columns,
@@ -372,15 +426,27 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       timedResult = result;
       return result;
     } finally {
-      if (statement) capi.sqlite3_finalize(statement);
-      if (source) wasm.dealloc(source);
-      if (statementPointer) wasm.dealloc(statementPointer);
-      if (tailPointer) wasm.dealloc(tailPointer);
+      if (statement) {
+        capi.sqlite3_finalize(statement);
+      }
+      if (source) {
+        wasm.dealloc(source);
+      }
+      if (statementPointer) {
+        wasm.dealloc(statementPointer);
+      }
+      if (tailPointer) {
+        wasm.dealloc(tailPointer);
+      }
       capi.sqlite3_set_authorizer(db.pointer!, () => capi.SQLITE_OK, 0);
       capi.sqlite3_progress_handler(db.pointer!, 0, 0, 0);
-      for (const name of created) db.exec(`DROP TABLE temp.${quote(name)}`);
+      for (const name of created) {
+        db.exec(`DROP TABLE temp.${quote(name)}`);
+      }
       semantic.end();
-      if (timedResult) timedResult.elapsedMs = performance.now() - started;
+      if (timedResult) {
+        timedResult.elapsedMs = performance.now() - started;
+      }
     }
   }
 
@@ -418,10 +484,13 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         try {
           db.checkRc(code);
           cursor = wasm.peekPtr(tailPointer);
-          if (!statement) continue;
+          if (!statement) {
+            continue;
+          }
           if (semantic.planned) {
-            if (!capi.sqlite3_stmt_readonly(statement))
+            if (!capi.sqlite3_stmt_readonly(statement)) {
               throw new Error("包含 semantic_scores 的语句只允许只读查询");
+            }
             semanticStatement = {
               sql: capi.sqlite3_sql(statement)!,
               remainingSql: wasm.cstrToJs(cursor)!,
@@ -438,10 +507,16 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
               columns.map((_, index) => capi.sqlite3_column_js(statement, index) as SqlValue),
             );
           }
-          if (step !== capi.SQLITE_DONE) db.checkRc(step);
-          if (columns.length > 0) results.push({ columns, rows });
+          if (step !== capi.SQLITE_DONE) {
+            db.checkRc(step);
+          }
+          if (columns.length > 0) {
+            results.push({ columns, rows });
+          }
         } finally {
-          if (statement) capi.sqlite3_finalize(statement);
+          if (statement) {
+            capi.sqlite3_finalize(statement);
+          }
           semantic.end();
         }
       }
@@ -481,7 +556,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
   private session(spaceId: string): SpaceDatabase {
     const session = this.spaces.get(spaceId);
-    if (!session) throw new Error(`SQLite 空间尚未初始化：${spaceId}`);
+    if (!session) {
+      throw new Error(`SQLite 空间尚未初始化：${spaceId}`);
+    }
     return session;
   }
   private rows(
@@ -532,7 +609,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       "PRAGMA foreign_keys=ON; CREATE TABLE __entities(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)),PRIMARY KEY(kind,id)) STRICT;",
     );
     db.createFunction("ste_text_valid", (_ctx, value, required, max, pattern) => {
-      if (value === null) return required ? 0 : 1;
+      if (value === null) {
+        return required ? 0 : 1;
+      }
       const text = String(value);
       return (!required || text.trim().length > 0) &&
         (max === null || text.length <= Number(max)) &&
@@ -541,13 +620,20 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         : 0;
     });
     db.createFunction("ste_date_valid", (_ctx, value, datetime) => {
-      if (value === null) return 1;
+      if (value === null) {
+        return 1;
+      }
       const text = String(value);
-      if (!(datetime ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/).test(text))
+      if (
+        !(datetime ? /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/).test(text)
+      ) {
         return 0;
+      }
       const day = text.slice(0, 10),
         date = new Date(`${day}T00:00:00.000Z`);
-      if (Number.isNaN(date.valueOf()) || !date.toISOString().startsWith(day)) return 0;
+      if (Number.isNaN(date.valueOf()) || !date.toISOString().startsWith(day)) {
+        return 0;
+      }
       return !datetime ||
         text
           .slice(11)
@@ -558,15 +644,18 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         : 0;
     });
     db.createFunction("ste_list_valid", (_ctx, value, required, max, pattern) => {
-      if (value === null) return required ? 0 : 1;
+      if (value === null) {
+        return required ? 0 : 1;
+      }
       const values: unknown = JSON.parse(String(value));
       if (
         !Array.isArray(values) ||
         values.some((item) => typeof item !== "string") ||
         new Set(values).size !== values.length ||
         (required && values.length === 0)
-      )
+      ) {
         return 0;
+      }
       return values.every(
         (item: string) =>
           (max === null || item.length <= Number(max)) &&
@@ -583,7 +672,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       db.exec("BEGIN");
       this.store(db, "space", snapshot.space);
       for (const kind of Object.keys(collections) as (keyof typeof collections)[]) {
-        for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
+        for (const entity of snapshot[collections[kind]]) {
+          this.store(db, kind, entity);
+        }
       }
       for (const entry of snapshot.floorLedger) {
         this.store(db, "floor", { ...entry, id: String(entry.floor) });
@@ -609,8 +700,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     } catch (error) {
       db.close();
       committed.close();
-      if (old) this.spaces.set(snapshot.space.id, old);
-      else this.spaces.delete(snapshot.space.id);
+      if (old) {
+        this.spaces.set(snapshot.space.id, old);
+      } else {
+        this.spaces.delete(snapshot.space.id);
+      }
       throw error;
     }
     old?.write.close();
@@ -725,20 +819,28 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           ? "REAL"
           : "TEXT";
     const checks: string[] = [];
-    if (field.type === "boolean") checks.push(`${name} IN (0,1)`);
-    if (isList(field))
+    if (field.type === "boolean") {
+      checks.push(`${name} IN (0,1)`);
+    }
+    if (isList(field)) {
       checks.push(
         `ste_list_valid(${name},${field.required ? 1 : 0},${field.maxChars ?? "NULL"},${field.valuePattern === null ? "NULL" : literal(field.valuePattern)})`,
       );
-    if (field.type === "date" || field.type === "datetime")
+    }
+    if (field.type === "date" || field.type === "datetime") {
       checks.push(`ste_date_valid(${name},${field.type === "datetime" ? 1 : 0})`);
-    if (field.type === "single_reference") checks.push(`length(${name})>0`);
-    if (["short_text", "long_text", "single_select"].includes(field.type))
+    }
+    if (field.type === "single_reference") {
+      checks.push(`length(${name})>0`);
+    }
+    if (["short_text", "long_text", "single_select"].includes(field.type)) {
       checks.push(
         `ste_text_valid(${name},${field.required ? 1 : 0},${field.maxChars ?? "NULL"},${field.valuePattern === null ? "NULL" : literal(field.valuePattern)})`,
       );
-    if (field.type === "single_select")
+    }
+    if (field.type === "single_select") {
       checks.push(`${name} IN (${field.options.map(literal).join(",")})`);
+    }
     const reference =
       field.type === "single_reference"
         ? ` REFERENCES ${quote(this.keysName(tables.find((table) => table.id === field.referenceTableId)!.id))}(id) DEFERRABLE INITIALLY DEFERRED`
@@ -753,19 +855,23 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     );
     // Defer checks while dropping/recreating mutually referencing tables.
     db.exec("PRAGMA defer_foreign_keys=ON");
-    for (const row of existing) db.exec(`DROP TABLE ${quote(row.name as string)}`);
+    for (const row of existing) {
+      db.exec(`DROP TABLE ${quote(row.name as string)}`);
+    }
     const { tables, fields } = this.schema(db);
     // Stable ID tables keep foreign-key targets alive while editable schema is rebuilt.
     // This also permits mutually referencing table definitions and cyclic record graphs.
-    for (const table of tables)
+    for (const table of tables) {
       db.exec(
         `CREATE TABLE IF NOT EXISTS ${quote(this.keysName(table.id))}(id TEXT PRIMARY KEY NOT NULL) STRICT`,
       );
+    }
     const records = this.entities(db, "record");
-    for (const record of records)
+    for (const record of records) {
       this.rows(db, `INSERT OR IGNORE INTO ${quote(this.keysName(record.tableId))} VALUES(?)`, [
         record.id,
       ]);
+    }
     for (const table of tables) {
       const ids = records
         .filter((record) => record.tableId === table.id)
@@ -777,11 +883,13 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       );
     }
     for (const table of tables) {
-      if (table.key.startsWith("__") || sqliteIdentifierKey(table.key).startsWith("sqlite_"))
+      if (table.key.startsWith("__") || sqliteIdentifierKey(table.key).startsWith("sqlite_")) {
         throw new Error(`SQLite 保留表 Key：${table.key}`);
+      }
       const columns = fields.filter((field) => field.tableId === table.id);
-      if (columns.some((field) => field.key.startsWith("$") || field.key.startsWith("__")))
+      if (columns.some((field) => field.key.startsWith("$") || field.key.startsWith("__"))) {
         throw new Error(`SQLite 保留字段 Key：${table.key}`);
+      }
       db.exec(
         `CREATE TABLE ${quote(table.key)} (${quote("$record_id")} TEXT PRIMARY KEY NOT NULL, ${quote("$display_text")} TEXT NOT NULL, ${quote("$created_at")} TEXT NOT NULL, ${quote("$updated_at")} TEXT NOT NULL${columns.map((field) => `,${this.column(field, tables)}`).join("")}) STRICT`,
       );
@@ -800,7 +908,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         `CREATE TABLE ${quote(this.listName(field))}(record_id TEXT NOT NULL REFERENCES ${quote(this.keysName(table.id))}(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,position INTEGER NOT NULL,value TEXT NOT NULL${target}${options},PRIMARY KEY(record_id,position),UNIQUE(record_id,value)) STRICT`,
       );
     }
-    for (const record of this.entities(db, "record")) this.writeRecord(db, record);
+    for (const record of this.entities(db, "record")) {
+      this.writeRecord(db, record);
+    }
   }
   private listName(field: MemoryField): string {
     return `__list_${field.id}`;
@@ -811,7 +921,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   private writeRecord(db: Database, record: MemoryRecord): void {
     const { tables, fields } = this.schema(db),
       table = tables.find((table) => table.id === record.tableId);
-    if (!table) throw new Error(`记录的表不存在：${record.tableId}`);
+    if (!table) {
+      throw new Error(`记录的表不存在：${record.tableId}`);
+    }
     this.rows(db, `INSERT OR IGNORE INTO ${quote(this.keysName(table.id))} VALUES(?)`, [record.id]);
     const columns = fields.filter((field) => field.tableId === table.id);
     const names = [
@@ -847,29 +959,39 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       this.rows(db, `DELETE FROM ${quote(this.listName(field))} WHERE record_id=?`, [record.id]);
       const values = record.payload[field.id];
       if (values !== null && values !== undefined) {
-        for (const [position, value] of (values as readonly string[]).entries())
+        for (const [position, value] of (values as readonly string[]).entries()) {
           this.rows(db, `INSERT INTO ${quote(this.listName(field))} VALUES(?,?,?)`, [
             record.id,
             position,
             value,
           ]);
+        }
       }
     }
   }
   private async mutation(spaceId: string, action: (db: Database) => void): Promise<void> {
     const session = this.session(spaceId),
       own = !session.transaction;
-    if (own) await this.begin(spaceId);
+    if (own) {
+      await this.begin(spaceId);
+    }
     session.write.exec("SAVEPOINT __entity_write");
     try {
       action(session.write);
       session.write.exec("RELEASE __entity_write");
-      if (own) await this.commit(spaceId);
+      if (own) {
+        await this.commit(spaceId);
+      }
     } catch (error) {
       if (this.sqlite.capi.sqlite3_get_autocommit(session.write.pointer!) === 0) {
-        if (own) await this.rollback(spaceId);
-        else session.write.exec("ROLLBACK TO __entity_write; RELEASE __entity_write");
-      } else session.transaction = false;
+        if (own) {
+          await this.rollback(spaceId);
+        } else {
+          session.write.exec("ROLLBACK TO __entity_write; RELEASE __entity_write");
+        }
+      } else {
+        session.transaction = false;
+      }
       throw error;
     }
   }
@@ -880,8 +1002,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   ): Promise<void> {
     await this.mutation(spaceId, (db) => {
       this.store(db, kind, entity);
-      if (kind === "record") this.writeRecord(db, entity as MemoryRecord);
-      else if (kind === "table" || kind === "field") this.rebuild(db);
+      if (kind === "record") {
+        this.writeRecord(db, entity as MemoryRecord);
+      } else if (kind === "table" || kind === "field") {
+        this.rebuild(db);
+      }
     });
   }
   async deleteEntity(spaceId: string, kind: SqliteEntityKind, id: string): Promise<void> {
@@ -895,7 +1020,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         }
       }
       this.rows(db, "DELETE FROM __entities WHERE kind=? AND id=?", [kind, id]);
-      if (kind === "table" || kind === "field") this.rebuild(db);
+      if (kind === "table" || kind === "field") {
+        this.rebuild(db);
+      }
     });
   }
   async begin(spaceId: string): Promise<void> {
@@ -906,7 +1033,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   async commit(spaceId: string): Promise<void> {
     const session = this.session(spaceId);
     const missing = this.rows(session.write, "PRAGMA foreign_key_check");
-    if (missing.length) throw new Error("记忆引用约束未满足");
+    if (missing.length) {
+      throw new Error("记忆引用约束未满足");
+    }
     session.write.exec("COMMIT");
     session.transaction = false;
     await this.publish(spaceId);
@@ -927,16 +1056,19 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
   }
   async publish(spaceId: string): Promise<void> {
     const session = this.session(spaceId);
-    if (session.transaction) throw new Error("不能发布尚未提交的 SQLite 数据");
+    if (session.transaction) {
+      throw new Error("不能发布尚未提交的 SQLite 数据");
+    }
     const db = this.newDatabase();
     try {
       db.exec("BEGIN");
-      for (const row of this.rows(session.write, "SELECT kind,id,data FROM __entities"))
+      for (const row of this.rows(session.write, "SELECT kind,id,data FROM __entities")) {
         this.rows(db, "INSERT INTO __entities VALUES(?,?,?)", [
           row.kind as string,
           row.id as string,
           row.data as string,
         ]);
+      }
       this.rebuild(db);
       db.exec("COMMIT");
     } catch (error) {
@@ -960,8 +1092,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     } = input;
     const db = this.database(spaceId, view),
       capi = this.sqlite.capi;
-    if (access === "write")
+    if (access === "write") {
       throw new Error("业务写入须通过记忆操作端口，以维护修订、证据和字段关系");
+    }
     const deadline = performance.now() + budgetMs;
     const jsonVirtualTables = new Set(
       ["json_each", "json_tree"].filter(
@@ -979,21 +1112,25 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     capi.sqlite3_set_authorizer(
       db.pointer!,
       (_arg, action, tableName, functionName) => {
-        if (access === "host") return capi.SQLITE_OK;
+        if (access === "host") {
+          return capi.SQLITE_OK;
+        }
         if (
           action === capi.SQLITE_READ &&
           allowedTables !== undefined &&
           !jsonVirtualTables.has(String(tableName))
         ) {
           const columns = allowedTables[String(tableName)];
-          if (!columns || (functionName !== "" && !columns.includes(String(functionName))))
+          if (!columns || (functionName !== "" && !columns.includes(String(functionName)))) {
             return capi.SQLITE_DENY;
+          }
         }
         if (
           action === capi.SQLITE_FUNCTION &&
           ["load_extension", "writefile", "readfile"].includes(String(functionName))
-        )
+        ) {
           return capi.SQLITE_DENY;
+        }
         return readActions.has(action) ? capi.SQLITE_OK : capi.SQLITE_DENY;
       },
       0,
@@ -1005,7 +1142,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       0,
     );
     try {
-      if (maxRows === undefined) return this.rows(db, sql, bind);
+      if (maxRows === undefined) {
+        return this.rows(db, sql, bind);
+      }
       const rows: Record<string, unknown>[] = [];
       db.exec({
         sql,
@@ -1013,7 +1152,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         rowMode: "object",
         callback(row) {
           rows.push(row as Record<string, unknown>);
-          if (rows.length >= maxRows) return false;
+          if (rows.length >= maxRows) {
+            return false;
+          }
         },
       });
       return rows;
@@ -1030,7 +1171,11 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     this.publicDatabase.remove(spaceId);
   }
   async close(): Promise<void> {
-    for (const sessionId of this.evaluations.keys()) await this.closeEvaluation(sessionId);
-    for (const spaceId of this.spaces.keys()) await this.removeSpace(spaceId);
+    for (const sessionId of this.evaluations.keys()) {
+      await this.closeEvaluation(sessionId);
+    }
+    for (const spaceId of this.spaces.keys()) {
+      await this.removeSpace(spaceId);
+    }
   }
 }

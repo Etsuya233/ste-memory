@@ -107,7 +107,9 @@ function service(): MemoryRecordService {
       return false;
     },
     async find(candidateSpaceId, candidateTableId) {
-      if (candidateSpaceId !== spaceId) return undefined;
+      if (candidateSpaceId !== spaceId) {
+        return undefined;
+      }
       return candidateTableId === tableId
         ? table
         : candidateTableId === refTableId

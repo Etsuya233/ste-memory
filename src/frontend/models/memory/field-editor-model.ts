@@ -124,7 +124,9 @@ export function swapAdjacentFieldPositions(
   direction: -1 | 1,
 ): readonly FieldPositionChange[] {
   const target = index + direction;
-  if (index < 0 || target < 0 || target >= fields.length) return [];
+  if (index < 0 || target < 0 || target >= fields.length) {
+    return [];
+  }
   const from = fields[index]!;
   const to = fields[target]!;
   return [

@@ -26,7 +26,9 @@ export async function runAgentWithTimeout(
   let finalMessages: readonly AgentMessage[] = [];
   const unsubscribe = agent.subscribe((event) => {
     hooks.onEvent?.(event);
-    if (event.type === "agent_end") finalMessages = event.messages;
+    if (event.type === "agent_end") {
+      finalMessages = event.messages;
+    }
   });
 
   const timer = setTimeout(() => agent.abort(), timeoutMs);

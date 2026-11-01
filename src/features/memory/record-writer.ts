@@ -108,7 +108,9 @@ export class MemoryRecordService {
     input: CreateMemoryRecordInput,
   ): Promise<MemoryRecord | undefined> {
     const table = await this.tables.find(memorySpaceId, tableId);
-    if (!table) return undefined;
+    if (!table) {
+      return undefined;
+    }
     const fields = await this.fields.list(memorySpaceId, tableId);
     const payload = validatedMemoryRecordPayload(fields, input.payload);
     await validateMemoryRecordReferences(fields, payload, (targetTableId, recordId) =>
@@ -154,8 +156,9 @@ export class MemoryRecordService {
     try {
       await this.records.create(record, resolvedEvidence.createdEvidence);
     } catch (error) {
-      if (error instanceof MemoryCommitPersistenceError)
+      if (error instanceof MemoryCommitPersistenceError) {
         throw new MemoryRecordSaveError(record, error);
+      }
       throw error;
     }
     return record;
@@ -163,7 +166,9 @@ export class MemoryRecordService {
 
   async find(memorySpaceId: MemorySpaceId, tableId: MemoryTableId, id: MemoryRecordId) {
     const record = await this.records.find(memorySpaceId, tableId, id);
-    if (!record) return undefined;
+    if (!record) {
+      return undefined;
+    }
     return this.validatedRecord(record);
   }
 
@@ -174,7 +179,9 @@ export class MemoryRecordService {
     input: UpdateMemoryRecordInput,
   ): Promise<MemoryRecord | undefined> {
     const previous = await this.records.find(memorySpaceId, tableId, id);
-    if (!previous) return undefined;
+    if (!previous) {
+      return undefined;
+    }
     const resolvedEvidence = await this.resolveFieldEvidence(memorySpaceId, input.fieldEvidence);
     const submittedEvidence = resolvedEvidence.fieldEvidence;
     const fieldEvidence: Record<string, readonly MemoryEvidence[]> = {
@@ -210,7 +217,9 @@ export class MemoryRecordService {
     expectedRevisionId: MemoryRevisionId,
     revisionSource: MemoryRevisionSource,
   ): Promise<boolean> {
-    if (!(await this.records.find(memorySpaceId, tableId, id))) return false;
+    if (!(await this.records.find(memorySpaceId, tableId, id))) {
+      return false;
+    }
     await this.mutate(
       memorySpaceId,
       {
@@ -276,7 +285,9 @@ export class MemoryRecordService {
     payload: MemoryRecordPayload,
   ): Promise<string> {
     const table = await this.tables.find(memorySpaceId, tableId);
-    if (!table) return "";
+    if (!table) {
+      return "";
+    }
     const fields = await this.fields.list(memorySpaceId, tableId);
     const fieldsById = new Map(fields.map((field) => [field.id, field]));
     if (strategy.type === "field") {
@@ -316,7 +327,9 @@ export class MemoryRecordService {
     },
   ): Promise<MemoryRecordPage | undefined> {
     const table = await this.tables.find(memorySpaceId, tableId);
-    if (!table) return undefined;
+    if (!table) {
+      return undefined;
+    }
     if (
       !Number.isInteger(query.page) ||
       query.page < 1 ||
@@ -347,7 +360,9 @@ export class MemoryRecordService {
     const matches = (
       await Promise.all(records.map((record) => this.validatedRecord(record)))
     ).filter((record) => {
-      if (!search) return true;
+      if (!search) {
+        return true;
+      }
       return [record.id, record.displayText, ...Object.values(record.payload)]
         .flatMap((value) => (Array.isArray(value) ? value : [value]))
         .some((value) => String(value).toLocaleLowerCase().includes(search));
@@ -378,8 +393,12 @@ export class MemoryRecordService {
     readonly fieldEvidence: MemoryFieldEvidence;
     readonly createdEvidence: readonly MemoryEvidence[];
   }> {
-    if (!input) return { fieldEvidence: {}, createdEvidence: [] };
-    if (!this.evidence || !this.createEvidenceId) throw new Error("字段证据需要配置证据存储");
+    if (!input) {
+      return { fieldEvidence: {}, createdEvidence: [] };
+    }
+    if (!this.evidence || !this.createEvidenceId) {
+      throw new Error("字段证据需要配置证据存储");
+    }
     const result: Record<string, MemoryEvidence[]> = {};
     const createdEvidence: MemoryEvidence[] = [];
     const createdBySource = new Map<string, MemoryEvidence>();

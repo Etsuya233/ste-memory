@@ -53,7 +53,7 @@ export function CleaningRulesPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setSelection(cleaning.readSelection()), [cleaning, contextKey]);
-  if (editor)
+  if (editor) {
     return (
       <CleaningRuleEditor
         services={services}
@@ -72,6 +72,7 @@ export function CleaningRulesPage({
         }}
       />
     );
+  }
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
@@ -255,7 +256,9 @@ function CleaningRuleEditor({
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      if (remove) throw cause;
+      if (remove) {
+        throw cause;
+      }
     } finally {
       setBusy(false);
     }

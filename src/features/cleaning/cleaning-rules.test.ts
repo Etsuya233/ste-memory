@@ -55,8 +55,9 @@ describe("标签清洗", () => {
     expect(applyCleaningRule("原文", rule({ keepTags: [] }))).toBe("原文");
   });
   it("保留配置未命中、只有不完整标签或空内容时输出空文本", () => {
-    for (const content of ["原文", "<a>未闭合", "<a></a>", ""])
+    for (const content of ["原文", "<a>未闭合", "<a></a>", ""]) {
       expect(applyCleaningRule(content, rule())).toBe("");
+    }
   });
   it("不完整的排除标签原样保留", () => {
     expect(applyCleaningRule("甲<think>未闭合", rule({ keepTags: [] }))).toBe("甲<think>未闭合");
@@ -103,8 +104,9 @@ describe("独立命名清洗规则", () => {
       { keepTags: [], excludeTags: [] },
       { keepTags: [{ pre: " ", post: "</a>" }] },
       { excludeTags: [{ pre: "<a>", post: "" }] },
-    ])
+    ]) {
       expect(validateCleaningRule(rule(patch))).toBeDefined();
+    }
     expect(validateCleaningRule(rule())).toBeUndefined();
   });
   it("当前版本直接读取规则并规范化标签，没有子规则数组", () => {

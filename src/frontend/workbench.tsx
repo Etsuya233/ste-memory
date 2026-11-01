@@ -56,11 +56,16 @@ export function WorkbenchApp(props: WorkbenchProps) {
     leaveGuard.current = guard;
   }, []);
   const navigate = useCallback((action: () => void) => {
-    if (leaveGuard.current) leaveGuard.current(action);
-    else action();
+    if (leaveGuard.current) {
+      leaveGuard.current(action);
+    } else {
+      action();
+    }
   }, []);
   useEffect(() => {
-    if (props.taskNavigationRequest) navigate(() => setPage("tasks"));
+    if (props.taskNavigationRequest) {
+      navigate(() => setPage("tasks"));
+    }
   }, [props.taskNavigationRequest, navigate]);
   useEffect(() => {
     const onUnload = (event: BeforeUnloadEvent) => {
@@ -159,14 +164,20 @@ export function WorkbenchApp(props: WorkbenchProps) {
               tools={props.tools}
               search={props.search}
               onSearchRecord={async (tableId, recordId) => {
-                if (!context) throw new Error("请先打开对话");
+                if (!context) {
+                  throw new Error("请先打开对话");
+                }
                 const epoch = props.search.service.getState().epoch;
                 props.search.assertContext(context);
                 await props.workspace.selectTable(tableId);
                 props.search.assertContext(context);
-                if (epoch !== props.search.service.getState().epoch) return;
+                if (epoch !== props.search.service.getState().epoch) {
+                  return;
+                }
                 await props.workspace.openRecord(recordId);
-                if (epoch === props.search.service.getState().epoch) setPage("records");
+                if (epoch === props.search.service.getState().epoch) {
+                  setPage("records");
+                }
               }}
               onSearchIndex={() => navigate(() => setPage("tables"))}
               active={props.active ?? true}
@@ -194,7 +205,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
             aria-current={page === id ? "page" : undefined}
             data-action={`nav-${id}`}
             onClick={() => {
-              if (page !== id)
+              if (page !== id) {
                 navigate(() => {
                   if (id === "settings") {
                     setSettingsSection("overview");
@@ -204,6 +215,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
                   }
                   setPage(id);
                 });
+              }
             }}
           >
             <Icon />

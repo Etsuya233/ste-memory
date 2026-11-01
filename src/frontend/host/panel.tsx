@@ -20,11 +20,15 @@ export function FrontendPanel({
       open &&
       document.activeElement instanceof HTMLElement &&
       !surface?.contains(document.activeElement)
-    )
+    ) {
       launcher.current = document.activeElement;
+    }
     surface?.togglePopover(open);
-    if (open) surface?.focus();
-    else if (launcher.current?.isConnected) launcher.current.focus();
+    if (open) {
+      surface?.focus();
+    } else if (launcher.current?.isConnected) {
+      launcher.current.focus();
+    }
     return () => surface?.hidePopover();
   }, [surface, open]);
   return (

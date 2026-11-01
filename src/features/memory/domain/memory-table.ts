@@ -42,7 +42,9 @@ export function remapMemoryTableDisplayStrategy(
   strategy: MemoryTableDisplayStrategy | null,
   fieldIdMap: ReadonlyMap<string, MemoryFieldId>,
 ): MemoryTableDisplayStrategy | null {
-  if (!strategy) return null;
+  if (!strategy) {
+    return null;
+  }
   if (strategy.type === "field") {
     return { type: "field", fieldId: fieldIdMap.get(strategy.fieldId) ?? strategy.fieldId };
   }

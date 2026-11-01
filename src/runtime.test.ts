@@ -226,7 +226,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
 
     const status = runtime.manager.getStatus();
     expect(status?.kind).toBe("active");
-    if (status?.kind !== "active") return;
+    if (status?.kind !== "active") {
+      return;
+    }
     expect(status.created).toBe(true);
     expect(status.space.name).toBe("爱丽丝 - story");
     expect(chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual({
@@ -242,7 +244,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const reopened = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const reopenedStatus = reopened.manager.getStatus();
     expect(reopenedStatus?.kind).toBe("active");
-    if (reopenedStatus?.kind !== "active") return;
+    if (reopenedStatus?.kind !== "active") {
+      return;
+    }
     expect(reopenedStatus.created).toBe(false);
     expect(reopenedStatus.space.id).toBe(status.space.id);
     expect(await reopened.tables.list(status.space.id)).toHaveLength(SYSTEM_TABLE_TEMPLATES.length);
@@ -301,7 +305,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
 
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
     // 新空间按默认用户预设初始化，并记录初始化来源
     expect((await runtime.tables.list(status.space.id)).map((table) => table.key)).toEqual([
       "people",
@@ -351,7 +357,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
 
     const status = runtime.manager.getStatus();
     expect(status?.kind).toBe("active");
-    if (status?.kind !== "active") return;
+    if (status?.kind !== "active") {
+      return;
+    }
     expect(status.space.name).toBe("爱丽丝 - other");
 
     // 消息事件：已注册，调用不报错、不改变状态（未来自动填表触发点）
@@ -373,18 +381,24 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
     const firstSpaceId = status.space.id;
 
     // 给空间一加一条记录（人物表），快照重建
     const characters = (await runtime.tables.list(firstSpaceId)).find(
       (t) => t.key === "characters",
     );
-    if (!characters) throw new Error("expect characters table");
+    if (!characters) {
+      throw new Error("expect characters table");
+    }
     const nameField = (await runtime.fields.list(firstSpaceId, characters.id)).find(
       (f) => f.key === "name",
     );
-    if (!nameField) throw new Error("expect name field");
+    if (!nameField) {
+      throw new Error("expect name field");
+    }
     await runtime.records.create(firstSpaceId, characters.id, {
       payload: { [nameField.id]: "张三" },
     });
@@ -431,7 +445,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.version).toBe("9.9.9");
     expect(runtime.settings.read()).toEqual(DEFAULT_SETTINGS);
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
     // 服务可列出系统表与字段（面板表格列表的数据来源）；系统表均带预置字段
     const tables = await runtime.tables.list(status.space.id);
     expect(tables.length).toBeGreaterThan(0);
@@ -1080,7 +1096,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       ...ports,
     });
     const original = runtime.manager.getStatus();
-    if (original?.kind !== "active") throw new Error("expect original active");
+    if (original?.kind !== "active") {
+      throw new Error("expect original active");
+    }
     const unit = await runtime.backup.exportCurrentSpace();
     const metadata = structuredClone(context.chatMetadata);
     let markWriteStarted!: () => void;
@@ -1114,7 +1132,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const record = await runtime.records.create(original.space.id, table.id, {
       payload: { [name.id]: "B 的新记录" },
     });
-    if (!record) throw new Error("expect B record created");
+    if (!record) {
+      throw new Error("expect B record created");
+    }
     const tasks = new DexieFillTaskRepository(db);
     await tasks.create({
       runId: "B-retained-task",
@@ -1133,7 +1153,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
     releaseWrite();
     const completed = await lateCandidate;
-    if (completed.kind !== "active") throw new Error("expect A candidate saved");
+    if (completed.kind !== "active") {
+      throw new Error("expect A candidate saved");
+    }
     expect(completed.space.id).not.toBe(original.space.id);
     expect(runtime.manager.getStatus()).toMatchObject({
       kind: "active",
@@ -1162,7 +1184,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       ...ports,
     });
     const original = runtime.manager.getStatus();
-    if (original?.kind !== "active") throw new Error("expect original active");
+    if (original?.kind !== "active") {
+      throw new Error("expect original active");
+    }
     const table = (await runtime.tables.list(original.space.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -1172,7 +1196,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const record = await runtime.records.create(original.space.id, table.id, {
       payload: { [field.id]: "原空间较新内容" },
     });
-    if (!record) throw new Error("expect record created");
+    if (!record) {
+      throw new Error("expect record created");
+    }
     const currentUnit = await runtime.backup.exportCurrentSpace();
     const originalMetadata = structuredClone(context.chatMetadata);
     const branchUnit = structuredClone(currentUnit);
@@ -1201,7 +1227,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       action: "clone",
       sourceSpaceId: original.space.id,
     });
-    if (cloned.kind !== "active") throw new Error("expect cloned active");
+    if (cloned.kind !== "active") {
+      throw new Error("expect cloned active");
+    }
     const clonedTable = (await runtime.tables.list(cloned.space.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -1258,7 +1286,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
 
     const status = runtime.manager.getStatus();
     expect(status?.kind).toBe("active");
-    if (status?.kind !== "active") return;
+    if (status?.kind !== "active") {
+      return;
+    }
     expect(await runtime.spaces.find(status.space.id)).toMatchObject({ name: "爱丽丝 - story" });
     expect(status.space.id).toBe("space-ghost");
     expect((await runtime.backup.exportCurrentSpace()).space.id).toBe("space-ghost");
@@ -1351,7 +1381,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(runtime.settings.read().macros[0]!.enabled).toBe(false);
     await expect(runtime.settingsService.setChatScopeMacros([changed])).rejects.toThrow("不存在");
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
     const unit = await runtime.backup.exportCurrentSpace();
     await expect(
       runtime.normalizeImportedSpace({
@@ -1421,7 +1453,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
 
     // 默认前缀 {{ste}} 解析为裸标识符注册；ticket 17 追加 tablesDigest /
     // systemDefaultPrompt（Agent 预设宏）；内置/视图/对话宏全部走 {{前缀::名字}} 分发
@@ -1437,11 +1471,15 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const charactersTable = status.space
       ? (await runtime.tables.list(status.space.id)).find((t) => t.key === "characters")
       : undefined;
-    if (!charactersTable) throw new Error("expect characters table");
+    if (!charactersTable) {
+      throw new Error("expect characters table");
+    }
     const nameField = (await runtime.fields.list(status.space.id, charactersTable.id)).find(
       (f) => f.key === "name",
     );
-    if (!nameField) throw new Error("expect name field");
+    if (!nameField) {
+      throw new Error("expect name field");
+    }
     await runtime.records.create(status.space.id, charactersTable.id, {
       payload: { [nameField.id]: "张三" },
     });
@@ -1490,7 +1528,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
 
     // 默认前缀 {{ste}} → 行名花括号形态；记忆宏家族 + Agent 预设宏两行
     expect(runtime.macro.getRecentResults()).toEqual([]);
@@ -1529,7 +1569,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const { context } = fakeStContext();
     const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
     const status = runtime.manager.getStatus();
-    if (status?.kind !== "active") throw new Error("expect active");
+    if (status?.kind !== "active") {
+      throw new Error("expect active");
+    }
 
     // ST 上下文快照：对话双方名字 / 角色卡（与任务提交同源同构）；msgText 由调用方填
     const snapshot = runtime.presetPreview.getPromptSnapshot();

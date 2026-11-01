@@ -14,7 +14,9 @@ export function StEntry({
 }) {
   const toolbar = document.getElementById("top-settings-holder");
   const wand = document.getElementById("extensionsMenu");
-  if (!toolbar || !wand) throw new Error("ST 入口容器尚未就绪，无法挂载记忆工作台");
+  if (!toolbar || !wand) {
+    throw new Error("ST 入口容器尚未就绪，无法挂载记忆工作台");
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Enter" || event.key === " ") {
@@ -59,7 +61,9 @@ export function StEntry({
               data-action="open-frontend"
               onClick={() => {
                 const button = document.getElementById("extensionsMenuButton");
-                if (!button) throw new Error("ST 魔法棒按钮尚未就绪");
+                if (!button) {
+                  throw new Error("ST 魔法棒按钮尚未就绪");
+                }
                 button.focus();
                 onOpen();
               }}

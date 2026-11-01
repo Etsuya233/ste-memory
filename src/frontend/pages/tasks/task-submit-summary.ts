@@ -35,27 +35,42 @@ export function buildFillSubmitSummary(input: {
   readonly pending: readonly FillTaskView[];
 }): FillSubmitSummaryResult {
   const range = validateFloorRange(input.fromText, input.toText, input.chatLength);
-  if (range.kind === "error") return { kind: "error", message: range.message };
+  if (range.kind === "error") {
+    return { kind: "error", message: range.message };
+  }
   const block = validateBlockSize(input.blockText);
-  if (block.kind === "error") return { kind: "error", message: block.message };
+  if (block.kind === "error") {
+    return { kind: "error", message: block.message };
+  }
   const floorCount = range.to - range.from + 1;
   let processedCount = 0;
   let errorCount = 0;
   for (const entry of input.ledger) {
-    if (entry.floor < range.from || entry.floor > range.to) continue;
-    if (entry.status === "processed") processedCount += 1;
-    if (entry.status === "error") errorCount += 1;
+    if (entry.floor < range.from || entry.floor > range.to) {
+      continue;
+    }
+    if (entry.status === "processed") {
+      processedCount += 1;
+    }
+    if (entry.status === "error") {
+      errorCount += 1;
+    }
   }
   const planned = new Set<number>();
   for (const task of input.pending) {
-    if (task.kind !== "floor") continue;
-    if (task.status !== "queued" && task.status !== "running") continue;
+    if (task.kind !== "floor") {
+      continue;
+    }
+    if (task.status !== "queued" && task.status !== "running") {
+      continue;
+    }
     for (
       let floor = Math.max(task.from, range.from);
       floor <= Math.min(task.to, range.to);
       floor += 1
-    )
+    ) {
       planned.add(floor);
+    }
   }
   return {
     kind: "ok",
@@ -76,9 +91,13 @@ export function cleaningRuleLabel(
   rules: readonly CleaningRule[],
   selectedRuleId: string | undefined,
 ): string {
-  if (selectedRuleId === undefined) return "不使用清洗规则";
+  if (selectedRuleId === undefined) {
+    return "不使用清洗规则";
+  }
   const rule = rules.find((candidate) => candidate.id === selectedRuleId);
-  if (!rule) return "所选规则已不存在（按原文输入）";
+  if (!rule) {
+    return "所选规则已不存在（按原文输入）";
+  }
   return rule.enabled ? rule.name : `${rule.name}（已停用，按原文输入）`;
 }
 
@@ -86,7 +105,9 @@ export function isCleaningRuleDisabled(
   rules: readonly CleaningRule[],
   selectedRuleId: string | undefined,
 ): boolean {
-  if (selectedRuleId === undefined) return false;
+  if (selectedRuleId === undefined) {
+    return false;
+  }
   const rule = rules.find((candidate) => candidate.id === selectedRuleId);
   return rule !== undefined && !rule.enabled;
 }
@@ -97,8 +118,12 @@ export function agentPresetLabel(
 ): string {
   const globalPreset = activePreset(settings);
   const globalLabel = globalPreset?.name ?? "系统默认";
-  if (overrideId === undefined) return `跟随全局：${globalLabel}`;
-  if (overrideId === BUILTIN_AGENT_PRESET_ID) return "系统默认";
+  if (overrideId === undefined) {
+    return `跟随全局：${globalLabel}`;
+  }
+  if (overrideId === BUILTIN_AGENT_PRESET_ID) {
+    return "系统默认";
+  }
   const preset = settings.presets.find((candidate) => candidate.id === overrideId);
   return preset ? `本对话：${preset.name}` : `所选预设已不存在（跟随全局：${globalLabel}）`;
 }
@@ -115,6 +140,8 @@ export function isAgentPresetOverrideStale(
 }
 
 function activePreset(settings: AgentPresetSettings): AgentPromptPreset | undefined {
-  if (settings.activePresetId === BUILTIN_AGENT_PRESET_ID) return undefined;
+  if (settings.activePresetId === BUILTIN_AGENT_PRESET_ID) {
+    return undefined;
+  }
   return settings.presets.find((preset) => preset.id === settings.activePresetId);
 }

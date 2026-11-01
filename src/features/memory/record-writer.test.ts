@@ -97,10 +97,14 @@ class Records implements MemoryRecordRepository {
         this.values.push(mutation.current);
       } else if (mutation.current) {
         const index = this.values.findIndex((record) => record.id === mutation.previous.id);
-        if (index >= 0) this.values[index] = mutation.current;
+        if (index >= 0) {
+          this.values[index] = mutation.current;
+        }
       } else {
         const index = this.values.findIndex((record) => record.id === mutation.previous.id);
-        if (index >= 0) this.values.splice(index, 1);
+        if (index >= 0) {
+          this.values.splice(index, 1);
+        }
       }
     }
     return true;
@@ -205,8 +209,9 @@ describe("MemoryRecordService", () => {
       { [nameId]: "C", [ageId]: null, [roleId]: "主角" },
       { [nameId]: "D", [roleId]: "主角" },
       { [nameId]: "E", [ageId]: 1, [roleId]: "配角" },
-    ])
+    ]) {
       await service.create(spaceId, characterTableId, { payload });
+    }
     for (const direction of ["asc", "desc"] as const) {
       const page = await service.list(spaceId, characterTableId, {
         page: 1,
@@ -463,7 +468,9 @@ describe("字段定义漂移后的读路径与更新路径（ticket 11 修复）
     // 模拟删除目标表：表定义移除（级联删记录），引用字段定义仍在
     // （原地变更：repository 闭包捕获数组引用，替换数组不生效）
     for (let index = setup.fields.length - 1; index >= 0; index--) {
-      if (setup.fields[index]!.tableId === locationTableId) setup.fields.splice(index, 1);
+      if (setup.fields[index]!.tableId === locationTableId) {
+        setup.fields.splice(index, 1);
+      }
     }
     for (let index = setup.records.values.length - 1; index >= 0; index--) {
       if (setup.records.values[index]!.tableId === locationTableId) {

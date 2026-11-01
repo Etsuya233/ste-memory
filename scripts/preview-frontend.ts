@@ -25,7 +25,9 @@ const build = await context({
       name: "frontend-styles",
       setup(builder) {
         builder.onEnd((result) => {
-          if (result.errors.length === 0) styles();
+          if (result.errors.length === 0) {
+            styles();
+          }
         });
       },
     },
@@ -42,6 +44,8 @@ const watchers = ["src/frontend/theme.css", "src/frontend/primitives/theme.css"]
 );
 console.log(`记忆工作台预览：http://127.0.0.1:${server.port}/ （?dark 暗色）`);
 process.on("SIGINT", () => {
-  for (const watcher of watchers) watcher.close();
+  for (const watcher of watchers) {
+    watcher.close();
+  }
   void build.dispose().then(() => process.exit(0));
 });

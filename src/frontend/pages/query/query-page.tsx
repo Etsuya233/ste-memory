@@ -159,10 +159,14 @@ export function QueryPage(props: QueryPageProps) {
     setList(false);
   }
   function create(text = "") {
-    if (!context) return;
+    if (!context) {
+      return;
+    }
     props.assertContext(context);
     const created = store.create(context);
-    if (text) store.setDraft(created.id, text);
+    if (text) {
+      store.setDraft(created.id, text);
+    }
     selectSession(created.id);
   }
   function pickStarter(prompt: string) {
@@ -174,19 +178,25 @@ export function QueryPage(props: QueryPageProps) {
     document.getElementById("query-chat-input")?.focus();
   }
   async function refresh() {
-    if (!context) return;
+    if (!context) {
+      return;
+    }
     const captured = key;
     setRefreshing(true);
     try {
       props.assertContext(context);
       await props.onDataChanged(context);
-      if (captured === currentKey.current) flash(captured, "记录已刷新");
+      if (captured === currentKey.current) {
+        flash(captured, "记录已刷新");
+      }
     } finally {
       setRefreshing(false);
     }
   }
   function send() {
-    if (!context || !session || busy) return;
+    if (!context || !session || busy) {
+      return;
+    }
     props.assertContext(context);
     setNotice(null);
     return props.service.run({ sessionId: session.id, text: session.draft.trim() });
@@ -645,7 +655,9 @@ export function QueryPage(props: QueryPageProps) {
       <ConfirmAction
         open={deleting !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleting(null);
+          if (!open) {
+            setDeleting(null);
+          }
         }}
         title="删除会话？"
         description="该会话的历史、输入草稿和未提交提案将删除，已提交的记忆记录保留。正在进行的回答会停止。"
@@ -704,9 +716,17 @@ function DiffRow({ label, value }: { label: string; value: unknown }) {
 }
 
 function formatDiffValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "空";
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined || value === "") {
+    return "空";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
   return JSON.stringify(value, null, 2);
 }

@@ -290,6 +290,8 @@ try {
   await page.screenshot({ path: `${directory}/tasks-auto-fill-desktop.png` });
   check("no auto fill browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

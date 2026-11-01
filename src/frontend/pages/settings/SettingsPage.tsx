@@ -174,7 +174,7 @@ export function SettingsPage(
 ) {
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "overview");
   const detailProps = { ...props, onBack: () => setSection("overview") };
-  if (section === "logs")
+  if (section === "logs") {
     return (
       <LogsPage
         logs={props.tools.logs}
@@ -186,9 +186,11 @@ export function SettingsPage(
         initialKey={props.initialLogKey}
       />
     );
-  if (section === "maintenance")
+  }
+  if (section === "maintenance") {
     return <MaintenancePage {...detailProps} services={props.tools.maintenance} />;
-  if (section === "search")
+  }
+  if (section === "search") {
     return (
       <SearchPage
         {...props.search}
@@ -202,7 +204,8 @@ export function SettingsPage(
         onSettings={() => setSection("embedding")}
       />
     );
-  if (section === "sql")
+  }
+  if (section === "sql") {
     return (
       <SqlPage
         {...props.tools.sql}
@@ -212,7 +215,8 @@ export function SettingsPage(
         active={props.active}
       />
     );
-  if (section === "cleaning")
+  }
+  if (section === "cleaning") {
     return (
       <CleaningRulesPage
         {...detailProps}
@@ -221,13 +225,28 @@ export function SettingsPage(
         }
       />
     );
-  if (section === "macros") return <MacrosPage {...detailProps} macroServices={props.macros} />;
-  if (section === "agent-presets") return <AgentPresetsPage {...detailProps} />;
-  if (section === "table-presets") return <TablePresetsPage {...detailProps} />;
-  if (section === "connections") return <ConnectionsPage {...detailProps} />;
-  if (section === "embedding") return <EmbeddingSettingsPage {...detailProps} />;
-  if (section === "rerank") return <RerankSettingsPage {...detailProps} />;
-  if (section === "auto-fill") return <AutoFillSettingsPage {...detailProps} />;
+  }
+  if (section === "macros") {
+    return <MacrosPage {...detailProps} macroServices={props.macros} />;
+  }
+  if (section === "agent-presets") {
+    return <AgentPresetsPage {...detailProps} />;
+  }
+  if (section === "table-presets") {
+    return <TablePresetsPage {...detailProps} />;
+  }
+  if (section === "connections") {
+    return <ConnectionsPage {...detailProps} />;
+  }
+  if (section === "embedding") {
+    return <EmbeddingSettingsPage {...detailProps} />;
+  }
+  if (section === "rerank") {
+    return <RerankSettingsPage {...detailProps} />;
+  }
+  if (section === "auto-fill") {
+    return <AutoFillSettingsPage {...detailProps} />;
+  }
   return <SettingsOverview {...props} onOpen={setSection} />;
 }
 
@@ -255,7 +274,9 @@ function SettingsOverview({
     discard: () => setTimeoutValue(savedTimeout),
   });
   useEffect(() => {
-    if (!dirty && !busy) return;
+    if (!dirty && !busy) {
+      return;
+    }
     const onUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -325,7 +346,9 @@ function SettingsOverview({
                 aria-describedby="settings-entry-placement-description"
                 onChange={(event) => {
                   const placement = event.target.value;
-                  if (!isEntryPlacement(placement)) throw new Error("无效的入口位置");
+                  if (!isEntryPlacement(placement)) {
+                    throw new Error("无效的入口位置");
+                  }
                   void save(async () => {
                     services.settings.setEntryPlacement(placement);
                     await services.onChanged();
@@ -352,7 +375,9 @@ function SettingsOverview({
               className="ste:space-y-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!busy && dirty) void save(() => saveFillTimeout(services, timeout), true);
+                if (!busy && dirty) {
+                  void save(() => saveFillTimeout(services, timeout), true);
+                }
               }}
             >
               <Field>

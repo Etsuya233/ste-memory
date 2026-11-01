@@ -135,8 +135,11 @@ class Records implements MemoryRecordRepository {
       }
       this.history.push(mutation.history);
       const index = this.values.findIndex((record) => record.id === mutation.previous.id);
-      if (mutation.current) this.values[index] = mutation.current;
-      else this.values.splice(index, 1);
+      if (mutation.current) {
+        this.values[index] = mutation.current;
+      } else {
+        this.values.splice(index, 1);
+      }
     }
     return true;
   }

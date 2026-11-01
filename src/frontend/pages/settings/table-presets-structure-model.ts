@@ -39,7 +39,7 @@ export function replaceDraftTable(
   const oldKey = preset.tables[index]!.key;
   const macros = preset.macros?.map((macro): MemoryMacro => {
     const expression = macro.expression;
-    if (expression.language === "query")
+    if (expression.language === "query") {
       return {
         ...macro,
         expression: {
@@ -50,6 +50,7 @@ export function replaceDraftTable(
           },
         },
       };
+    }
     return {
       ...macro,
       expression: {
@@ -78,7 +79,9 @@ export function fieldFromDraft(
       existing.map((field) => field.key),
     ),
   );
-  if (errors.length) throw new Error(errors.join("；"));
+  if (errors.length) {
+    throw new Error(errors.join("；"));
+  }
   return {
     key: memoryFieldKey(draft.key),
     name: memoryFieldName(draft.name),
@@ -127,8 +130,9 @@ export function replaceDraftField(
   };
   const macros = preset.macros?.map((macro): MemoryMacro => {
     const expression = macro.expression;
-    if (expression.language !== "query" || expression.query.table !== table.key || !previous)
+    if (expression.language !== "query" || expression.query.table !== table.key || !previous) {
       return macro;
+    }
     const query = expression.query;
     return {
       ...macro,
@@ -178,7 +182,9 @@ export function removeDraftTable(
           .filter((field) => field.referenceTableKey === table.key)
           .map((field) => `${other.name}.${field.name}`),
   );
-  if (references.length) throw new Error(`请先调整引用字段：${references.join("、")}`);
+  if (references.length) {
+    throw new Error(`请先调整引用字段：${references.join("、")}`);
+  }
   return checkedPresetDraft({
     ...preset,
     tables: preset.tables.filter((_, index) => index !== tableIndex),

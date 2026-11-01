@@ -194,11 +194,15 @@ describe("预设实例化（spec 4.2 / 10.2）", () => {
     // 引用目标表 ID 一律属于同一空间
     const firstTableIds = new Set(first.tables.map((table) => table.id));
     for (const field of first.fields) {
-      if (field.referenceTableId) expect(firstTableIds.has(field.referenceTableId)).toBe(true);
+      if (field.referenceTableId) {
+        expect(firstTableIds.has(field.referenceTableId)).toBe(true);
+      }
     }
     const secondTableIds = new Set(second.tables.map((table) => table.id));
     for (const field of second.fields) {
-      if (field.referenceTableId) expect(secondTableIds.has(field.referenceTableId)).toBe(true);
+      if (field.referenceTableId) {
+        expect(secondTableIds.has(field.referenceTableId)).toBe(true);
+      }
     }
   });
 

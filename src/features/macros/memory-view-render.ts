@@ -34,7 +34,9 @@ export function renderMemoryViewSnapshot(input: MemoryViewRenderInput): string {
   const { view, fields, records, referenceLabels, limit } = input;
   const lines: string[] = [];
   if (view.projection.length === 0) {
-    for (const record of records) lines.push(toSingleLine(record.displayText));
+    for (const record of records) {
+      lines.push(toSingleLine(record.displayText));
+    }
   } else {
     const fieldsByKey = new Map<string, MemoryFieldDigest>(
       fields.map((field) => [field.key, field]),
@@ -43,12 +45,18 @@ export function renderMemoryViewSnapshot(input: MemoryViewRenderInput): string {
       const parts: string[] = [];
       for (const fieldKey of view.projection) {
         const field = fieldsByKey.get(fieldKey);
-        if (!field) continue;
+        if (!field) {
+          continue;
+        }
         const rendered = renderProjectedValue(field, record.payload[field.id], referenceLabels);
-        if (rendered === "") continue;
+        if (rendered === "") {
+          continue;
+        }
         parts.push(`${field.name}：${rendered}`);
       }
-      if (parts.length > 0) lines.push(parts.join("，"));
+      if (parts.length > 0) {
+        lines.push(parts.join("，"));
+      }
     }
   }
   return truncateWithMarker(sanitizeMacroSyntax(lines.join("\n")), limit);
@@ -61,8 +69,12 @@ function renderProjectedValue(
   value: MemoryFieldValue | undefined,
   referenceLabels: ReadonlyMap<MemoryRecordId, string>,
 ): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string" && value === "") return "";
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string" && value === "") {
+    return "";
+  }
   switch (field.type) {
     case "single_reference":
       return referenceLabels.get(value as MemoryRecordId) ?? String(value);
@@ -116,7 +128,9 @@ export interface MarkdownTableInput {
  */
 export function renderMarkdownTable(input: MarkdownTableInput): string {
   const { tableName, fields, records, getFieldValues } = input;
-  if (fields.length === 0) return "";
+  if (fields.length === 0) {
+    return "";
+  }
 
   const lines: string[] = [];
   lines.push(`## ${tableName}`);
@@ -142,9 +156,15 @@ export function renderMarkdownTable(input: MarkdownTableInput): string {
 
 /** 渲染单个单元格：空值 → 空串，布尔 → 是/否，数组 → 顿号拼接，其他 → toSingleLine */
 function renderMarkdownCell(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (Array.isArray(value)) return value.map(String).join("、");
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  if (Array.isArray(value)) {
+    return value.map(String).join("、");
+  }
   return toSingleLine(String(value));
 }
 
@@ -172,14 +192,18 @@ export function renderMemoryFullSnapshot(input: MemoryFullRenderInput): string {
   const sections: string[] = [];
 
   for (const table of tables) {
-    if (table.fields.length === 0) continue;
+    if (table.fields.length === 0) {
+      continue;
+    }
     const section = renderMarkdownTable({
       tableName: table.name,
       fields: table.fields,
       records: table.records,
       getFieldValues: (record) => table.fields.map((f) => record.payload.get(f.id)),
     });
-    if (section !== "") sections.push(section);
+    if (section !== "") {
+      sections.push(section);
+    }
   }
 
   return truncateWithMarker(sections.join("\n\n"), limit);

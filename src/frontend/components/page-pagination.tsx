@@ -37,7 +37,9 @@ export function PagePagination({
   const [open, setOpen] = useState(false);
   const [pageInput, setPageInput] = useState(String(page));
   useEffect(() => {
-    if (!open) setPageInput(String(page));
+    if (!open) {
+      setPageInput(String(page));
+    }
   }, [page, open]);
   return (
     <Pagination aria-label={label} className="ste:mx-0 ste:w-full">
@@ -56,7 +58,9 @@ export function PagePagination({
             open={open}
             onOpenChange={(next) => {
               setOpen(next);
-              if (next) setPageInput(String(page));
+              if (next) {
+                setPageInput(String(page));
+              }
             }}
           >
             <PopoverTrigger
@@ -105,8 +109,11 @@ export function PagePagination({
                     ? Math.min(Math.max(requested, 1), totalPages)
                     : page;
                   setOpen(false);
-                  if (target !== page) onPageChange(target);
-                  else setPageInput(String(page));
+                  if (target !== page) {
+                    onPageChange(target);
+                  } else {
+                    setPageInput(String(page));
+                  }
                 }}
               >
                 <span className="ste:text-xs ste:font-medium ste:text-muted-foreground">
@@ -122,7 +129,9 @@ export function PagePagination({
                     disabled={disabled || totalPages <= 1}
                     onChange={(event) => setPageInput(event.target.value.replace(/\D/g, ""))}
                     onBlur={() => {
-                      if (pageInput === "") setPageInput(String(page));
+                      if (pageInput === "") {
+                        setPageInput(String(page));
+                      }
                     }}
                   />
                   <Button type="submit" size="sm" disabled={disabled || totalPages <= 1}>

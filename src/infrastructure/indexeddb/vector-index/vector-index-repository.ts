@@ -23,11 +23,15 @@ export class DexieVectorIndexRepository implements VectorIndexRepository {
 
   async saveTask(task: VectorTask): Promise<void> {
     await this.db.vectorTasks.put(task);
-    if (task.status === "queued" || task.status === "running") return;
+    if (task.status === "queued" || task.status === "running") {
+      return;
+    }
     const terminal = (await this.db.vectorTasks.toArray()).filter(
       (row) => row.status !== "queued" && row.status !== "running",
     );
-    if (terminal.length <= 1000) return;
+    if (terminal.length <= 1000) {
+      return;
+    }
     terminal.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     await this.db.vectorTasks.bulkDelete(terminal.slice(1000).map((row) => row.id));
   }
@@ -56,16 +60,18 @@ export class DexieVectorIndexRepository implements VectorIndexRepository {
     await this.db.recordVectors.delete(id);
   }
   async listVectors(scope: VectorScope): Promise<RecordVector[]> {
-    if (scope.tableId !== undefined && scope.recordId !== undefined)
+    if (scope.tableId !== undefined && scope.recordId !== undefined) {
       return this.db.recordVectors
         .where("[memorySpaceId+tableId+recordId]")
         .equals([scope.memorySpaceId, scope.tableId, scope.recordId])
         .toArray();
-    if (scope.tableId !== undefined)
+    }
+    if (scope.tableId !== undefined) {
       return this.db.recordVectors
         .where("[memorySpaceId+tableId]")
         .equals([scope.memorySpaceId, scope.tableId])
         .toArray();
+    }
     const rows = this.db.recordVectors.where("memorySpaceId").equals(scope.memorySpaceId);
     return scope.recordId !== undefined
       ? rows.filter((row) => row.recordId === scope.recordId).toArray()

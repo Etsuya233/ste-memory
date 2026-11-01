@@ -129,8 +129,12 @@ export function resolveTablePreset(
   systemPreset: ResolvedTablePreset,
   presetId: string,
 ): ResolvedTablePreset {
-  if (presetId === systemPreset.id) return systemPreset;
-  if (presetId === STORY_MEMORY_PRESET.id) return STORY_MEMORY_PRESET;
+  if (presetId === systemPreset.id) {
+    return systemPreset;
+  }
+  if (presetId === STORY_MEMORY_PRESET.id) {
+    return STORY_MEMORY_PRESET;
+  }
   const userPreset = settings.userPresets.find((preset) => preset.id === presetId);
   if (!userPreset) {
     throw new DomainError({
@@ -201,7 +205,9 @@ export function mergeTablePresetSettings(raw: unknown): TablePresetSettings {
   if (Array.isArray(source.userPresets)) {
     for (const item of source.userPresets) {
       const preset = mergeUserTablePreset(item);
-      if (preset) userPresets.push(preset);
+      if (preset) {
+        userPresets.push(preset);
+      }
     }
   }
   const defaultPresetId =
@@ -229,7 +235,9 @@ function mergeUserTablePreset(raw: unknown): TablePreset | undefined {
   const tables: TablePresetTable[] = [];
   for (const item of raw.tables) {
     const table = mergePresetTable(item);
-    if (table) tables.push(table);
+    if (table) {
+      tables.push(table);
+    }
   }
   return {
     macros: raw.macros === undefined ? undefined : parseMemoryMacros(raw.macros),
@@ -265,11 +273,14 @@ function mergePresetTable(raw: unknown): TablePresetTable | undefined {
       ),
     };
   }
-  if (vectorIndex !== undefined && !Value.Check(tablePresetVectorIndexSchema, vectorIndex))
+  if (vectorIndex !== undefined && !Value.Check(tablePresetVectorIndexSchema, vectorIndex)) {
     throw new Error(`预设表「${raw.key}」的向量配置无效，请检查分组 Key`);
+  }
   for (const item of raw.fields) {
     const field = mergePresetField(item);
-    if (field) fields.push(field);
+    if (field) {
+      fields.push(field);
+    }
   }
   return {
     key: raw.key,
@@ -318,7 +329,9 @@ function mergePresetDisplayStrategy(
   raw: unknown,
   fields: readonly TablePresetField[],
 ): TablePresetDisplayStrategy | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw)) {
+    return null;
+  }
   if (raw.type === "field" && typeof raw.fieldKey === "string") {
     return fields.some((field) => field.key === raw.fieldKey)
       ? { type: "field", fieldKey: raw.fieldKey }

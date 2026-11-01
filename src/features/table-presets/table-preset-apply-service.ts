@@ -115,7 +115,9 @@ export class TablePresetApplyService {
     try {
       rebuilt = await this.#rebuildWithPreset(memorySpaceId, preset);
     } catch (error) {
-      if (!(error instanceof MemoryCommitPersistenceError)) throw error;
+      if (!(error instanceof MemoryCommitPersistenceError)) {
+        throw error;
+      }
       rebuilt = true;
       issues.push(`空间已重建，持久化或派生数据清理失败：${messageOf(error)}`);
     }

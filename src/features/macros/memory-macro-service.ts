@@ -115,7 +115,9 @@ export class MemoryMacroService {
 
   stop(): void {
     this.cancel("宏计算已停止");
-    if (this.#registeredName) this.#ports.registerMacro.unregister(this.#registeredName);
+    if (this.#registeredName) {
+      this.#ports.registerMacro.unregister(this.#registeredName);
+    }
     this.#registeredName = undefined;
   }
 
@@ -124,9 +126,11 @@ export class MemoryMacroService {
     const settings = this.#ports.readSettings();
     const name = settings.enabled ? resolveMacroRegistrationName(settings.macroName) : undefined;
     if (name !== this.#registeredName) {
-      if (this.#registeredName) this.#ports.registerMacro.unregister(this.#registeredName);
+      if (this.#registeredName) {
+        this.#ports.registerMacro.unregister(this.#registeredName);
+      }
       this.#registeredName = name;
-      if (name)
+      if (name) {
         this.#ports.registerMacro.register(
           name,
           (context) => {
@@ -135,21 +139,29 @@ export class MemoryMacroService {
               !this.#building ||
               this.#publishedContext !== this.#ports.getContext() ||
               !this.#ports.readSettings().enabled
-            )
+            ) {
               return "";
+            }
             const macroName = context.unnamedArgs?.[0] ?? "";
-            if (this.#migrationError && macroName !== "") return "";
+            if (this.#migrationError && macroName !== "") {
+              return "";
+            }
             return this.#results.find((result) => result.name === macroName)?.text ?? "";
           },
           [MEMORY_MACRO_NAME_ARG],
         );
+      }
     }
-    if (!settings.enabled) this.cancel("插件已停用");
+    if (!settings.enabled) {
+      this.cancel("插件已停用");
+    }
     this.markStale();
   }
 
   markStale(): void {
-    if (this.#building || !this.#results.length) return;
+    if (this.#building || !this.#results.length) {
+      return;
+    }
     this.#results = this.#results.map((result) => ({ ...result, status: "stale" }));
     this.#notify();
   }
@@ -205,7 +217,9 @@ export class MemoryMacroService {
     options: { automatic_trigger?: boolean; continuation?: boolean },
     dryRun: boolean,
   ): void {
-    if (dryRun || type === "quiet" || type === "impersonate") return;
+    if (dryRun || type === "quiet" || type === "impersonate") {
+      return;
+    }
     if (options.continuation || (this.#group && this.#groupPrepared)) {
       this.#building = true;
       this.#readable = this.#results.length > 0;
@@ -223,20 +237,32 @@ export class MemoryMacroService {
     dryRun: boolean,
     lastUserMessage: string | null,
   ): Promise<void> {
-    if (dryRun || type === "quiet" || type === "impersonate") return;
-    if (this.#reuseBatch) return;
-    if (this.#group && this.#groupPrepared) return;
-    if (!this.#waitingMessage || options.automatic_trigger) await this.prepare(lastUserMessage);
+    if (dryRun || type === "quiet" || type === "impersonate") {
+      return;
+    }
+    if (this.#reuseBatch) {
+      return;
+    }
+    if (this.#group && this.#groupPrepared) {
+      return;
+    }
+    if (!this.#waitingMessage || options.automatic_trigger) {
+      await this.prepare(lastUserMessage);
+    }
   }
 
   async messageSent(message: { content: string; isUser: boolean } | undefined): Promise<void> {
-    if (!this.#waitingMessage || !message?.isUser) return;
+    if (!this.#waitingMessage || !message?.isUser) {
+      return;
+    }
     this.#waitingMessage = false;
     await this.prepare(message.content);
   }
 
   generationFinished(dryRun: boolean): void {
-    if (dryRun) return;
+    if (dryRun) {
+      return;
+    }
     this.#building = false;
     this.#readable = false;
   }
@@ -278,8 +304,12 @@ export class MemoryMacroService {
         }
       }
     }
-    if (changed) await this.#ports.saveChatMacros(current);
-    if (context !== this.#ports.getContext()) return;
+    if (changed) {
+      await this.#ports.saveChatMacros(current);
+    }
+    if (context !== this.#ports.getContext()) {
+      return;
+    }
     this.#ports.writeLegacyChatMacros(pending);
     this.#conflicts = conflicts;
     this.#notify();
@@ -291,24 +321,33 @@ export class MemoryMacroService {
   ): Promise<void> {
     const context = this.#ports.getContext();
     const conflict = this.#conflicts.find((item) => item.name === name);
-    if (!conflict) throw new Error("迁移冲突已不存在");
+    if (!conflict) {
+      throw new Error("迁移冲突已不存在");
+    }
     const macros = [...this.#ports.getChatMacros()];
     if (resolution.kind === "overwrite") {
       const index = macros.findIndex((macro) => macro.name === name);
-      if (index < 0) throw new Error("空间中的同名宏已改变，请重新打开对话");
+      if (index < 0) {
+        throw new Error("空间中的同名宏已改变，请重新打开对话");
+      }
       macros[index] = conflict.legacy;
     } else if (resolution.kind === "rename") {
       const newName = resolution.name?.trim();
-      if (!newName || macros.some((macro) => macro.name === newName))
+      if (!newName || macros.some((macro) => macro.name === newName)) {
         throw new Error("请输入尚未使用的宏名");
+      }
       macros.push({
         ...conflict.legacy,
         id: `${conflict.legacy.id}:${encodeURIComponent(newName)}`,
         name: newName,
       });
     }
-    if (resolution.kind !== "keep") await this.#ports.saveChatMacros(macros);
-    if (context !== this.#ports.getContext()) throw new Error("对话已切换");
+    if (resolution.kind !== "keep") {
+      await this.#ports.saveChatMacros(macros);
+    }
+    if (context !== this.#ports.getContext()) {
+      throw new Error("对话已切换");
+    }
     this.#ports.writeLegacyChatMacros(
       this.#ports.readLegacyChatMacros().filter((view) => view.name !== name),
     );
@@ -345,7 +384,9 @@ export class MemoryMacroService {
       try {
         const snapshot = await this.#ports.capture();
         controller.signal.throwIfAborted();
-        if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+        if (!snapshot) {
+          throw new Error("当前记忆空间尚未准备好");
+        }
         batch = await this.#ports.createBatch(snapshot, {
           lastUserMessage: input.lastUserMessage,
           signal: controller.signal,
@@ -405,7 +446,9 @@ export class MemoryMacroService {
   }
 
   async prepare(lastUserMessage: string | null): Promise<void> {
-    if (!this.#ports.readSettings().enabled || (this.#group && this.#groupPrepared)) return;
+    if (!this.#ports.readSettings().enabled || (this.#group && this.#groupPrepared)) {
+      return;
+    }
     const epoch = ++this.#epoch;
     const context = this.#ports.getContext();
     const settings = this.#ports.readSettings();
@@ -416,9 +459,12 @@ export class MemoryMacroService {
     this.#readable = false;
     const deadline = performance.now() + (this.#ports.timeoutMs ?? 10_000);
     const selected = new Map<string, { macro: MemoryMacro; scope: "chat" | "global" }>();
-    for (const macro of settings.macros) selected.set(macro.name, { macro, scope: "global" });
-    for (const macro of this.#ports.getChatMacros())
+    for (const macro of settings.macros) {
+      selected.set(macro.name, { macro, scope: "global" });
+    }
+    for (const macro of this.#ports.getChatMacros()) {
       selected.set(macro.name, { macro, scope: "chat" });
+    }
     const results = new Map<string, MacroExecutionResult>();
     for (const { macro, scope } of selected.values()) {
       const conflict =
@@ -445,16 +491,20 @@ export class MemoryMacroService {
       try {
         const snapshot = await this.#ports.capture();
         controller.signal.throwIfAborted();
-        if (!snapshot) throw new Error("当前记忆空间尚未准备好");
+        if (!snapshot) {
+          throw new Error("当前记忆空间尚未准备好");
+        }
         const builtins = await this.#builtins(snapshot, settings.macroLimit);
-        for (const result of builtins)
-          if (!selected.has(result.name))
+        for (const result of builtins) {
+          if (!selected.has(result.name)) {
             results.set(
               result.name,
               this.#migrationError && result.name !== ""
                 ? { ...result, status: "error", text: "", error: this.#migrationError }
                 : result,
             );
+          }
+        }
         batch = await this.#ports.createBatch(snapshot, {
           lastUserMessage,
           signal: controller.signal,
@@ -463,7 +513,9 @@ export class MemoryMacroService {
         await Promise.all(
           [...selected.values()].map(async ({ macro }) => {
             const initial = results.get(macro.name)!;
-            if (initial.status !== "running") return;
+            if (initial.status !== "running") {
+              return;
+            }
             const started = performance.now();
             try {
               const result = await batch!.evaluate(macro.expression);
@@ -496,19 +548,23 @@ export class MemoryMacroService {
           }),
         );
       } catch (error) {
-        for (const [name, result] of results)
-          if (result.status === "running")
+        for (const [name, result] of results) {
+          if (result.status === "running") {
             results.set(name, {
               ...result,
               status: "error",
               error: error instanceof Error ? error.message : String(error),
             });
+          }
+        }
       } finally {
         try {
           await batch?.close();
         } catch (error) {
           for (const [name, result] of results) {
-            if (result.scope === "builtin") continue;
+            if (result.scope === "builtin") {
+              continue;
+            }
             const definition = selected.get(name)!.macro;
             results.set(name, {
               ...result,
@@ -523,9 +579,11 @@ export class MemoryMacroService {
     };
     try {
       await Promise.race([work(), interrupted]);
-      if (epoch !== this.#epoch || context !== this.#ports.getContext()) return;
-      for (const [name, result] of results)
-        if (result.status === "running")
+      if (epoch !== this.#epoch || context !== this.#ports.getContext()) {
+        return;
+      }
+      for (const [name, result] of results) {
+        if (result.status === "running") {
           results.set(name, {
             ...result,
             status: "error",
@@ -538,6 +596,8 @@ export class MemoryMacroService {
                 ? [{ execution: batch.statistics(selected.get(name)!.macro.expression) }]
                 : [],
           });
+        }
+      }
       this.#results = [...results.values()];
       this.#publishedContext = context;
       this.#readable = true;
@@ -546,7 +606,9 @@ export class MemoryMacroService {
     } finally {
       clearTimeout(timer);
       controller.signal.removeEventListener("abort", release);
-      if (epoch === this.#epoch) this.#preparing = false;
+      if (epoch === this.#epoch) {
+        this.#preparing = false;
+      }
     }
   }
 
@@ -616,10 +678,13 @@ export class MemoryMacroService {
               field.tableId !== table.id ||
               !field.enabled ||
               (field.type !== "single_reference" && field.type !== "multi_reference")
-            )
+            ) {
               continue;
+            }
             const value = payload.get(field.id);
-            if (value === null || value === undefined) continue;
+            if (value === null || value === undefined) {
+              continue;
+            }
             const ids = field.type === "multi_reference" ? (value as readonly string[]) : [value];
             const names = ids.map(
               (id) =>
@@ -648,9 +713,11 @@ export class MemoryMacroService {
       ],
       [BUILTIN_FULL_ARG, renderMemoryFullSnapshot({ tables: inputs, limit })],
     ]);
-    for (const [index, table] of tables.entries())
-      if (table.key !== BUILTIN_FULL_ARG)
+    for (const [index, table] of tables.entries()) {
+      if (table.key !== BUILTIN_FULL_ARG) {
         texts.set(table.key, renderMemoryFullSnapshot({ tables: [inputs[index]!], limit }));
+      }
+    }
     return [...texts].map(([name, text]) => ({
       ...this.#initial({ id: `builtin:${name}`, name }, "builtin"),
       status: text ? "success" : "empty",
@@ -660,6 +727,8 @@ export class MemoryMacroService {
 
   #notify(): void {
     this.#results = [...this.#results];
-    for (const listener of this.#listeners) listener();
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 }

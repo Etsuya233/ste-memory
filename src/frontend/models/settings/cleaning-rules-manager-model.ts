@@ -50,7 +50,9 @@ export function runCleaningTest(
 ): CleaningTestRun {
   if (rule.enabled) {
     const error = validateCleaningRule(rule);
-    if (error) return { kind: "error", errors: [error] };
+    if (error) {
+      return { kind: "error", errors: [error] };
+    }
   }
   return {
     kind: "ok",

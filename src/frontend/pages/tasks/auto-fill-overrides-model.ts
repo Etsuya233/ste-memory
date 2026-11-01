@@ -32,9 +32,14 @@ export function saveAutoFillOverrides(
   services.assertContext(context);
   const next = { ...services.read().overrides };
   for (const key of keys) {
-    if (Object.is(saved[key], draft[key])) continue;
-    if (draft[key] === undefined) delete next[key];
-    else Object.assign(next, { [key]: draft[key] });
+    if (Object.is(saved[key], draft[key])) {
+      continue;
+    }
+    if (draft[key] === undefined) {
+      delete next[key];
+    } else {
+      Object.assign(next, { [key]: draft[key] });
+    }
   }
   services.saveOverrides(next);
   return services.read().overrides;

@@ -40,7 +40,9 @@ export class StSettingsStore implements SettingsStore {
   write(settings: PluginSettings): void {
     const context = this.#getContext();
     const extensionSettings = context.extensionSettings;
-    if (!extensionSettings) return;
+    if (!extensionSettings) {
+      return;
+    }
     extensionSettings[SETTINGS_KEY] = settings;
     context.saveSettingsDebounced?.();
   }

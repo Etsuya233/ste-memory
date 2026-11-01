@@ -16,12 +16,17 @@ export interface CleaningRule {
 
 /** 当前版本配置必须通过校验；旧版本在设置入口直接清空。 */
 export function mergeCleaningRules(raw: unknown): readonly CleaningRule[] {
-  if (!Array.isArray(raw)) throw new Error("清洗规则必须为数组");
+  if (!Array.isArray(raw)) {
+    throw new Error("清洗规则必须为数组");
+  }
   return raw.map((rule: CleaningRule) => {
-    if (!rule.id || typeof rule.enabled !== "boolean")
+    if (!rule.id || typeof rule.enabled !== "boolean") {
       throw new Error("清洗规则缺少 ID 或启用状态");
+    }
     const error = validateCleaningRule(rule);
-    if (error) throw new Error(error);
+    if (error) {
+      throw new Error(error);
+    }
     const normalize = (tag: CleaningTagPair) => ({ pre: tag.pre.trim(), post: tag.post.trim() });
     return {
       id: rule.id,
@@ -51,18 +56,26 @@ export function removeCleaningRule(
 export type CleaningRuleDraft = Omit<CleaningRule, "id">;
 
 export function validateCleaningRule(input: CleaningRuleDraft): string | undefined {
-  if (!input.name.trim()) return "清洗规则名称不能为空";
-  if (input.name.length > CLEANING_RULE_NAME_LIMIT)
+  if (!input.name.trim()) {
+    return "清洗规则名称不能为空";
+  }
+  if (input.name.length > CLEANING_RULE_NAME_LIMIT) {
     return `清洗规则名称不能超过 ${CLEANING_RULE_NAME_LIMIT} 个字符`;
-  if (!Array.isArray(input.keepTags) || !Array.isArray(input.excludeTags))
+  }
+  if (!Array.isArray(input.keepTags) || !Array.isArray(input.excludeTags)) {
     return "保留标签和排除标签必须为数组";
-  if (input.keepTags.length + input.excludeTags.length === 0) return "请至少添加一个保留或排除标签";
+  }
+  if (input.keepTags.length + input.excludeTags.length === 0) {
+    return "请至少添加一个保留或排除标签";
+  }
   for (const [label, tags] of [
     ["保留", input.keepTags],
     ["排除", input.excludeTags],
   ] as const) {
     for (const tag of tags) {
-      if (!tag.pre.trim() || !tag.post.trim()) return `${label}标签的开始和结束标签不能为空`;
+      if (!tag.pre.trim() || !tag.post.trim()) {
+        return `${label}标签的开始和结束标签不能为空`;
+      }
     }
   }
   return undefined;
@@ -75,7 +88,9 @@ export function formatCleaningRuleSelection(ruleId: string): {
   return { version: CLEANING_SCHEMA_VERSION, ruleId };
 }
 export function readCleaningRuleSelection(raw: unknown): string | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
   const selection = raw as { version?: unknown; ruleId?: unknown };
   return selection.version === CLEANING_SCHEMA_VERSION &&
     typeof selection.ruleId === "string" &&
@@ -107,16 +122,23 @@ function tagSegments(
       | undefined;
     for (const tag of tags) {
       const start = content.indexOf(tag.pre, cursor);
-      if (start < 0) continue;
+      if (start < 0) {
+        continue;
+      }
       const inner = start + tag.pre.length;
       const end = content.indexOf(tag.post, inner);
-      if (end < 0) continue;
+      if (end < 0) {
+        continue;
+      }
       const after = end + tag.post.length;
       // 同一起点选覆盖更长的完整片段，避免 OR 的结果受配置顺序影响。
-      if (!next || start < next.start || (start === next.start && after > next.after))
+      if (!next || start < next.start || (start === next.start && after > next.after)) {
         next = { start, inner, end, after, tag };
+      }
     }
-    if (!next) break;
+    if (!next) {
+      break;
+    }
     segments.push(next);
     cursor = next.after;
   }
@@ -136,9 +158,13 @@ function excludeTaggedContent(content: string, tags: readonly CleaningTagPair[])
 
 /** 先在原文删除排除段，再从剩余内容提取保留段，避免混入被排除区域的正文。 */
 export function applyCleaningRule(content: string, rule: CleaningRule): string {
-  if (!rule.enabled) return content;
+  if (!rule.enabled) {
+    return content;
+  }
   const excluded = excludeTaggedContent(content, rule.excludeTags);
-  if (rule.keepTags.length === 0) return excluded;
+  if (rule.keepTags.length === 0) {
+    return excluded;
+  }
   return tagSegments(excluded, rule.keepTags)
     .map((segment) => excluded.slice(segment.inner, segment.end))
     .filter((text) => text !== "")

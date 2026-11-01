@@ -10,7 +10,9 @@ export interface EmbeddingConnection {
 
 /** 缺省值只用于旧设置升级；显式保存的错误配置直接报告。 */
 export function parseEmbeddingConnection(raw: unknown): EmbeddingConnection | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("向量连接配置必须为对象");
   }

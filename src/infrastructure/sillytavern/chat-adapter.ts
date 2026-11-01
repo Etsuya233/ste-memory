@@ -267,11 +267,19 @@ export class StChatAdapter {
 
   /** 直接调用 ST /hide 回调；身份检查与消息更新之间没有异步等待。 */
   async hideFloors(identity: string, to: number): Promise<void> {
-    if (!Number.isInteger(to) || to < 0) throw new Error("隐藏终点须为非负整数");
-    if (chatIdentityKey(this.getChatSnapshot()) !== identity) return;
-    if (to >= this.chatMessageCount()) throw new Error("隐藏范围已超出当前对话");
+    if (!Number.isInteger(to) || to < 0) {
+      throw new Error("隐藏终点须为非负整数");
+    }
+    if (chatIdentityKey(this.getChatSnapshot()) !== identity) {
+      return;
+    }
+    if (to >= this.chatMessageCount()) {
+      throw new Error("隐藏范围已超出当前对话");
+    }
     const hide = this.#getContext().SlashCommandParser?.commands.hide;
-    if (!hide) throw new Error("当前 ST 未提供 /hide 命令");
+    if (!hide) {
+      throw new Error("当前 ST 未提供 /hide 命令");
+    }
     await hide.callback({}, `0-${to}`);
   }
 
@@ -279,13 +287,17 @@ export class StChatAdapter {
     return {
       read: () => {
         const raw = this.#getContext().chatMetadata?.steMemoryAutoFill;
-        if (raw === undefined) return { overrides: {}, pausedReason: null };
+        if (raw === undefined) {
+          return { overrides: {}, pausedReason: null };
+        }
         const state = raw as AutoFillChatState;
         return { ...state, overrides: migrateAutoFillSettings(state.overrides) };
       },
       write: (state) => {
         const context = this.#getContext();
-        if (!context.chatMetadata) throw new Error("当前聊天元数据尚未就绪");
+        if (!context.chatMetadata) {
+          throw new Error("当前聊天元数据尚未就绪");
+        }
         context.chatMetadata.steMemoryAutoFill = state;
         context.saveMetadataDebounced?.();
       },
@@ -301,8 +313,9 @@ export class StChatAdapter {
         !message.is_system &&
         typeof message.mes === "string" &&
         message.mes.trim() !== ""
-      )
+      ) {
         return floor;
+      }
     }
     return -1;
   }
@@ -322,13 +335,17 @@ export class StChatAdapter {
   captureFileTarget(): ChatFileTarget | undefined {
     const snapshot = this.getChatSnapshot();
     const identity = chatIdentityKey(snapshot);
-    if (!identity || !snapshot.chatId) return undefined;
+    if (!identity || !snapshot.chatId) {
+      return undefined;
+    }
     if (snapshot.groupId != null && snapshot.groupId !== "") {
       return { kind: "group", identity, chatId: snapshot.chatId };
     }
     const context = this.#getContext();
     const avatarUrl = context.characters?.[Number(snapshot.characterId)]?.avatar;
-    if (!avatarUrl) throw new Error("无法确定当前对话的角色文件身份");
+    if (!avatarUrl) {
+      throw new Error("无法确定当前对话的角色文件身份");
+    }
     return { kind: "character", identity, chatId: snapshot.chatId, avatarUrl };
   }
 
@@ -402,7 +419,9 @@ export class StChatAdapter {
         // validateGroup/getGroupMembers 同判：avatar 或名字命中
         const card = characters.find((c) => c.avatar === memberRef || c.name === memberRef);
         const description = card?.description?.trim() ?? "";
-        if (description === "") continue;
+        if (description === "") {
+          continue;
+        }
         lines.push(`${card?.name ?? ""}：${description}`);
       }
       charCard = lines.join("\n\n");
@@ -450,7 +469,9 @@ export class StChatAdapter {
       write: (ruleId) => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
-        if (!metadata) return;
+        if (!metadata) {
+          return;
+        }
         if (ruleId === undefined) {
           delete metadata[CHAT_METADATA_CLEANING_RULE_KEY];
         } else {
@@ -474,7 +495,9 @@ export class StChatAdapter {
       write: (presetId) => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
-        if (!metadata) return;
+        if (!metadata) {
+          return;
+        }
         if (presetId === undefined) {
           delete metadata[CHAT_METADATA_AGENT_PRESET_KEY];
         } else {
@@ -501,7 +524,9 @@ export class StChatAdapter {
       write: (macros) => {
         const context = this.#getContext();
         const metadata = context.chatMetadata;
-        if (!metadata) return;
+        if (!metadata) {
+          return;
+        }
         const store: ChatScopeMacroStore = { version: 1, macros };
         metadata[CHAT_METADATA_CHAT_SCOPE_MACROS_KEY] = store;
         context.saveMetadataDebounced?.();
@@ -538,7 +563,9 @@ export class StChatAdapter {
     const context = this.#getContext();
     const source = context.eventSource;
     const types = context.eventTypes;
-    if (!source || !types) return;
+    if (!source || !types) {
+      return;
+    }
     source.on(types.CHAT_CHANGED, () => {
       this.#sendEligible = false;
       this.#afterCommands = false;
@@ -549,13 +576,15 @@ export class StChatAdapter {
       return bridge.onChatChanged();
     });
     source.on(types.MESSAGE_SENT, (floor) => {
-      if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) return;
+      if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) {
+        return;
+      }
       return this.#trackMacroEvaluation(
         bridge.onMessageEvent("message_sent", floor as number),
         bridge,
       );
     });
-    if (types.GENERATION_STARTED)
+    if (types.GENERATION_STARTED) {
       source.on(types.GENERATION_STARTED, async (type, options, dryRun) => {
         const generationOptions = options as { automatic_trigger?: boolean; signal?: AbortSignal };
         const excluded = dryRun === true || type === "quiet" || type === "impersonate";
@@ -588,9 +617,12 @@ export class StChatAdapter {
           dryRun === true,
         );
       });
-    if (types.GENERATION_AFTER_COMMANDS)
+    }
+    if (types.GENERATION_AFTER_COMMANDS) {
       source.on(types.GENERATION_AFTER_COMMANDS, (type, options, dryRun) => {
-        if (dryRun === true || type === "quiet" || type === "impersonate") return;
+        if (dryRun === true || type === "quiet" || type === "impersonate") {
+          return;
+        }
         this.#afterCommands = true;
         const result = bridge.onGenerationAfterCommands?.(
           type,
@@ -599,16 +631,24 @@ export class StChatAdapter {
         );
         return dryRun === true ? result : this.#trackMacroEvaluation(result, bridge);
       });
-    if (types.GENERATE_AFTER_DATA)
+    }
+    if (types.GENERATE_AFTER_DATA) {
       source.on(types.GENERATE_AFTER_DATA, (_data, dryRun) => {
-        if (dryRun === true) return bridge.onGenerationFinished?.(true);
-        if (this.#generation && !this.#generation.prompted) return;
+        if (dryRun === true) {
+          return bridge.onGenerationFinished?.(true);
+        }
+        if (this.#generation && !this.#generation.prompted) {
+          return;
+        }
         return bridge.onGenerationFinished?.(false);
       });
-    if (types.GENERATION_ENDED)
+    }
+    if (types.GENERATION_ENDED) {
       source.on(types.GENERATION_ENDED, () => {
         // This global UI event also comes from quiet calls and has no operation identity.
-        if (this.#generation && !this.#generation.prompted && !this.#generation.cancelled) return;
+        if (this.#generation && !this.#generation.prompted && !this.#generation.cancelled) {
+          return;
+        }
         this.#sendEligible = false;
         this.#afterCommands = false;
         if (
@@ -622,27 +662,38 @@ export class StChatAdapter {
         bridge.onGenerationFinished?.(false);
         bridge.onGenerationEnded?.();
       });
-    if (types.GENERATION_STOPPED)
+    }
+    if (types.GENERATION_STOPPED) {
       source.on(types.GENERATION_STOPPED, () => {
         const generation = this.#generation;
-        if (generation && !generation.prompted) generation.cancelled = true;
-        else if (generation && !generation.cancelled) {
+        if (generation && !generation.prompted) {
+          generation.cancelled = true;
+        } else if (generation && !generation.cancelled) {
           generation.drain();
           this.#generation = null;
         }
         bridge.onGenerationStopped?.();
       });
-    if (types.GROUP_WRAPPER_STARTED)
+    }
+    if (types.GROUP_WRAPPER_STARTED) {
       source.on(types.GROUP_WRAPPER_STARTED, () => bridge.onGroupStarted?.());
-    if (types.GROUP_WRAPPER_FINISHED)
+    }
+    if (types.GROUP_WRAPPER_FINISHED) {
       source.on(types.GROUP_WRAPPER_FINISHED, () => bridge.onGroupEnded?.());
-    if (types.MESSAGE_EDITED) source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
-    if (types.MESSAGE_DELETED) source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
+    }
+    if (types.MESSAGE_EDITED) {
+      source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
+    }
+    if (types.MESSAGE_DELETED) {
+      source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
+    }
     source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
   }
 
   #trackMacroEvaluation(result: void | Promise<void>, bridge: StEventBridge): void | Promise<void> {
-    if (!result || !bridge.shouldAwaitMacros?.()) return result;
+    if (!result || !bridge.shouldAwaitMacros?.()) {
+      return result;
+    }
     let drain!: () => void;
     const drained = new Promise<void>((resolve) => {
       drain = resolve;
@@ -652,8 +703,12 @@ export class StChatAdapter {
     this.#generationSignal?.addEventListener(
       "abort",
       () => {
-        if (this.#generation !== generation) return;
-        if (!generation.prompted) generation.cancelled = true;
+        if (this.#generation !== generation) {
+          return;
+        }
+        if (!generation.prompted) {
+          generation.cancelled = true;
+        }
         bridge.onGenerationStopped?.();
       },
       { once: true },
@@ -679,15 +734,21 @@ export class StChatAdapter {
 
   /** ST 的提示词拦截入口；取消中的旧发送必须在新 STARTED 放行前退出。 */
   interceptGeneration(abort: (immediately: boolean) => void, type: unknown): void {
-    if (type === "quiet" || type === "impersonate") return;
+    if (type === "quiet" || type === "impersonate") {
+      return;
+    }
     const generation = this.#generation;
-    if (!generation) return;
+    if (!generation) {
+      return;
+    }
     if (generation.cancelled) {
       abort(true);
       // 让 ST 先执行拦截器后的 unblockGeneration，下一任务再放行新 STARTED。
       // 否则旧调用发出的 ENDED 会把新调用的状态清掉。
       setTimeout(() => {
-        if (this.#generation === generation) this.#generation = null;
+        if (this.#generation === generation) {
+          this.#generation = null;
+        }
         generation.drain();
       }, 0);
       return;
@@ -703,7 +764,9 @@ export class StChatAdapter {
   scrollToFloor(floor: number): FloorJumpResult {
     const chatLength = this.#getContext().chat?.length ?? 0;
     const decision = resolveFloorJump(floor, chatLength);
-    if (decision.kind !== "ok") return decision;
+    if (decision.kind !== "ok") {
+      return decision;
+    }
     return scrollToMessageElement(floor);
   }
 
@@ -719,9 +782,13 @@ export class StChatAdapter {
       return undefined;
     }
     const message = chat[floor];
-    if (typeof message !== "object" || message === null) return undefined;
+    if (typeof message !== "object" || message === null) {
+      return undefined;
+    }
     const record = message as Record<string, unknown>;
-    if (typeof record.mes !== "string") return undefined;
+    if (typeof record.mes !== "string") {
+      return undefined;
+    }
     return {
       floor,
       content: record.mes,
@@ -781,7 +848,9 @@ export class StChatAdapter {
     const messages: StChatMessage[] = [];
     for (let floor = from; floor <= to; floor += 1) {
       const message = this.getMessageAt(floor);
-      if (message) messages.push(message);
+      if (message) {
+        messages.push(message);
+      }
     }
     return messages;
   }
@@ -792,7 +861,9 @@ export class StChatAdapter {
    */
   recentMessages(count: number): readonly StChatMessage[] {
     const total = this.chatMessageCount();
-    if (total === 0) return [];
+    if (total === 0) {
+      return [];
+    }
     const from = Math.max(0, total - count);
     return this.messagesInRange(from, total - 1);
   }
@@ -800,7 +871,9 @@ export class StChatAdapter {
   /** Public story input: filter excluded kinds before selecting the latest window. */
   recentStoryMessages(count: number): readonly MemoryChatMessage[] {
     const chat = this.#getContext().chat;
-    if (!Array.isArray(chat)) throw new Error("当前聊天消息尚未就绪");
+    if (!Array.isArray(chat)) {
+      throw new Error("当前聊天消息尚未就绪");
+    }
     const messages: MemoryChatMessage[] = [];
     for (let floor = chat.length - 1; floor >= 0 && messages.length < count; floor--) {
       const message = chat[floor] as {
@@ -812,9 +885,12 @@ export class StChatAdapter {
         extra?: { type?: string; tool_invocations?: readonly unknown[] };
       };
       const narrator = message.extra?.type === "narrator";
-      if (message.is_hidden || message.extra?.tool_invocations || message.is_system) continue;
-      if (typeof message.mes !== "string" || typeof message.name !== "string")
+      if (message.is_hidden || message.extra?.tool_invocations || message.is_system) {
+        continue;
+      }
+      if (typeof message.mes !== "string" || typeof message.name !== "string") {
         throw new Error(`聊天第 ${floor} 楼缺少正文或发送者`);
+      }
       messages.push({
         floor,
         name: message.name,
@@ -829,29 +905,40 @@ export class StChatAdapter {
 /** 读取 chatMetadata 里的绑定：键缺失 = none；键存在但值无法识别（损坏/未来版本）= unrecognized */
 function readChatSpaceBinding(metadata: Record<string, unknown> | undefined): ChatBindingStoreRead {
   const raw = metadata?.[CHAT_METADATA_BINDING_KEY];
-  if (raw === undefined) return { kind: "none" };
-  if (isChatSpaceBinding(raw)) return { kind: "bound", binding: raw };
+  if (raw === undefined) {
+    return { kind: "none" };
+  }
+  if (isChatSpaceBinding(raw)) {
+    return { kind: "bound", binding: raw };
+  }
   return { kind: "unrecognized" };
 }
 
 function isChatSpaceBinding(value: unknown): value is ChatSpaceBinding {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const candidate = value as Record<string, unknown>;
   // v1: version === 1 且有 spaceId
-  if (candidate.version === 1 && typeof candidate.spaceId === "string") return true;
+  if (candidate.version === 1 && typeof candidate.spaceId === "string") {
+    return true;
+  }
   // v2: version === 2 且有 spaceId 和 chatIdentity
   if (
     candidate.version === 2 &&
     typeof candidate.spaceId === "string" &&
     typeof candidate.chatIdentity === "string"
-  )
+  ) {
     return true;
+  }
   return false;
 }
 
 /** DOM 部分：ST 消息块 `.mes[mesid="N"]`（下标 = 同步楼层）。ST DOM 不测（测试决策）。 */
 function scrollToMessageElement(floor: number): FloorJumpResult {
-  if (typeof document === "undefined") return { kind: "not-loaded" };
+  if (typeof document === "undefined") {
+    return { kind: "not-loaded" };
+  }
   const container = document.getElementById("chat");
   const element = document.querySelector(`#chat .mes[mesid="${floor}"]`);
   if (!(container instanceof HTMLElement) || !(element instanceof HTMLElement)) {

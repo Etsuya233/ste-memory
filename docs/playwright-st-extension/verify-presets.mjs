@@ -32,7 +32,9 @@ async function downloadJson() {
   const [download] = await Promise.all([page.waitForEvent("download"), button("导出草稿").click()]);
   const stream = await download.createReadStream();
   let value = "";
-  for await (const chunk of stream) value += chunk.toString();
+  for await (const chunk of stream) {
+    value += chunk.toString();
+  }
   return JSON.parse(value);
 }
 try {
@@ -241,6 +243,8 @@ try {
   await page.screenshot({ path: `${screenshots}/settings-table-preset-320.png` });
   check("no browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

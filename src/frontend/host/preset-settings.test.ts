@@ -29,7 +29,9 @@ function harness() {
     presetUpdate: { preview: vi.fn(), apply: updateApply, retrySave },
     presetApply: {
       assertCurrentChat: (identity: string) => {
-        if (identity !== `char:1:${current}`) throw new Error("chat changed");
+        if (identity !== `char:1:${current}`) {
+          throw new Error("chat changed");
+        }
       },
       stopSpaceWrites: stop,
       applyPreset: apply,

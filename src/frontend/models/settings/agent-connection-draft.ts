@@ -33,6 +33,8 @@ export function connectionFromDraft(draft: AgentConnectionDraft): AgentConnectio
   const { headerRows, ...fields } = draft;
   const entries = headerRows.map(({ name, value }) => [name, value] as const);
   const error = connectionHeaderError(entries);
-  if (error) throw new Error(error);
+  if (error) {
+    throw new Error(error);
+  }
   return { ...fields, customHeaders: Object.fromEntries(entries) };
 }

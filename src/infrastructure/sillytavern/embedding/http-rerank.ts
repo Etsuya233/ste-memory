@@ -21,10 +21,12 @@ export class HttpRerankPort implements RerankPort {
     const c = this.connection;
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(c.timeoutSeconds * 1000)]);
     const body = JSON.stringify({ model: c.model, query, documents, top_n: documents.length });
-    if (query.length > c.maxInputChars || documents.some((text) => text.length > c.maxInputChars))
+    if (query.length > c.maxInputChars || documents.some((text) => text.length > c.maxInputChars)) {
       throw new Error(`重排输入超过单条 ${c.maxInputChars} 字符上限`);
-    if (new TextEncoder().encode(body).byteLength > 2 * 1024 * 1024)
+    }
+    if (new TextEncoder().encode(body).byteLength > 2 * 1024 * 1024) {
       throw new Error("重排请求体超过 2 MiB 上限");
+    }
     let response: Response;
     try {
       response = await this.request(c.endpoint, {
@@ -38,13 +40,16 @@ export class HttpRerankPort implements RerankPort {
         signal: requestSignal,
       });
     } catch (error) {
-      if (requestSignal.aborted) throw requestSignal.reason;
+      if (requestSignal.aborted) {
+        throw requestSignal.reason;
+      }
       throw new Error("无法连接重排端点，请检查地址、网络和跨域许可", { cause: error });
     }
-    if (!response.ok)
+    if (!response.ok) {
       throw new Error(
         `重排服务返回 HTTP ${response.status}：${(await response.text()).slice(0, 500)}`,
       );
+    }
     const data: unknown = await response.json();
     if (
       !data ||
@@ -52,8 +57,9 @@ export class HttpRerankPort implements RerankPort {
       !("results" in data) ||
       !Array.isArray(data.results) ||
       data.results.length !== documents.length
-    )
+    ) {
       throw new Error("重排服务返回格式或候选数量不正确");
+    }
     const scores = new Array<number>(documents.length);
     const seen = new Set<number>();
     for (const result of data.results) {
@@ -66,8 +72,9 @@ export class HttpRerankPort implements RerankPort {
         seen.has(result.index) ||
         typeof result.relevance_score !== "number" ||
         !Number.isFinite(result.relevance_score)
-      )
+      ) {
         throw new Error("重排服务返回重复、越界索引或无效分数");
+      }
       seen.add(result.index);
       scores[result.index] = result.relevance_score;
     }

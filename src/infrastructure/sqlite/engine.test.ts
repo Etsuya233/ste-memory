@@ -226,8 +226,9 @@ describe("real SQLite WASM memory engine", () => {
         { name: "bad", select: "SELECT * FROM missing" },
       ],
       [{ name: "phone_people", columns: ["same", "SAME"], select: "SELECT 1,2" }],
-    ])
+    ]) {
       await expect(client.registerDatabaseViews({ ...binding, views })).rejects.toThrow();
+    }
     expect(
       (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
     ).toEqual([[1]]);
@@ -377,8 +378,9 @@ describe("real SQLite WASM memory engine", () => {
       {
         sql: "WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10) SELECT printf('%.*c',400000,'x') FROM n",
       },
-    ])
+    ]) {
       await expect(client.queryDatabase({ ...binding, ...input })).rejects.toThrow();
+    }
     const result = await client.queryDatabase({
       ...binding,
       maxRows: 2,
@@ -741,10 +743,11 @@ describe("real SQLite WASM memory engine", () => {
       `SELECT record_id AS x,score AS x FROM ${from}`,
       `SELECT query_arg FROM ${from}`,
       `SELECT load_extension('x')`,
-    ])
+    ]) {
       await expect(
         client.evaluateSemanticSql({ sessionId, sources: [], sql, prepareOnly: true }),
       ).rejects.toThrow();
+    }
     await expect(
       client.evaluateMacro({
         sessionId,
@@ -1135,8 +1138,11 @@ describe("real SQLite WASM memory engine", () => {
           sources: [],
           sql: `SELECT "$display_text" FROM "${key}"`,
         });
-        if (enabled) expect((await result).rows).toEqual([["secret"]]);
-        else await expect(result).rejects.toThrow();
+        if (enabled) {
+          expect((await result).rows).toEqual([["secret"]]);
+        } else {
+          await expect(result).rejects.toThrow();
+        }
       }
     },
   );
@@ -1179,8 +1185,9 @@ describe("real SQLite WASM memory engine", () => {
       `SELECT * FROM(SELECT * FROM ${from})`,
       `SELECT * FROM ${from} WHERE 0`,
       `SELECT CASE WHEN 0 THEN(SELECT count(*) FROM ${from}) ELSE 1 END`,
-    ])
+    ]) {
       expect((await client.executeConsole("s", sql)).semanticStatement?.sql).toBe(sql);
+    }
     await client.executeConsole("s", "CREATE TABLE forbidden(n)");
     await expect(
       client.executeConsole("s", `INSERT INTO forbidden SELECT score FROM ${from}`),

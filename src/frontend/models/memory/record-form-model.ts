@@ -21,9 +21,15 @@ export interface RecordFormDraft {
 
 /** 表单值展示文本（停用字段只读行用；null/undefined/空串/空数组 → —） */
 export function formDisplayValueText(value: RecordFormValue | undefined): string {
-  if (Array.isArray(value)) return value.length > 0 ? value.join("、") : "—";
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value === "string" && value.length === 0) return "—";
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join("、") : "—";
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  if (typeof value === "string" && value.length === 0) {
+    return "—";
+  }
   return String(value ?? "—");
 }
 
@@ -71,7 +77,9 @@ export function validateRecordFormDraft(
   const errors: Record<string, string> = {};
   for (const field of fields) {
     const error = validateFieldValue(field, draft.values[field.id]);
-    if (error) errors[field.id] = error;
+    if (error) {
+      errors[field.id] = error;
+    }
   }
   return errors;
 }
@@ -123,7 +131,9 @@ export function recordFormPatchFromDraft(
 
 /** datetime 比较归一化：统一到分钟精度（“YYYY-MM-DD HH:mm”） */
 function normalizeDatetime(value: MemoryFieldValue): MemoryFieldValue {
-  if (typeof value !== "string" || value.length === 0) return value;
+  if (typeof value !== "string" || value.length === 0) {
+    return value;
+  }
   return value.replace("T", " ").slice(0, 16);
 }
 
@@ -137,10 +147,16 @@ export function recordFieldValueText(
   value: MemoryFieldValue | undefined,
   referenceLabels?: ReadonlyMap<string, string>,
 ): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "是" : "否";
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
   if (Array.isArray(value)) {
-    if (value.length === 0) return "—";
+    if (value.length === 0) {
+      return "—";
+    }
     if (field.type === "multi_reference" && referenceLabels) {
       return value.map((id) => referenceLabels.get(id) ?? id).join("、");
     }
@@ -162,7 +178,9 @@ export function recordFieldValueText(
 }
 
 function formValueForEmpty(type: MemoryField["type"]): RecordFormValue {
-  if (type === "boolean") return false;
+  if (type === "boolean") {
+    return false;
+  }
   if (type === "short_text_list" || type === "multi_select" || type === "multi_reference") {
     return [];
   }
@@ -170,7 +188,9 @@ function formValueForEmpty(type: MemoryField["type"]): RecordFormValue {
 }
 
 function formValueFromPayload(field: MemoryField, value: MemoryFieldValue | null): RecordFormValue {
-  if (field.type === "boolean") return value === true;
+  if (field.type === "boolean") {
+    return value === true;
+  }
   if (
     field.type === "short_text_list" ||
     field.type === "multi_select" ||
@@ -182,7 +202,9 @@ function formValueFromPayload(field: MemoryField, value: MemoryFieldValue | null
     // "YYYY-MM-DD HH:mm:ss" → datetime-local 输入 "YYYY-MM-DDTHH:mm"
     return value.replace(" ", "T").slice(0, 16);
   }
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) {
+    return "";
+  }
   return String(value);
 }
 
@@ -192,17 +214,25 @@ function validateFieldValue(field: MemoryField, value: RecordFormValue | undefin
     case "short_text":
     case "long_text": {
       const text = typeof value === "string" ? value.trim() : "";
-      if (field.required && text.length === 0) return `请填写${name}`;
+      if (field.required && text.length === 0) {
+        return `请填写${name}`;
+      }
       return null;
     }
     case "short_text_list": {
       const items = Array.isArray(value) ? value : splitListText(String(value ?? ""));
-      if (field.required && items.length === 0) return `请填写${name}`;
-      if (new Set(items).size !== items.length) return `${name}的选项不能重复`;
+      if (field.required && items.length === 0) {
+        return `请填写${name}`;
+      }
+      if (new Set(items).size !== items.length) {
+        return `${name}的选项不能重复`;
+      }
       return null;
     }
     case "integer": {
-      if (value === "" || value === undefined) return field.required ? `请填写${name}` : null;
+      if (value === "" || value === undefined) {
+        return field.required ? `请填写${name}` : null;
+      }
       const parsed = Number(value);
       if (value === null || Number.isNaN(parsed) || !Number.isInteger(parsed)) {
         return `${name}必须是整数`;
@@ -210,7 +240,9 @@ function validateFieldValue(field: MemoryField, value: RecordFormValue | undefin
       return null;
     }
     case "decimal": {
-      if (value === "" || value === undefined) return field.required ? `请填写${name}` : null;
+      if (value === "" || value === undefined) {
+        return field.required ? `请填写${name}` : null;
+      }
       const parsed = Number(value);
       if (value === null || Number.isNaN(parsed) || !Number.isFinite(parsed)) {
         return `${name}必须是数字`;
@@ -221,32 +253,44 @@ function validateFieldValue(field: MemoryField, value: RecordFormValue | undefin
       return null;
     case "date": {
       const text = typeof value === "string" ? value : "";
-      if (text.length === 0) return field.required ? `请填写${name}` : null;
+      if (text.length === 0) {
+        return field.required ? `请填写${name}` : null;
+      }
       return isDateText(text) ? null : `${name}的日期格式应为 YYYY-MM-DD`;
     }
     case "datetime": {
       const text = typeof value === "string" ? value : "";
-      if (text.length === 0) return field.required ? `请填写${name}` : null;
+      if (text.length === 0) {
+        return field.required ? `请填写${name}` : null;
+      }
       return isDateTimeText(text) ? null : `${name}的日期时间格式应为 YYYY-MM-DD HH:mm`;
     }
     case "single_select": {
       const text = typeof value === "string" ? value : "";
-      if (text.length === 0) return field.required ? `请选择${name}` : null;
+      if (text.length === 0) {
+        return field.required ? `请选择${name}` : null;
+      }
       return field.options.includes(text) ? null : `${name}的选项无效`;
     }
     case "multi_select": {
       const items = Array.isArray(value) ? value : [];
-      if (field.required && items.length === 0) return `请选择${name}`;
+      if (field.required && items.length === 0) {
+        return `请选择${name}`;
+      }
       return items.some((item) => !field.options.includes(item)) ? `${name}包含无效选项` : null;
     }
     case "single_reference": {
       const text = typeof value === "string" ? value : "";
-      if (text.length === 0) return field.required ? `请选择${name}` : null;
+      if (text.length === 0) {
+        return field.required ? `请选择${name}` : null;
+      }
       return null;
     }
     case "multi_reference": {
       const items = Array.isArray(value) ? value : [];
-      if (field.required && items.length === 0) return `请选择${name}`;
+      if (field.required && items.length === 0) {
+        return `请选择${name}`;
+      }
       return null;
     }
   }
@@ -268,11 +312,15 @@ function payloadValueFromForm(
         ? [...value]
         : splitListText(typeof value === "string" ? value : "");
     case "integer": {
-      if (value === "" || value === undefined || value === null) return null;
+      if (value === "" || value === undefined || value === null) {
+        return null;
+      }
       return Number(value);
     }
     case "decimal": {
-      if (value === "" || value === undefined || value === null) return null;
+      if (value === "" || value === undefined || value === null) {
+        return null;
+      }
       return Number(value);
     }
     case "boolean":
@@ -283,7 +331,9 @@ function payloadValueFromForm(
     }
     case "datetime": {
       const text = typeof value === "string" ? value.trim() : "";
-      if (text.length === 0) return null;
+      if (text.length === 0) {
+        return null;
+      }
       // datetime-local 输入（YYYY-MM-DDTHH:mm 或带秒）→ 统一契约 YYYY-MM-DD HH:mm:ss
       const normalized = text.replace("T", " ");
       return normalized.length === 16 ? `${normalized}:00` : normalized;
@@ -313,7 +363,9 @@ function sameFieldValue(left: MemoryFieldValue, right: MemoryFieldValue): boolea
 }
 
 function isDateText(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.valueOf()) && date.toISOString().startsWith(value);
 }
@@ -321,8 +373,12 @@ function isDateText(value: string): boolean {
 function isDateTimeText(value: string): boolean {
   // 接受 datetime-local 输入（YYYY-MM-DDTHH:mm 或 YYYY-MM-DDTHH:mm:ss）与统一契约形态
   const normalized = value.replace("T", " ");
-  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(normalized)) return false;
-  if (!isDateText(normalized.slice(0, 10))) return false;
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(normalized)) {
+    return false;
+  }
+  if (!isDateText(normalized.slice(0, 10))) {
+    return false;
+  }
   const [hours = 0, minutes = 0] = normalized.slice(11).split(":").map(Number);
   return hours < 24 && minutes < 60;
 }

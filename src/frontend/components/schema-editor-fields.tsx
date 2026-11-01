@@ -45,7 +45,7 @@ export function SchemaEditorFields({
   allowVectorSources?: boolean;
   templatePreviewHint?: string;
 }) {
-  if (editor.kind === "table")
+  if (editor.kind === "table") {
     return (
       <>
         <Field>
@@ -107,6 +107,7 @@ export function SchemaEditorFields({
         )}
       </>
     );
+  }
   if (editor.kind === "field") {
     const draft = editor.draft;
     return (
@@ -271,7 +272,7 @@ export function SchemaEditorFields({
       </>
     );
   }
-  if (editor.kind === "display")
+  if (editor.kind === "display") {
     return (
       <>
         <Field>
@@ -352,6 +353,7 @@ export function SchemaEditorFields({
         )}
       </>
     );
+  }
   const draft = editor.draft,
     groups = effectiveVectorIndexGroups(draft, state.fields);
   const groupProperty = draft.source === "preset" ? "presetGroups" : "groups";

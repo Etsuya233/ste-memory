@@ -78,7 +78,9 @@ export function displayStrategySummary(
   strategy: MemoryTableDisplayStrategy | null,
   fields: readonly MemoryField[],
 ): string {
-  if (!strategy) return "未配置显示策略";
+  if (!strategy) {
+    return "未配置显示策略";
+  }
   if (strategy.type === "field") {
     const field = fields.find((candidate) => candidate.id === strategy.fieldId);
     return `显示字段：${field?.name ?? "未知字段"}`;
@@ -92,7 +94,9 @@ export function displayStrategySummary(
 export function displayStrategyDependentFieldIds(
   strategy: MemoryTableDisplayStrategy | null,
 ): ReadonlySet<MemoryFieldId> {
-  if (!strategy) return new Set();
+  if (!strategy) {
+    return new Set();
+  }
   try {
     return new Set(memoryTableDisplayFieldIds(strategy));
   } catch {
@@ -110,9 +114,13 @@ export function payloadSummary(
   const parts: string[] = [];
   for (const [fieldId, value] of Object.entries(payload)) {
     const field = fieldsById.get(fieldId as MemoryFieldId);
-    if (!field) continue;
+    if (!field) {
+      continue;
+    }
     const text = Array.isArray(value) ? value.join("、") : value === null ? "" : String(value);
-    if (text.length === 0) continue;
+    if (text.length === 0) {
+      continue;
+    }
     parts.push(`${field.name}: ${text}`);
   }
   const joined = parts.join(" · ");

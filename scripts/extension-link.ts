@@ -23,9 +23,13 @@ function pathExists(target: string): boolean {
 
 /** 目标目录是否为「指向 dist 的链接」（Junction / symlink）；真目录一律 false。 */
 export function isLinkToDist(distDir: string, targetDir: string): boolean {
-  if (!pathExists(distDir) || !pathExists(targetDir)) return false;
+  if (!pathExists(distDir) || !pathExists(targetDir)) {
+    return false;
+  }
   try {
-    if (!lstatSync(targetDir).isSymbolicLink()) return false;
+    if (!lstatSync(targetDir).isSymbolicLink()) {
+      return false;
+    }
     return realpathSync(targetDir) === realpathSync(distDir);
   } catch {
     return false;
@@ -40,8 +44,12 @@ export type ExtensionLinkPlan =
 
 /** 目标目录当前状态 → 建链动作（纯函数，st:link CLI 与测试共用）。 */
 export function planExtensionLink(distDir: string, targetDir: string): ExtensionLinkPlan {
-  if (!pathExists(targetDir)) return { kind: "create" };
-  if (isLinkToDist(distDir, targetDir)) return { kind: "already-linked" };
+  if (!pathExists(targetDir)) {
+    return { kind: "create" };
+  }
+  if (isLinkToDist(distDir, targetDir)) {
+    return { kind: "already-linked" };
+  }
   if (lstatSync(targetDir).isSymbolicLink()) {
     return {
       kind: "blocked",
@@ -64,7 +72,9 @@ export function createExtensionLink(distDir: string, targetDir: string): CreateE
   if (plan.kind === "blocked") {
     throw new Error(`无法建立链接：${plan.reason}`);
   }
-  if (plan.kind === "already-linked") return { status: "already-linked" };
+  if (plan.kind === "already-linked") {
+    return { status: "already-linked" };
+  }
   mkdirSync(path.dirname(targetDir), { recursive: true });
   // Windows 用 junction（免管理员）；其余平台用目录 symlink
   symlinkSync(distDir, targetDir, process.platform === "win32" ? "junction" : "dir");
@@ -77,7 +87,9 @@ export interface RemoveExtensionLinkResult {
 
 /** 移除链接（只删链接本身）；目标不是链接时拒绝，绝不递归删真实目录。 */
 export function removeExtensionLink(targetDir: string): RemoveExtensionLinkResult {
-  if (!pathExists(targetDir)) return { status: "absent" };
+  if (!pathExists(targetDir)) {
+    return { status: "absent" };
+  }
   if (!lstatSync(targetDir).isSymbolicLink()) {
     throw new Error(`目标不是链接（未做任何改动）：${targetDir}`);
   }

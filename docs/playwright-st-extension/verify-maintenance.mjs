@@ -154,6 +154,8 @@ try {
   );
   check("no maintenance browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

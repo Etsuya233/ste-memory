@@ -98,7 +98,9 @@ describe("testAgentConnection（测试连接：POST /api/backends/chat-completio
     const fetchMock = mockFetch(() => new Response("Bad Gateway", { status: 502 }));
     const result = await testAgentConnection(connection(), makeOptions(fetchMock.fn));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("502");
+    if (!result.ok) {
+      expect(result.error).toContain("502");
+    }
   });
 
   it("ST 上游失败（HTTP 200 + {error:true}）：识别为失败而非「成功 0 个模型」", async () => {
@@ -120,7 +122,9 @@ describe("testAgentConnection（测试连接：POST /api/backends/chat-completio
     const fetchMock = mockFetch(() => jsonResponse({ weird: true }));
     const result = await testAgentConnection(connection(), makeOptions(fetchMock.fn));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("Agent 连接 [DeepSeek 主用]");
+    if (!result.ok) {
+      expect(result.error).toContain("Agent 连接 [DeepSeek 主用]");
+    }
   });
 
   it("网络错误（fetch 抛 TypeError）：不抛异常，错误可读", async () => {

@@ -28,7 +28,9 @@ export function renderMacroResult(
     macro.expression.language === "query" &&
     Boolean(macro.expression.query.fields?.length);
   const displayValue = (value: unknown): string => {
-    if (!macro.legacyRendering) return valueText(value);
+    if (!macro.legacyRendering) {
+      return valueText(value);
+    }
     const text =
       typeof value === "boolean"
         ? value
@@ -48,7 +50,9 @@ export function renderMacroResult(
         JSON.stringify(truncated ? { rows: objects, omitted: true } : objects, null, 2),
       );
     }
-    if (!selected.length) return "";
+    if (!selected.length) {
+      return "";
+    }
     const cell = (value: unknown) => valueText(value).replace(/\r?\n/g, " ").replaceAll("|", "\\|");
     const text =
       macro.output.format === "markdown"
@@ -73,9 +77,13 @@ export function renderMacroResult(
   };
   if (macro.legacyRendering && macro.output.format === "text") {
     const text = render(rows, false);
-    if (text.length <= limit) return { text, outputRows: rows.length, truncated: false };
+    if (text.length <= limit) {
+      return { text, outputRows: rows.length, truncated: false };
+    }
     const marker = "……（已截断）";
-    if (limit < marker.length) throw new Error("宏输出预算不足以保留截断标记");
+    if (limit < marker.length) {
+      throw new Error("宏输出预算不足以保留截断标记");
+    }
     return {
       text: `${text.slice(0, limit - marker.length)}${marker}`,
       outputRows: rows.length,
@@ -83,17 +91,26 @@ export function renderMacroResult(
     };
   }
   const full = render(rows, false);
-  if (full.length <= limit) return { text: full, outputRows: rows.length, truncated: false };
+  if (full.length <= limit) {
+    return { text: full, outputRows: rows.length, truncated: false };
+  }
   // Serialized size is monotone in the row prefix. Include the omission metadata in the budget.
   let low = 0;
   let high = rows.length - 1;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    if (render(rows.slice(0, middle), true).length <= limit) low = middle;
-    else high = middle - 1;
+    if (render(rows.slice(0, middle), true).length <= limit) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
   }
-  if (!low) throw new Error("宏输出预算不足以容纳首条结果");
+  if (!low) {
+    throw new Error("宏输出预算不足以容纳首条结果");
+  }
   const text = render(rows.slice(0, low), true);
-  if (text.length > limit) throw new Error("宏输出预算不足以容纳首条结果");
+  if (text.length > limit) {
+    throw new Error("宏输出预算不足以容纳首条结果");
+  }
   return { text, outputRows: low, truncated: true };
 }

@@ -20,7 +20,9 @@ export class OpenAiEmbeddingPort implements VectorEmbeddingPort {
 
   getProfile(): VectorEmbeddingProfile | null {
     const connection = this.readConnection();
-    if (!connection) return null;
+    if (!connection) {
+      return null;
+    }
     const endpoint = connection.baseUrl.replace(/\/$/, "");
     return {
       model: connection.model,
@@ -36,7 +38,9 @@ export class OpenAiEmbeddingPort implements VectorEmbeddingPort {
 
   async embed(input: string, signal: AbortSignal): Promise<readonly number[]> {
     const connection = this.readConnection();
-    if (!connection) throw new VectorEmbeddingRequestError("尚未配置向量连接", "connection", true);
+    if (!connection) {
+      throw new VectorEmbeddingRequestError("尚未配置向量连接", "connection", true);
+    }
     if (!input.trim() || input.length > connection.maxInputChars) {
       throw new VectorEmbeddingRequestError("向量输入为空或超过已配置的字符上限", "input");
     }
@@ -62,8 +66,12 @@ export class OpenAiEmbeddingPort implements VectorEmbeddingPort {
         signal: requestSignal,
       });
     } catch (error) {
-      if (signal.aborted) throw error;
-      if (timeout.aborted) throw new VectorEmbeddingRequestError("向量请求超时", "connection");
+      if (signal.aborted) {
+        throw error;
+      }
+      if (timeout.aborted) {
+        throw new VectorEmbeddingRequestError("向量请求超时", "connection");
+      }
       throw new VectorEmbeddingRequestError(
         "无法连接向量端点，请检查地址、网络及服务对当前 ST 站点的跨域许可",
         "connection",

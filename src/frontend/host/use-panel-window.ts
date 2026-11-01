@@ -15,7 +15,9 @@ const interactive =
 export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
   const bounds = useRef<WindowBounds | null>(null);
   useLayoutEffect(() => {
-    if (!surface || !open) return;
+    if (!surface || !open) {
+      return;
+    }
     const panel = surface;
     const desktop = matchMedia("(min-width: 768px)");
     let gesture: {
@@ -39,8 +41,9 @@ export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
     }
     function paint(value: WindowBounds) {
       bounds.current = value;
-      for (const [key, number] of Object.entries(value))
+      for (const [key, number] of Object.entries(value)) {
         panel.style.setProperty(`--stm-window-${key}`, `${number}px`);
+      }
     }
     function reset() {
       const width = Math.min(960, innerWidth - 48);
@@ -50,24 +53,34 @@ export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
     function end() {
       const previous = gesture;
       gesture = null;
-      if (previous?.capture.hasPointerCapture(previous.pointerId))
+      if (previous?.capture.hasPointerCapture(previous.pointerId)) {
         previous.capture.releasePointerCapture(previous.pointerId);
+      }
       panel.removeAttribute("data-window-gesture");
     }
     function viewportChanged() {
       end();
-      if (!desktop.matches) return;
-      if (bounds.current) paint(fit(bounds.current));
-      else reset();
+      if (!desktop.matches) {
+        return;
+      }
+      if (bounds.current) {
+        paint(fit(bounds.current));
+      } else {
+        reset();
+      }
     }
     function dragHeader(target: Element) {
       return target.closest("[data-window-drag]") && !target.closest(interactive);
     }
     function down(event: PointerEvent) {
-      if (!desktop.matches || !event.isPrimary || event.button !== 0) return;
+      if (!desktop.matches || !event.isPrimary || event.button !== 0) {
+        return;
+      }
       const target = event.target as Element;
       const edge = target.closest<HTMLElement>("[data-window-resize]")?.dataset.windowResize;
-      if (!edge && !dragHeader(target)) return;
+      if (!edge && !dragHeader(target)) {
+        return;
+      }
       const start = bounds.current!;
       gesture = {
         pointerId: event.pointerId,
@@ -82,7 +95,9 @@ export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
       event.preventDefault();
     }
     function move(event: PointerEvent) {
-      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return;
+      }
       const { start, edge } = gesture;
       const dx = event.clientX - gesture.x;
       const dy = event.clientY - gesture.y;
@@ -91,13 +106,15 @@ export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
         return;
       }
       let { x, y, width, height } = start;
-      if (edge.includes("e"))
+      if (edge.includes("e")) {
         width = Math.max(560, Math.min(start.width + dx, innerWidth - margin - x));
-      if (edge.includes("s"))
+      }
+      if (edge.includes("s")) {
         height = Math.max(
           Math.min(400, innerHeight - margin * 2),
           Math.min(start.height + dy, innerHeight - margin - y),
         );
+      }
       if (edge.includes("w")) {
         x = Math.max(margin, Math.min(start.x + dx, start.x + start.width - 560));
         width = start.width + start.x - x;
@@ -112,10 +129,14 @@ export function usePanelWindow(surface: HTMLElement | null, open: boolean) {
       paint({ x, y, width, height });
     }
     function doubleClick(event: MouseEvent) {
-      if (desktop.matches && dragHeader(event.target as Element)) reset();
+      if (desktop.matches && dragHeader(event.target as Element)) {
+        reset();
+      }
     }
     function keyboard(event: KeyboardEvent) {
-      if (!desktop.matches || !(event.target as Element).matches("[data-window-drag]")) return;
+      if (!desktop.matches || !(event.target as Element).matches("[data-window-drag]")) {
+        return;
+      }
       const horizontal = event.key === "ArrowRight" ? 16 : event.key === "ArrowLeft" ? -16 : 0;
       const vertical = event.key === "ArrowDown" ? 16 : event.key === "ArrowUp" ? -16 : 0;
       if (!horizontal && !vertical) {

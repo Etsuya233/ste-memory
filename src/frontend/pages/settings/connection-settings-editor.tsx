@@ -58,7 +58,9 @@ export function SettingsEditor({
     register: registerLeaveGuard,
   });
   useEffect(() => {
-    if (!navigationDirty && !busy) return;
+    if (!navigationDirty && !busy) {
+      return;
+    }
     const onUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -76,7 +78,9 @@ export function SettingsEditor({
           className="ste:flex ste:flex-col ste:gap-5"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!busy && dirty) onSave();
+            if (!busy && dirty) {
+              onSave();
+            }
           }}
         >
           {error ? <StatusNotice variant="destructive">{error}</StatusNotice> : null}

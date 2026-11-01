@@ -26,8 +26,9 @@ export function compileMemoryQueryConditions(
       case "not_contains": {
         const list =
           field && ["short_text_list", "multi_select", "multi_reference"].includes(field.type);
-        if (!list)
+        if (!list) {
           return `COALESCE(instr(ste_lower(${actual}),ste_lower(${param(condition.value)}))>0,0)`;
+        }
         const exists = `EXISTS(SELECT 1 FROM json_each(${actual}) member WHERE member.value IS ${param(condition.value)})`;
         return condition.operator === "not_contains"
           ? `(${actual} IS NOT NULL AND NOT ${exists})`

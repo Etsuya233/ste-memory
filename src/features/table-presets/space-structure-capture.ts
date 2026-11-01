@@ -85,7 +85,9 @@ function captureDisplayStrategy(
   strategy: MemoryTable["displayStrategy"],
   fieldKeyById: ReadonlyMap<string, string>,
 ): TablePresetDisplayStrategy | null {
-  if (!strategy) return null;
+  if (!strategy) {
+    return null;
+  }
   if (strategy.type === "field") {
     const fieldKey = fieldKeyById.get(strategy.fieldId);
     return fieldKey ? { type: "field", fieldKey } : null;

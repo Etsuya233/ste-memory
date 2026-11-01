@@ -115,14 +115,18 @@ export async function commitMemoryRecordMutationBatch(
   // 批内临时 ID 解析：create 操作由引擎分配真实 ID，引用字段的 tmp: 值提交时改写。
   const tempIdToRecordId = new Map<string, MemoryRecordId>();
   for (const operation of input.operations) {
-    if (operation.type === "create") tempIdToRecordId.set(operation.tempId, context.createId());
+    if (operation.type === "create") {
+      tempIdToRecordId.set(operation.tempId, context.createId());
+    }
   }
 
   // 批内 create 的待落库形态预计算（显示文本引用解析与 mutation 构建共用）：
   // 引用解析器能看到整批新建记录，displayText 渲染不再因「同批记录尚未落库」而空白。
   const pendingCreates: PendingCreate[] = [];
   for (const operation of input.operations) {
-    if (operation.type !== "create") continue;
+    if (operation.type !== "create") {
+      continue;
+    }
     const table = (await context.tables.find(memorySpaceId, operation.tableId))!;
     const fields = await context.fields.list(memorySpaceId, operation.tableId);
     const recordId = tempIdToRecordId.get(operation.tempId);
@@ -193,7 +197,9 @@ export async function commitMemoryRecordMutationBatch(
         humanMsg: "要变更的记忆记录不存在",
       });
     }
-    if (previous.revisionId !== operation.expectedRevisionId) revisionConflict(previous.id);
+    if (previous.revisionId !== operation.expectedRevisionId) {
+      revisionConflict(previous.id);
+    }
     let current: MemoryRecord | undefined;
     let patchPayload: MemoryRecordPayload | undefined;
     if (operation.type === "update") {
@@ -218,8 +224,9 @@ export async function commitMemoryRecordMutationBatch(
         JSON.stringify(payload) === JSON.stringify(previous.payload) &&
         JSON.stringify(operation.fieldEvidence ?? previous.fieldEvidence) ===
           JSON.stringify(previous.fieldEvidence)
-      )
+      ) {
         continue;
+      }
       current = {
         ...previous,
         payload,
@@ -253,7 +260,9 @@ export async function commitMemoryRecordMutationBatch(
   } catch (error) {
     if (error instanceof MemoryCommitPersistenceError && mutations.length === 1) {
       const record = mutations[0]!.current;
-      if (record) throw new MemoryRecordSaveError(record, error);
+      if (record) {
+        throw new MemoryRecordSaveError(record, error);
+      }
     }
     throw error;
   }
@@ -339,7 +348,9 @@ function resolveTempReferences(
   );
   let rewritten: Record<string, unknown> | undefined;
   for (const [fieldId, value] of Object.entries(patch)) {
-    if (!referenceFieldIds.has(fieldId as MemoryFieldId)) continue;
+    if (!referenceFieldIds.has(fieldId as MemoryFieldId)) {
+      continue;
+    }
     const resolved = resolveTempReferenceValue(value, tempIdToRecordId, fieldId);
     if (resolved !== value) {
       rewritten ??= { ...patch };
@@ -355,7 +366,9 @@ function resolveTempReferenceValue(
   fieldId: string,
 ): unknown {
   const resolveOne = (candidate: unknown): unknown => {
-    if (typeof candidate !== "string" || !isProposalTempId(candidate)) return candidate;
+    if (typeof candidate !== "string" || !isProposalTempId(candidate)) {
+      return candidate;
+    }
     const recordId = tempIdToRecordId.get(candidate);
     if (!recordId) {
       throw new DomainError({
@@ -366,7 +379,9 @@ function resolveTempReferenceValue(
     }
     return recordId;
   };
-  if (Array.isArray(value)) return value.map(resolveOne);
+  if (Array.isArray(value)) {
+    return value.map(resolveOne);
+  }
   return resolveOne(value);
 }
 
@@ -399,12 +414,17 @@ async function validateFinalReferences(
       continue;
     }
     const records = finalRecords.get(mutation.previous.tableId)!;
-    if (mutation.current) records.set(mutation.previous.id, mutation.current);
-    else records.delete(mutation.previous.id);
+    if (mutation.current) {
+      records.set(mutation.previous.id, mutation.current);
+    } else {
+      records.delete(mutation.previous.id);
+    }
   }
   const records = [...finalRecords.values()].flatMap((recordsById) => [...recordsById.values()]);
   for (const mutation of mutations) {
-    if (mutation.kind !== "replace" || mutation.current) continue;
+    if (mutation.kind !== "replace" || mutation.current) {
+      continue;
+    }
     const references = findMemoryRecordReferenceLocations(
       records,
       fieldsByTable,
@@ -420,7 +440,9 @@ async function validateFinalReferences(
     }
   }
   for (const mutation of mutations) {
-    if (mutation.kind === "replace" && !mutation.current) continue;
+    if (mutation.kind === "replace" && !mutation.current) {
+      continue;
+    }
     const current = mutation.current!;
     // update 只校验本次写入键的引用（patchPayload）；未改动的拖尾引用由读路径宽松
     // 投影容忍，不阻断无关字段的编辑。create / 全量合并路径仍校验完整 payload。

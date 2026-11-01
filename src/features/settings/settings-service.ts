@@ -43,7 +43,9 @@ export class SettingsService {
     this.save({ ...this.read(), enabled });
     // 设置先保存，各服务随后读取同一份新值；停用时注销宏并停止业务，已提交快照继续保存。
     const changes: Promise<unknown>[] = [];
-    if (enabled) changes.push(this.dependencies.syncToCurrentChat());
+    if (enabled) {
+      changes.push(this.dependencies.syncToCurrentChat());
+    }
     changes.push(
       this.dependencies.refreshMemoryMacros(),
       this.dependencies.refreshAgentMacros(),
@@ -73,9 +75,12 @@ export class SettingsService {
   }
 
   async setMacros(macros: readonly MemoryMacro[]): Promise<void> {
-    for (const macro of macros) validateMemoryMacro(macro);
-    if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
+    for (const macro of macros) {
+      validateMemoryMacro(macro);
+    }
+    if (new Set(macros.map((macro) => macro.name)).size !== macros.length) {
       throw new Error("宏名称重复");
+    }
     const previous = this.read().macros;
     const classified = await this.dependencies.validateMacros(macros, previous);
     const normalized = classified.map((macro) => ({
@@ -91,9 +96,12 @@ export class SettingsService {
 
   async setChatScopeMacros(macros: readonly MemoryMacro[]): Promise<void> {
     const context = this.dependencies.getChatContext();
-    for (const macro of macros) validateMemoryMacro(macro);
-    if (new Set(macros.map((macro) => macro.name)).size !== macros.length)
+    for (const macro of macros) {
+      validateMemoryMacro(macro);
+    }
+    if (new Set(macros.map((macro) => macro.name)).size !== macros.length) {
       throw new Error("宏名称重复");
+    }
     const previous = this.dependencies.getChatScopeMacros();
     const classified = await this.dependencies.validateMacros(macros, previous);
     const normalized = classified.map((macro) => ({
@@ -103,8 +111,9 @@ export class SettingsService {
           ? false
           : macro.enabled,
     }));
-    if (context !== this.dependencies.getChatContext())
+    if (context !== this.dependencies.getChatContext()) {
       throw new Error("对话已切换，未保存原对话的宏草稿");
+    }
     await this.dependencies.writeChatScopeMacros(normalized);
     await this.dependencies.refreshMemoryMacros();
   }

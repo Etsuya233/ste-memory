@@ -98,7 +98,9 @@ function toolThenTextResponses() {
         ];
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
         controller.close();
       },
     });

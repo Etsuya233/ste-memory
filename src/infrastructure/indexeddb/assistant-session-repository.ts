@@ -23,16 +23,18 @@ export class IndexedDbAssistantSessions implements AssistantSessionRepository {
   async put(session: AssistantSession, expectedRevision: number) {
     await this.db.transaction("rw", this.db.assistantSessions, async () => {
       const current = await this.find(session.id);
-      if ((current?.storageRevision ?? -1) !== expectedRevision)
+      if ((current?.storageRevision ?? -1) !== expectedRevision) {
         throw new AssistantSessionConflictError();
+      }
       await this.db.assistantSessions.put(session);
     });
   }
   async delete(id: string, expectedRevision: number) {
     await this.db.transaction("rw", this.db.assistantSessions, async () => {
       const current = await this.find(id);
-      if ((current?.storageRevision ?? -1) !== expectedRevision)
+      if ((current?.storageRevision ?? -1) !== expectedRevision) {
         throw new AssistantSessionConflictError();
+      }
       await this.db.assistantSessions.delete(id);
     });
   }
@@ -45,12 +47,16 @@ export class IndexedDbAssistantSessions implements AssistantSessionRepository {
     // HTTP 局域网等环境没有 Web Locks，允许单页面使用；页内互斥由 Store 负责。
     // 该环境不保证跨页面协调，持久化仍保留版本校验，不模拟分布式锁。
     signal?.throwIfAborted();
-    if (!navigator.locks) return work();
+    if (!navigator.locks) {
+      return work();
+    }
     return navigator.locks.request(
       `ste-memory:${this.db.name}:assistant:${id}`,
       wait ? { signal } : { ifAvailable: true },
       async (lock) => {
-        if (!lock) throw new AssistantSessionBusyError();
+        if (!lock) {
+          throw new AssistantSessionBusyError();
+        }
         return work();
       },
     );

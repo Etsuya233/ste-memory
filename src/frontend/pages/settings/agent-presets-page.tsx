@@ -130,8 +130,9 @@ function AgentPresetList({
           if (
             id !== BUILTIN_AGENT_PRESET_ID &&
             !latest.agentPresets.presets.some((preset) => preset.id === id)
-          )
+          ) {
             throw new Error("预设已不存在，请重新选择");
+          }
           services.settings.save({
             ...latest,
             agentPresets: setActiveAgentPreset(latest.agentPresets, id),
@@ -140,11 +141,13 @@ function AgentPresetList({
         (value) => value.agentPresets.activePresetId === id,
       );
       setSettings(result.settings);
-      if (result.error)
+      if (result.error) {
         setError(
           `${result.saved ? "活动预设已保存，后续刷新失败" : "活动预设未保存"}：${result.error}`,
         );
-      else setNotice("活动预设已保存，之后启动的任务使用此预设。");
+      } else {
+        setNotice("活动预设已保存，之后启动的任务使用此预设。");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -173,9 +176,11 @@ function AgentPresetList({
         (value) => value.agentPresets.presets.some((preset) => preset.id === imported.id),
       );
       setSettings(result.settings);
-      if (result.error)
+      if (result.error) {
         setError(`${result.saved ? "预设已导入，后续刷新失败" : "预设未导入"}：${result.error}`);
-      else setNotice("预设已导入并设为活动预设。");
+      } else {
+        setNotice("预设已导入并设为活动预设。");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -291,7 +296,9 @@ function AgentPresetList({
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
-                if (file) void importFile(file);
+                if (file) {
+                  void importFile(file);
+                }
               }}
             />
           </Field>
@@ -360,14 +367,17 @@ function AgentPresetEditor({
     setBusy(true);
     setError(null);
     try {
-      if (!draft.name.trim()) throw new Error("请填写预设名称");
+      if (!draft.name.trim()) {
+        throw new Error("请填写预设名称");
+      }
       const next = { ...draft, name: draft.name.trim() };
       const result = await persistSettingsEdit(
         services,
         () => {
           const latest = services.settings.read();
-          if (!newPreset && !latest.agentPresets.presets.some((preset) => preset.id === next.id))
+          if (!newPreset && !latest.agentPresets.presets.some((preset) => preset.id === next.id)) {
             throw new Error("预设已被删除，请返回列表重新创建");
+          }
           const list = newPreset
             ? [...latest.agentPresets.presets, next]
             : latest.agentPresets.presets.map((preset) => (preset.id === next.id ? next : preset));
@@ -385,7 +395,9 @@ function AgentPresetEditor({
         setDraft(next);
         setNewPreset(false);
         setNotice(result.error ? `预设已保存，后续刷新失败：${result.error}` : "预设已保存。");
-      } else setError(result.error ?? "预设未保存");
+      } else {
+        setError(result.error ?? "预设未保存");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -406,7 +418,9 @@ function AgentPresetEditor({
         },
         (value) => !value.agentPresets.presets.some((preset) => preset.id === draft.id),
       );
-      if (!result.saved) throw new Error(result.error ?? "预设未删除");
+      if (!result.saved) {
+        throw new Error(result.error ?? "预设未删除");
+      }
       onSaved(result.error ? `预设已删除，后续刷新失败：${result.error}` : "预设已删除。");
     } finally {
       setBusy(false);
@@ -427,9 +441,12 @@ function AgentPresetEditor({
           ? ports.scanWorldbook(input)
           : Promise.resolve({ text: "", status: "skipped" as const }),
       ]);
-      if (token !== previewGeneration.current) return;
-      if (context?.chatIdentity !== presets.currentContext()?.chatIdentity)
+      if (token !== previewGeneration.current) {
+        return;
+      }
+      if (context?.chatIdentity !== presets.currentContext()?.chatIdentity) {
         throw new Error("对话已切换，请重新展开预览");
+      }
       setPreview(
         buildAgentPresetPreviewItems({
           preset: draft,
@@ -439,10 +456,13 @@ function AgentPresetEditor({
         }),
       );
     } catch (cause) {
-      if (token === previewGeneration.current)
+      if (token === previewGeneration.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      if (token === previewGeneration.current) setPreviewing(false);
+      if (token === previewGeneration.current) {
+        setPreviewing(false);
+      }
     }
   }
   function exportFile() {

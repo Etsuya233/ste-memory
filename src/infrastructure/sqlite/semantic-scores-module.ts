@@ -72,7 +72,9 @@ export class SemanticScoresModule {
             pointer,
             "CREATE TABLE x(record_id TEXT,score REAL,group_key TEXT,rerank_score REAL,rerank_rank INTEGER,rank INTEGER,table_arg TEXT HIDDEN,groups_arg TEXT HIDDEN,query_arg TEXT HIDDEN,options_arg TEXT HIDDEN)",
           );
-          if (code === capi.SQLITE_OK) native.xVtab.create(out);
+          if (code === capi.SQLITE_OK) {
+            native.xVtab.create(out);
+          }
           return code;
         },
         xDisconnect: (pointer) => {
@@ -97,8 +99,12 @@ export class SemanticScoresModule {
             for (let i = 0; i < index.$nConstraint; i++) {
               const constraint = index.nthConstraint(i);
               try {
-                if (constraint.$iColumn === 9 && constraint.$op === capi.SQLITE_INDEX_CONSTRAINT_EQ)
+                if (
+                  constraint.$iColumn === 9 &&
+                  constraint.$op === capi.SQLITE_INDEX_CONSTRAINT_EQ
+                ) {
                   hasOptionsArgument = true;
+                }
                 if (
                   constraint.$usable &&
                   constraint.$op === capi.SQLITE_INDEX_CONSTRAINT_EQ &&
@@ -116,8 +122,12 @@ export class SemanticScoresModule {
                 constraint.dispose();
               }
             }
-            if (![6, 7, 8].every((column) => selected.has(column))) return capi.SQLITE_CONSTRAINT;
-            if (hasOptionsArgument && !selected.has(9)) return capi.SQLITE_CONSTRAINT;
+            if (![6, 7, 8].every((column) => selected.has(column))) {
+              return capi.SQLITE_CONSTRAINT;
+            }
+            if (hasOptionsArgument && !selected.has(9)) {
+              return capi.SQLITE_CONSTRAINT;
+            }
             index.$estimatedRows = estimatedRows;
             index.$estimatedCost = 10000;
             // LIMIT/OFFSET and ORDER BY remain entirely SQLite's responsibility.
@@ -129,12 +139,14 @@ export class SemanticScoresModule {
         xFilter: (pointer, _idx, _text, argc, argv) => {
           try {
             this.checkDeadline();
-            if (argc !== 3 && argc !== 4)
+            if (argc !== 3 && argc !== 4) {
               throw new Error("semantic_scores 需要三个或四个 TEXT 参数");
+            }
             const values = Array.from({ length: argc }, (_, i) => {
               const value = wasm.peekPtr(argv + i * wasm.sizeofIR("*"));
-              if (capi.sqlite3_value_type(value) !== capi.SQLITE_TEXT)
+              if (capi.sqlite3_value_type(value) !== capi.SQLITE_TEXT) {
                 throw new Error("semantic_scores 参数必须为 TEXT，不能为 NULL 或其他类型");
+              }
               const pointer = textPointer(value);
               return decoder.decode(
                 wasm.heap8u().subarray(pointer, pointer + capi.sqlite3_value_bytes(value)),
@@ -204,10 +216,11 @@ export class SemanticScoresModule {
       ),
     );
     // Initialize the fixed schema with host rights. This prepares only and never executes xFilter.
-    if (initializeSchema)
+    if (initializeSchema) {
       db.prepare(
         "SELECT record_id,score,group_key FROM semantic_scores(NULL,NULL,NULL)",
       ).finalize();
+    }
   }
 
   begin(sources: readonly PreparedSemanticSqlSource[], deadline: number): void {
@@ -220,7 +233,9 @@ export class SemanticScoresModule {
       this.checkDeadline();
       const request = this.request(source.table, source.groups, source.query, source.options);
       const key = this.key(request);
-      if (this.sources.has(key)) throw new Error("重复供给相同的语义评分源");
+      if (this.sources.has(key)) {
+        throw new Error("重复供给相同的语义评分源");
+      }
       this.sources.set(key, source.rows);
     }
   }
@@ -234,7 +249,9 @@ export class SemanticScoresModule {
   }
 
   private checkDeadline(): void {
-    if (performance.now() >= this.deadline) throw new Error("语义 SQL 超出执行预算");
+    if (performance.now() >= this.deadline) {
+      throw new Error("语义 SQL 超出执行预算");
+    }
   }
 
   private key(request: SemanticSqlSourceRequest): string {
@@ -247,19 +264,28 @@ export class SemanticScoresModule {
     query: string,
     rawOptions?: unknown,
   ): SemanticSqlSourceRequest {
-    if (!tableKey.trim()) throw new Error("semantic_scores 表 Key 不能为空");
+    if (!tableKey.trim()) {
+      throw new Error("semantic_scores 表 Key 不能为空");
+    }
     if (
       !Array.isArray(groups) ||
       !groups.length ||
       groups.some((group) => typeof group !== "string" || !group.trim()) ||
       new Set(groups).size !== groups.length
-    )
+    ) {
       throw new Error("semantic_scores groups_json 必须为非空、不重复字符串的 JSON 数组");
+    }
     const text = query.trim();
-    if (!text || text.length > 4000) throw new Error("semantic_scores 查询文本须为 1–4000 字符");
+    if (!text || text.length > 4000) {
+      throw new Error("semantic_scores 查询文本须为 1–4000 字符");
+    }
     const table = this.tables.find((table) => table.key === tableKey && table.enabled);
-    if (!table) throw new Error(`语义源的表不存在或已停用：${tableKey}`);
-    if (!table.vectorIndex?.enabled) throw new Error(`表未启用向量索引：${tableKey}`);
+    if (!table) {
+      throw new Error(`语义源的表不存在或已停用：${tableKey}`);
+    }
+    if (!table.vectorIndex?.enabled) {
+      throw new Error(`表未启用向量索引：${tableKey}`);
+    }
     const fields = this.fields.filter((field) => field.tableId === table.id);
     const available = effectiveVectorIndexGroups(table.vectorIndex, fields);
     for (const key of groups as string[]) {
@@ -268,8 +294,9 @@ export class SemanticScoresModule {
         !group ||
         !group.fieldIds.length ||
         group.fieldIds.some((id) => !fields.some((field) => field.id === id && field.enabled))
-      )
+      ) {
         throw new Error(`语义源分组不存在或字段无效：${tableKey}/${key}`);
+      }
     }
     const options = parseSemanticOptions(rawOptions);
     return {

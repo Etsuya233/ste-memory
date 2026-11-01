@@ -71,14 +71,16 @@ export class InMemoryAssistantSessions implements AssistantSessionRepository {
     return structuredClone(this.rows.get(id));
   }
   async put(session: AssistantSession, expectedRevision: number) {
-    if ((this.rows.get(session.id)?.storageRevision ?? -1) !== expectedRevision)
+    if ((this.rows.get(session.id)?.storageRevision ?? -1) !== expectedRevision) {
       throw new AssistantSessionConflictError();
+    }
     this.rows.set(session.id, structuredClone(session));
     this.#notify();
   }
   async delete(id: string, expectedRevision: number) {
-    if ((this.rows.get(id)?.storageRevision ?? -1) !== expectedRevision)
+    if ((this.rows.get(id)?.storageRevision ?? -1) !== expectedRevision) {
       throw new AssistantSessionConflictError();
+    }
     this.rows.delete(id);
     this.#notify();
   }
@@ -89,7 +91,9 @@ export class InMemoryAssistantSessions implements AssistantSessionRepository {
     signal?: AbortSignal,
   ): Promise<T> {
     while (this.#locks.has(id)) {
-      if (!wait) throw new AssistantSessionBusyError();
+      if (!wait) {
+        throw new AssistantSessionBusyError();
+      }
       const held = this.#locks.get(id)!;
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
@@ -125,7 +129,9 @@ export class InMemoryAssistantSessions implements AssistantSessionRepository {
     };
   }
   #notify() {
-    for (const listener of this.#listeners) listener(structuredClone([...this.rows.values()]));
+    for (const listener of this.#listeners) {
+      listener(structuredClone([...this.rows.values()]));
+    }
   }
 }
 
@@ -181,7 +187,9 @@ export class QueryChatStore {
     id: string,
     work: (session: AssistantSession, signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
-    if (this.#operations.has(id)) throw new Error("会话正在执行，请等待完成或停止");
+    if (this.#operations.has(id)) {
+      throw new Error("会话正在执行，请等待完成或停止");
+    }
     const controller = new AbortController();
     const operation = { controller, ownsLock: false };
     this.#operations.set(id, operation);
@@ -194,7 +202,9 @@ export class QueryChatStore {
           operation.ownsLock = true;
           try {
             const latest = await this.#repository.find(id);
-            if (!latest) throw new Error("会话已不存在");
+            if (!latest) {
+              throw new Error("会话已不存在");
+            }
             this.#revisions.set(id, latest.storageRevision);
             this.#sessions = this.#sessions.map((session) =>
               session.id === id ? latest : session,
@@ -226,7 +236,9 @@ export class QueryChatStore {
   dispose() {
     this.#lifetime.abort();
     this.#unsubscribe?.();
-    for (const operation of this.#operations.values()) operation.controller.abort();
+    for (const operation of this.#operations.values()) {
+      operation.controller.abort();
+    }
   }
   getSessions() {
     return this.#sessions;
@@ -242,14 +254,18 @@ export class QueryChatStore {
   }
   get(id: string): AssistantSession {
     const session = this.#sessions.find((session) => session.id === id);
-    if (!session) throw new Error("会话已不存在");
+    if (!session) {
+      throw new Error("会话已不存在");
+    }
     return session;
   }
   getRun(id: string): AssistantRun | undefined {
     return this.#runs.get(id);
   }
   create(context: AssistantContext): AssistantSession {
-    if (!this.#loaded) throw new Error("会话尚未加载完成");
+    if (!this.#loaded) {
+      throw new Error("会话尚未加载完成");
+    }
     const now = new Date().toISOString();
     const session: AssistantSession = {
       ...context,
@@ -274,14 +290,19 @@ export class QueryChatStore {
     this.#update(id, { draft: text });
   }
   rename(id: string, title: string) {
-    if (!title.trim()) throw new Error("会话名称不能为空");
+    if (!title.trim()) {
+      throw new Error("会话名称不能为空");
+    }
     this.#update(id, { title: title.trim() });
   }
   async delete(id: string) {
     const session = this.get(id);
-    if (session.status === "committing") throw new Error("正在提交，完成后可删除会话");
-    if (session.status === "running" && !this.#operations.has(id))
+    if (session.status === "committing") {
+      throw new Error("正在提交，完成后可删除会话");
+    }
+    if (session.status === "running" && !this.#operations.has(id)) {
       throw new AssistantSessionBusyError();
+    }
     this.cancel(id);
     this.#runs.delete(id);
     this.#sessions = this.#sessions.filter((session) => session.id !== id);
@@ -293,8 +314,9 @@ export class QueryChatStore {
   /** 将输入、占位回复与运行状态作为同一个检查点保存。 */
   startRun(id: string, text: string): AssistantRun {
     const session = this.get(id);
-    if (session.status === "committing" || this.#runs.has(id))
+    if (session.status === "committing" || this.#runs.has(id)) {
       throw new Error("会话正在执行，请等待完成或停止");
+    }
     const input: AgentMessage = {
       role: "user",
       content: [{ type: "text", text }],
@@ -329,12 +351,17 @@ export class QueryChatStore {
   /** 增量只刷新界面；完整模型消息到达时连同提案保存，避免逐 token 写入。 */
   recordAgentEvent(id: string, pendingId: string, event: AgentEvent) {
     const run = this.#runs.get(id);
-    if (!run || run.pendingId !== pendingId) return;
+    if (!run || run.pendingId !== pendingId) {
+      return;
+    }
     let messages = this.get(id).messages;
-    for (const translated of translateAgentEvent(event))
+    for (const translated of translateAgentEvent(event)) {
       messages = applyQueryChatEvent(messages, pendingId, translated);
+    }
     if (event.type === "message_end") {
-      if (event.message.role !== "user") run.transcript.push(event.message);
+      if (event.message.role !== "user") {
+        run.transcript.push(event.message);
+      }
       this.#update(id, {
         messages,
         transcript: [...run.transcript],
@@ -353,7 +380,9 @@ export class QueryChatStore {
     preview?: ProposalPreviewToolResult,
   ) {
     const run = this.#runs.get(id);
-    if (!run || run.pendingId !== pendingId) return;
+    if (!run || run.pendingId !== pendingId) {
+      return;
+    }
     this.#runs.delete(id);
     this.#update(id, {
       status: "idle",
@@ -368,13 +397,18 @@ export class QueryChatStore {
   /** 校验用户确认的预览身份，并先进入可恢复的提交中状态。 */
   beginCommit(id: string, previewId: string): ProposalPreviewToolResult {
     const session = this.get(id);
-    if (session.status === "running" || session.status === "committing")
+    if (session.status === "running" || session.status === "committing") {
       throw new Error("会话正在执行");
-    if (session.commitUncertain)
+    }
+    if (session.commitUncertain) {
       throw new Error("上次提交结果待核对，请查询记录并放弃旧提案后重新准备修改");
-    if (!session.preview?.valid || session.previewId !== previewId)
+    }
+    if (!session.preview?.valid || session.previewId !== previewId) {
       throw new Error("提案已变化，请重新查看变更后确认");
-    if (!session.proposal.operations.length) throw new Error("提案为空");
+    }
+    if (!session.proposal.operations.length) {
+      throw new Error("提案为空");
+    }
     this.#update(id, { status: "committing" });
     return session.preview;
   }
@@ -409,8 +443,9 @@ export class QueryChatStore {
 
   discardProposal(id: string) {
     const session = this.get(id);
-    if (session.status === "running" || session.status === "committing")
+    if (session.status === "running" || session.status === "committing") {
       throw new Error("会话正在执行");
+    }
     this.#update(id, {
       proposal: new ProposalState().snapshot(),
       preview: undefined,
@@ -431,15 +466,20 @@ export class QueryChatStore {
     return this.#runs.has(id) || this.#operations.has(id);
   }
   cancelSpace(spaceId: MemorySpaceId) {
-    for (const session of this.#sessions) if (session.spaceId === spaceId) this.cancel(session.id);
+    for (const session of this.#sessions) {
+      if (session.spaceId === spaceId) {
+        this.cancel(session.id);
+      }
+    }
   }
   async clearSpaceHistory(spaceId: MemorySpaceId) {
     if (
       this.#sessions.some(
         (session) => session.spaceId === spaceId && session.status === "committing",
       )
-    )
+    ) {
       throw new Error("该空间的助手正在提交，请完成后重试");
+    }
     const ids = this.#sessions
       .filter((session) => session.spaceId === spaceId)
       .map((session) => session.id);
@@ -447,7 +487,9 @@ export class QueryChatStore {
   }
   async flush() {
     await this.#writes;
-    if (this.#error) throw new Error(`会话保存失败：${this.#error}`);
+    if (this.#error) {
+      throw new Error(`会话保存失败：${this.#error}`);
+    }
   }
   async retrySave() {
     if (!this.#loaded) {
@@ -455,9 +497,13 @@ export class QueryChatStore {
       return;
     }
     this.#error = null;
-    for (const [id, snapshot] of this.#unsaved) this.#enqueue(id, snapshot);
+    for (const [id, snapshot] of this.#unsaved) {
+      this.#enqueue(id, snapshot);
+    }
     await this.flush();
-    for (const session of this.#sessions) this.#watchRun(session);
+    for (const session of this.#sessions) {
+      this.#watchRun(session);
+    }
   }
   onStoreChange(listener: () => void) {
     this.#listeners.add(listener);
@@ -476,15 +522,20 @@ export class QueryChatStore {
         }
         try {
           const recovered = await this.#recover(session.id);
-          if (recovered) restored.push(recovered);
+          if (recovered) {
+            restored.push(recovered);
+          }
         } catch (cause) {
-          if (!(cause instanceof AssistantSessionBusyError)) throw cause;
+          if (!(cause instanceof AssistantSessionBusyError)) {
+            throw cause;
+          }
           restored.push(session);
         }
       }
       this.#sessions = restored.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      for (const session of this.#sessions)
+      for (const session of this.#sessions) {
         this.#revisions.set(session.id, session.storageRevision);
+      }
       this.#loaded = true;
       this.#error = null;
       this.#unsubscribe = this.#repository.subscribe(
@@ -494,7 +545,9 @@ export class QueryChatStore {
           this.#notify();
         },
       );
-      for (const session of this.#sessions) this.#watchRun(session);
+      for (const session of this.#sessions) {
+        this.#watchRun(session);
+      }
     } catch (cause) {
       this.#error = errorMessage(cause);
     }
@@ -505,8 +558,12 @@ export class QueryChatStore {
       id,
       async () => {
         const session = await this.#repository.find(id);
-        if (!session) return undefined;
-        if (session.status !== "running" && session.status !== "committing") return session;
+        if (!session) {
+          return undefined;
+        }
+        if (session.status !== "running" && session.status !== "committing") {
+          return session;
+        }
         const restored: AssistantSession = {
           ...session,
           storageRevision: session.storageRevision + 1,
@@ -545,8 +602,9 @@ export class QueryChatStore {
       (session.status !== "running" && session.status !== "committing") ||
       this.#operations.has(session.id) ||
       this.#recovering.has(session.id)
-    )
+    ) {
       return;
+    }
     this.#recovering.add(session.id);
     // 等待原页面释放锁：正常结束已落盘为 idle，页面退出则恢复遗留检查点。
     void this.#recover(session.id, true)
@@ -574,14 +632,17 @@ export class QueryChatStore {
         this.#revisions.set(fresh.id, Math.max(fresh.storageRevision, session.storageRevision));
         next.push(fresh.storageRevision <= session.storageRevision ? session : fresh);
         this.#watchRun(fresh);
-      } else this.#revisions.delete(session.id);
+      } else {
+        this.#revisions.delete(session.id);
+      }
     }
-    for (const row of rows)
+    for (const row of rows) {
       if (!local.has(row.id) && !this.#unsaved.has(row.id)) {
         next.push(row);
         this.#revisions.set(row.id, row.storageRevision);
         this.#watchRun(row);
       }
+    }
     this.#sessions = next;
     this.#notify();
   }
@@ -609,11 +670,14 @@ export class QueryChatStore {
       (patch.title !== undefined || patch.draft !== undefined) &&
       !this.#operations.get(id)?.ownsLock &&
       (this.#operations.has(id) || current.status === "running" || current.status === "committing")
-    )
+    ) {
       throw new AssistantSessionBusyError();
+    }
     const session = { ...current, ...patch, updatedAt: new Date().toISOString() };
     this.#sessions = this.#sessions.map((item) => (item.id === id ? session : item));
-    if (persist) this.#persist(session);
+    if (persist) {
+      this.#persist(session);
+    }
     this.#notify();
   }
   #persist(session: AssistantSession) {
@@ -626,7 +690,9 @@ export class QueryChatStore {
     this.#writes = this.#writes
       .then(async () => {
         const expected = this.#revisions.get(id);
-        if (expected === undefined) throw new Error("会话持久化版本尚未加载");
+        if (expected === undefined) {
+          throw new Error("会话持久化版本尚未加载");
+        }
         if (snapshot === null) {
           await this.#repository.delete(id, expected);
           this.#revisions.delete(id);
@@ -638,7 +704,9 @@ export class QueryChatStore {
             session.id === id ? { ...session, storageRevision: revision } : session,
           );
         }
-        if (this.#unsaved.get(id) === snapshot) this.#unsaved.delete(id);
+        if (this.#unsaved.get(id) === snapshot) {
+          this.#unsaved.delete(id);
+        }
       })
       .catch((cause: unknown) => {
         this.#error = errorMessage(cause);
@@ -649,7 +717,9 @@ export class QueryChatStore {
       });
   }
   #notify() {
-    for (const listener of this.#listeners) listener();
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 }
 
@@ -662,7 +732,9 @@ export function completeInterruptedTools(messages: readonly AgentMessage[]): Age
       failedAssistant = message.stopReason === "error" || message.stopReason === "aborted";
       return !failedAssistant;
     }
-    if (message.role === "toolResult") return !failedAssistant;
+    if (message.role === "toolResult") {
+      return !failedAssistant;
+    }
     failedAssistant = false;
     return true;
   });
@@ -670,7 +742,9 @@ export function completeInterruptedTools(messages: readonly AgentMessage[]): Age
   for (let index = 0; index < completed.length; index++) {
     const message = completed[index]!;
     result.push(message);
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     for (const call of message.content.filter((part) => part.type === "toolCall")) {
       let found = false;
       for (
@@ -679,9 +753,11 @@ export function completeInterruptedTools(messages: readonly AgentMessage[]): Age
         next++
       ) {
         const tool = completed[next]!;
-        if (tool.role === "toolResult" && tool.toolCallId === call.id) found = true;
+        if (tool.role === "toolResult" && tool.toolCallId === call.id) {
+          found = true;
+        }
       }
-      if (!found)
+      if (!found) {
         result.push({
           role: "toolResult",
           toolCallId: call.id,
@@ -695,6 +771,7 @@ export function completeInterruptedTools(messages: readonly AgentMessage[]): Age
           isError: true,
           timestamp: Date.now(),
         });
+      }
     }
   }
   return result;

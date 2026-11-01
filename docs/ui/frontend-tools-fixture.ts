@@ -98,9 +98,13 @@ export function createToolsFixture(options: {
             ),
           }));
         const evidence = new Map<string, MemoryEvidence>();
-        for (const record of ownRecords)
-          for (const entries of Object.values(record.fieldEvidence))
-            for (const entry of entries) evidence.set(entry.evidence_id, entry);
+        for (const record of ownRecords) {
+          for (const entries of Object.values(record.fieldEvidence)) {
+            for (const entry of entries) {
+              evidence.set(entry.evidence_id, entry);
+            }
+          }
+        }
         return {
           schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
           floorLedger: options.readLedger(context.spaceId),
@@ -143,7 +147,9 @@ export function createToolsFixture(options: {
       currentContext: options.current,
       exportBackup: async () => {
         const context = options.current();
-        if (!context) throw new Error("请先打开对话");
+        if (!context) {
+          throw new Error("请先打开对话");
+        }
         const data = {
           spaces: snapshot().spaces.filter((unit) => unit.space.id === context.spaceId),
         };
@@ -156,8 +162,12 @@ export function createToolsFixture(options: {
       previewImport: async (text) => {
         const file = parseBackupFile(text);
         const context = options.current();
-        if (!context) throw new Error("请先打开对话");
-        if (file.data.spaces.length !== 1) throw new Error("导入文件必须只包含一个记忆空间");
+        if (!context) {
+          throw new Error("请先打开对话");
+        }
+        if (file.data.spaces.length !== 1) {
+          throw new Error("导入文件必须只包含一个记忆空间");
+        }
         const source = file.data.spaces[0]!;
         // 独立预览保持对话身份，导入的数据归属当前对话空间。
         const units = [
@@ -178,7 +188,9 @@ export function createToolsFixture(options: {
           summary: units.map((u) => u.space.name).join("、"),
           confirmMessage: `替换当前对话「${context.title}」的记忆空间。`,
           apply: async () => {
-            if (applied) throw new Error("该预览已执行");
+            if (applied) {
+              throw new Error("该预览已执行");
+            }
             options.assertContext(context);
             const current = options.read();
             const ids = new Set(units.map((u) => u.space.id));
@@ -198,7 +210,9 @@ export function createToolsFixture(options: {
             });
             applied = true;
             options.writeLedger(context.spaceId, source.floorLedger);
-            for (const id of ids) await queryStore.clearSpaceHistory(id);
+            for (const id of ids) {
+              await queryStore.clearSpaceHistory(id);
+            }
             await options.changed();
             return { kind: "done", message: "当前对话的记忆空间已替换。" };
           },
@@ -244,12 +258,13 @@ export function createToolsFixture(options: {
                 { once: true },
               );
             });
-            if (requestOptions?.signal?.aborted)
+            if (requestOptions?.signal?.aborted) {
               return scriptedDeltaStreamFn(() => assistantMessage([], "aborted", "已取消"))(
                 model,
                 context,
                 requestOptions,
               );
+            }
             if (queryFailure) {
               queryFailure = false;
               return scriptedDeltaStreamFn(() =>
@@ -267,7 +282,7 @@ export function createToolsFixture(options: {
                         .map((part) => part.text)
                         .join("");
                 queryInputs.push([{ role: "user", text }]);
-                if (text.includes("新增"))
+                if (text.includes("新增")) {
                   return assistantMessage(
                     [
                       toolCallMessage(crypto.randomUUID(), "mutate", {
@@ -278,12 +293,13 @@ export function createToolsFixture(options: {
                     ],
                     "toolUse",
                   );
+                }
                 return assistantMessage(
                   [toolCallMessage(crypto.randomUUID(), "query_records", { table: "table_0" })],
                   "toolUse",
                 );
               }
-              if (lastToolResult(current))
+              if (lastToolResult(current)) {
                 return assistantMessage(
                   [
                     thinkingMessage("预览模拟：检查记忆…"),
@@ -291,6 +307,7 @@ export function createToolsFixture(options: {
                   ],
                   "stop",
                 );
+              }
               return assistantMessage([textMessage("查询完成")], "stop");
             })(model, context, requestOptions);
           },
@@ -315,7 +332,7 @@ export function createToolsFixture(options: {
                 .map((field) => ({ name: field.key, type: field.type })),
             })),
         execute: async (_spaceId, sql, signal) => {
-          if (sqlDelay)
+          if (sqlDelay) {
             await new Promise<void>((resolve, reject) => {
               const timer = setTimeout(resolve, sqlDelay);
               signal?.addEventListener(
@@ -327,8 +344,11 @@ export function createToolsFixture(options: {
                 { once: true },
               );
             });
+          }
           signal?.throwIfAborted();
-          if (sql.trim().toLowerCase() === "invalid") throw new Error("预览模拟：SQL语法错误");
+          if (sql.trim().toLowerCase() === "invalid") {
+            throw new Error("预览模拟：SQL语法错误");
+          }
           return {
             results: [{ columns: ["name", "notes"], rows: [["爱丽丝", "预览模拟 SQL 结果"]] }],
             changes: 0,

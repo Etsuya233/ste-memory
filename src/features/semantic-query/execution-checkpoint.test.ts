@@ -15,7 +15,9 @@ it("yields a real task initially and after each CPU slice without paying per che
   await vi.runOnlyPendingTimersAsync();
   await initial;
   expect(settled).toBe(true);
-  for (let i = 0; i < 100; i++) await checkpoint();
+  for (let i = 0; i < 100; i++) {
+    await checkpoint();
+  }
   expect(vi.getTimerCount()).toBe(0);
   vi.advanceTimersByTime(8);
   settled = false;

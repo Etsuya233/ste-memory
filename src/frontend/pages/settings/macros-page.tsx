@@ -92,8 +92,9 @@ export function MacrosPage(props: MacrosPageProps) {
   );
   const chatKey = JSON.stringify([context?.chatKey, context?.spaceId]);
   const contextVersion = useRef({ key: chatKey, value: 0 });
-  if (contextVersion.current.key !== chatKey)
+  if (contextVersion.current.key !== chatKey) {
     contextVersion.current = { key: chatKey, value: contextVersion.current.value + 1 };
+  }
   const key = page === "chat" ? chatKey : "global";
   const editor = page === "global" || page === "chat" ? editors[key] : undefined;
   const dirty = Object.values(editors).some(
@@ -108,7 +109,9 @@ export function MacrosPage(props: MacrosPageProps) {
     register: page === "defaults" ? undefined : props.registerLeaveGuard,
   });
   useEffect(() => {
-    if (!dirty && !busy) return;
+    if (!dirty && !busy) {
+      return;
+    }
     const unload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -124,7 +127,7 @@ export function MacrosPage(props: MacrosPageProps) {
     let cancelled = false;
     setSchema([]);
     setSchemaError(null);
-    if (context)
+    if (context) {
       void macroServices.tables
         .list(context.spaceId)
         .then(async (tables) =>
@@ -137,12 +140,17 @@ export function MacrosPage(props: MacrosPageProps) {
         )
         .then(
           (rows) => {
-            if (!cancelled) setSchema(rows);
+            if (!cancelled) {
+              setSchema(rows);
+            }
           },
           (cause: unknown) => {
-            if (!cancelled) setSchemaError(cause instanceof Error ? cause.message : String(cause));
+            if (!cancelled) {
+              setSchemaError(cause instanceof Error ? cause.message : String(cause));
+            }
           },
         );
+    }
     return () => {
       cancelled = true;
     };
@@ -156,7 +164,9 @@ export function MacrosPage(props: MacrosPageProps) {
   function patchEditor(editKey: string, patch: Partial<EditorState>, operation?: number) {
     setEditors((current) => {
       const value = current[editKey];
-      if (!value || (operation !== undefined && value.operation !== operation)) return current;
+      if (!value || (operation !== undefined && value.operation !== operation)) {
+        return current;
+      }
       return { ...current, [editKey]: { ...value, ...patch } };
     });
   }
@@ -196,13 +206,19 @@ export function MacrosPage(props: MacrosPageProps) {
     }));
   }
   function readCollection(scope: Scope, captured: RecordsContext | null) {
-    if (scope === "global") return services.settings.read().macros;
-    if (!captured) throw new Error("请先打开对话");
+    if (scope === "global") {
+      return services.settings.read().macros;
+    }
+    if (!captured) {
+      throw new Error("请先打开对话");
+    }
     macroServices.assertContext(captured);
     return macroServices.readChatMacros();
   }
   async function saveEditor() {
-    if (!editor || (page !== "global" && page !== "chat")) return;
+    if (!editor || (page !== "global" && page !== "chat")) {
+      return;
+    }
     const scope = page,
       editKey = key,
       captured = context,
@@ -249,8 +265,9 @@ export function MacrosPage(props: MacrosPageProps) {
           },
           operation,
         );
-      } else
+      } else {
         patchEditor(editKey, { error: result.error ?? "宏未保存，请检查定义后重试。" }, operation);
+      }
     } catch (cause) {
       patchEditor(
         editKey,
@@ -262,7 +279,9 @@ export function MacrosPage(props: MacrosPageProps) {
     }
   }
   async function testEditor() {
-    if (!editor || !context || (page !== "global" && page !== "chat")) return;
+    if (!editor || !context || (page !== "global" && page !== "chat")) {
+      return;
+    }
     const version = contextVersion.current.value;
     const scope = page,
       editKey = key,
@@ -282,8 +301,9 @@ export function MacrosPage(props: MacrosPageProps) {
         lastUserMessage: editor.input.trim() || null,
       });
       macroServices.assertContext(captured);
-      if (version !== contextVersion.current.value)
+      if (version !== contextVersion.current.value) {
         throw new Error("测试期间对话已切换，请在当前对话重新测试。");
+      }
       patchEditor(editKey, { result }, operation);
     } catch (cause) {
       patchEditor(
@@ -296,7 +316,9 @@ export function MacrosPage(props: MacrosPageProps) {
     }
   }
   async function remove() {
-    if (!deletion) return;
+    if (!deletion) {
+      return;
+    }
     const selected = deletion;
     setDeleting(true);
     try {
@@ -314,7 +336,9 @@ export function MacrosPage(props: MacrosPageProps) {
             (item) => item.id === selected.macro.id,
           ),
       );
-      if (!result.saved) throw new Error(result.error ?? "宏未删除");
+      if (!result.saved) {
+        throw new Error(result.error ?? "宏未删除");
+      }
       closeEditor(selected.editorKey);
       setNotice({
         text: result.error ? `宏已删除，后续刷新失败：${result.error}` : "宏已删除。",
@@ -333,8 +357,10 @@ export function MacrosPage(props: MacrosPageProps) {
       setNotice({ text: "复制失败：无法写入剪贴板", error: true });
     }
   }
-  if (page === "defaults") return <MacroDefaults {...props} onBack={() => setPage("overview")} />;
-  if (editor)
+  if (page === "defaults") {
+    return <MacroDefaults {...props} onBack={() => setPage("overview")} />;
+  }
+  if (editor) {
     return (
       <>
         <SettingsEditor
@@ -388,6 +414,7 @@ export function MacrosPage(props: MacrosPageProps) {
         {confirmation}
       </>
     );
+  }
   const back = () => requestLeave(page === "overview" ? props.onBack : () => setPage("overview"));
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
@@ -526,10 +553,14 @@ export function MacrosPage(props: MacrosPageProps) {
                         className="ste:flex ste:min-w-0 ste:flex-1 ste:cursor-pointer ste:items-center ste:gap-3 ste:px-4 ste:py-2.5 ste:text-left ste:outline-none ste:aria-disabled:pointer-events-none ste:aria-disabled:opacity-60 ste:focus-visible:bg-muted/50 ste:focus-visible:ring-3 ste:focus-visible:ring-ring/30 ste:focus-visible:ring-inset"
                         data-action="open-macro"
                         onClick={() => {
-                          if (!busy) begin(macro);
+                          if (!busy) {
+                            begin(macro);
+                          }
                         }}
                         onKeyDown={(event) => {
-                          if (busy || (event.key !== "Enter" && event.key !== " ")) return;
+                          if (busy || (event.key !== "Enter" && event.key !== " ")) {
+                            return;
+                          }
                           event.preventDefault();
                           begin(macro);
                         }}
@@ -579,7 +610,9 @@ export function MacrosPage(props: MacrosPageProps) {
       <ConfirmAction
         open={deletion !== null}
         onOpenChange={(open) => {
-          if (!open) setDeletion(null);
+          if (!open) {
+            setDeletion(null);
+          }
         }}
         title={`删除宏 ${deletion?.macro.name ?? ""}？`}
         description="删除后会使用较低作用域的同名定义；没有其他定义时，该宏将不再提供内容。"
@@ -605,26 +638,32 @@ function MacroDefaults(props: MacrosPageProps) {
     setBusy(true);
     setNotice(null);
     try {
-      if (draft.name.trim() && !resolveMacroRegistrationName(draft.name))
+      if (draft.name.trim() && !resolveMacroRegistrationName(draft.name)) {
         throw new Error(
           "宏前缀须以字母开头，可包含数字、下划线和连字符，也可填写完整的 {{ste}} 形式。",
         );
+      }
       const limit = Number(draft.limit);
-      if (!draft.limit.trim() || !Number.isInteger(limit) || limit < 0)
+      if (!draft.limit.trim() || !Number.isInteger(limit) || limit < 0) {
         throw new Error("输出字符上限须为 0 或正整数");
+      }
       const result = await persistSettingsEdit(
         props.services,
         async () => {
-          if (props.services.settings.read().macroName !== draft.name)
+          if (props.services.settings.read().macroName !== draft.name) {
             await props.macroServices.settings.setMacroName(draft.name);
-          if (props.services.settings.read().macroLimit !== limit)
+          }
+          if (props.services.settings.read().macroLimit !== limit) {
             await props.macroServices.settings.setMacroLimit(limit);
+          }
         },
         (settings) => settings.macroName === draft.name && settings.macroLimit === limit,
       );
       const latest = { name: result.settings.macroName, limit: String(result.settings.macroLimit) };
       setSaved(latest);
-      if (result.saved) setDraft(latest);
+      if (result.saved) {
+        setDraft(latest);
+      }
       setNotice({
         text: result.error
           ? `${result.saved ? "设置已保存，后续刷新失败" : "设置未全部保存"}：${result.error}`

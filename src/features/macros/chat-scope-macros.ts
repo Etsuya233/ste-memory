@@ -20,8 +20,12 @@ export interface ChatScopeMacroStore {
  * Read the legacy store strictly: migration must not erase invalid siblings or unknown versions.
  */
 export function mergeChatScopeMacros(raw: unknown): readonly MemoryView[] {
-  if (raw === undefined) return [];
-  if (!isRecord(raw) || raw.version !== 1) throw new Error("无法识别旧对话宏版本，原始数据已保留");
+  if (raw === undefined) {
+    return [];
+  }
+  if (!isRecord(raw) || raw.version !== 1) {
+    throw new Error("无法识别旧对话宏版本，原始数据已保留");
+  }
   migrateMemoryViews(raw.macros, "legacy-check");
   return mergeMemoryViews(raw.macros);
 }

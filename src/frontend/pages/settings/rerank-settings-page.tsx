@@ -75,12 +75,17 @@ export function RerankSettingsPage({
         setDraft(next);
         setNotice(remove ? "重排连接已移除，默认重排已关闭。" : "重排设置已保存。");
       }
-      if (result.error)
+      if (result.error) {
         setError(`${result.saved ? "配置已保存，后续刷新失败" : "配置未保存"}：${result.error}`);
-      if (remove && !result.saved) throw new Error(result.error ?? "连接未移除");
+      }
+      if (remove && !result.saved) {
+        throw new Error(result.error ?? "连接未移除");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      if (remove) throw cause;
+      if (remove) {
+        throw cause;
+      }
     } finally {
       setBusy(false);
     }

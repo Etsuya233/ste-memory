@@ -28,7 +28,9 @@ export async function scanWorldbookText(
   context: WorldbookScanContext,
   mergedText: string,
 ): Promise<string> {
-  if (!context.getWorldInfoPrompt) return "";
+  if (!context.getWorldInfoPrompt) {
+    return "";
+  }
   const result = await context.getWorldInfoPrompt([mergedText], context.maxContext ?? 0, true);
   return result.worldInfoString;
 }

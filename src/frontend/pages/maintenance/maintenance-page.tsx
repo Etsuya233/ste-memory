@@ -81,7 +81,9 @@ export function MaintenancePage({
     register: registerLeaveGuard,
   });
   useEffect(() => {
-    if (!busy) return;
+    if (!busy) {
+      return;
+    }
     const onUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -96,13 +98,17 @@ export function MaintenancePage({
     const token = generation.current;
     try {
       const saved = await services.exportBackup();
-      if (token === generation.current)
+      if (token === generation.current) {
         setNotice({ kind: "done", message: saved ? "备份文件已导出。" : "已取消导出。" });
+      }
     } catch (cause) {
-      if (token === generation.current)
+      if (token === generation.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      if (token === generation.current) setBusy(false);
+      if (token === generation.current) {
+        setBusy(false);
+      }
     }
   }
   async function readFile(file: File) {
@@ -114,12 +120,17 @@ export function MaintenancePage({
     setFileName(file.name);
     try {
       const prepared = await services.previewImport(await file.text());
-      if (token === generation.current) setPreview(prepared);
+      if (token === generation.current) {
+        setPreview(prepared);
+      }
     } catch (cause) {
-      if (token === generation.current)
+      if (token === generation.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      if (token === generation.current) setBusy(false);
+      if (token === generation.current) {
+        setBusy(false);
+      }
     }
   }
   async function mutate(action: () => Promise<MaintenanceOutcome>) {
@@ -130,18 +141,23 @@ export function MaintenancePage({
     try {
       const outcome = await action();
       // 导入会更换空间 ID；结果仍属于发起操作的对话，外部切聊后不可覆盖新页。
-      if (services.currentContext()?.chatKey !== chatKey) return;
+      if (services.currentContext()?.chatKey !== chatKey) {
+        return;
+      }
       setPreview(null);
       setFileName("");
       setClearTarget(null);
       setConfirmImport(false);
       setNotice(outcome);
     } catch (cause) {
-      if (services.currentContext()?.chatKey === chatKey)
+      if (services.currentContext()?.chatKey === chatKey) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
       throw cause;
     } finally {
-      if (services.currentContext()?.chatKey === chatKey) setBusy(false);
+      if (services.currentContext()?.chatKey === chatKey) {
+        setBusy(false);
+      }
     }
   }
   return (
@@ -194,7 +210,9 @@ export function MaintenancePage({
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.target.value = "";
-                  if (file) void readFile(file);
+                  if (file) {
+                    void readFile(file);
+                  }
                 }}
               />
             </Field>
@@ -252,7 +270,9 @@ export function MaintenancePage({
       <ConfirmAction
         open={clearTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setClearTarget(null);
+          if (!open) {
+            setClearTarget(null);
+          }
         }}
         title={`清除「${clearTarget?.title ?? ""}」的全部记录？`}
         description="将删除记录、历史、证据与填表进度；表格结构保留。此操作无法撤销，建议先导出备份。"

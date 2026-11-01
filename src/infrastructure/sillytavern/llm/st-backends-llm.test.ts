@@ -61,8 +61,12 @@ function sseResponse(
           controller.error(new DOMException("Aborted", "AbortError")),
         );
       }
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      if (!signal) controller.close();
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      if (!signal) {
+        controller.close();
+      }
     },
   });
   return new Response(stream, {
@@ -123,7 +127,9 @@ async function runStream(
 ): Promise<{ events: AssistantMessageEvent[]; message: AssistantMessage }> {
   const stream = await adapter.streamFn(testModel(), context, options);
   const events: AssistantMessageEvent[] = [];
-  for await (const event of stream) events.push(event);
+  for await (const event of stream) {
+    events.push(event);
+  }
   return { events, message: await stream.result() };
 }
 
@@ -150,8 +156,12 @@ describe("StBackendsLlmAdapter.streamFn（SSE → pi 事件流）", () => {
           calls++;
           bodies.push(JSON.parse(init?.body as string));
           if (calls === 1) {
-            if (failure === "断流") return sseResponse([sseEvent(textChunk("半截响应"))]);
-            if (failure === "网络") throw new TypeError("Failed to fetch");
+            if (failure === "断流") {
+              return sseResponse([sseEvent(textChunk("半截响应"))]);
+            }
+            if (failure === "网络") {
+              throw new TypeError("Failed to fetch");
+            }
             return jsonResponse({ error: { message: "暂时不可用" } }, { status: Number(failure) });
           }
           return sseResponse([sseEvent(textChunk("完成", "stop"))]);
@@ -624,7 +634,9 @@ describe("StBackendsLlmAdapter 错误路径", () => {
     let first = await reader.next();
     while (!first.done) {
       events.push(first.value);
-      if (first.value.type === "text_delta") break;
+      if (first.value.type === "text_delta") {
+        break;
+      }
       first = await reader.next();
     }
     controller.abort();
@@ -657,7 +669,9 @@ describe("StBackendsLlmAdapter 错误路径", () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fn = (async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
-      if (url === ST_CSRF_ENDPOINT) return jsonResponse({ token: "csrf-real" });
+      if (url === ST_CSRF_ENDPOINT) {
+        return jsonResponse({ token: "csrf-real" });
+      }
       return sseResponse([sseEvent(textChunk("ok", "stop"))]);
     }) as typeof fetch;
     const adapter = makeAdapter({ getCsrfToken: undefined }, fn);

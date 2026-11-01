@@ -30,7 +30,9 @@ export async function copyText(text: string): Promise<void> {
     textarea.focus();
     textarea.select();
     textarea.setSelectionRange(0, text.length);
-    if (!document.execCommand("copy")) throw new Error("无法写入剪贴板");
+    if (!document.execCommand("copy")) {
+      throw new Error("无法写入剪贴板");
+    }
   } finally {
     textarea.remove();
     if (previousRange && selection) {

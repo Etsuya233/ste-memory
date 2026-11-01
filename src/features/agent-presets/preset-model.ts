@@ -74,7 +74,9 @@ export function formatAgentPresetSelection(presetId: string): AgentPresetSelecti
 }
 
 export function readAgentPresetSelection(raw: unknown): string | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
   const selection = raw as { version?: unknown; presetId?: unknown };
   return selection.version === AGENT_PRESET_SELECTION_VERSION &&
     typeof selection.presetId === "string" &&
@@ -127,7 +129,9 @@ export function duplicateAgentPreset(
   createId: () => string,
 ): AgentPresetSettings {
   const source = settings.presets.find((p) => p.id === presetId);
-  if (!source) return settings;
+  if (!source) {
+    return settings;
+  }
   const copy: AgentPromptPreset = {
     id: createId(),
     name: `${source.name} (副本)`,
@@ -159,7 +163,9 @@ export function deleteAgentPreset(
   settings: AgentPresetSettings,
   presetId: string,
 ): AgentPresetSettings {
-  if (!settings.presets.some((p) => p.id === presetId)) return settings;
+  if (!settings.presets.some((p) => p.id === presetId)) {
+    return settings;
+  }
   const presets = settings.presets.filter((p) => p.id !== presetId);
   return {
     ...settings,
@@ -174,8 +180,12 @@ export function setActiveAgentPreset(
   settings: AgentPresetSettings,
   presetId: string,
 ): AgentPresetSettings {
-  if (presetId === BUILTIN_AGENT_PRESET_ID) return { ...settings, activePresetId: presetId };
-  if (!settings.presets.some((p) => p.id === presetId)) return settings;
+  if (presetId === BUILTIN_AGENT_PRESET_ID) {
+    return { ...settings, activePresetId: presetId };
+  }
+  if (!settings.presets.some((p) => p.id === presetId)) {
+    return settings;
+  }
   return { ...settings, activePresetId: presetId };
 }
 
@@ -189,9 +199,13 @@ export function moveAgentPreset(
   toIndex: number,
 ): AgentPresetSettings {
   const fromIndex = settings.presets.findIndex((p) => p.id === presetId);
-  if (fromIndex < 0) return settings;
+  if (fromIndex < 0) {
+    return settings;
+  }
   const clamped = Math.max(0, Math.min(toIndex, settings.presets.length - 1));
-  if (clamped === fromIndex) return settings;
+  if (clamped === fromIndex) {
+    return settings;
+  }
   const presets = [...settings.presets];
   const [moved] = presets.splice(fromIndex, 1);
   presets.splice(clamped, 0, moved!);
@@ -203,7 +217,9 @@ export function moveAgentPreset(
  * 否则返回对应预设。
  */
 export function resolveActivePreset(settings: AgentPresetSettings): AgentPromptPreset | undefined {
-  if (settings.activePresetId === BUILTIN_AGENT_PRESET_ID) return undefined;
+  if (settings.activePresetId === BUILTIN_AGENT_PRESET_ID) {
+    return undefined;
+  }
   return settings.presets.find((p) => p.id === settings.activePresetId);
 }
 
@@ -256,9 +272,13 @@ export function moveAgentPresetMessage(
 ): AgentPresetSettings {
   return updatePreset(settings, presetId, (preset) => {
     const fromIndex = preset.messages.findIndex((m) => m.id === messageId);
-    if (fromIndex < 0) return preset;
+    if (fromIndex < 0) {
+      return preset;
+    }
     const clamped = Math.max(0, Math.min(toIndex, preset.messages.length - 1));
-    if (clamped === fromIndex) return preset;
+    if (clamped === fromIndex) {
+      return preset;
+    }
     const messages = [...preset.messages];
     const [moved] = messages.splice(fromIndex, 1);
     messages.splice(clamped, 0, moved!);
@@ -379,12 +399,16 @@ export function importAgentPreset(
 ): AgentPresetSettings {
   const existingIds = new Set(settings.presets.map((p) => p.id));
   let id = imported.id;
-  while (existingIds.has(id)) id = `${id}-imported`;
+  while (existingIds.has(id)) {
+    id = `${id}-imported`;
+  }
   let name = imported.name;
   const nameTaken = (candidate: string) => settings.presets.some((p) => p.name === candidate);
   if (nameTaken(name)) {
     let suffix = 2;
-    while (nameTaken(`${name} (${suffix})`)) suffix += 1;
+    while (nameTaken(`${name} (${suffix})`)) {
+      suffix += 1;
+    }
     name = `${name} (${suffix})`;
   }
   const preset: AgentPromptPreset = { ...imported, id, name };
@@ -397,7 +421,9 @@ function updatePreset(
   update: (preset: AgentPromptPreset) => AgentPromptPreset,
 ): AgentPresetSettings {
   const preset = settings.presets.find((p) => p.id === presetId);
-  if (!preset) return settings;
+  if (!preset) {
+    return settings;
+  }
   return {
     ...settings,
     presets: settings.presets.map((p) => (p.id === presetId ? update(p) : p)),

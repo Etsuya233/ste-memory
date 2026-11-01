@@ -26,9 +26,13 @@ export function macroWasSaved(
   desired: MemoryMacro,
   isNew: boolean,
 ): boolean {
-  if (!actual) return false;
+  if (!actual) {
+    return false;
+  }
   const expression = (macro: MemoryMacro) => {
-    if (macro.expression.language === "query") return macro.expression;
+    if (macro.expression.language === "query") {
+      return macro.expression;
+    }
     return {
       language: macro.expression.language,
       sql: macro.expression.sql,
@@ -51,11 +55,15 @@ export function mergeEditedMacro(
   desired: MemoryMacro,
 ): readonly MemoryMacro[] {
   const previous = current.find((macro) => macro.id === desired.id);
-  if (previous && macroWasSaved(previous, desired, !original)) return current;
-  if (original ? JSON.stringify(previous) !== JSON.stringify(original) : previous !== undefined)
+  if (previous && macroWasSaved(previous, desired, !original)) {
+    return current;
+  }
+  if (original ? JSON.stringify(previous) !== JSON.stringify(original) : previous !== undefined) {
     throw new Error("宏定义已变化，请保留草稿并重新打开编辑器。");
-  if (current.some((macro) => macro.id !== desired.id && macro.name === desired.name))
+  }
+  if (current.some((macro) => macro.id !== desired.id && macro.name === desired.name)) {
     throw new Error("宏名已存在");
+  }
   return original
     ? current.map((macro) => (macro.id === desired.id ? desired : macro))
     : [...current, desired];

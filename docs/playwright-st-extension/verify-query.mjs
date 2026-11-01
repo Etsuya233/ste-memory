@@ -42,7 +42,9 @@ async function newSession() {
   const previous = await page.evaluate(() =>
     window.frontendPreview.queryStore.getSessions().map((session) => session.id),
   );
-  if (await action("assistant-menu").count()) await openMenu();
+  if (await action("assistant-menu").count()) {
+    await openMenu();
+  }
   await action("assistant-new").click();
   return page.evaluate(
     (previous) =>

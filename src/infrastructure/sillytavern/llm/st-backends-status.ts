@@ -37,7 +37,9 @@ export async function testAgentConnection(
       const token = options.getCsrfToken
         ? await options.getCsrfToken()
         : await defaultGetCsrfToken(fetchImpl);
-      if (token && token !== "disabled") headers["X-CSRF-Token"] = token;
+      if (token && token !== "disabled") {
+        headers["X-CSRF-Token"] = token;
+      }
     } catch {
       // 取令牌失败：不带 CSRF 头继续（ST 关闭 CSRF 时无头也能过）
     }
@@ -79,7 +81,9 @@ export async function testAgentConnection(
 function parseModelIds(raw: string): string[] | undefined {
   try {
     const data = JSON.parse(raw) as { data?: unknown };
-    if (!Array.isArray(data.data)) return undefined;
+    if (!Array.isArray(data.data)) {
+      return undefined;
+    }
     const ids: string[] = [];
     for (const item of data.data) {
       if (

@@ -74,14 +74,25 @@ export function buildStGenerateBody(
     chat_completion_source: model.stSource,
     include_reasoning: includeReasoning,
   };
-  if (model.customUrl !== undefined) body.custom_url = model.customUrl;
-  if (model.customIncludeHeaders !== undefined)
+  if (model.customUrl !== undefined) {
+    body.custom_url = model.customUrl;
+  }
+  if (model.customIncludeHeaders !== undefined) {
     body.custom_include_headers = model.customIncludeHeaders;
+  }
   const temperature = options?.temperature ?? config.temperature;
-  if (temperature !== undefined) body.temperature = temperature;
-  if (config.topP !== undefined) body.top_p = config.topP;
-  if (config.frequencyPenalty !== undefined) body.frequency_penalty = config.frequencyPenalty;
-  if (config.presencePenalty !== undefined) body.presence_penalty = config.presencePenalty;
+  if (temperature !== undefined) {
+    body.temperature = temperature;
+  }
+  if (config.topP !== undefined) {
+    body.top_p = config.topP;
+  }
+  if (config.frequencyPenalty !== undefined) {
+    body.frequency_penalty = config.frequencyPenalty;
+  }
+  if (config.presencePenalty !== undefined) {
+    body.presence_penalty = config.presencePenalty;
+  }
   body.max_tokens = options?.maxTokens ?? config.maxTokens;
   if (context.tools && context.tools.length > 0) {
     body.tools = convertTools(context.tools);
@@ -100,16 +111,22 @@ export function convertMessages(context: Context): StChatMessageBody[] {
     if (message.role === "user") {
       messages.push({ role: "user", content: contentToText(message.content) });
     } else if (message.role === "assistant") {
-      if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+      if (message.stopReason === "error" || message.stopReason === "aborted") {
+        continue;
+      }
       const text = textBlocksOf(message.content).join("");
       const toolCalls = message.content.filter(
         (block): block is Extract<typeof block, { type: "toolCall" }> => block.type === "toolCall",
       );
       // 部分上游要求 assistant 消息 content/tool_calls 至少一个；空消息跳过
       // （与 pi 同语义：aborted 产生的空 assistant 不重放）
-      if (text.length === 0 && toolCalls.length === 0) continue;
+      if (text.length === 0 && toolCalls.length === 0) {
+        continue;
+      }
       const entry: StChatMessageBody = { role: "assistant" };
-      if (text.length > 0) entry.content = text;
+      if (text.length > 0) {
+        entry.content = text;
+      }
       if (toolCalls.length > 0) {
         entry.tool_calls = toolCalls.map((call) => ({
           id: call.id,
@@ -152,7 +169,9 @@ function contentToText(content: Message["content"]): string {
 
 /** 提取文本内容块（user/assistant/toolResult 共用；分隔符由调用方决定） */
 function textBlocksOf(content: Message["content"]): string[] {
-  if (typeof content === "string") return [content];
+  if (typeof content === "string") {
+    return [content];
+  }
   return content
     .filter((block) => block.type === "text")
     .map((block) => (block as { text: string }).text);

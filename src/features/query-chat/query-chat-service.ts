@@ -78,7 +78,9 @@ export class QueryChatService {
   async run(input: QueryChatRunInput): Promise<void> {
     return this.store.withExclusiveSession(input.sessionId, async (session, signal) => {
       this.#assertContext(session);
-      if (!input.text.trim()) throw new Error("消息不能为空");
+      if (!input.text.trim()) {
+        throw new Error("消息不能为空");
+      }
       const run = this.store.startRun(session.id, input.text);
       let terminal: QueryChatEvent;
       let preview: ProposalPreviewToolResult | undefined;
@@ -87,7 +89,9 @@ export class QueryChatService {
         await this.store.flush();
         const llm = this.#options.createLlm();
         const digest = await buildMemorySpaceTableDigest(this.#options.reader, session.spaceId);
-        if (signal.aborted) throw new Error("已取消");
+        if (signal.aborted) {
+          throw new Error("已取消");
+        }
         const result = await runFillAgent({
           llm,
           reader: this.#options.reader,
@@ -110,8 +114,9 @@ export class QueryChatService {
           onEvent: (event) => this.store.recordAgentEvent(session.id, run.pendingId, event),
         });
         terminal = terminalQueryChatEvent(result, signal);
-        if (run.proposal.operations.length && result.stopReason === "stop" && !signal.aborted)
+        if (run.proposal.operations.length && result.stopReason === "stop" && !signal.aborted) {
           preview = (await this.#prepareProposal(session.spaceId, run.proposal)).preview;
+        }
       } catch (cause) {
         terminal = { type: "error", message: errorMessage(cause) };
       }
@@ -134,10 +139,12 @@ export class QueryChatService {
           session.spaceId,
           new ProposalState(session.proposal),
         );
-        if (!prepared.preview.valid)
+        if (!prepared.preview.valid) {
           throw new Error(prepared.preview.errors.map((error) => error.message).join("；"));
-        if (JSON.stringify(prepared.preview.operations) !== JSON.stringify(reviewed.operations))
+        }
+        if (JSON.stringify(prepared.preview.operations) !== JSON.stringify(reviewed.operations)) {
           throw new Error("记录或表结构已变化，请让助手重新预览提案后确认");
+        }
         signal.throwIfAborted();
         this.#assertContext(session, origin.generation);
         result = await this.#writeProposal(session.spaceId, prepared.proposal);
@@ -190,8 +197,9 @@ export class QueryChatService {
       if (
         !(cause instanceof MemoryCommitPersistenceError) &&
         !(cause instanceof MemoryRecordSaveError)
-      )
+      ) {
         throw cause;
+      }
       warning = `记录已提交，快照保存失败：${cause.message}。请使用工作台的保存重试。`;
     }
     return {
@@ -210,8 +218,9 @@ export class QueryChatService {
       current.chatKey !== context.chatKey ||
       current.spaceId !== context.spaceId ||
       (generation !== undefined && generation !== current.generation)
-    )
+    ) {
       throw new Error(QUERY_CHAT_SPACE_SWITCHED_NOTICE);
+    }
     return current;
   }
 }

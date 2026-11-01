@@ -36,9 +36,13 @@ function extractData(event: string): string {
   const lines = event.split(/\n|\r|\r\n/g);
   const data: string[] = [];
   for (const line of lines) {
-    if (line.startsWith(":")) continue; // 注释行（keep-alive 等）
+    if (line.startsWith(":")) {
+      continue;
+    } // 注释行（keep-alive 等）
     const match = /^data:(?: ?(.*))?$/.exec(line);
-    if (match) data.push(match[1] ?? "");
+    if (match) {
+      data.push(match[1] ?? "");
+    }
   }
   return data.join("\n");
 }

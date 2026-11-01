@@ -105,8 +105,9 @@ function ConnectionList({
       if (
         id &&
         !services.settings.read().agentConnections.some((connection) => connection.id === id)
-      )
+      ) {
         throw new Error("所选连接已不存在，请重新选择");
+      }
       const result = await persistSettingsEdit(
         services,
         () =>
@@ -116,9 +117,11 @@ function ConnectionList({
         (value) => agentConnectionSelection(value, target) === (id || undefined),
       );
       setSettings(result.settings);
-      if (result.error)
+      if (result.error) {
         setError(`${result.saved ? "选择已保存，后续刷新失败" : "选择未保存"}：${result.error}`);
-      else setNotice("连接选择已保存。");
+      } else {
+        setNotice("连接选择已保存。");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -287,21 +290,30 @@ function AgentConnectionEditor({
     setTestResult(null);
     try {
       const connection = connectionFromDraft(draft);
-      if (!connection.baseUrl.trim()) throw new Error("请填写连接地址");
+      if (!connection.baseUrl.trim()) {
+        throw new Error("请填写连接地址");
+      }
       const result = await services.testAgentConnection(connection);
-      if (token !== testGeneration.current) return;
+      if (token !== testGeneration.current) {
+        return;
+      }
       if (result.ok) {
         setModels(result.models);
         setTestResult({ error: false, text: `连接成功，获取到 ${result.models.length} 个模型。` });
-      } else setTestResult({ error: true, text: result.error });
+      } else {
+        setTestResult({ error: true, text: result.error });
+      }
     } catch (cause) {
-      if (token === testGeneration.current)
+      if (token === testGeneration.current) {
         setTestResult({
           error: true,
           text: cause instanceof Error ? cause.message : String(cause),
         });
+      }
     } finally {
-      if (token === testGeneration.current) setTesting(false);
+      if (token === testGeneration.current) {
+        setTesting(false);
+      }
     }
   }
   async function save() {
@@ -313,17 +325,20 @@ function AgentConnectionEditor({
         services,
         () => {
           const latest = services.settings.read();
-          if (exists && !latest.agentConnections.some((item) => item.id === connection.id))
+          if (exists && !latest.agentConnections.some((item) => item.id === connection.id)) {
             throw new Error("连接已被删除，请返回后重新创建");
+          }
           services.settings.save(upsertAgentConnection(latest, connection));
         },
         (settings) =>
           JSON.stringify(settings.agentConnections.find((item) => item.id === connection.id)) ===
           JSON.stringify(connection),
       );
-      if (result.saved)
+      if (result.saved) {
         onSaved(result.error ? `连接已保存，后续刷新失败：${result.error}` : "连接已保存。");
-      else setError(`连接未保存：${result.error ?? "保存结果与草稿不一致"}`);
+      } else {
+        setError(`连接未保存：${result.error ?? "保存结果与草稿不一致"}`);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -338,7 +353,9 @@ function AgentConnectionEditor({
         () => services.settings.save(removeAgentConnection(services.settings.read(), draft.id)),
         (settings) => !settings.agentConnections.some((item) => item.id === draft.id),
       );
-      if (!result.saved) throw new Error(result.error ?? "连接未删除");
+      if (!result.saved) {
+        throw new Error(result.error ?? "连接未删除");
+      }
       onSaved(
         result.error
           ? `连接已删除，后续刷新失败：${result.error}`

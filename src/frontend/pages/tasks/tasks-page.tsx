@@ -101,7 +101,9 @@ function TasksMain({
   const prefilledScope = useRef<string | null>(null);
   useEffect(() => (active ? workspace.startPolling() : undefined), [workspace, active]);
   useEffect(() => {
-    if (!active) setPendingCancel(null);
+    if (!active) {
+      setPendingCancel(null);
+    }
   }, [active]);
   useEffect(() => {
     setRange({ from: "", to: "", block: String(autoFill.settings().blockSize) });
@@ -111,7 +113,9 @@ function TasksMain({
     setShowAllHistory(false);
   }, [autoFill, scope]);
   useEffect(() => {
-    if (!state.context || state.loading || prefilledScope.current === scope) return;
+    if (!state.context || state.loading || prefilledScope.current === scope) {
+      return;
+    }
     prefilledScope.current = scope;
     const first = unprocessedRanges(state.ledger, state.messageCount)[0];
     setRange({
@@ -175,8 +179,11 @@ function TasksMain({
       : cancelVectors.length > 0);
 
   function fillAction(task: FillTaskView, action: "cancel" | "retry") {
-    if (action === "cancel") setPendingCancel({ scope, kind: "fill", task });
-    else void workspace.fillAction(task.runId, action);
+    if (action === "cancel") {
+      setPendingCancel({ scope, kind: "fill", task });
+    } else {
+      void workspace.fillAction(task.runId, action);
+    }
   }
   async function confirmCancellation() {
     const current = workspace.getSnapshot().context;
@@ -184,8 +191,9 @@ function TasksMain({
       !pendingCancel ||
       !cancellationAvailable ||
       pendingCancel.scope !== JSON.stringify([current?.chatKey, current?.spaceId])
-    )
+    ) {
       throw new Error("对话或任务状态已变化，请重新选择任务");
+    }
     const result =
       pendingCancel.kind === "fill"
         ? await workspace.fillAction(pendingCancel.task.runId, "cancel")
@@ -193,7 +201,9 @@ function TasksMain({
             cancelVectors.map((task) => task.id),
             "cancel",
           );
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
     setPendingCancel(null);
   }
 
@@ -215,13 +225,17 @@ function TasksMain({
     setPendingSubmit(result.summary);
   }
   async function confirmFill() {
-    if (!pendingSubmit) return;
+    if (!pendingSubmit) {
+      return;
+    }
     const outcome = await workspace.submitFloors(
       String(pendingSubmit.from),
       String(pendingSubmit.to),
       String(pendingSubmit.blockSize),
     );
-    if (!outcome.ok) throw new Error(outcome.error);
+    if (!outcome.ok) {
+      throw new Error(outcome.error);
+    }
     setPendingSubmit(null);
   }
   function applyFillRange(next: { readonly from: number; readonly to: number }) {
@@ -453,7 +467,9 @@ function TasksMain({
       <ConfirmAction
         open={active && cancellationAvailable}
         onOpenChange={(open) => {
-          if (!open) setPendingCancel(null);
+          if (!open) {
+            setPendingCancel(null);
+          }
         }}
         title="确认取消任务？"
         description={
@@ -469,7 +485,9 @@ function TasksMain({
       <ConfirmAction
         open={pendingSubmit !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingSubmit(null);
+          if (!open) {
+            setPendingSubmit(null);
+          }
         }}
         title="开始填表任务？"
         description={
@@ -785,7 +803,9 @@ function FillList({
   onOpenLog: (key: string, summary?: string) => void;
   onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
 }) {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return null;
+  }
   return (
     <PageSection
       title={title}
@@ -832,7 +852,9 @@ function FillRow({
         data-task-key={task.runId}
         onClick={openLog}
         onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
+          if (event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
           event.preventDefault();
           openLog();
         }}

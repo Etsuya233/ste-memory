@@ -52,8 +52,9 @@ export function PresetUpdatePage(
   const key = JSON.stringify([current?.chatIdentity, current?.spaceId]);
   const targetKey = JSON.stringify([target.chatIdentity, target.spaceId]);
   const contextVersion = useRef({ key, value: 0 });
-  if (contextVersion.current.key !== key)
+  if (contextVersion.current.key !== key) {
     contextVersion.current = { key, value: contextVersion.current.value + 1 };
+  }
   const currentVersion = contextVersion.current.value;
   const active = key === targetKey;
   const operation = useRef(0);
@@ -71,7 +72,9 @@ export function PresetUpdatePage(
   const changes = plan ? presetUpdateChanges(plan.nodes) : [];
   const chosen = changes.filter((change) => selected.has(change.id));
   const counts = { create: 0, update: 0, delete: 0 };
-  for (const change of chosen) counts[change.action]++;
+  for (const change of chosen) {
+    counts[change.action]++;
+  }
   const { requestLeave, confirmation } = usePageLeave({
     dirty: !!plan && selected.size > 0,
     busy,
@@ -100,7 +103,9 @@ export function PresetUpdatePage(
     [],
   );
   useEffect(() => {
-    if (!busy && !(plan && selected.size)) return;
+    if (!busy && !(plan && selected.size)) {
+      return;
+    }
     const unload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -111,8 +116,9 @@ export function PresetUpdatePage(
 
   function assertTarget() {
     const live = presets.currentContext();
-    if (live?.chatIdentity !== target.chatIdentity || live.spaceId !== target.spaceId)
+    if (live?.chatIdentity !== target.chatIdentity || live.spaceId !== target.spaceId) {
       throw new Error("目标对话已切换，请返回原对话后重新比较。");
+    }
   }
   function assertSnapshot() {
     assertTarget();
@@ -120,14 +126,20 @@ export function PresetUpdatePage(
       props.services.settings.read().tablePresets,
       SYSTEM_TABLE_PRESET,
     ).find((item) => item.id === preset.id);
-    if (!saved || serializeTablePresetExport(saved, "") !== serializeTablePresetExport(preset, ""))
+    if (
+      !saved ||
+      serializeTablePresetExport(saved, "") !== serializeTablePresetExport(preset, "")
+    ) {
       throw new Error("来源预设已变化，请返回预设列表后重新打开比较。");
+    }
   }
   function isCurrent(token: number, version: number) {
     return token === operation.current && version === contextVersion.current.value;
   }
   async function compare() {
-    if (running.current) return;
+    if (running.current) {
+      return;
+    }
     const token = ++operation.current,
       version = currentVersion;
     running.current = "compare";
@@ -143,12 +155,15 @@ export function PresetUpdatePage(
         structuredClone(preset),
         target.chatIdentity,
       );
-      if (!isCurrent(token, version)) return;
+      if (!isCurrent(token, version)) {
+        return;
+      }
       assertSnapshot();
       setLoaded({ version, plan: next });
     } catch (cause) {
-      if (isCurrent(token, version))
+      if (isCurrent(token, version)) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       if (isCurrent(token, version)) {
         running.current = null;
@@ -157,7 +172,9 @@ export function PresetUpdatePage(
     }
   }
   async function execute(withBackup: boolean) {
-    if (!plan || running.current) return;
+    if (!plan || running.current) {
+      return;
+    }
     const captured = plan,
       ids = [...selected],
       token = ++operation.current,
@@ -168,20 +185,27 @@ export function PresetUpdatePage(
     try {
       assertSnapshot();
       if (withBackup && !(await presets.backupCurrentSpace(target))) {
-        if (isCurrent(token, version)) setError("备份未完成，未执行所选变更。");
+        if (isCurrent(token, version)) {
+          setError("备份未完成，未执行所选变更。");
+        }
         return;
       }
-      if (!isCurrent(token, version)) return;
+      if (!isCurrent(token, version)) {
+        return;
+      }
       assertSnapshot();
       const next = await presets.spaceUpdate.apply(captured, ids, target.chatIdentity);
-      if (token !== operation.current) return;
+      if (token !== operation.current) {
+        return;
+      }
       setLoaded(null);
       setSelected(new Set());
       setConfirming(false);
       setOutcome(next);
     } catch (cause) {
-      if (token === operation.current)
+      if (token === operation.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       if (token === operation.current) {
         running.current = null;
@@ -190,7 +214,9 @@ export function PresetUpdatePage(
     }
   }
   async function retrySave() {
-    if (running.current) return;
+    if (running.current) {
+      return;
+    }
     const token = ++operation.current;
     running.current = "retry";
     setBusy(true);
@@ -198,10 +224,13 @@ export function PresetUpdatePage(
     try {
       assertTarget();
       const next = await presets.spaceUpdate.retrySave(target.spaceId, target.chatIdentity);
-      if (token === operation.current) setOutcome(next);
+      if (token === operation.current) {
+        setOutcome(next);
+      }
     } catch (cause) {
-      if (token === operation.current)
+      if (token === operation.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       if (token === operation.current) {
         running.current = null;
@@ -213,8 +242,11 @@ export function PresetUpdatePage(
     setSelected((previous) => {
       const next = new Set(previous);
       for (const id of ids) {
-        if (checked) next.add(id);
-        else next.delete(id);
+        if (checked) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
       }
       return next;
     });
@@ -395,7 +427,9 @@ export function PresetUpdatePage(
       <AlertDialog
         open={confirming && !!plan}
         onOpenChange={(open) => {
-          if (!busy) setConfirming(open);
+          if (!busy) {
+            setConfirming(open);
+          }
         }}
       >
         <AlertDialogContent initialFocus={cancel}>
@@ -459,7 +493,9 @@ function UpdateNode(props: {
   const { node, selected } = props;
   const ids = presetUpdateChanges([node]).map((change) => change.id);
   const count = ids.filter((id) => selected.has(id)).length;
-  if (props.selectedOnly && !count) return null;
+  if (props.selectedOnly && !count) {
+    return null;
+  }
   return (
     <Card size="sm" data-change-action={node.change?.action}>
       <CardHeader>
@@ -523,10 +559,20 @@ function UpdateNode(props: {
 }
 
 function formatValue(value: unknown): string {
-  if (value === "") return "（空，选择更新将清空）";
-  if (value === undefined || value === null) return "（无）";
-  if (typeof value === "boolean") return value ? "启用" : "停用";
-  if (value === "manual") return "手动";
-  if (value === "automatic") return "自动";
+  if (value === "") {
+    return "（空，选择更新将清空）";
+  }
+  if (value === undefined || value === null) {
+    return "（无）";
+  }
+  if (typeof value === "boolean") {
+    return value ? "启用" : "停用";
+  }
+  if (value === "manual") {
+    return "手动";
+  }
+  if (value === "automatic") {
+    return "自动";
+  }
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }

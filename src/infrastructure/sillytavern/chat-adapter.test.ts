@@ -402,7 +402,9 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     });
     for (const extension of registry) {
       extension.intercept(abort);
-      if (immediate) break;
+      if (immediate) {
+        break;
+      }
     }
     expect(abort).toHaveBeenCalledWith(true);
     expect(laterInterceptor).not.toHaveBeenCalled();
@@ -419,7 +421,9 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
     immediate = false;
     for (const extension of registry) {
       extension.intercept(abort);
-      if (immediate) break;
+      if (immediate) {
+        break;
+      }
     }
     expect(laterInterceptor).toHaveBeenCalledOnce();
     // ST's unblock path emits ENDED after a downstream interceptor aborts.

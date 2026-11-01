@@ -96,7 +96,7 @@ function setup() {
   );
   service.setContext(context, space);
   async function populate() {
-    for (const target of await index.targets({ memorySpaceId: space }))
+    for (const target of await index.targets({ memorySpaceId: space })) {
       vectors.push({
         id: [space, table.id, target.record.id, target.groupId].join("\u0000"),
         memorySpaceId: space,
@@ -109,6 +109,7 @@ function setup() {
         version: "v1",
         updatedAt: "now",
       });
+    }
   }
   return {
     service,
@@ -172,8 +173,9 @@ async function embeddingStarted(ctx: ReturnType<typeof setup>): Promise<void> {
 describe("向量检索", () => {
   it("按记录max去重、稳定平分、阈值含边界，完整读取超过一页候选", async () => {
     const ctx = setup();
-    for (let n = 0; n < 120; n++)
+    for (let n = 0; n < 120; n++) {
       ctx.records.push({ ...ctx.records[0]!, id: `extra-${n}` as MemoryRecord["id"] });
+    }
     await ctx.populate();
     await ctx.service.search({ ...request, topK: 2, minimumScore: 1 });
     const result = ctx.service.getState().result!;
@@ -359,7 +361,7 @@ describe("向量检索", () => {
 it("大表共享输入计算分批让出，checking期间取消可中止且零查询请求", async () => {
   const ctx = setup();
   let payloadReads = 0;
-  for (let n = 0; n < 5000; n++)
+  for (let n = 0; n < 5000; n++) {
     ctx.records.push({
       ...ctx.records[0]!,
       id: `bulk-${n}` as MemoryRecord["id"],
@@ -368,6 +370,7 @@ it("大表共享输入计算分批让出，checking期间取消可中止且零�
         return { f: "测试内容" };
       },
     });
+  }
   const running = ctx.service.search(request);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(ctx.service.getState().status).toBe("checking");

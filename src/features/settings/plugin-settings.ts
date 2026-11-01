@@ -118,8 +118,12 @@ export interface SettingsStore {
  */
 export function mergeSettings(raw: unknown): PluginSettings {
   const source = isRecord(raw) ? raw : {};
-  if (source.macroSchemaVersion !== undefined && source.macroSchemaVersion !== MACRO_SCHEMA_VERSION)
+  if (
+    source.macroSchemaVersion !== undefined &&
+    source.macroSchemaVersion !== MACRO_SCHEMA_VERSION
+  ) {
     throw new Error("宏设置版本不支持，原始配置已保留");
+  }
   const agentConnections = mergeAgentConnections(source.agentConnections);
   const autoFill = {
     ...DEFAULT_AUTO_FILL_SETTINGS,
@@ -187,7 +191,9 @@ export function mergeAgentPresets(raw: unknown): AgentPresetSettings {
   if (Array.isArray(source.presets)) {
     for (const item of source.presets) {
       const preset = mergeAgentPreset(item);
-      if (preset) presets.push(preset);
+      if (preset) {
+        presets.push(preset);
+      }
     }
   }
   const activePresetId =
@@ -248,7 +254,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** 合并持久化的 Agent 连接：损坏项逐项丢弃（保留其余），id 非空才有效。 */
 export function mergeAgentConnections(raw: unknown): readonly AgentConnection[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const connections: AgentConnection[] = [];
   for (const item of raw) {
     if (
@@ -270,7 +278,9 @@ export function mergeAgentConnections(raw: unknown): readonly AgentConnection[] 
         throw new Error("连接的自定义请求头必须为字符串键值表");
       }
       const error = connectionHeaderError(Object.entries(item.customHeaders) as [string, string][]);
-      if (error) throw new Error(error);
+      if (error) {
+        throw new Error(error);
+      }
     }
     connections.push({
       id: item.id,
@@ -291,6 +301,8 @@ function mergeConnectionSelection(
   raw: unknown,
   connections: readonly AgentConnection[],
 ): string | undefined {
-  if (typeof raw !== "string" || raw === "") return undefined;
+  if (typeof raw !== "string" || raw === "") {
+    return undefined;
+  }
   return connections.some((c) => c.id === raw) ? raw : undefined;
 }

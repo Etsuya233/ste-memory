@@ -130,6 +130,8 @@ describe("buildTableListViewModel（表格列表视图模型）", () => {
       "multi_reference",
     ];
     expect(Object.keys(FIELD_TYPE_LABELS).sort()).toEqual([...allTypes].sort());
-    for (const type of allTypes) expect(FIELD_TYPE_LABELS[type]).toBeTruthy();
+    for (const type of allTypes) {
+      expect(FIELD_TYPE_LABELS[type]).toBeTruthy();
+    }
   });
 });

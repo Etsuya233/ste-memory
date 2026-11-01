@@ -54,7 +54,9 @@ export function bootstrap(options: BootstrapOptions): BootstrapStatus {
         (globalThis as Record<string, unknown>).__STE_MEMORY_RUNTIME__ = runtime;
         // Stable read-only API for other extensions. Announce readiness regardless of load order.
         (globalThis as Record<string, unknown>).STE_MEMORY_API = runtime.publicRead;
-        if (typeof window !== "undefined") window.dispatchEvent(new Event("ste-memory:ready"));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ste-memory:ready"));
+        }
         // 面板挂载（非浏览器环境内部自守卫）；runtime 已含设置存储/服务/版本
         options.mount?.(runtime);
         return runtime;

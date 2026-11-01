@@ -35,7 +35,9 @@ export function dependencyViolations(
     } else if (inMemory && targetPath?.startsWith("features/") && !targetInMemory) {
       reason = "Memory 不反向依赖其他功能";
     }
-    if (reason) violations.push(`${sourcePath}: ${specifier} (${reason})`);
+    if (reason) {
+      violations.push(`${sourcePath}: ${specifier} (${reason})`);
+    }
   }
 
   function visit(node: ts.Node): void {
@@ -54,8 +56,11 @@ export function dependencyViolations(
       inspect(node.moduleReference.expression.text);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const argument = node.arguments[0];
-      if (argument && ts.isStringLiteralLike(argument)) inspect(argument.text);
-      else violations.push(`${sourcePath}: 动态导入必须使用可检查的字面量路径`);
+      if (argument && ts.isStringLiteralLike(argument)) {
+        inspect(argument.text);
+      } else {
+        violations.push(`${sourcePath}: 动态导入必须使用可检查的字面量路径`);
+      }
     } else if (
       ts.isImportTypeNode(node) &&
       ts.isLiteralTypeNode(node.argument) &&

@@ -65,11 +65,13 @@ export function QueryMessage({
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   useEffect(() => {
-    if (!copied) return;
+    if (!copied) {
+      return;
+    }
     const timeout = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(timeout);
   }, [copied]);
-  if (message.kind === "user")
+  if (message.kind === "user") {
     return (
       <Message align="end" data-query-message="user">
         <MessageContent>
@@ -79,6 +81,7 @@ export function QueryMessage({
         </MessageContent>
       </Message>
     );
+  }
   const { process, answer } = splitTimeline(message.segments);
   const streaming = message.status === "streaming";
   async function copy() {
@@ -231,7 +234,9 @@ function splitTimeline(segments: readonly QueryChatSegment[]): {
   answer: string;
 } {
   const last = segments[segments.length - 1];
-  if (last?.kind === "text") return { process: segments.slice(0, -1), answer: last.text };
+  if (last?.kind === "text") {
+    return { process: segments.slice(0, -1), answer: last.text };
+  }
   return { process: segments, answer: "" };
 }
 
@@ -240,9 +245,13 @@ function countSteps(process: readonly QueryChatSegment[]): { steps: number; fail
   let steps = 0;
   let failed = 0;
   for (const segment of process) {
-    if (segment.kind === "text") continue;
+    if (segment.kind === "text") {
+      continue;
+    }
     steps += 1;
-    if (segment.kind === "tool" && segment.isError) failed += 1;
+    if (segment.kind === "tool" && segment.isError) {
+      failed += 1;
+    }
   }
   return { steps, failed };
 }
@@ -250,9 +259,15 @@ function countSteps(process: readonly QueryChatSegment[]): { steps: number; fail
 /** 运行中摘要：取过程组最后一个动作，避免展示原始工具名。 */
 function runningLabel(process: readonly QueryChatSegment[]): string {
   const last = [...process].reverse().find((segment) => segment.kind !== "text");
-  if (!last) return "正在准备回答…";
-  if (last.kind === "thinking") return "正在思考…";
-  if (last.running) return `正在${toolLabels[last.name] ?? "调用工具"}…`;
+  if (!last) {
+    return "正在准备回答…";
+  }
+  if (last.kind === "thinking") {
+    return "正在思考…";
+  }
+  if (last.running) {
+    return `正在${toolLabels[last.name] ?? "调用工具"}…`;
+  }
   return "正在整理回答…";
 }
 
@@ -266,7 +281,7 @@ const TimelineSegment = memo(function TimelineSegment({
   onCopyError: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  if (segment.kind === "text")
+  if (segment.kind === "text") {
     return (
       <div
         data-query-segment="text"
@@ -277,6 +292,7 @@ const TimelineSegment = memo(function TimelineSegment({
         </ReactMarkdown>
       </div>
     );
+  }
   const running = segment.kind === "thinking" ? active : segment.running;
   const failed = segment.kind === "tool" && segment.isError;
   const label =
@@ -380,7 +396,9 @@ function ToolDetail({
 }
 
 function toolSummary(segment: ToolSegment): string | undefined {
-  if (segment.running || segment.isError || segment.result === undefined) return undefined;
+  if (segment.running || segment.isError || segment.result === undefined) {
+    return undefined;
+  }
   if (segment.name === "query_records") {
     const result = segment.result as QueryRecordsToolResult;
     const total = result.total ?? result.records?.length ?? 0;
@@ -424,7 +442,7 @@ function CommitResult({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
-  if (commit.status === "committed")
+  if (commit.status === "committed") {
     return (
       <StatusNotice>
         已提交：创建 {commit.created} · 更新 {commit.updated} · 删除 {commit.deleted}。
@@ -434,6 +452,7 @@ function CommitResult({
         </Button>
       </StatusNotice>
     );
+  }
   return (
     <StatusNotice variant={commit.status === "failed" ? "destructive" : "default"}>
       {commit.status === "failed" ? `提交失败：${commit.error}` : commit.notice}

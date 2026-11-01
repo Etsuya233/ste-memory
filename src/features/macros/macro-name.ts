@@ -20,7 +20,9 @@ export const ST_MACRO_IDENTIFIER_PATTERN = /^[a-zA-Z][A-Za-z0-9_-]*$/;
 export function resolveMacroRegistrationName(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (trimmed.startsWith("{{")) {
-    if (!trimmed.endsWith("}}")) return undefined;
+    if (!trimmed.endsWith("}}")) {
+      return undefined;
+    }
     const inner = trimmed.slice(2, -2).trim();
     return ST_MACRO_IDENTIFIER_PATTERN.test(inner) ? inner : undefined;
   }

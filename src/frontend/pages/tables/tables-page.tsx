@@ -43,10 +43,15 @@ export function TablesPage({
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const active = usePrimitivesActive();
   useLayoutEffect(() => {
-    if (!active) return;
+    if (!active) {
+      return;
+    }
     const preview = workspace.getSnapshot().vectorPreview;
-    if (preview?.record) void workspace.selectVectorRecord(preview.record.id);
-    else if (preview) void workspace.loadVectorRecords(preview.page);
+    if (preview?.record) {
+      void workspace.selectVectorRecord(preview.record.id);
+    } else if (preview) {
+      void workspace.loadVectorRecords(preview.page);
+    }
   }, [workspace, active]);
   const contextKey = [state.context?.chatKey, state.context?.spaceId];
   const viewKey = JSON.stringify([
@@ -86,13 +91,19 @@ export function TablesPage({
   const listing = !state.editor && !state.tableId && !state.vectorPreview;
   const back = () => {
     if (state.vectorPreview) {
-      if (state.vectorPreview.record) void workspace.selectVectorRecord(null);
-      else workspace.closeVectorPreview();
+      if (state.vectorPreview.record) {
+        void workspace.selectVectorRecord(null);
+      } else {
+        workspace.closeVectorPreview();
+      }
       return;
     }
     requestLeave(() => {
-      if (state.editor) workspace.discard();
-      else void workspace.selectTable(null);
+      if (state.editor) {
+        workspace.discard();
+      } else {
+        void workspace.selectTable(null);
+      }
     });
   };
   const title = state.vectorPreview
@@ -183,12 +194,13 @@ export function TablesPage({
                       : state.editor
                   }
                   onChange={(editor) => {
-                    if (editor.kind === "table" && state.editor?.kind === "table")
+                    if (editor.kind === "table" && state.editor?.kind === "table") {
                       workspace.change({ ...editor, original: state.editor.original });
-                    else if (editor.kind === "field" && state.editor?.kind === "field")
+                    } else if (editor.kind === "field" && state.editor?.kind === "field") {
                       workspace.change({ ...editor, original: state.editor.original });
-                    else if (editor.kind === "display" || editor.kind === "vector")
+                    } else if (editor.kind === "display" || editor.kind === "vector") {
                       workspace.change(editor);
+                    }
                   }}
                 />
                 {state.editor.kind === "display" || state.editor.kind === "vector" ? (
@@ -460,7 +472,9 @@ export function TablesPage({
       <ConfirmAction
         open={deletion !== null}
         onOpenChange={(open) => {
-          if (!open) setDeletion(null);
+          if (!open) {
+            setDeletion(null);
+          }
         }}
         title={`删除${deletion?.name ?? ""}${deletion?.kind === "vectors" ? "的向量" : ""}？`}
         description={
@@ -473,8 +487,11 @@ export function TablesPage({
         confirmLabel="确认删除"
         destructive
         onConfirm={async () => {
-          if (deletion?.kind === "vectors") await workspace.index("clear");
-          else await workspace.remove(deletion?.fieldId);
+          if (deletion?.kind === "vectors") {
+            await workspace.index("clear");
+          } else {
+            await workspace.remove(deletion?.fieldId);
+          }
           setDeletion(null);
         }}
       />

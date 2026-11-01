@@ -107,7 +107,9 @@ export function applyQueryChatEvent(
   const index = messages.findIndex(
     (message) => message.kind === "assistant" && message.id === pendingId,
   );
-  if (index < 0) return messages;
+  if (index < 0) {
+    return messages;
+  }
   const next = [...messages];
   next[index] = applyToAssistant(
     messages[index] as Extract<QueryChatMessage, { kind: "assistant" }>,
@@ -189,8 +191,12 @@ export function translateAgentEvent(event: AgentEvent): readonly QueryChatEvent[
   switch (event.type) {
     case "message_update": {
       const delta = event.assistantMessageEvent;
-      if (delta.type === "text_delta") return [{ type: "message_delta", text: delta.delta }];
-      if (delta.type === "thinking_delta") return [{ type: "thinking_delta", text: delta.delta }];
+      if (delta.type === "text_delta") {
+        return [{ type: "message_delta", text: delta.delta }];
+      }
+      if (delta.type === "thinking_delta") {
+        return [{ type: "thinking_delta", text: delta.delta }];
+      }
       return [];
     }
     case "tool_execution_start":

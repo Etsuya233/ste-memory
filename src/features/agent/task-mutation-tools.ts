@@ -34,7 +34,9 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
   let changed = false;
   const assertOpen = () => {
     input.signal?.throwIfAborted();
-    if (finished) throw new Error("本块填写已完成，请结束对话");
+    if (finished) {
+      throw new Error("本块填写已完成，请结束对话");
+    }
   };
   const template = createMutateTool({
     digest: input.digest,
@@ -48,8 +50,9 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
       "立即在本任务事务中 create/update/delete 一条记录。参数使用表和字段 key。create 提供 table 和 patch，禁止指定 tempId，返回真实 recordId。update/delete 提供 query_records 中最新的 recordId 和 expectedRevisionId；update 同时提供 patch。成功后 query_records 可读取变更，引用使用真实 recordId。约束失败仅撤销当前调用，可修正重试。",
     async execute(id, params) {
       assertOpen();
-      if (params.tempId !== undefined)
+      if (params.tempId !== undefined) {
         throw new Error("事务模式不接受 tempId，请使用返回的真实 recordId");
+      }
       const state = new ProposalState();
       const tool = createMutateTool({
         digest: input.digest,
@@ -101,7 +104,9 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
   return {
     tools,
     assertCompleted() {
-      if (changed && !finished) throw new Error("Agent 已修改记录但未确认本块完成，本次任务已撤销");
+      if (changed && !finished) {
+        throw new Error("Agent 已修改记录但未确认本块完成，本次任务已撤销");
+      }
     },
   };
 }

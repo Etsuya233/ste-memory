@@ -32,10 +32,15 @@ export function SnapshotSyncControl({
     }
   }
   let message = "";
-  if (!available) message = "请先打开可用的已保存对话";
-  else if (request.kind === "running") message = "正在同步…";
-  else if (request.kind === "failed") message = `同步失败：${request.message}`;
-  else if (request.kind === "done" && status.kind === "verified") message = "同步完成";
+  if (!available) {
+    message = "请先打开可用的已保存对话";
+  } else if (request.kind === "running") {
+    message = "正在同步…";
+  } else if (request.kind === "failed") {
+    message = `同步失败：${request.message}`;
+  } else if (request.kind === "done" && status.kind === "verified") {
+    message = "同步完成";
+  }
   return (
     <PageSection title="当前对话">
       <div

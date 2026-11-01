@@ -27,7 +27,9 @@ async function save(kind) {
 }
 async function discard() {
   await action("cancel-edit").click();
-  if (await page.getByRole("alertdialog").count()) await button("放弃修改并继续").click();
+  if (await page.getByRole("alertdialog").count()) {
+    await button("放弃修改并继续").click();
+  }
 }
 async function switchChat(key) {
   await page.getByRole("combobox", { name: "预览对话", exact: true }).selectOption(key);
@@ -352,6 +354,8 @@ try {
   check("chat return restores table detail offset", true);
   check("no browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

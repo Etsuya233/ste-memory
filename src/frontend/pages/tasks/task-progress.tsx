@@ -38,7 +38,9 @@ export function CoverageBar({
   onSelectRange?: (range: { readonly from: number; readonly to: number }) => void;
 }) {
   const [detailPreference, setDetailPreference] = useState<boolean | null>(null);
-  if (coverage.totalCount === 0) return null;
+  if (coverage.totalCount === 0) {
+    return null;
+  }
   const summary = coverageLegend
     .map(({ status, count }) => `${COVERAGE_STATUS_LABELS[status]} ${coverage[count]}`)
     .join("，");
@@ -142,7 +144,9 @@ function FloorDetailGrid({ coverage }: { coverage: CoverageViewModel }) {
 }
 
 export function TaskProgressBar({ task }: { task: FillTaskView }) {
-  if (task.kind !== "floor") return null;
+  if (task.kind !== "floor") {
+    return null;
+  }
   const total = Math.max(0, task.totalCount);
   const processed = Math.min(Math.max(0, task.processedCount), total);
   const percent = total === 0 ? 0 : Math.round((processed / total) * 100);

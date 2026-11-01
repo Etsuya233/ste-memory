@@ -42,11 +42,21 @@ export const MEMORY_VIEW_CONDITION_FIELD_TYPES = new Set(["single_select", "shor
  * 返回错误文案；undefined = 合法。规则：非空、不含空白/`::`/`|`/`}}`（中文可用）。
  */
 export function validateMemoryViewName(value: string): string | undefined {
-  if (value.trim() === "") return "视图名不能为空";
-  if (/\s/.test(value)) return "视图名不能包含空白";
-  if (value.includes("::")) return "视图名不能包含 ::";
-  if (value.includes("|")) return "视图名不能包含 |";
-  if (value.includes("}}")) return "视图名不能包含 }}";
+  if (value.trim() === "") {
+    return "视图名不能为空";
+  }
+  if (/\s/.test(value)) {
+    return "视图名不能包含空白";
+  }
+  if (value.includes("::")) {
+    return "视图名不能包含 ::";
+  }
+  if (value.includes("|")) {
+    return "视图名不能包含 |";
+  }
+  if (value.includes("}}")) {
+    return "视图名不能包含 }}";
+  }
   return undefined;
 }
 
@@ -56,14 +66,22 @@ export function validateMemoryViewName(value: string): string | undefined {
  * 为空丢弃（空筛选无语义，查询契约也拒绝空数组）。
  */
 export function mergeMemoryViews(raw: unknown): readonly MemoryView[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const views: MemoryView[] = [];
   const names = new Set<string>();
   for (const item of raw) {
-    if (!isRecord(item)) continue;
+    if (!isRecord(item)) {
+      continue;
+    }
     const view = mergeMemoryView(item);
-    if (!view) continue;
-    if (names.has(view.name)) continue;
+    if (!view) {
+      continue;
+    }
+    if (names.has(view.name)) {
+      continue;
+    }
     names.add(view.name);
     views.push(view);
   }
@@ -74,10 +92,14 @@ function mergeMemoryView(raw: Record<string, unknown>): MemoryView | undefined {
   if (typeof raw.name !== "string" || validateMemoryViewName(raw.name) !== undefined) {
     return undefined;
   }
-  if (typeof raw.tableKey !== "string" || raw.tableKey === "") return undefined;
+  if (typeof raw.tableKey !== "string" || raw.tableKey === "") {
+    return undefined;
+  }
   let condition: MemoryViewCondition | null = null;
   if (raw.condition !== null && raw.condition !== undefined) {
-    if (!isRecord(raw.condition)) return undefined;
+    if (!isRecord(raw.condition)) {
+      return undefined;
+    }
     if (typeof raw.condition.fieldKey !== "string" || raw.condition.fieldKey === "") {
       return undefined;
     }

@@ -33,7 +33,9 @@ function TooltipContent({
   Pick<TooltipPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
-  if (!container || !active) return null;
+  if (!container || !active) {
+    return null;
+  }
   return (
     <TooltipPrimitive.Portal container={container}>
       <TooltipPrimitive.Positioner

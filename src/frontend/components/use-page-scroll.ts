@@ -15,13 +15,17 @@ export function usePageScroll(owner: object, viewKey: string, ready: boolean, re
   const restored = useRef(false);
   useLayoutEffect(() => {
     restored.current = false;
-    if (!ready) return;
+    if (!ready) {
+      return;
+    }
     ref.current!.scrollTop = remember ? (cache.get(viewKey) ?? 0) : 0;
     restored.current = true;
   }, [viewKey, ready, remember, cache]);
 
   function onScroll(event: UIEvent<HTMLDivElement>) {
-    if (ready && restored.current && remember) cache.set(viewKey, event.currentTarget.scrollTop);
+    if (ready && restored.current && remember) {
+      cache.set(viewKey, event.currentTarget.scrollTop);
+    }
   }
   return { ref, onScroll, forget: (key: string) => cache.delete(key) };
 }

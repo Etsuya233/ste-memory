@@ -133,7 +133,9 @@ export class ProposalState {
   drop(mutationId: string): ProposalStateDropResult | undefined {
     this.#assertMutable();
     const index = this.#operations.findIndex((operation) => operation.mutationId === mutationId);
-    if (index < 0) return undefined;
+    if (index < 0) {
+      return undefined;
+    }
     this.#version++;
     const [removed] = this.#operations.splice(index, 1);
     return {

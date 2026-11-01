@@ -85,7 +85,9 @@ export function TablePresetStructureEditor({
     discard: () => setEditing(null),
   });
   useEffect(() => {
-    if (!dirty && !localDirty) return;
+    if (!dirty && !localDirty) {
+      return;
+    }
     const unload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -94,15 +96,17 @@ export function TablePresetStructureEditor({
     return () => window.removeEventListener("beforeunload", unload);
   }, [dirty, localDirty]);
   function back() {
-    if (editing)
+    if (editing) {
       localLeave.requestLeave(() => {
         setEditing(null);
         setError(null);
       });
-    else if (table) {
+    } else if (table) {
       setTableIndex(null);
       setError(null);
-    } else onBack();
+    } else {
+      onBack();
+    }
   }
   function begin(editor: SchemaEditor, index: number | null = null) {
     setError(null);
@@ -120,7 +124,9 @@ export function TablePresetStructureEditor({
     }
   }
   function complete() {
-    if (!editing) return;
+    if (!editing) {
+      return;
+    }
     run(() => {
       const editor = editing.draft;
       let next: ResolvedTablePreset;
@@ -130,21 +136,22 @@ export function TablePresetStructureEditor({
           name: editor.draft.name.trim(),
           key: editor.draft.key.trim(),
         };
-        if (editing.index === null)
+        if (editing.index === null) {
           next = checkedPresetDraft({
             ...value,
             tables: [...value.tables, { ...metadata, fields: [], displayStrategy: null }],
           });
-        else
+        } else {
           next = replaceDraftTable(value, editing.index, {
             ...value.tables[editing.index]!,
             ...metadata,
           });
+        }
         onChange(next);
         setTableIndex(editing.index ?? next.tables.length - 1);
       } else {
         const index = tableIndex!;
-        if (editor.kind === "field")
+        if (editor.kind === "field") {
           next = replaceDraftField(
             value,
             index,
@@ -154,7 +161,7 @@ export function TablePresetStructureEditor({
               table!.fields.filter((_, index) => index !== editing.index),
             ),
           );
-        else if (editor.kind === "display")
+        } else if (editor.kind === "display") {
           next = replaceDraftTable(value, index, {
             ...table!,
             displayStrategy:
@@ -162,7 +169,7 @@ export function TablePresetStructureEditor({
                 ? { type: "field", fieldKey: editor.draft.fieldId }
                 : { type: "template", template: editor.draft.template },
           });
-        else
+        } else {
           next = replaceDraftTable(value, index, {
             ...table!,
             vectorIndex: {
@@ -175,6 +182,7 @@ export function TablePresetStructureEditor({
               })),
             },
           });
+        }
         onChange(next);
       }
       setEditing(null);
@@ -351,7 +359,9 @@ export function TablePresetStructureEditor({
                           title={`编辑字段 ${field.name}`}
                           onClick={() => editField(index)}
                           onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
+                            if (event.key !== "Enter" && event.key !== " ") {
+                              return;
+                            }
                             event.preventDefault();
                             editField(index);
                           }}
@@ -514,7 +524,9 @@ export function TablePresetStructureEditor({
                           setError(null);
                         }}
                         onKeyDown={(event) => {
-                          if (event.key !== "Enter" && event.key !== " ") return;
+                          if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                          }
                           event.preventDefault();
                           setTableIndex(index);
                           setError(null);
@@ -584,20 +596,26 @@ export function TablePresetStructureEditor({
       <ConfirmAction
         open={deletion !== null}
         onOpenChange={(open) => {
-          if (!open) setDeletion(null);
+          if (!open) {
+            setDeletion(null);
+          }
         }}
         title={`从预设草稿删除「${deletion?.name ?? ""}」？`}
         description="只修改预设草稿，完成后需要保存；仍被显示策略、向量分组或宏引用的内容需要先调整依赖。"
         confirmLabel="删除草稿项"
         destructive
         onConfirm={() => {
-          if (!deletion) return;
+          if (!deletion) {
+            return;
+          }
           const next =
             deletion.field === null
               ? removeDraftTable(value, deletion.table)
               : removeDraftField(value, deletion.table, deletion.field);
           onChange(next);
-          if (deletion.field === null) setTableIndex(null);
+          if (deletion.field === null) {
+            setTableIndex(null);
+          }
         }}
       />
     </div>

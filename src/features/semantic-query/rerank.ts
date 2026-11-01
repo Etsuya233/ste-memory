@@ -12,6 +12,7 @@ export function validateRerankScores(scores: readonly number[], count: number): 
     !Array.isArray(scores) ||
     scores.length !== count ||
     scores.some((score) => !Number.isFinite(score))
-  )
+  ) {
     throw new Error("重排服务必须返回每条候选的完整有限分数");
+  }
 }

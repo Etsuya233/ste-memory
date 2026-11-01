@@ -40,6 +40,8 @@ export function macroFromEditorDraft(
     },
   };
   validateMemoryMacro(macro);
-  if (names.includes(macro.name) && macro.name !== initial.name) throw new Error("宏名已存在");
+  if (names.includes(macro.name) && macro.name !== initial.name) {
+    throw new Error("宏名已存在");
+  }
   return macro;
 }

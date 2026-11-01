@@ -36,42 +36,60 @@ function patternMismatch(field: MemoryField, value: string): never {
 /** 对字符串或字符串数组的每个非空元素执行检查（字符串与数组两条校验路径共用）。 */
 function visitStrings(value: unknown, check: (item: string) => void): void {
   if (typeof value === "string") {
-    if (value.length > 0) check(value);
+    if (value.length > 0) {
+      check(value);
+    }
   } else if (Array.isArray(value)) {
     for (const item of value) {
-      if (typeof item === "string" && item.length > 0) check(item);
+      if (typeof item === "string" && item.length > 0) {
+        check(item);
+      }
     }
   }
 }
 
 /** 文本类字段长度校验：有 maxChars 上限时对字符串（含数组元素）逐项检查。 */
 function checkLength(field: MemoryField, value: unknown): void {
-  if (field.maxChars === null) return;
+  if (field.maxChars === null) {
+    return;
+  }
   const maxChars = field.maxChars;
   visitStrings(value, (item) => {
-    if (item.length > maxChars) tooLong(field, maxChars, item.length);
+    if (item.length > maxChars) {
+      tooLong(field, maxChars, item.length);
+    }
   });
 }
 
 /** 文本类字段格式校验：有 valuePattern 时非空字符串（含数组元素）必须匹配。 */
 function checkPattern(field: MemoryField, value: unknown): void {
-  if (field.valuePattern === null) return;
+  if (field.valuePattern === null) {
+    return;
+  }
   const pattern = new RegExp(field.valuePattern);
   visitStrings(value, (item) => {
-    if (!pattern.test(item)) patternMismatch(field, item);
+    if (!pattern.test(item)) {
+      patternMismatch(field, item);
+    }
   });
 }
 
 function isDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.valueOf()) && date.toISOString().startsWith(value);
 }
 
 function isDateTime(value: string): boolean {
   // 统一契约：YYYY-MM-DD HH:mm:ss（无时区、固定宽度，字典序比较即时间序比较）
-  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return false;
-  if (!isDate(value.slice(0, 10))) return false;
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return false;
+  }
+  if (!isDate(value.slice(0, 10))) {
+    return false;
+  }
   const [hours = 0, minutes = 0, seconds = 0] = value.slice(11).split(":").map(Number);
   return hours < 24 && minutes < 60 && seconds < 60;
 }
@@ -86,39 +104,56 @@ function isDistinctStrings(value: unknown): value is readonly string[] {
 
 export function validateMemoryFieldValue(field: MemoryField, value: unknown): MemoryFieldValue {
   if (value === null) {
-    if (field.required) invalid(field);
+    if (field.required) {
+      invalid(field);
+    }
     return null;
   }
   switch (field.type) {
     case "short_text":
     case "long_text":
-      if (typeof value !== "string" || (field.required && value.trim().length === 0))
+      if (typeof value !== "string" || (field.required && value.trim().length === 0)) {
         invalid(field);
+      }
       checkLength(field, value);
       checkPattern(field, value);
       return value;
     case "short_text_list":
-      if (!isDistinctStrings(value) || (field.required && value.length === 0)) invalid(field);
+      if (!isDistinctStrings(value) || (field.required && value.length === 0)) {
+        invalid(field);
+      }
       checkLength(field, value);
       checkPattern(field, value);
       return value;
     case "integer":
-      if (typeof value !== "number" || !Number.isInteger(value)) invalid(field);
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        invalid(field);
+      }
       return value;
     case "decimal":
-      if (typeof value !== "number" || !Number.isFinite(value)) invalid(field);
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        invalid(field);
+      }
       return value;
     case "boolean":
-      if (typeof value !== "boolean") invalid(field);
+      if (typeof value !== "boolean") {
+        invalid(field);
+      }
       return value;
     case "date":
-      if (typeof value !== "string" || !isDate(value)) invalid(field);
+      if (typeof value !== "string" || !isDate(value)) {
+        invalid(field);
+      }
       return value;
     case "datetime":
-      if (typeof value !== "string" || !isDateTime(value)) invalid(field);
+      if (typeof value !== "string" || !isDateTime(value)) {
+        invalid(field);
+      }
       return value;
     case "single_select":
-      if (typeof value !== "string" || !field.options.includes(value)) invalid(field);
+      if (typeof value !== "string" || !field.options.includes(value)) {
+        invalid(field);
+      }
       return value;
     case "multi_select":
       if (
@@ -130,7 +165,9 @@ export function validateMemoryFieldValue(field: MemoryField, value: unknown): Me
       }
       return value;
     case "single_reference":
-      if (typeof value !== "string" || value.length === 0) invalid(field);
+      if (typeof value !== "string" || value.length === 0) {
+        invalid(field);
+      }
       return value;
     case "multi_reference":
       if (
@@ -202,41 +239,65 @@ export function projectStoredMemoryRecordPayload(
  * projectStoredMemoryRecordPayload）：只保留「类型不可变」层面的检查。
  */
 function validateStoredMemoryFieldValue(field: MemoryField, value: unknown): MemoryFieldValue {
-  if (value === null) return null;
+  if (value === null) {
+    return null;
+  }
   switch (field.type) {
     case "short_text":
     case "long_text":
-      if (typeof value !== "string") invalid(field);
+      if (typeof value !== "string") {
+        invalid(field);
+      }
       return value;
     case "short_text_list":
-      if (!isDistinctStrings(value)) invalid(field);
+      if (!isDistinctStrings(value)) {
+        invalid(field);
+      }
       return value;
     case "integer":
-      if (typeof value !== "number" || !Number.isInteger(value)) invalid(field);
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        invalid(field);
+      }
       return value;
     case "decimal":
-      if (typeof value !== "number" || !Number.isFinite(value)) invalid(field);
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        invalid(field);
+      }
       return value;
     case "boolean":
-      if (typeof value !== "boolean") invalid(field);
+      if (typeof value !== "boolean") {
+        invalid(field);
+      }
       return value;
     case "date":
-      if (typeof value !== "string" || !isDate(value)) invalid(field);
+      if (typeof value !== "string" || !isDate(value)) {
+        invalid(field);
+      }
       return value;
     case "datetime":
-      if (typeof value !== "string" || !isDateTime(value)) invalid(field);
+      if (typeof value !== "string" || !isDateTime(value)) {
+        invalid(field);
+      }
       return value;
     case "single_select":
-      if (typeof value !== "string") invalid(field);
+      if (typeof value !== "string") {
+        invalid(field);
+      }
       return value;
     case "multi_select":
-      if (!isDistinctStrings(value)) invalid(field);
+      if (!isDistinctStrings(value)) {
+        invalid(field);
+      }
       return value;
     case "single_reference":
-      if (typeof value !== "string" || value.length === 0) invalid(field);
+      if (typeof value !== "string" || value.length === 0) {
+        invalid(field);
+      }
       return value;
     case "multi_reference":
-      if (!isDistinctStrings(value)) invalid(field);
+      if (!isDistinctStrings(value)) {
+        invalid(field);
+      }
       return value;
   }
 }

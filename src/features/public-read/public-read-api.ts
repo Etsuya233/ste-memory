@@ -81,8 +81,9 @@ export class PublicMemoryReader implements MemoryReadApi {
       !context.available ||
       context.chatIdentity !== input.chatIdentity ||
       context.spaceId !== input.spaceId
-    )
+    ) {
       throw new Error("当前对话或记忆空间已变化，请重新加载结构");
+    }
   }
 
   getContext(): MemoryReadContext {
@@ -96,13 +97,16 @@ export class PublicMemoryReader implements MemoryReadApi {
 
   invalidate(): void {
     this.#revision++;
-    for (const listener of this.#listeners) listener();
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 
   async read(): ReturnType<MemoryReadApi["read"]> {
     const context = this.getContext();
-    if (!context.available || !context.spaceId)
+    if (!context.available || !context.spaceId) {
       throw new Error(context.message ?? "当前记忆空间尚未就绪");
+    }
     const snapshot = await this.#capture(context.spaceId);
     const current = this.getContext();
     if (
@@ -110,8 +114,9 @@ export class PublicMemoryReader implements MemoryReadApi {
       current.chatIdentity !== context.chatIdentity ||
       current.spaceId !== context.spaceId ||
       !current.available
-    )
+    ) {
       throw new Error("读取期间记忆资料或对话已变化，请重新读取");
+    }
     return { context, snapshot };
   }
 }

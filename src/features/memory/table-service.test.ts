@@ -16,8 +16,11 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
   create(memorySpace: MemorySpace): Promise<void>;
   create(memoryTable: MemoryTable): Promise<void>;
   async create(value: MemorySpace | MemoryTable): Promise<void> {
-    if ("memorySpaceId" in value) this.tables.set(value.id, value);
-    else this.spaces.set(value.id, value);
+    if ("memorySpaceId" in value) {
+      this.tables.set(value.id, value);
+    } else {
+      this.spaces.set(value.id, value);
+    }
   }
 
   delete(id: MemorySpaceId): Promise<boolean>;
@@ -25,7 +28,9 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
   async delete(memorySpaceId: MemorySpaceId, tableId?: MemoryTableId): Promise<boolean> {
     if (tableId) {
       const table = this.tables.get(tableId);
-      if (table?.memorySpaceId !== memorySpaceId) return false;
+      if (table?.memorySpaceId !== memorySpaceId) {
+        return false;
+      }
       return table ? this.tables.delete(table.id) : false;
     }
     return this.spaces.delete(memorySpaceId);
@@ -56,7 +61,9 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
   list(): Promise<MemorySpace[]>;
   list(memorySpaceId: MemorySpaceId): Promise<MemoryTable[]>;
   async list(memorySpaceId?: MemorySpaceId): Promise<MemorySpace[] | MemoryTable[]> {
-    if (!memorySpaceId) return [...this.spaces.values()];
+    if (!memorySpaceId) {
+      return [...this.spaces.values()];
+    }
     return [...this.tables.values()].filter((table) => table.memorySpaceId === memorySpaceId);
   }
 
@@ -70,7 +77,9 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
     updatedAt: string,
   ): Promise<MemorySpace | undefined> {
     const space = this.spaces.get(id);
-    if (!space) return undefined;
+    if (!space) {
+      return undefined;
+    }
     const renamed = { ...space, name, updatedAt };
     this.spaces.set(id, renamed);
     return renamed;
@@ -86,7 +95,9 @@ class MemoryRepository implements MemorySpaceRepository, MemoryTableRepository {
 
   async update(memoryTable: MemoryTable): Promise<boolean> {
     const current = this.tables.get(memoryTable.id);
-    if (current?.memorySpaceId !== memoryTable.memorySpaceId) return false;
+    if (current?.memorySpaceId !== memoryTable.memorySpaceId) {
+      return false;
+    }
     this.tables.set(memoryTable.id, memoryTable);
     return true;
   }

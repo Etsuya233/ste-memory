@@ -29,7 +29,9 @@ export async function runFillAgentWithRetry(
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   hooks.signal?.addEventListener("abort", onAbort, { once: true });
-  if (hooks.signal?.aborted) controller.abort();
+  if (hooks.signal?.aborted) {
+    controller.abort();
+  }
   const timer = setTimeout(onAbort, timeoutMs);
   const history: AgentMessage[] = [...messages];
   const context: AgentContext = {
@@ -38,7 +40,9 @@ export async function runFillAgentWithRetry(
     messages: [...agent.state.messages, ...messages],
   };
   try {
-    if (controller.signal.aborted) return abortedAgentRunSummary("填表已取消");
+    if (controller.signal.aborted) {
+      return abortedAgentRunSummary("填表已取消");
+    }
     hooks.onEvent?.({ type: "agent_start" });
     for (const message of messages) {
       hooks.onEvent?.({ type: "message_start", message });
@@ -62,10 +66,15 @@ export async function runFillAgentWithRetry(
             },
             (event) => {
               // 整次填表只发送一对 agent_start/end；各次尝试的消息与轮次事件原样保留。
-              if (event.type === "agent_start" || event.type === "agent_end") return;
-              if (event.type === "message_end") history.push(event.message);
-              if (event.type === "tool_execution_end")
+              if (event.type === "agent_start" || event.type === "agent_end") {
+                return;
+              }
+              if (event.type === "message_end") {
+                history.push(event.message);
+              }
+              if (event.type === "tool_execution_end") {
                 terminations.push(event.result.terminate === true);
+              }
               hooks.onEvent?.(event);
             },
             controller.signal,
@@ -74,7 +83,9 @@ export async function runFillAgentWithRetry(
           const assistant = produced.find(
             (message): message is AssistantMessage => message.role === "assistant",
           );
-          if (!assistant) throw new Error("填表 Agent 未返回助手消息");
+          if (!assistant) {
+            throw new Error("填表 Agent 未返回助手消息");
+          }
           if (assistant.stopReason !== "error" && assistant.stopReason !== "aborted") {
             context.messages.push(...produced);
             continueWithTools =

@@ -150,7 +150,9 @@ export class StBackendsLlmAdapter {
     }, timeoutMs);
     try {
       // signal 在调用前已 abort（如上层超时/取消竞态）：once 监听器不会触发，这里显式检查
-      if (options?.signal?.aborted) throw new Error("请求已取消");
+      if (options?.signal?.aborted) {
+        throw new Error("请求已取消");
+      }
       if (typeof model.stSource !== "string" || model.stSource === "") {
         throw new Error("模型缺少 ST 生成源信息（stSource）——请经 createStLlmPort 构造 LLM 端口");
       }
@@ -175,21 +177,26 @@ export class StBackendsLlmAdapter {
           signal: controller.signal,
         });
       } catch (error) {
-        if (error instanceof TypeError)
+        if (error instanceof TypeError) {
           throw new Error(`Network error: ${error.message}`, { cause: error });
+        }
         throw error;
       }
 
       if (!response.ok) {
         // 会话/CSRF 失效：令牌可能已轮换，清缓存下次重取
-        if (response.status === 401 || response.status === 403) this.#csrfToken = undefined;
+        if (response.status === 401 || response.status === 403) {
+          this.#csrfToken = undefined;
+        }
         throw new Error(await this.#httpErrorMessage(response));
       }
 
       stream.push({ type: "start", partial: output });
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("ST 代理响应没有可读流");
+      if (!reader) {
+        throw new Error("ST 代理响应没有可读流");
+      }
       const decoder = new TextDecoder("utf-8");
       const parser = new SseEventParser();
       const handler = new StreamEventHandler(
@@ -201,7 +208,9 @@ export class StBackendsLlmAdapter {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
         for (const data of parser.push(decoder.decode(value, { stream: true }))) {
           handler.process(data);
         }
@@ -217,8 +226,12 @@ export class StBackendsLlmAdapter {
       // 终态：先收尾所有内容块（text_end / toolcall_end），再决定 done/error
       handler.finalize();
 
-      if (options?.signal?.aborted) throw new Error("请求已取消");
-      if (timedOut) throw new Error(`生成超时（${Math.round(timeoutMs / 1000)}s）`);
+      if (options?.signal?.aborted) {
+        throw new Error("请求已取消");
+      }
+      if (timedOut) {
+        throw new Error(`生成超时（${Math.round(timeoutMs / 1000)}s）`);
+      }
       if (output.stopReason === "error") {
         throw new Error(output.errorMessage ?? "上游返回错误");
       }
@@ -281,14 +294,18 @@ export class StBackendsLlmAdapter {
         const token = this.#options.getCsrfToken
           ? await this.#options.getCsrfToken()
           : await defaultGetCsrfToken(this.#options.fetchImpl);
-        if (token !== undefined) this.#csrfToken = token;
+        if (token !== undefined) {
+          this.#csrfToken = token;
+        }
       } catch {
         // 取令牌失败：不缓存，下次重试；不带 CSRF 头继续（ST 关闭 CSRF 时无头也能过）
         return headers;
       }
     }
     const token = this.#csrfToken;
-    if (token && token !== "disabled") headers["X-CSRF-Token"] = token;
+    if (token && token !== "disabled") {
+      headers["X-CSRF-Token"] = token;
+    }
     return headers;
   }
 
@@ -297,11 +314,15 @@ export class StBackendsLlmAdapter {
     const raw = await safeText(response);
     const detail = parseErrorDetail(raw);
     // 保留可读原因及标准错误标识，供 Pi 的 isRetryableAssistantError 分类。
-    if (response.status === 408) return `请求超时（408 Request Timeout）${suffix(detail.message)}`;
-    if (detail.quota)
+    if (response.status === 408) {
+      return `请求超时（408 Request Timeout）${suffix(detail.message)}`;
+    }
+    if (detail.quota) {
       return `模型额度不足（${response.status} insufficient_quota）${suffix(detail.message)}`;
-    if (response.status >= 500 && ![500, 502, 503, 504, 524].includes(response.status))
+    }
+    if (response.status >= 500 && ![500, 502, 503, 504, 524].includes(response.status)) {
       return `服务端请求失败（${response.status} Server error）${suffix(detail.message ?? raw)}`;
+    }
     // Agent 连接的 401/403 引导检查独立连接的上游鉴权（ST 原样透传
     // 状态码），不是 ST 会话/CSRF 问题——引导语必须指向上游密钥/端点，不能误导
     if (this.#options.label) {
@@ -373,14 +394,18 @@ class StreamEventHandler {
       this.doneSentinel = true;
       return;
     }
-    if (data === "") return;
+    if (data === "") {
+      return;
+    }
     let chunk: unknown;
     try {
       chunk = JSON.parse(data);
     } catch {
       throw new Error(`SSE 数据解析失败：${data.length > 200 ? `${data.slice(0, 200)}…` : data}`);
     }
-    if (typeof chunk !== "object" || chunk === null) return;
+    if (typeof chunk !== "object" || chunk === null) {
+      return;
+    }
     const payload = chunk as Record<string, unknown>;
     // 上游在流中报错（OpenAI 流式错误形状 {"error":{...}}，ST 客户端 tryParseStreamingError 同查）：
     // 不能静默丢弃——否则会误报成「响应流意外中断」，丢失真实原因
@@ -389,20 +414,26 @@ class StreamEventHandler {
       const message = typeof error.message === "string" && error.message ? error.message : "";
       throw new Error(message ? `上游返回错误：${message}` : `上游返回错误：${data.slice(0, 200)}`);
     }
-    if (typeof payload.id === "string") this.#output.responseId ||= payload.id;
+    if (typeof payload.id === "string") {
+      this.#output.responseId ||= payload.id;
+    }
     if (typeof payload.model === "string" && payload.model && payload.model !== this.#modelId) {
       this.#output.responseModel ||= payload.model;
     }
     const choice = Array.isArray(payload.choices)
       ? (payload.choices[0] as Record<string, unknown> | undefined)
       : undefined;
-    if (!choice) return;
+    if (!choice) {
+      return;
+    }
     const finishReason = choice.finish_reason;
     if (typeof finishReason === "string" && finishReason) {
       this.hasFinishReason = true;
       const mapped = mapFinishReason(finishReason);
       this.#output.stopReason = mapped.stopReason;
-      if (mapped.errorMessage) this.#output.errorMessage = mapped.errorMessage;
+      if (mapped.errorMessage) {
+        this.#output.errorMessage = mapped.errorMessage;
+      }
     }
     const delta = choice.delta as Record<string, unknown> | undefined;
     if (this.#includeReasoning && delta) {
@@ -412,14 +443,18 @@ class StreamEventHandler {
           : typeof delta.reasoning_content === "string" && delta.reasoning_content.length > 0
             ? delta.reasoning_content
             : undefined;
-      if (thinking !== undefined) this.#appendThinking(thinking);
+      if (thinking !== undefined) {
+        this.#appendThinking(thinking);
+      }
     }
     if (delta && typeof delta.content === "string" && delta.content.length > 0) {
       this.#appendText(delta.content);
     }
     if (delta && Array.isArray(delta.tool_calls)) {
       for (const rawCall of delta.tool_calls) {
-        if (typeof rawCall !== "object" || rawCall === null) continue;
+        if (typeof rawCall !== "object" || rawCall === null) {
+          continue;
+        }
         this.#appendToolCall(rawCall as Record<string, unknown>);
       }
     }
@@ -520,12 +555,18 @@ class StreamEventHandler {
         partial: this.#output,
       });
     }
-    if (typeof call.id === "string" && call.id && !block.id) block.id = call.id;
-    if (typeof fn.name === "string" && fn.name && !block.name) block.name = fn.name;
+    if (typeof call.id === "string" && call.id && !block.id) {
+      block.id = call.id;
+    }
+    if (typeof fn.name === "string" && fn.name && !block.name) {
+      block.name = fn.name;
+    }
     if (typeof fn.arguments === "string" && fn.arguments) {
       block.partialArgs += fn.arguments;
       const parsed = tryParseJson(block.partialArgs);
-      if (parsed !== undefined) block.arguments = parsed;
+      if (parsed !== undefined) {
+        block.arguments = parsed;
+      }
       this.#push({
         type: "toolcall_delta",
         contentIndex: this.#output.content.indexOf(block),
@@ -560,7 +601,9 @@ function mapFinishReason(reason: string): {
 /** 缺省 CSRF 获取：GET /csrf-token（与 ST 客户端 script.js firstLoadInit 同法） */
 export async function defaultGetCsrfToken(fetchImpl: typeof fetch): Promise<string | undefined> {
   const response = await fetchImpl(ST_CSRF_ENDPOINT);
-  if (!response.ok) return undefined;
+  if (!response.ok) {
+    return undefined;
+  }
   const data = (await response.json()) as { token?: unknown };
   return typeof data.token === "string" ? data.token : undefined;
 }
@@ -574,7 +617,9 @@ async function safeText(response: Response): Promise<string> {
 }
 
 function parseErrorDetail(raw: string): { message?: string; quota?: boolean } {
-  if (!raw) return {};
+  if (!raw) {
+    return {};
+  }
   try {
     const data = JSON.parse(raw) as {
       error?: { message?: unknown; type?: unknown; code?: unknown };

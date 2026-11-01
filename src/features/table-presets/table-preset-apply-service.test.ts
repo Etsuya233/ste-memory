@@ -121,7 +121,9 @@ async function setup() {
     validateStructure: async (structure) => structure,
     cancelActiveTask: async (id) => {
       const active = await taskRepository.findActive(id);
-      if (active) await taskRepository.markInterrupted(active.runId);
+      if (active) {
+        await taskRepository.markInterrupted(active.runId);
+      }
     },
     rebuild: {
       rebuild: async (input) => {
@@ -479,7 +481,9 @@ describe("TablePresetApplyService（应用预设）", () => {
     });
 
     expect(outcome.kind).toBe("applied-with-sync-issue");
-    if (outcome.kind !== "applied-with-sync-issue") return;
+    if (outcome.kind !== "applied-with-sync-issue") {
+      return;
+    }
     expect(outcome.message).toContain("宏快照重建失败");
     // 已提交的重建不回滚、不再清空
     expect((await services.tables.list(space.id)).map((table) => table.key)).toEqual([
@@ -526,7 +530,9 @@ describe("TablePresetApplyService（应用预设）", () => {
     });
 
     expect(outcome.kind).toBe("applied-with-sync-issue");
-    if (outcome.kind !== "applied-with-sync-issue") return;
+    if (outcome.kind !== "applied-with-sync-issue") {
+      return;
+    }
     expect(outcome.message).toContain("对话已切换");
     expect(clearChatScopeMacros).not.toHaveBeenCalled();
     // 目标空间仍按预设重建（只作用原空间）

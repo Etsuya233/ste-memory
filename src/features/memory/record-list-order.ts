@@ -23,17 +23,27 @@ export function compareRecordListRows(
   order: MemoryRecordListOrder,
 ): number {
   const value = (record: MemoryRecord) => {
-    if (order.fieldId === "$created_at") return Date.parse(record.createdAt);
-    if (order.fieldId === "$updated_at") return Date.parse(record.updatedAt);
+    if (order.fieldId === "$created_at") {
+      return Date.parse(record.createdAt);
+    }
+    if (order.fieldId === "$updated_at") {
+      return Date.parse(record.updatedAt);
+    }
     const stored = record.payload[order.fieldId];
-    if (stored === null || stored === undefined || stored === "") return null;
+    if (stored === null || stored === undefined || stored === "") {
+      return null;
+    }
     // Business date/datetime values use fixed-width, timezone-free formats.
     return stored;
   };
   const a = value(left);
   const b = value(right);
-  if (a === null && b !== null) return 1;
-  if (a !== null && b === null) return -1;
+  if (a === null && b !== null) {
+    return 1;
+  }
+  if (a !== null && b === null) {
+    return -1;
+  }
   const compared = a === b ? 0 : a! < b! ? -1 : 1;
   return (order.direction === "asc" ? compared : -compared) || left.id.localeCompare(right.id);
 }

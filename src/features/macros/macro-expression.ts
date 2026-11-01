@@ -120,7 +120,9 @@ export function validateMemoryMacro(macro: MemoryMacro): void {
     throw new Error(`宏定义无效（${issue.instancePath}）：${issue.message}`);
   }
   const nameError = validateMemoryViewName(macro.name);
-  if (nameError) throw new Error(nameError.replaceAll("视图", "宏"));
+  if (nameError) {
+    throw new Error(nameError.replaceAll("视图", "宏"));
+  }
   const expression = macro.expression;
   if (expression.language === "query") {
     const query = expression.query;
@@ -133,14 +135,16 @@ export function validateMemoryMacro(macro: MemoryMacro): void {
     if (
       !query.semantic &&
       fields.some((field) => ["$similarity", "$rank", "$rerank_score"].includes(field))
-    )
+    ) {
       throw new Error("使用评分字段需要声明 semantic");
+    }
   } else {
     const names = new Set<string>();
     for (const source of expression.sources ?? []) {
       const name = source.name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-      if (name.startsWith("__") || name.startsWith("sqlite_") || names.has(name))
+      if (name.startsWith("__") || name.startsWith("sqlite_") || names.has(name)) {
         throw new Error(`语义源名称重复或使用保留名称：${source.name}`);
+      }
       names.add(name);
     }
   }
@@ -148,14 +152,17 @@ export function validateMemoryMacro(macro: MemoryMacro): void {
 
 /** 持久化边界严格校验，保留调用方的原始值，不丢弃损坏宏。 */
 export function parseMemoryMacros(raw: unknown): readonly MemoryMacro[] {
-  if (!Array.isArray(raw)) throw new Error("宏集合必须是数组");
+  if (!Array.isArray(raw)) {
+    throw new Error("宏集合必须是数组");
+  }
   const ids = new Set<string>();
   const names = new Set<string>();
   for (const value of raw) {
     validateMemoryMacro(value as MemoryMacro);
     const macro = value as MemoryMacro;
-    if (ids.has(macro.id) || names.has(macro.name))
+    if (ids.has(macro.id) || names.has(macro.name)) {
       throw new Error(`宏身份或名称重复：${macro.name}`);
+    }
     ids.add(macro.id);
     names.add(macro.name);
   }
@@ -222,7 +229,9 @@ export function migrateMemoryViews(raw: unknown, identityPrefix: string): readon
       projection: Type.Optional(Type.Array(Type.String())),
     }),
   );
-  if (!Value.Check(schema, raw)) throw new Error("旧宏定义损坏，原始数据已保留，无法迁移");
+  if (!Value.Check(schema, raw)) {
+    throw new Error("旧宏定义损坏，原始数据已保留，无法迁移");
+  }
   return parseMemoryMacros(
     (raw as MemoryView[]).map((view) =>
       migrateMemoryView(
@@ -267,10 +276,13 @@ export function validateMacroDependencies(
         : (expression.sources ?? []);
     for (const source of sources) {
       const table = tables.find((candidate) => candidate.key === source.table);
-      if (!table) throw new Error(`宏「${macro.name}」引用了不存在的表「${source.table}」`);
+      if (!table) {
+        throw new Error(`宏「${macro.name}」引用了不存在的表「${source.table}」`);
+      }
       for (const group of source.groups) {
-        if (!table.vectorIndex?.groups.some((candidate) => candidate.key === group))
+        if (!table.vectorIndex?.groups.some((candidate) => candidate.key === group)) {
           throw new Error(`宏「${macro.name}」引用了不存在的向量组「${source.table}.${group}」`);
+        }
       }
       if (expression.language === "query") {
         const query = expression.query;
@@ -287,15 +299,17 @@ export function validateMacroDependencies(
           ...(query.semantic ? ["$similarity", "$rank", "$rerank_score"] : []),
         ]);
         for (const key of keys) {
-          if (!system.has(key) && !table.fields.some((field) => field.key === key))
+          if (!system.has(key) && !table.fields.some((field) => field.key === key)) {
             throw new Error(`宏「${macro.name}」引用了不存在的字段「${source.table}.${key}」`);
+          }
         }
       }
     }
     if (expression.language === "sql") {
       for (const source of expression.sources ?? []) {
-        if (tableNames.has(source.name.replace(/[A-Z]/g, (letter) => letter.toLowerCase())))
+        if (tableNames.has(source.name.replace(/[A-Z]/g, (letter) => letter.toLowerCase()))) {
           throw new Error(`语义源与业务表同名：${source.name}`);
+        }
       }
     }
   }

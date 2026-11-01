@@ -66,14 +66,19 @@ export function EmbeddingSettingsPage({
         setDraft(next);
         setNotice(remove ? "向量连接已移除。" : "向量连接已保存，新的索引请求会使用此配置。");
       }
-      if (result.error)
+      if (result.error) {
         setError(
           `${result.saved ? "配置已保存，后续索引刷新失败" : "配置未保存"}：${result.error}`,
         );
-      if (remove && !result.saved) throw new Error(result.error ?? "连接未移除");
+      }
+      if (remove && !result.saved) {
+        throw new Error(result.error ?? "连接未移除");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      if (remove) throw cause;
+      if (remove) {
+        throw cause;
+      }
     } finally {
       setBusy(false);
     }

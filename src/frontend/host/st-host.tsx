@@ -26,8 +26,9 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
       status?.kind !== "active" ||
       status.space.id !== context.spaceId ||
       chatIdentityKey(runtime.adapter.getChatSnapshot()) !== context.chatKey
-    )
+    ) {
       throw new Error("当前对话已切换，草稿已保留，请返回原对话后保存");
+    }
   };
   const workspace = new RecordsWorkspace({
     sortStorage: localStorage,
@@ -39,8 +40,9 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
       if (
         runtime.manager.getStatus()?.kind === "active" &&
         chatIdentityKey(runtime.adapter.getChatSnapshot()) === context.chatKey
-      )
+      ) {
         await runtime.macro.kick();
+      }
     },
   });
   const tables = new TablesWorkspace({
@@ -101,7 +103,9 @@ function StFrontend({
   const [taskNavigationRequest, setTaskNavigationRequest] = useState(0);
   const openTasks = useCallback(
     (identity: string) => {
-      if (chatIdentityKey(runtime.adapter.getChatSnapshot()) !== identity) return;
+      if (chatIdentityKey(runtime.adapter.getChatSnapshot()) !== identity) {
+        return;
+      }
       setOpen(true);
       setTaskNavigationRequest((request) => request + 1);
     },
@@ -190,8 +194,9 @@ function StFrontend({
   );
   const tools = useMemo(() => {
     const refresh = async () => {
-      if (runtime.manager.getStatus()?.kind === "active")
+      if (runtime.manager.getStatus()?.kind === "active") {
         await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
+      }
     };
     return {
       logs: runtime.logs,
@@ -255,8 +260,9 @@ function StFrontend({
           onRetryContext={() => runtime.manager.syncToCurrentChat()}
           onResolveBranch={(action) => {
             const current = runtime.manager.getStatus();
-            if (current?.kind !== "branch-detected")
+            if (current?.kind !== "branch-detected") {
               throw new Error("当前对话状态已变化，请重新加载");
+            }
             return runtime.manager.resolveBranch(
               action === "clone" ? { action, sourceSpaceId: current.binding.spaceId } : { action },
             );

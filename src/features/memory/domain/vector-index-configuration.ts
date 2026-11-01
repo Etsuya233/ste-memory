@@ -20,9 +20,15 @@ export function effectiveVectorIndexGroups(
   configuration: VectorIndexConfiguration | undefined,
   fields: readonly Pick<MemoryField, "id" | "enabled" | "position">[],
 ): readonly VectorIndexGroup[] {
-  if (!configuration) return [];
-  if (configuration.source === "preset") return configuration.presetGroups ?? [];
-  if (configuration.source === "custom") return configuration.groups;
+  if (!configuration) {
+    return [];
+  }
+  if (configuration.source === "preset") {
+    return configuration.presetGroups ?? [];
+  }
+  if (configuration.source === "custom") {
+    return configuration.groups;
+  }
   const fieldIds = fields
     .filter((field) => field.enabled)
     .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
@@ -62,20 +68,24 @@ export function validateVectorIndexConfiguration(
     }
   }
   for (const group of groups) {
-    if (keys.has(group.key)) throw new Error(`向量分组 Key 重复：${group.key}`);
+    if (keys.has(group.key)) {
+      throw new Error(`向量分组 Key 重复：${group.key}`);
+    }
     keys.add(group.key);
-    if (ids.has(group.id))
+    if (ids.has(group.id)) {
       throw new DomainError({
         type: "vector_index_configuration_invalid",
         humanMsg: `向量分组 ID 重复：${group.id}`,
       });
+    }
     ids.add(group.id);
     for (const fieldId of group.fieldIds) {
-      if (!enabledIds.has(fieldId))
+      if (!enabledIds.has(fieldId)) {
         throw new DomainError({
           type: "vector_index_configuration_invalid",
           humanMsg: `向量分组「${group.name}」引用了不存在或停用的字段：${fieldId}`,
         });
+      }
     }
   }
 }
@@ -85,7 +95,9 @@ export function remapVectorIndexConfiguration(
   fieldIdMap: ReadonlyMap<string, MemoryFieldId>,
   createGroupId: () => string,
 ): VectorIndexConfiguration | undefined {
-  if (!configuration) return undefined;
+  if (!configuration) {
+    return undefined;
+  }
   const remap = (groups: readonly VectorIndexGroup[]): VectorIndexGroup[] =>
     groups.map((group) => ({
       key: group.key,

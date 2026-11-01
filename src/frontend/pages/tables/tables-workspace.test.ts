@@ -104,7 +104,9 @@ describe("TablesWorkspace", () => {
     const { services, workspace } = await previewSetup();
     workspace.begin("vector");
     const editor = workspace.getSnapshot().editor!;
-    if (editor.kind !== "vector") throw Error("vector editor required");
+    if (editor.kind !== "vector") {
+      throw Error("vector editor required");
+    }
     workspace.change({
       ...editor,
       draft: {
@@ -218,7 +220,9 @@ describe("TablesWorkspace", () => {
     await workspace.selectTable(table.id);
     workspace.begin("table");
     const editor = workspace.getSnapshot().editor!;
-    if (editor.kind !== "table") throw new Error("table editor required");
+    if (editor.kind !== "table") {
+      throw new Error("table editor required");
+    }
     workspace.change({ ...editor, draft: { ...editor.draft, name: "新名称" } });
     await workspace.setContext(b);
     vi.mocked(services.tables.list).mockResolvedValue([
@@ -266,7 +270,9 @@ describe("TablesWorkspace", () => {
     workspace.begin("table");
     let reads = 0;
     vi.mocked(services.assertContext).mockImplementation(() => {
-      if (++reads === 2) throw new Error("对话已切换");
+      if (++reads === 2) {
+        throw new Error("对话已切换");
+      }
     });
     await workspace.save();
     expect(services.tables.create).not.toHaveBeenCalled();

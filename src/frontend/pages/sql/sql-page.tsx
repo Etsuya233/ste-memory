@@ -71,7 +71,9 @@ function SqlSession(props: SqlServices & { context: RecordsContext; active: bool
     };
   }, []);
   useEffect(() => {
-    if (!props.active) controller.current?.abort();
+    if (!props.active) {
+      controller.current?.abort();
+    }
   }, [props.active]);
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +85,9 @@ function SqlSession(props: SqlServices & { context: RecordsContext; active: bool
         }
       },
       (cause) => {
-        if (!cancelled) setSchemaError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) {
+          setSchemaError(cause instanceof Error ? cause.message : String(cause));
+        }
       },
     );
     return () => {
@@ -91,7 +95,9 @@ function SqlSession(props: SqlServices & { context: RecordsContext; active: bool
     };
   }, [props.console, props.context.spaceId, revision]);
   async function execute() {
-    if (executing.current || !sql.trim()) return;
+    if (executing.current || !sql.trim()) {
+      return;
+    }
     executing.current = true;
     setRunning(true);
     setError(null);
@@ -102,9 +108,13 @@ function SqlSession(props: SqlServices & { context: RecordsContext; active: bool
     try {
       props.assertContext(props.context);
       const output = await props.console.execute(props.context.spaceId, sql, abort.signal);
-      if (mounted.current) setResult(output);
+      if (mounted.current) {
+        setResult(output);
+      }
     } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause));
+      if (mounted.current) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       controller.current = null;
       executing.current = false;
@@ -153,8 +163,9 @@ function SqlSession(props: SqlServices & { context: RecordsContext; active: bool
               }
             }}
             onKeyUp={(event) => {
-              if ((event.ctrlKey || event.metaKey) && event.key === "Enter")
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                 event.stopPropagation();
+              }
             }}
           />
         </Field>

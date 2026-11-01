@@ -67,8 +67,9 @@ export async function createMacroEvaluationBatch(
   const { snapshot, sessionId, scoring, check, close } = session;
   const executions = new WeakMap<MacroExpression, SemanticSqlProgress>();
   let querySourceName = "macro_scores";
-  while (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === querySourceName))
+  while (snapshot.tables.some((table) => sqliteIdentifierKey(table.key) === querySourceName)) {
     querySourceName += "_";
+  }
   const sourceResult = async (source: MacroSemanticSource): Promise<MacroSemanticResult> => ({
     ...(await scoring.get({
       table: source.table,
@@ -85,7 +86,9 @@ export async function createMacroEvaluationBatch(
   };
   function compile(query: MacroQuery) {
     const table = snapshot.tables.find((table) => table.key === query.table && table.enabled);
-    if (!table) throw new Error(`查询表不存在或已停用：${query.table}`);
+    if (!table) {
+      throw new Error(`查询表不存在或已停用：${query.table}`);
+    }
     const fields = snapshot.fields.filter((field) => field.tableId === table.id && field.enabled);
     const field = (key: string): string => {
       if (key.startsWith("$")) {
@@ -97,12 +100,15 @@ export async function createMacroEvaluationBatch(
             "$updated_at",
             ...(query.semantic ? Object.keys(scoreColumns) : []),
           ].includes(key)
-        )
+        ) {
           throw new Error(`查询系统字段无效：${key}`);
+        }
         return key;
       }
       const found = fields.find((field) => field.key === key);
-      if (!found) throw new Error(`查询字段不存在或已停用：${key}`);
+      if (!found) {
+        throw new Error(`查询字段不存在或已停用：${key}`);
+      }
       return found.id;
     };
     const conditions = (query.conditions ?? []).map((condition) => ({
@@ -113,7 +119,7 @@ export async function createMacroEvaluationBatch(
     const similarity = conditions.filter((condition) =>
       Object.hasOwn(scoreColumns, condition.fieldId),
     );
-    for (const condition of similarity)
+    for (const condition of similarity) {
       if (
         ![
           "equals",
@@ -127,8 +133,10 @@ export async function createMacroEvaluationBatch(
           (condition.value === null && ["equals", "not_equals"].includes(condition.operator)) ||
           (typeof condition.value === "number" && Number.isFinite(condition.value))
         )
-      )
+      ) {
         throw new Error("评分字段条件需要数值比较");
+      }
+    }
     const order = query.orderBy
       ? {
           fieldId: field(query.orderBy.field) as QueryRecordFieldId,
@@ -144,8 +152,9 @@ export async function createMacroEvaluationBatch(
       ...(Object.hasOwn(scoreColumns, order.fieldId) ? {} : { order }),
     };
     MemoryRecordQueryService.validateDefinition(definition, fields);
-    if (query.limit !== undefined && (!Number.isSafeInteger(query.limit) || query.limit < 1))
+    if (query.limit !== undefined && (!Number.isSafeInteger(query.limit) || query.limit < 1)) {
       throw new Error("宏 Query limit 必须是正整数");
+    }
     const byId = new Map(fields.map((field) => [field.id as string, field]));
     const column = (id: string) =>
       Object.hasOwn(scoreColumns, id)
@@ -168,16 +177,22 @@ export async function createMacroEvaluationBatch(
         return "?";
       },
     );
-    if (query.semantic) predicates.push("s.rank IS NOT NULL");
+    if (query.semantic) {
+      predicates.push("s.rank IS NOT NULL");
+    }
     const selected = query.fields?.map((key) => {
       field(key);
       return key;
     }) ?? ["$display_text"];
-    if (!selected.length) throw new Error("宏 Query fields 不能为空数组");
+    if (!selected.length) {
+      throw new Error("宏 Query fields 不能为空数组");
+    }
     const columns = selected.map((key) =>
       key.startsWith("$") ? key : fields.find((field) => field.key === key)!.name,
     );
-    if (new Set(columns).size !== columns.length) throw new Error("宏 Query 输出列名重复");
+    if (new Set(columns).size !== columns.length) {
+      throw new Error("宏 Query 输出列名重复");
+    }
     const projection = selected
       .map((key, i) => `${column(field(key))} AS ${quote(columns[i]!)}`)
       .join(",");
@@ -213,8 +228,9 @@ export async function createMacroEvaluationBatch(
     const names = new Set(snapshot.tables.map((table) => sqliteIdentifierKey(table.key)));
     for (const source of declarations) {
       const name = sqliteIdentifierKey(source.name);
-      if (!name.trim() || names.has(name) || name.startsWith("__") || name.startsWith("sqlite_"))
+      if (!name.trim() || names.has(name) || name.startsWith("__") || name.startsWith("sqlite_")) {
         throw new Error(`语义源名称冲突：${source.name}`);
+      }
       names.add(name);
       scoring.validate(source);
     }
@@ -238,7 +254,9 @@ export async function createMacroEvaluationBatch(
           remainingMs: deadline - performance.now(),
         });
         check();
-        if (result.status !== "complete") throw new Error("SQL 编译期间不能请求准备评分源");
+        if (result.status !== "complete") {
+          throw new Error("SQL 编译期间不能请求准备评分源");
+        }
         return result.usesSemantic;
       }
       await sql.evaluateMacro({
@@ -258,8 +276,9 @@ export async function createMacroEvaluationBatch(
       check();
       const declarations = expressionSources(expression);
       const query = expression.language === "query" ? compile(expression.query) : null;
-      if (expression.language === "sql" && !declarations.length)
+      if (expression.language === "sql" && !declarations.length) {
         return session.evaluate(expression.sql, { progress });
+      }
       if (expression.language === "sql") {
         await sql.evaluateMacro({
           sessionId,
@@ -284,7 +303,9 @@ export async function createMacroEvaluationBatch(
         check();
         progress.sqlMs += performance.now() - scopeStarted;
         progress.sqlPasses++;
-        if (progress.sqlMs >= 1000) throw new Error("宏 SQL 累计执行超过 1 秒");
+        if (progress.sqlMs >= 1000) {
+          throw new Error("宏 SQL 累计执行超过 1 秒");
+        }
         const ids = scoped.rows.map((row) => row[0] as string);
         scopedDeclarations = declarations.map((source) => ({
           ...source,
@@ -319,14 +340,20 @@ export async function createMacroEvaluationBatch(
       });
       progress.sqlMs += performance.now() - sqlStarted;
       check();
-      if (!query) return { ...result, sources };
+      if (!query) {
+        return { ...result, sources };
+      }
       const rows = result.rows.map((row) =>
         row.map((value, index) => {
           const field: MemoryField | undefined = query.fields.find(
             (field) => field.key === query.selected[index],
           );
-          if (!field || value === null) return value;
-          if (field.type === "boolean") return Boolean(value);
+          if (!field || value === null) {
+            return value;
+          }
+          if (field.type === "boolean") {
+            return Boolean(value);
+          }
           const list = ["multi_reference", "short_text_list", "multi_select"].includes(field.type);
           const values = list ? (JSON.parse(value as string) as string[]) : [value as string];
           if (field.type === "single_reference" || field.type === "multi_reference") {

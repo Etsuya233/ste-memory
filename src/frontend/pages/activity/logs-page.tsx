@@ -80,12 +80,17 @@ export function LogsPage({
     setError(null);
     try {
       const data = key ? await logs.byKey(key, LOG_LIMIT) : await logs.recent(LOG_LIMIT);
-      if (token === request.current) setEntries(data);
+      if (token === request.current) {
+        setEntries(data);
+      }
     } catch (cause) {
-      if (token === request.current)
+      if (token === request.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      if (token === request.current) setLoading(false);
+      if (token === request.current) {
+        setLoading(false);
+      }
     }
   }
   useEffect(() => {
@@ -128,14 +133,18 @@ export function LogsPage({
     setPage(0);
   }
   function openTaskLogs() {
-    if (!selected?.key) return;
+    if (!selected?.key) {
+      return;
+    }
     setKeyInput(selected.key);
     setKey(selected.key);
     setSelected(null);
     setPage(0);
   }
   async function copySelected() {
-    if (!selected) return;
+    if (!selected) {
+      return;
+    }
     try {
       await copyText(selected.text);
       setCopied("done");

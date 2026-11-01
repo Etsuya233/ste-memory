@@ -20,7 +20,9 @@ function domainUnit(source: MemorySpaceBackup) {
   const originalIds = new Map<MemoryFieldId, MemoryFieldId>();
   const fieldId = (tableId: string, id: string) =>
     `fixture:${JSON.stringify([tableId, id])}` as MemoryFieldId;
-  for (const field of source.fields) originalIds.set(fieldId(field.tableId, field.id), field.id);
+  for (const field of source.fields) {
+    originalIds.set(fieldId(field.tableId, field.id), field.id);
+  }
   const mapVector = (
     configuration: VectorIndexConfiguration | undefined,
     transform: (id: MemoryFieldId) => MemoryFieldId,
@@ -114,7 +116,9 @@ export function createPresetUpdateFixture(options: {
       const snapshot = domainUnit(options.read(spaceId)).unit;
       const delay = previewDelay;
       previewDelay = 0;
-      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (delay) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
       options.assert(spaceId, chatIdentity);
       state.previews++;
       return previewPresetUpdate(snapshot, preset);
@@ -123,7 +127,9 @@ export function createPresetUpdateFixture(options: {
       options.assert(plan.spaceId, chatIdentity);
       const delay = applyDelay;
       applyDelay = 0;
-      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (delay) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
       options.assert(plan.spaceId, chatIdentity);
       const current = domainUnit(options.read(plan.spaceId));
       const next = buildPresetUpdate(
@@ -138,7 +144,9 @@ export function createPresetUpdateFixture(options: {
       await options.changed();
       const resultWait = resultDelay;
       resultDelay = 0;
-      if (resultWait) await new Promise((resolve) => setTimeout(resolve, resultWait));
+      if (resultWait) {
+        await new Promise((resolve) => setTimeout(resolve, resultWait));
+      }
       if (syncFailure) {
         syncFailure = false;
         return { issues: ["预览模拟：更新已提交，对话文件保存失败"] };

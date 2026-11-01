@@ -89,8 +89,9 @@ describe("portable Luma primitives", () => {
       (name) => /\.tsx?$/.test(name) && !name.includes(".test."),
     )) {
       const source = readFileSync(`${directory}/${name}`, "utf8");
-      for (const match of source.matchAll(/from\s+["']([^"']+)["']/g))
+      for (const match of source.matchAll(/from\s+["']([^"']+)["']/g)) {
         expect(match[1], name).toMatch(allowed);
+      }
       expect(source, name).not.toMatch(/SillyTavern|extension_settings|chat_metadata|getContext\(/);
     }
   });

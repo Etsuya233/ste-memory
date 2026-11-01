@@ -16,8 +16,11 @@ let pending: AutoFillNotification[] = [];
 let show: ((notice: AutoFillNotification) => void) | undefined;
 export const autoFillNotifications = {
   show(notice: AutoFillNotification) {
-    if (show) show(notice);
-    else pending.push(notice);
+    if (show) {
+      show(notice);
+    } else {
+      pending.push(notice);
+    }
   },
   dismissReminder() {
     pending = pending.filter((notice) => notice.kind !== "reminder");
@@ -40,7 +43,9 @@ function NotificationLifecycle({
   const visible = toasts.length > 0;
   useLayoutEffect(() => {
     show = (notice) => {
-      if (notice.identity !== identity) return;
+      if (notice.identity !== identity) {
+        return;
+      }
       const id = notice.kind === "reminder" ? reminderId : "auto-fill-status";
       add({
         id,
@@ -66,7 +71,9 @@ function NotificationLifecycle({
     };
   }, [identity, onOpenTasks, add, close]);
   useLayoutEffect(() => {
-    if (!surface || !visible) return;
+    if (!surface || !visible) {
+      return;
+    }
     // Re-enter after the workbench so the native top layer never covers a notification.
     surface.showPopover();
     return () => surface.hidePopover();

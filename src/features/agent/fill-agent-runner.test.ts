@@ -154,11 +154,12 @@ describe("runFillAgent", () => {
     let query: string | undefined;
     const streamFn = scriptedStreamFn((context) => {
       expect(context.tools?.some((tool) => tool.name === "query_sql")).toBe(true);
-      if (!lastToolResult(context))
+      if (!lastToolResult(context)) {
         return assistantMessage(
           [toolCallMessage("sql-fill", "query_sql", { sql: "SELECT 1 AS found" })],
           "toolUse",
         );
+      }
       return assistantMessage([textMessage("无需变更。")], "stop");
     });
     const result = await runFillAgent({

@@ -81,11 +81,13 @@ try {
   );
   await page.evaluate(() => {
     window.__sqlHostKeys = [];
-    for (const type of ["keydown", "keyup"])
+    for (const type of ["keydown", "keyup"]) {
       window.addEventListener(type, (event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === "Enter")
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
           window.__sqlHostKeys.push(type);
+        }
       });
+    }
     window.frontendPreview.delaySQL(500);
   });
   await input().fill("SELECT 'keyboard';");
@@ -155,6 +157,8 @@ try {
   );
   check("no browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

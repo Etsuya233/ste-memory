@@ -28,17 +28,22 @@ export function createBackupFile(
   appVersion: string,
   exportedAt: string,
 ): MemoryBackupFile {
-  for (const unit of snapshot.spaces) assertSnapshotStructure(memorySpaceSnapshotSchema, unit);
+  for (const unit of snapshot.spaces) {
+    assertSnapshotStructure(memorySpaceSnapshotSchema, unit);
+  }
   validateBackupData(snapshot);
   return { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt, appVersion, data: snapshot };
 }
 
 /** 信封版本与领域快照版本分别校验，所有旧来源进入同一纯迁移入口。 */
 export function decodeBackupFile(value: unknown): MemoryBackupFile {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     snapshotInvalid("文件顶层不是对象", "备份文件");
+  }
   const envelope = value as Record<string, unknown>;
-  if (envelope.format !== BACKUP_FORMAT) snapshotInvalid("不是本插件的备份文件", "备份文件");
+  if (envelope.format !== BACKUP_FORMAT) {
+    snapshotInvalid("不是本插件的备份文件", "备份文件");
+  }
   if (![1, 2, BACKUP_VERSION].includes(envelope.version as number)) {
     throw new DomainError({
       type: "memory_backup_version_unsupported",
@@ -72,7 +77,9 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
 /** 全库物理表共享 ID 域，跨空间重复也必须在恢复前拒绝。 */
 export function validateBackupData(data: MemoryBackupData): void {
   const seen = createSnapshotSeenIds();
-  for (const unit of data.spaces) validateSnapshotIntegrity(unit, seen);
+  for (const unit of data.spaces) {
+    validateSnapshotIntegrity(unit, seen);
+  }
 }
 
 /** 备份文件 → 人类可读 JSON 文本（格式化缩进，便于检查与手工修复）。 */

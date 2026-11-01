@@ -110,7 +110,9 @@ function ensureReleaseWorktree() {
 /** 清空 worktree 内容（保留 .git），内容完全由本次构建重生成 */
 function clearWorktree() {
   for (const entry of readdirSync(WORKTREE_DIR)) {
-    if (entry === ".git") continue;
+    if (entry === ".git") {
+      continue;
+    }
     rmSync(path.join(WORKTREE_DIR, entry), { recursive: true, force: true });
   }
 }

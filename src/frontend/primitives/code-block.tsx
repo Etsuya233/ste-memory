@@ -115,7 +115,9 @@ function CodeBlockCopyButton({
 }) {
   const [copied, setCopied] = React.useState(false);
   React.useEffect(() => {
-    if (!copied) return;
+    if (!copied) {
+      return;
+    }
     const timeout = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(timeout);
   }, [copied]);
@@ -131,8 +133,11 @@ function CodeBlockCopyButton({
         className={cn("ste:text-muted-foreground ste:hover:text-foreground", className)}
         onClick={async () => {
           try {
-            if (copy) await copy();
-            else await navigator.clipboard.writeText(value);
+            if (copy) {
+              await copy();
+            } else {
+              await navigator.clipboard.writeText(value);
+            }
             setCopied(true);
           } catch (cause) {
             onCopyError?.(cause instanceof Error ? cause.message : String(cause));

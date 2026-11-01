@@ -295,8 +295,9 @@ describe("从表格预设选择性更新空间", () => {
   it("旧空间分组以原 ID 补 Key，克隆来源 Key 不受实例化新 ID 影响", () => {
     const { unit } = fixture();
     const legacy = structuredClone(unit);
-    for (const group of legacy.tables[0]!.vectorIndex!.presetGroups!)
+    for (const group of legacy.tables[0]!.vectorIndex!.presetGroups!) {
       delete (group as { key?: string }).key;
+    }
     const oldSnapshot = { ...legacy };
     Reflect.deleteProperty(oldSnapshot, "schemaVersion");
     const updated = migrateMemorySpaceSnapshot({ version: "legacy-macros", snapshot: oldSnapshot });

@@ -102,8 +102,9 @@ async function createHarness(
       ports,
       recordWriter,
       createLlm: () => {
-        if (options.createLlmThrows)
+        if (options.createLlmThrows) {
           throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
+        }
         return { streamFn, model: fakeModel() };
       },
       getCurrentContext: () =>
@@ -128,7 +129,7 @@ function draftScript() {
   return scriptedStreamFn((context: Context) => {
     const last = lastToolResult(context);
     const users = context.messages.filter((message) => message.role === "user");
-    if (users.length === 1 && !last)
+    if (users.length === 1 && !last) {
       return assistantMessage(
         [
           toolCallMessage("draft", "mutate", {
@@ -139,8 +140,10 @@ function draftScript() {
         ],
         "toolUse",
       );
-    if (users.length > 1 && context.messages.at(-1)?.role === "user")
+    }
+    if (users.length > 1 && context.messages.at(-1)?.role === "user") {
       return assistantMessage([toolCallMessage("preview", "proposal_preview", {})], "toolUse");
+    }
     return assistantMessage([textMessage("请查看变更并确认。")], "stop");
   });
 }
@@ -235,7 +238,7 @@ describe("记忆助手会话", () => {
   it("模型调用 submit_proposal 仅准备确认，不自动写入", async () => {
     const stream = scriptedStreamFn((context) => {
       const last = lastToolResult(context);
-      if (!last)
+      if (!last) {
         return assistantMessage(
           [
             toolCallMessage("m", "mutate", {
@@ -247,6 +250,7 @@ describe("记忆助手会话", () => {
           ],
           "toolUse",
         );
+      }
       return assistantMessage([textMessage("等待确认")], "stop");
     });
     const h = await createHarness({ streamFn: stream });
@@ -309,7 +313,7 @@ describe("记忆助手会话", () => {
     await first;
     const next = h.buildService(
       scriptedStreamFn((context) => {
-        if (context.messages.at(-1)?.role === "user")
+        if (context.messages.at(-1)?.role === "user") {
           return assistantMessage(
             [
               toolCallMessage("next", "mutate", {
@@ -320,6 +324,7 @@ describe("记忆助手会话", () => {
             ],
             "toolUse",
           );
+        }
         return assistantMessage([textMessage("准备完成")], "stop");
       }),
     );
@@ -345,7 +350,9 @@ describe("记忆助手会话", () => {
     let nextRequestStarted = false;
     const h = await createHarness({
       streamFn: (model, context, options) => {
-        if (!lastToolResult(context)) return draft(model, context, options);
+        if (!lastToolResult(context)) {
+          return draft(model, context, options);
+        }
         nextRequestStarted = true;
         return waiting(model, context, options);
       },
@@ -487,7 +494,7 @@ describe("记忆助手会话", () => {
     const h = await createHarness({
       semanticQuery: query,
       streamFn: scriptedStreamFn((context) => {
-        if (!lastToolResult(context))
+        if (!lastToolResult(context)) {
           return assistantMessage(
             [
               toolCallMessage("q", "query_sql", {
@@ -496,6 +503,7 @@ describe("记忆助手会话", () => {
             ],
             "toolUse",
           );
+        }
         expect(lastToolResult(context)?.content).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ text: expect.stringContaining("云烬") }),

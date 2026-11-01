@@ -49,17 +49,23 @@ export function planMemoryViewQuery(
   digest: MemorySpaceTableDigest,
 ): MemoryViewQueryPlan | undefined {
   const table = findTableInDigest(digest, view.tableKey);
-  if (!table) return undefined;
+  if (!table) {
+    return undefined;
+  }
   const fieldIds: MemoryFieldId[] = [];
   for (const key of view.projection) {
     const field = findFieldInDigest(table, key);
-    if (!field) return undefined;
+    if (!field) {
+      return undefined;
+    }
     fieldIds.push(field.id);
   }
   let conditions: readonly QueryRecordsCondition[] | undefined;
   if (view.condition) {
     const field = findFieldInDigest(table, view.condition.fieldKey);
-    if (!field || !MEMORY_VIEW_CONDITION_FIELD_TYPES.has(field.type)) return undefined;
+    if (!field || !MEMORY_VIEW_CONDITION_FIELD_TYPES.has(field.type)) {
+      return undefined;
+    }
     conditions = [{ fieldId: field.id, operator: "in", value: [...view.condition.values] }];
   }
   return {
@@ -89,14 +95,22 @@ export async function resolveViewReferenceLabels(
   const labels = new Map<MemoryRecordId, string>();
   for (const key of projectionKeys) {
     const field = findFieldInDigest(table, key);
-    if (!field) continue;
-    if (field.type !== "single_reference" && field.type !== "multi_reference") continue;
+    if (!field) {
+      continue;
+    }
+    if (field.type !== "single_reference" && field.type !== "multi_reference") {
+      continue;
+    }
     const targetTable = field.referenceTableKey
       ? digest.tables.find((candidate) => candidate.key === field.referenceTableKey)
       : undefined;
-    if (!targetTable) continue;
+    if (!targetTable) {
+      continue;
+    }
     const ids = collectReferenceIds(records, field.id);
-    if (ids.length === 0) continue;
+    if (ids.length === 0) {
+      continue;
+    }
     // $record_id in 批量查询（契约 pageSize ≤ 100；超量分片）
     for (let offset = 0; offset < ids.length; offset += MEMORY_VIEW_LIMIT_MAX) {
       const chunk = ids.slice(offset, offset + MEMORY_VIEW_LIMIT_MAX);
@@ -105,7 +119,9 @@ export async function resolveViewReferenceLabels(
         conditions: [{ fieldId: "$record_id", operator: "in", value: chunk }],
         paging: { page: 1, pageSize: chunk.length },
       });
-      for (const record of page.records) labels.set(record.id, record.displayText);
+      for (const record of page.records) {
+        labels.set(record.id, record.displayText);
+      }
     }
   }
   return labels;
@@ -126,7 +142,9 @@ function collectReferenceIds(
         ? []
         : [value];
     for (const candidate of candidates) {
-      if (typeof candidate !== "string" || seen.has(candidate)) continue;
+      if (typeof candidate !== "string" || seen.has(candidate)) {
+        continue;
+      }
       seen.add(candidate);
       ids.push(candidate);
     }

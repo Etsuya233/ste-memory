@@ -67,12 +67,14 @@ try {
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825");
   await action("record-sort").waitFor();
   await page.evaluate(() => {
-    for (const key of Object.keys(localStorage))
+    for (const key of Object.keys(localStorage)) {
       if (
         key.startsWith("ste-memory:record-sort:v1:") &&
         (key.includes('"space-a"') || key.includes('"space-b"'))
-      )
+      ) {
         localStorage.removeItem(key);
+      }
+    }
   });
   await page.reload();
   await action("open-record").waitFor();
@@ -207,6 +209,8 @@ try {
   );
   check("no sorting browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

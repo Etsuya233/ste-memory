@@ -34,7 +34,9 @@ function PopoverContent({
   Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
   const container = usePrimitivesContainer();
   const active = usePrimitivesActive();
-  if (!container || !active) return null;
+  if (!container || !active) {
+    return null;
+  }
   return (
     <PopoverPrimitive.Portal data-slot="popover-portal" container={container}>
       <PopoverPrimitive.Positioner
@@ -47,7 +49,9 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           finalFocus={(interaction) => {
-            if (!canRestoreSurfaceFocus(container)) return false;
+            if (!canRestoreSurfaceFocus(container)) {
+              return false;
+            }
             return typeof finalFocus === "function"
               ? finalFocus(interaction)
               : typeof finalFocus === "object"

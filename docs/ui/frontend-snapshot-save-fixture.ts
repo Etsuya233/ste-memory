@@ -20,7 +20,9 @@ export function createSnapshotSaveFixture(
   let beforeStart: { message: string; delay: number } | null = null;
   function publish(identity: string, status: ChatSnapshotSaveStatus) {
     states.set(identity, status);
-    for (const listener of listeners) listener();
+    for (const listener of listeners) {
+      listener();
+    }
   }
   function fail(identity: string, operation: "update" | "force-sync", message: string) {
     publish(identity, {
@@ -34,8 +36,9 @@ export function createSnapshotSaveFixture(
   async function save(verify: boolean) {
     const identity = currentIdentity();
     const status = states.get(identity)!;
-    if (status.kind === "saving" || status.kind === "verifying")
+    if (status.kind === "saving" || status.kind === "verifying") {
       throw new Error("当前快照正在保存");
+    }
     const token = generation;
     const operation = verify ? "force-sync" : "update";
     const wait = delay;
@@ -48,11 +51,17 @@ export function createSnapshotSaveFixture(
       await new Promise((done) => setTimeout(done, rejection.delay));
       throw new Error(rejection.message);
     }
-    if (verify) syncCalls++;
+    if (verify) {
+      syncCalls++;
+    }
     publish(identity, { kind: "saving", identity, operation });
-    if (verify) publish(identity, { kind: "verifying", identity, operation });
+    if (verify) {
+      publish(identity, { kind: "verifying", identity, operation });
+    }
     await new Promise((done) => setTimeout(done, wait));
-    if (token !== generation) return;
+    if (token !== generation) {
+      return;
+    }
     if (error) {
       fail(identity, operation, error);
       throw new Error(error);

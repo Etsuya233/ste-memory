@@ -61,7 +61,9 @@ export class MemoryTableService {
     memorySpaceId: MemorySpaceId,
     input: CreateMemoryTableInput,
   ): Promise<MemoryTable | undefined> {
-    if (!(await this.spaces.find(memorySpaceId))) return undefined;
+    if (!(await this.spaces.find(memorySpaceId))) {
+      return undefined;
+    }
     const key = memoryTableKey(input.key);
     if (await this.tables.findByKey(memorySpaceId, key)) {
       throw new DomainError({
@@ -105,7 +107,9 @@ export class MemoryTableService {
     input: UpdateMemoryTableInput,
   ): Promise<MemoryTable | undefined> {
     const current = await this.tables.find(memorySpaceId, id);
-    if (!current) return undefined;
+    if (!current) {
+      return undefined;
+    }
     const key = input.key === undefined ? current.key : memoryTableKey(input.key);
     const conflict = await this.tables.findByKey(memorySpaceId, key);
     if (conflict && conflict.id !== id) {
@@ -127,7 +131,9 @@ export class MemoryTableService {
       vectorIndex: input.vectorIndex ?? current.vectorIndex,
     };
     if (input.vectorIndex !== undefined) {
-      if (!this.fields) throw new Error("保存向量索引配置需要字段仓库");
+      if (!this.fields) {
+        throw new Error("保存向量索引配置需要字段仓库");
+      }
       validateVectorIndexConfiguration(
         input.vectorIndex,
         await this.fields.list(memorySpaceId, id),

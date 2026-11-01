@@ -113,7 +113,9 @@ try {
   check("chat cleaning and preset overrides save immediately", true);
   async function openInit() {
     const input = page.getByLabel("初始化文本", { exact: true });
-    if (!(await input.isVisible())) await page.getByText("初始化填表", { exact: true }).click();
+    if (!(await input.isVisible())) {
+      await page.getByText("初始化填表", { exact: true }).click();
+    }
     await input.waitFor();
     return input;
   }
@@ -254,6 +256,8 @@ try {
   );
   check("no browser exceptions", errors.length === 0);
 } finally {
-  if (errors.length) console.error(errors);
+  if (errors.length) {
+    console.error(errors);
+  }
   await browser.close();
 }

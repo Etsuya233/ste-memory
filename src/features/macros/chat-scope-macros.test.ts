@@ -17,8 +17,9 @@ function view(overrides: Partial<MemoryView> = {}): MemoryView {
 describe("mergeChatScopeMacros（聊天 Scope 宏合并）", () => {
   it("无旧存储为空，损坏及未知版本报错保留原始数据", () => {
     expect(mergeChatScopeMacros(undefined)).toEqual([]);
-    for (const raw of [null, "oops", {}, { version: 2, macros: [] }])
+    for (const raw of [null, "oops", {}, { version: 2, macros: [] }]) {
       expect(() => mergeChatScopeMacros(raw)).toThrow("原始数据已保留");
+    }
   });
 
   it("合法数据原样合并", () => {

@@ -15,8 +15,11 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
   readonly tables = new Map<MemoryTableId, MemoryTable>();
 
   async create(value: MemoryField | MemoryTable): Promise<void> {
-    if ("tableId" in value) this.fields.set(value.id, value);
-    else this.tables.set(value.id, value);
+    if ("tableId" in value) {
+      this.fields.set(value.id, value);
+    } else {
+      this.tables.set(value.id, value);
+    }
   }
 
   delete(memorySpaceId: MemorySpaceId, id: MemoryTableId): Promise<boolean>;
@@ -88,11 +91,15 @@ export class FieldRepository implements MemoryFieldRepository, MemoryTableReposi
 
   async update(field: MemoryField | MemoryTable): Promise<boolean> {
     if ("tableId" in field) {
-      if (!this.fields.has(field.id)) return false;
+      if (!this.fields.has(field.id)) {
+        return false;
+      }
       this.fields.set(field.id, field);
       return true;
     }
-    if (!this.tables.has(field.id)) return false;
+    if (!this.tables.has(field.id)) {
+      return false;
+    }
     this.tables.set(field.id, field);
     return true;
   }

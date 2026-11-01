@@ -21,12 +21,13 @@ describe("填表 Agent 按轮重试", () => {
     const streamFn = scriptedStreamFn((context) => {
       contexts.push(structuredClone(context.messages));
       calls++;
-      if (calls === 1 || calls === 3)
+      if (calls === 1 || calls === 3) {
         return assistantMessage(
           [textMessage("未完成的输出"), toolCallMessage("broken", "write", {})],
           "error",
           "500 Internal Server Error",
         );
+      }
       return calls === 2
         ? assistantMessage([toolCallMessage("ok", "write", {})], "toolUse")
         : assistantMessage([textMessage("完成")], "stop");
@@ -110,7 +111,9 @@ describe("填表 Agent 按轮重试", () => {
       { enabled: true, maxRetries: 2, baseDelayMs: 10000 },
       {
         onRetryScheduled: () => {
-          if (reason === "取消") controller.abort();
+          if (reason === "取消") {
+            controller.abort();
+          }
         },
       },
     );

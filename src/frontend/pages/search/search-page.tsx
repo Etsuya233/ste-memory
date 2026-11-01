@@ -77,12 +77,18 @@ export function SearchPage(props: SearchPageProps) {
   const active = props.active ?? true;
   useEffect(() => {
     const cancel = () => {
-      if (running(props.service.getState())) props.service.cancel();
+      if (running(props.service.getState())) {
+        props.service.cancel();
+      }
     };
     const onVisibility = () => {
-      if (document.hidden) cancel();
+      if (document.hidden) {
+        cancel();
+      }
     };
-    if (!active || document.hidden) cancel();
+    if (!active || document.hidden) {
+      cancel();
+    }
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
@@ -156,7 +162,9 @@ function SearchSession(props: SearchPageProps & { state: RetrievalState }) {
     };
   }, [service, context?.chatKey, context?.spaceId, state.dataVersion, reload]);
   useEffect(() => {
-    if (!busy || state.startedAt === null) return;
+    if (!busy || state.startedAt === null) {
+      return;
+    }
     const started = state.startedAt;
     setElapsed(Date.now() - started);
     const timer = setInterval(() => setElapsed(Date.now() - started), 250);
@@ -303,7 +311,7 @@ function SearchSession(props: SearchPageProps & { state: RetrievalState }) {
                   disabled={busy || loading}
                   onCheckedChange={(value) => {
                     setCustom(value);
-                    if (value && !selection.length)
+                    if (value && !selection.length) {
                       setSelection(
                         ranges
                           .filter((range) => !range.error)
@@ -315,6 +323,7 @@ function SearchSession(props: SearchPageProps & { state: RetrievalState }) {
                           }))
                           .filter((range) => range.groupIds.length > 0),
                       );
+                    }
                   }}
                 />
                 {custom

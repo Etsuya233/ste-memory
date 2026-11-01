@@ -14,11 +14,17 @@ import { chromium } from "playwright-core";
 const ST_URL = process.env.ST_URL ?? "http://127.0.0.1:8000";
 
 function findChrome() {
-  if (process.env.CHROME && existsSync(process.env.CHROME)) return process.env.CHROME;
+  if (process.env.CHROME && existsSync(process.env.CHROME)) {
+    return process.env.CHROME;
+  }
   const cache = path.join(osHomedir(), ".cache/ms-playwright");
-  if (!existsSync(cache)) throw new Error("未找到 playwright chromium 缓存");
+  if (!existsSync(cache)) {
+    throw new Error("未找到 playwright chromium 缓存");
+  }
   const dirs = readdirSync(cache).filter((d) => d.startsWith("chromium-"));
-  if (dirs.length === 0) throw new Error("playwright chromium 缓存为空");
+  if (dirs.length === 0) {
+    throw new Error("playwright chromium 缓存为空");
+  }
   const latest = dirs.sort().at(-1);
   const candidates = [
     path.join(cache, latest, "chrome-linux64/chrome"),
@@ -26,7 +32,9 @@ function findChrome() {
     path.join(cache, latest, "chrome-linux/chrome-headless-shell"),
   ];
   const found = candidates.find((c) => existsSync(c));
-  if (!found) throw new Error(`chromium 可执行文件缺失：${candidates.join(" / ")}`);
+  if (!found) {
+    throw new Error(`chromium 可执行文件缺失：${candidates.join(" / ")}`);
+  }
   return found;
 }
 
@@ -63,10 +71,16 @@ try {
 
   // 等待插件运行时就位（bootstrap 挂 __STE_MEMORY_RUNTIME__ 调试全局）
   const deadline = Date.now() + 60000;
-  while (Date.now() < deadline && !(await page.evaluate(() => Boolean(globalThis.__STE_MEMORY_RUNTIME__)))) {
+  while (
+    Date.now() < deadline &&
+    !(await page.evaluate(() => Boolean(globalThis.__STE_MEMORY_RUNTIME__)))
+  ) {
     await page.waitForTimeout(1000);
   }
-  check("插件运行时就位（__STE_MEMORY_RUNTIME__）", await page.evaluate(() => Boolean(globalThis.__STE_MEMORY_RUNTIME__)));
+  check(
+    "插件运行时就位（__STE_MEMORY_RUNTIME__）",
+    await page.evaluate(() => Boolean(globalThis.__STE_MEMORY_RUNTIME__)),
+  );
 
   // 前置：ST Chat Completion 配置（模型名 + 生成源）——密钥在 ST 服务端，插件永远不见 key
   const stConfig = await page.evaluate(() => {
@@ -74,12 +88,21 @@ try {
     const settings = ctx.chatCompletionSettings ?? {};
     return {
       source: settings.chat_completion_source ?? "",
-      model: typeof ctx.getChatCompletionModel === "function" ? ctx.getChatCompletionModel(settings) : "",
+      model:
+        typeof ctx.getChatCompletionModel === "function"
+          ? ctx.getChatCompletionModel(settings)
+          : "",
       hasMainApi: typeof ctx.mainApi === "string" ? ctx.mainApi : "",
     };
   });
-  console.log(`ST 当前 Chat Completion 配置：source=${stConfig.source} model=${stConfig.model} mainApi=${stConfig.hasMainApi}`);
-  check("ST 已配置 Chat Completion 源", Boolean(stConfig.source), stConfig.source || "未配置（请先在 ST 的 API 连接中配置）");
+  console.log(
+    `ST 当前 Chat Completion 配置：source=${stConfig.source} model=${stConfig.model} mainApi=${stConfig.hasMainApi}`,
+  );
+  check(
+    "ST 已配置 Chat Completion 源",
+    Boolean(stConfig.source),
+    stConfig.source || "未配置（请先在 ST 的 API 连接中配置）",
+  );
   check("ST 已选择模型", Boolean(stConfig.model), stConfig.model || "未选择模型");
 
   if (stConfig.source && stConfig.model) {
@@ -104,7 +127,11 @@ try {
         eventError: message.stopReason === "error" || message.stopReason === "aborted",
       };
     });
-    check("生成成功（stopReason=stop）", result.stopReason === "stop", `stopReason=${result.stopReason}`);
+    check(
+      "生成成功（stopReason=stop）",
+      result.stopReason === "stop",
+      `stopReason=${result.stopReason}`,
+    );
     check("收到模型回复", result.text.trim().length > 0, JSON.stringify(result.text.slice(0, 40)));
     check("无错误信息", !result.eventError, result.errorMessage || "");
     if (result.responseModel) {
@@ -123,9 +150,13 @@ try {
 } catch (error) {
   check("脚本执行", false, String(error));
   console.log("\n--- 页面错误 ---");
-  for (const err of pageErrors.slice(0, 5)) console.log(err);
+  for (const err of pageErrors.slice(0, 5)) {
+    console.log(err);
+  }
   console.log("--- 最近控制台 ---");
-  for (const line of consoleLines.slice(-15)) console.log(line);
+  for (const line of consoleLines.slice(-15)) {
+    console.log(line);
+  }
 } finally {
   await browser.close();
 }

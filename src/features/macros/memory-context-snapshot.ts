@@ -44,7 +44,9 @@ export function assembleMemoryContextSnapshot(
 ): string {
   const sections: string[] = [];
   for (const table of tables) {
-    if (!table.enabled || table.records.length === 0) continue;
+    if (!table.enabled || table.records.length === 0) {
+      continue;
+    }
     const records = newestFirst(table.records);
     const lines = records.map((record) => toSingleLine(record.displayText));
     sections.push(`【${toSingleLine(table.name)}】\n${lines.join("\n")}`);
@@ -58,7 +60,9 @@ export function assembleMemoryContextSnapshot(
  * （limit 小于标记长时输出仅标记，仍表达「已截断」语义）。
  */
 export function truncateWithMarker(text: string, limit: number): string {
-  if (text.length <= limit) return text;
+  if (text.length <= limit) {
+    return text;
+  }
   const keep = limit - TRUNCATION_MARKER.length;
   return keep <= 0 ? TRUNCATION_MARKER : `${text.slice(0, keep)}${TRUNCATION_MARKER}`;
 }
@@ -67,7 +71,9 @@ export function truncateWithMarker(text: string, limit: number): string {
 function newestFirst(records: readonly MemoryRecord[]): readonly MemoryRecord[] {
   return [...records].sort((left, right) => {
     const byUpdated = right.updatedAt.localeCompare(left.updatedAt);
-    if (byUpdated !== 0) return byUpdated;
+    if (byUpdated !== 0) {
+      return byUpdated;
+    }
     const byCreated = right.createdAt.localeCompare(left.createdAt);
     return byCreated !== 0 ? byCreated : right.id.localeCompare(left.id);
   });

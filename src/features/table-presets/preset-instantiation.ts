@@ -150,7 +150,9 @@ function instantiatedReference(
   referenceTableKey: string | null,
   tableIdByKey: ReadonlyMap<string, MemoryTableId>,
 ): MemoryTableId | null {
-  if (referenceTableKey === null) return null;
+  if (referenceTableKey === null) {
+    return null;
+  }
   const tableId = tableIdByKey.get(referenceTableKey);
   if (!tableId) {
     throw new DomainError({
@@ -173,7 +175,9 @@ function instantiatedDisplayStrategy(
   fields: TablePresetStructure["tables"][number]["fields"],
   fieldIdByKey: ReadonlyMap<string, MemoryFieldId>,
 ): MemoryTableDisplayStrategy | null {
-  if (!strategy) return null;
+  if (!strategy) {
+    return null;
+  }
   if (strategy.type === "field") {
     const field = fields.find((candidate) => candidate.key === strategy.fieldKey);
     if (!field || field.type !== "short_text" || !field.enabled) {

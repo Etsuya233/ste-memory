@@ -14,7 +14,9 @@ const failures = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const check = (name, value) => {
   console.log(`${value ? "PASS" : "FAIL"} ${name}`);
-  if (!value) failures.push(name);
+  if (!value) {
+    failures.push(name);
+  }
 };
 const screenshots =
   process.env.FRONTEND_SCREENSHOTS ?? "../../node_modules/.cache/frontend-preview/screenshots";

@@ -184,8 +184,11 @@ describe("RecordsWorkspace", () => {
       await workspace.setContext(contextB);
       expect(workspace.getSnapshot().editor).toBeNull();
       await workspace.setContext(contextA);
-      if (outcome === "resolve") slow.resolve(record(contextA.spaceId, "过期内容"));
-      else slow.reject(new Error("过期失败"));
+      if (outcome === "resolve") {
+        slow.resolve(record(contextA.spaceId, "过期内容"));
+      } else {
+        slow.reject(new Error("过期失败"));
+      }
       await pending;
       expect(workspace.getSnapshot()).toMatchObject({ editor: null, detailError: null });
       expect(workspace.getSnapshot().detail?.displayText).toBe("原文");
@@ -466,8 +469,11 @@ describe("RecordsWorkspace", () => {
       await workspace.openRecord(recordId);
       workspace.startEdit();
       workspace.setField(fieldId, "对话 B 草稿");
-      if (outcome === "success") slow.resolve(record(contextA.spaceId, "修改", "v2"));
-      else slow.reject(new Error("旧保存失败"));
+      if (outcome === "success") {
+        slow.resolve(record(contextA.spaceId, "修改", "v2"));
+      } else {
+        slow.reject(new Error("旧保存失败"));
+      }
       await saving;
       expect(workspace.getSnapshot()).toMatchObject({
         context: contextB,
@@ -475,8 +481,11 @@ describe("RecordsWorkspace", () => {
         editor: { draft: { values: { name: "对话 B 草稿" } }, error: null },
       });
       await workspace.setContext(contextA);
-      if (outcome === "failure") expect(workspace.getSnapshot().editor?.error).toBe("旧保存失败");
-      else expect(workspace.getSnapshot().editor).toBeNull();
+      if (outcome === "failure") {
+        expect(workspace.getSnapshot().editor?.error).toBe("旧保存失败");
+      } else {
+        expect(workspace.getSnapshot().editor).toBeNull();
+      }
     },
   );
 
@@ -529,8 +538,11 @@ describe("RecordsWorkspace", () => {
       const { workspace, fields, records } = setup();
       await edit(workspace);
       await workspace.setContext(contextB);
-      if (kind === "schema") fields.list.mockResolvedValue([{ ...field, type: "integer" }]);
-      else records.find.mockResolvedValue(record(contextA.spaceId, "外部更新", "v2"));
+      if (kind === "schema") {
+        fields.list.mockResolvedValue([{ ...field, type: "integer" }]);
+      } else {
+        records.find.mockResolvedValue(record(contextA.spaceId, "外部更新", "v2"));
+      }
       await workspace.setContext(contextA);
       expect(workspace.getSnapshot().editor).toMatchObject({
         conflict: true,
