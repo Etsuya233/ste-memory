@@ -66,10 +66,12 @@ export function validateAutoFillSettings(settings: AutoFillSettings): void {
       throw new Error("自动填表间隔、批大小和等待秒数须为正整数，重试次数须为非负整数");
     }
   }
-  if (!Number.isInteger(settings.delayFloors) || settings.delayFloors < 0)
+  if (!Number.isInteger(settings.delayFloors) || settings.delayFloors < 0) {
     throw new Error("延迟填写楼层数须为非负整数");
-  if (!Number.isInteger(settings.keepRecentFloors) || settings.keepRecentFloors < 0)
+  }
+  if (!Number.isInteger(settings.keepRecentFloors) || settings.keepRecentFloors < 0) {
     throw new Error("保留最近楼层数须为非负整数");
+  }
 }
 
 export function autoFillRange(
@@ -92,7 +94,9 @@ export function migrateAutoFillSettings(
 ): Partial<AutoFillSettings> {
   const { includeCurrent, ...settings } = raw;
   if (settings.delayFloors === undefined && includeCurrent !== undefined) {
-    if (typeof includeCurrent !== "boolean") throw new Error("自动填表楼层选项无效");
+    if (typeof includeCurrent !== "boolean") {
+      throw new Error("自动填表楼层选项无效");
+    }
     return { ...settings, delayFloors: includeCurrent ? 0 : 1 };
   }
   return settings;

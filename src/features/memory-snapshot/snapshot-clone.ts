@@ -105,7 +105,9 @@ class SnapshotIdentityCopy {
   }
   private recordId(oldId: string): MemoryRecordId {
     const existing = this.records.get(oldId);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
     const allocated = this.ids.record();
     this.records.set(oldId, allocated);
     return allocated;
@@ -114,12 +116,17 @@ class SnapshotIdentityCopy {
     const payload: Record<string, MemoryFieldValue> = {};
     for (const [key, value] of Object.entries(old)) {
       const field = this.definitions.get(key);
-      if (!field) continue; // 历史已删除字段沿用副本投影语义，不生成悬挂的新字段身份。
+      // 历史已删除字段沿用副本投影语义，不生成悬挂的新字段身份。
+      if (!field) {
+        continue;
+      }
       let next = value;
-      if (field.type === "single_reference" && typeof value === "string")
+      if (field.type === "single_reference" && typeof value === "string") {
         next = this.recordId(value);
-      if (field.type === "multi_reference" && Array.isArray(value))
+      }
+      if (field.type === "multi_reference" && Array.isArray(value)) {
         next = value.map((id) => this.recordId(id));
+      }
       payload[this.fields.get(field.id)!] = next;
     }
     return payload;
@@ -130,7 +137,9 @@ class SnapshotIdentityCopy {
     const result: Record<string, MemoryEvidence[]> = {};
     for (const [key, values] of Object.entries(old)) {
       const field = this.definitions.get(key);
-      if (!field) continue;
+      if (!field) {
+        continue;
+      }
       result[this.fields.get(field.id)!] = values
         .filter((item) => this.evidence.has(item.evidence_id))
         .map((item) => ({ ...item, evidence_id: this.evidence.get(item.evidence_id)! }));

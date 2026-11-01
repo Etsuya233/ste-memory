@@ -35,3 +35,21 @@ IndexedDB 只管理独立的任务、楼层台账、向量、助手会话和日�
 不引入 identityKey、跨聊天空间目录、多存储后端或服务端协议变更。
 正常字段删除的孤立证据业务不在本次范围。SQLite 提交、文件写入与辅助台账没有共同事务，
 保存失败由明确内存待办表示；关闭页面仍可能失去未完成内容，不建立跨刷新确认协议。
+
+## 实现维护入口
+
+`ChatSpaceManager` 按待保存恢复、首次初始化、已绑定加载和候选替换组织聊天入口；
+选择对象与候选请求对象共同拒绝迟到结果。候选来源使用具名 origin，发布空间状态由激活方法返回。
+绑定契约及文件身份规则位于 `chat-space-context.ts`，角色索引变化但同文件名的移植兼容约定保留；
+同 ID 的跨文件退休安全由 `MemorySpaceLifecycle` 的 owner 检查保证。
+
+`ChatSnapshotPersistence` 管每文件队列、当前已提交快照及保留策略；
+`ChatSnapshotSaveTask` 管固定输入、write/complete/activate 阶段、批次回调与调用者结算。
+write 阶段被新提交覆盖时，旧调用者与批次回调迁入最新任务；已经开始 complete 的调用独立结算。
+文件成功后先发布活动 metadata，再确认业务；确认失败重试保留落盘阶段。
+
+`SqliteMemoryStore.commitTask` / `rollbackTask` 明确任务事务的结束语义；
+独立写入和任务提交共用 commit/export/同步交接规则，工具调用只创建保存点。
+仓库按空间级操作、表字段结构和记录修订提交组织，共享 `SqliteRepositoryView` 的读视图与 writer 身份。
+`MemorySpaceLifecycle` 统一文件归属、停止写入、卸载、退休及切聊队列；
+`PresetSpaceUpdater` 集中预设比较、替换、锁外保存及带聊天代次校验的派生数据刷新。

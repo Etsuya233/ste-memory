@@ -51,8 +51,9 @@ export async function saveFillTimeout(
   input: string,
 ): Promise<SettingsSaveResult> {
   const seconds = Number(input);
-  if (!input.trim() || !Number.isInteger(seconds) || seconds < 30 || seconds > 1800)
+  if (!input.trim() || !Number.isInteger(seconds) || seconds < 30 || seconds > 1800) {
     throw new Error("每批填写超时须为 30–1800 秒的整数");
+  }
   let error: string | undefined;
   try {
     services.settings.save({ ...services.settings.read(), fillAgentTimeoutSeconds: seconds });

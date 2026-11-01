@@ -129,7 +129,9 @@ export class TablesWorkspace {
     }
   }
   #session() {
-    if (!this.#current) throw new Error("请先选择对话");
+    if (!this.#current) {
+      throw new Error("请先选择对话");
+    }
     return this.#current;
   }
   async setContext(context: RecordsContext | null) {
@@ -137,8 +139,9 @@ export class TablesWorkspace {
       context &&
       this.#current?.state.context?.chatKey === context.chatKey &&
       this.#current.state.context.spaceId === context.spaceId
-    )
+    ) {
       return;
+    }
     ++this.#epoch;
     if (!context) {
       this.#current = null;
@@ -164,8 +167,11 @@ export class TablesWorkspace {
     await this.refresh();
     if (epoch === this.#epoch && session === this.#current && session.state.vectorPreview) {
       const preview = session.state.vectorPreview;
-      if (preview.record) await this.selectVectorRecord(preview.record.id);
-      else await this.loadVectorRecords(preview.page);
+      if (preview.record) {
+        await this.selectVectorRecord(preview.record.id);
+      } else {
+        await this.loadVectorRecords(preview.page);
+      }
     }
   }
   async refresh() {
@@ -179,7 +185,9 @@ export class TablesWorkspace {
         this.#services.tables.list(context!.spaceId),
         tableId ? this.#services.fields.list(context!.spaceId, tableId) : Promise.resolve([]),
       ]);
-      if (epoch !== this.#epoch || request !== session.request) return;
+      if (epoch !== this.#epoch || request !== session.request) {
+        return;
+      }
       const missing = tableId && !tables.some((table) => table.id === tableId);
       const previewChanged =
         session.state.vectorPreview &&
@@ -187,7 +195,9 @@ export class TablesWorkspace {
           session.state.tables.find((table) => table.id === tableId),
           session.state.fields,
         ]) !== JSON.stringify([tables.find((table) => table.id === tableId), fields]);
-      if (previewChanged) session.vectorRequest++;
+      if (previewChanged) {
+        session.vectorRequest++;
+      }
       this.#update(session, {
         tables,
         fields,
@@ -198,8 +208,9 @@ export class TablesWorkspace {
           : {}),
       });
     } catch (error) {
-      if (epoch === this.#epoch && request === session.request)
+      if (epoch === this.#epoch && request === session.request) {
         this.#update(session, { loading: false, error: message(error) });
+      }
     }
   }
   async selectTable(tableId: MemoryTableId | null) {
@@ -214,7 +225,7 @@ export class TablesWorkspace {
       table = state.tables.find((item) => item.id === state.tableId) ?? null;
     session.schema = JSON.stringify([table, state.fields]);
     let editor: TableEditor;
-    if (kind === "table")
+    if (kind === "table") {
       editor = {
         kind,
         original: table,
@@ -229,7 +240,7 @@ export class TablesWorkspace {
           : { key: "", name: "", description: "", prompt: "", enabled: true },
         dirty: false,
       };
-    else if (kind === "field")
+    } else if (kind === "field") {
       editor = {
         kind,
         original: field ?? null,
@@ -241,9 +252,9 @@ export class TablesWorkspace {
         },
         dirty: false,
       };
-    else if (kind === "display")
+    } else if (kind === "display") {
       editor = { kind, draft: emptyDisplayStrategyDraft(table!.displayStrategy), dirty: false };
-    else
+    } else {
       editor = {
         kind,
         draft: table!.vectorIndex ?? {
@@ -254,6 +265,7 @@ export class TablesWorkspace {
         },
         dirty: false,
       };
+    }
     session.vectorRequest++;
     this.#update(session, { editor, error: null, notice: null, previews: [], vectorPreview: null });
   }
@@ -276,7 +288,9 @@ export class TablesWorkspace {
   };
   async openVectorPreview() {
     const session = this.#session();
-    if (!session.state.tableId) throw new Error("请先选择表格");
+    if (!session.state.tableId) {
+      throw new Error("请先选择表格");
+    }
     const configuration =
       session.state.editor?.kind === "vector" ? structuredClone(session.state.editor.draft) : null;
     this.#update(session, {
@@ -299,10 +313,14 @@ export class TablesWorkspace {
     this.#update(session, { vectorPreview: null });
   }
   async loadVectorRecords(page: number, search?: string) {
-    if (!Number.isInteger(page) || page < 1) throw new Error("页码必须为正整数");
+    if (!Number.isInteger(page) || page < 1) {
+      throw new Error("页码必须为正整数");
+    }
     const session = this.#session();
     const preview = session.state.vectorPreview;
-    if (!preview) throw new Error("请先打开向量预览");
+    if (!preview) {
+      throw new Error("请先打开向量预览");
+    }
     const query = search ?? preview.search;
     const epoch = this.#epoch,
       request = ++session.vectorRequest;
@@ -326,8 +344,14 @@ export class TablesWorkspace {
         search: query,
       });
       this.#services.assertContext(context);
-      if (!records) throw new Error("表格或记忆空间已不存在");
-      if (epoch === this.#epoch && request === session.vectorRequest && session.state.vectorPreview)
+      if (!records) {
+        throw new Error("表格或记忆空间已不存在");
+      }
+      if (
+        epoch === this.#epoch &&
+        request === session.vectorRequest &&
+        session.state.vectorPreview
+      ) {
         this.#update(session, {
           vectorPreview: {
             ...session.state.vectorPreview,
@@ -336,17 +360,25 @@ export class TablesWorkspace {
             loading: false,
           },
         });
+      }
     } catch (error) {
-      if (epoch === this.#epoch && request === session.vectorRequest && session.state.vectorPreview)
+      if (
+        epoch === this.#epoch &&
+        request === session.vectorRequest &&
+        session.state.vectorPreview
+      ) {
         this.#update(session, {
           vectorPreview: { ...session.state.vectorPreview, loading: false, error: message(error) },
         });
+      }
     }
   }
   async selectVectorRecord(recordId: MemoryRecordId | null) {
     const session = this.#session();
     const preview = session.state.vectorPreview;
-    if (!preview) throw new Error("请先打开向量预览");
+    if (!preview) {
+      throw new Error("请先打开向量预览");
+    }
     const epoch = this.#epoch,
       request = ++session.vectorRequest;
     if (recordId === null) {
@@ -356,7 +388,9 @@ export class TablesWorkspace {
       return;
     }
     const record = preview.records?.records.find((item) => item.id === recordId);
-    if (!record) throw new Error("记录列表已变化，请重新选择记录");
+    if (!record) {
+      throw new Error("记录列表已变化，请重新选择记录");
+    }
     this.#update(session, {
       vectorPreview: { ...preview, record, groups: [], loading: true, error: null },
     });
@@ -368,29 +402,42 @@ export class TablesWorkspace {
         ? this.#services.vectorIndex.previewDraft(scope, preview.configuration)
         : this.#services.vectorIndex.preview(scope));
       this.#services.assertContext(context);
-      if (epoch === this.#epoch && request === session.vectorRequest && session.state.vectorPreview)
+      if (
+        epoch === this.#epoch &&
+        request === session.vectorRequest &&
+        session.state.vectorPreview
+      ) {
         this.#update(session, {
           vectorPreview: { ...session.state.vectorPreview, groups, loading: false },
         });
+      }
     } catch (error) {
-      if (epoch === this.#epoch && request === session.vectorRequest && session.state.vectorPreview)
+      if (
+        epoch === this.#epoch &&
+        request === session.vectorRequest &&
+        session.state.vectorPreview
+      ) {
         this.#update(session, {
           vectorPreview: { ...session.state.vectorPreview, loading: false, error: message(error) },
         });
+      }
     }
   }
   async save() {
     const session = this.#session(),
       { context, tableId, editor } = session.state;
-    if (!editor || session.state.saving) return;
+    if (!editor || session.state.saving) {
+      return;
+    }
     await this.#mutate(session, async () => {
       const tables = await this.#services.tables.list(context!.spaceId);
       const fields = tableId ? await this.#services.fields.list(context!.spaceId, tableId) : [];
       if (
         session.schema !==
         JSON.stringify([tables.find((table) => table.id === tableId) ?? null, fields])
-      )
+      ) {
         throw new Error("表结构已变化，请保留所需内容并重新打开编辑器。");
+      }
       this.#services.assertContext(context!);
       if (editor.kind === "table") {
         const result = editor.original
@@ -399,7 +446,9 @@ export class TablesWorkspace {
               ...editor.draft,
               position: Math.max(-1, ...tables.map((table) => table.position)) + 1,
             });
-        if (!result) throw new Error("表格或记忆空间已不存在");
+        if (!result) {
+          throw new Error("表格或记忆空间已不存在");
+        }
         this.#update(session, { tableId: result.id });
       } else if (editor.kind === "field") {
         const errors = Object.values(
@@ -408,7 +457,9 @@ export class TablesWorkspace {
             fields.filter((field) => field.id !== editor.original?.id).map((field) => field.key),
           ),
         );
-        if (errors.length) throw new Error(errors.join("；"));
+        if (errors.length) {
+          throw new Error(errors.join("；"));
+        }
         const draft = editor.draft;
         const input = {
           ...draft,
@@ -431,31 +482,39 @@ export class TablesWorkspace {
               ...input,
               position: Math.max(-1, ...fields.map((field) => field.position)) + 1,
             });
-        if (!result) throw new Error("表格或字段已不存在");
+        if (!result) {
+          throw new Error("表格或字段已不存在");
+        }
         if ("warnings" in result && result.warnings.length) {
           this.#update(session, { notice: `修改已提交。${result.warnings.join("；")}` });
         }
       } else if (editor.kind === "display") {
         const error = validateDisplayStrategyDraft(editor.draft, fields);
-        if (error) throw new Error(error.message);
+        if (error) {
+          throw new Error(error.message);
+        }
         if (
           !(await this.#services.fields.setDisplayStrategy(
             context!.spaceId,
             tableId!,
             displayStrategyFromDraft(editor.draft),
           ))
-        )
+        ) {
           throw new Error("表格已不存在");
+        }
       } else if (
         !(await this.#services.tables.update(context!.spaceId, tableId!, {
           vectorIndex: editor.draft,
         }))
-      )
+      ) {
         throw new Error("表格已不存在");
+      }
     });
   }
   async #mutate(session: Session, action: () => Promise<void>) {
-    if (session.state.saving) return;
+    if (session.state.saving) {
+      return;
+    }
     const context = session.state.context!;
     this.#update(session, { saving: true, error: null, notice: null });
     let committed = false;
@@ -466,7 +525,9 @@ export class TablesWorkspace {
     } catch (error) {
       if (error instanceof MemoryCommitPersistenceError) {
         committed = true;
-      } else this.#update(session, { error: message(error) });
+      } else {
+        this.#update(session, { error: message(error) });
+      }
     }
     if (committed) {
       this.#update(session, {
@@ -479,7 +540,9 @@ export class TablesWorkspace {
       } catch (error) {
         this.#update(session, { notice: `修改已提交，刷新失败：${message(error)}` });
       }
-      if (session === this.#current) await this.refresh();
+      if (session === this.#current) {
+        await this.refresh();
+      }
     }
     this.#update(session, { saving: false });
   }
@@ -490,10 +553,16 @@ export class TablesWorkspace {
       const removed = fieldId
         ? await this.#services.fields.delete(context!.spaceId, tableId!, fieldId)
         : await this.#services.tables.delete(context!.spaceId, tableId!);
-      if (!removed) throw new Error("要删除的内容已不存在");
-      if (!fieldId) this.#update(session, { tableId: null });
+      if (!removed) {
+        throw new Error("要删除的内容已不存在");
+      }
+      if (!fieldId) {
+        this.#update(session, { tableId: null });
+      }
     });
-    if (session.state.error) throw new Error(session.state.error);
+    if (session.state.error) {
+      throw new Error(session.state.error);
+    }
   }
   async preview() {
     const session = this.#session(),
@@ -504,7 +573,9 @@ export class TablesWorkspace {
       let previews: string[];
       if (editor?.kind === "display") {
         const error = validateDisplayStrategyDraft(editor.draft, session.state.fields);
-        if (error) throw new Error(error.message);
+        if (error) {
+          throw new Error(error.message);
+        }
         const page = await this.#services.records.list(context!.spaceId, tableId!, {
           page: 1,
           pageSize: 5,
@@ -530,28 +601,36 @@ export class TablesWorkspace {
           `${result.records} 条记录 · ${result.vectors} 个向量目标 · ${result.ready} 就绪 · ${result.pending} 待建`,
           `空输入 ${result.empty} · 配置错误 ${result.invalid} · 超长 ${result.tooLong} · 连接不可用 ${result.unavailable}`,
         ];
-      } else return;
-      if (epoch === this.#epoch && request === session.previewRequest)
+      } else {
+        return;
+      }
+      if (epoch === this.#epoch && request === session.previewRequest) {
         this.#update(session, { previews, error: null });
+      }
     } catch (error) {
-      if (epoch === this.#epoch && request === session.previewRequest)
+      if (epoch === this.#epoch && request === session.previewRequest) {
         this.#update(session, { error: message(error) });
+      }
     }
   }
   async index(action: "build" | "rebuild" | "clear") {
     const session = this.#session(),
       { context, tableId } = session.state;
-    if (session.state.saving) return;
+    if (session.state.saving) {
+      return;
+    }
     this.#update(session, { saving: true, error: null });
     try {
       this.#services.assertContext(context!);
       const scope = { memorySpaceId: context!.spaceId, tableId: tableId! };
-      if (action === "clear") await this.#services.vectorIndex.clear(scope);
-      else
+      if (action === "clear") {
+        await this.#services.vectorIndex.clear(scope);
+      } else {
         await this.#services.vectorIndex.submit(scope, {
           source: "manual",
           force: action === "rebuild",
         });
+      }
       this.#update(session, {
         notice:
           action === "clear" ? "向量已清除，记忆正文保留" : "索引任务已提交，请在任务页查看进度",

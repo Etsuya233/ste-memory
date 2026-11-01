@@ -126,7 +126,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     const created = (await writer(store.repositories("write", first)).create(id(), tableId(), {
       payload: { name: "第一批" },
     }))!;
-    await store.finish(id(), first, true);
+    await store.commitTask(id(), first);
     expect(save).toHaveBeenCalledTimes(1);
 
     const next = await store.begin(id());
@@ -141,11 +141,11 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     });
     await batch.create(id(), tableId(), { payload: { name: "未提交新增" } });
     expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
-    await store.finish(id(), next, false);
+    await store.rollbackTask(id(), next);
     expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
     expect(save).toHaveBeenCalledTimes(1);
     const third = await store.begin(id());
-    await store.finish(id(), third, false);
+    await store.rollbackTask(id(), third);
   });
 
   it("task create and update are visible only to the task connection until commit", async () => {
@@ -167,10 +167,10 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       expect(snapshot.records[0]!.payload).toEqual({ name: "林更新" });
       expect(await committed.records.find(id(), tableId(), created.id)).toEqual(updated);
       const next = await store.begin(id());
-      await store.finish(id(), next, false);
+      await store.rollbackTask(id(), next);
     });
     store.saveSnapshot = save;
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     expect(save).toHaveBeenCalledOnce();
     expect(await committed.records.list(id(), tableId())).toEqual([updated]);
   });
@@ -199,7 +199,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     ]);
     expect(await task.records.list(id(), tableId())).toHaveLength(3);
     expect(await task.records.listHistory({ memorySpaceId: id() })).toHaveLength(1);
-    await store.finish(id(), token, false);
+    await store.rollbackTask(id(), token);
     expect(await store.snapshot(id())).toEqual(before);
     expect(await store.repositories().records.list(id(), tableId())).toEqual([original]);
   });
@@ -221,7 +221,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(await task.records.find(id(), tableId(), row("invalid-step", "").id)).toBeUndefined();
     expect(await task.records.list(id(), tableId())).toHaveLength(1);
     await task.records.create(row("last", "修正成功"), []);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     expect(
       (await store.repositories().records.list(id(), tableId())).map((record) => record.id).sort(),
     ).toEqual(["first", "last"]);
@@ -241,7 +241,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(await task.records.findEvidence(id(), "sync_floor", 1)).toBeUndefined();
     expect(await task.records.list(id(), tableId())).toEqual([]);
     await task.records.create(row("valid", "有效角色"), [evidence]);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     expect(await store.repositories().records.findEvidence(id(), "sync_floor", 1)).toEqual(
       evidence,
     );
@@ -253,7 +253,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     store.saveSnapshot = async () => {
       throw new Error("聊天文件保存失败");
     };
-    await expect(store.finish(id(), token, true)).rejects.toThrow("聊天文件保存失败");
+    await expect(store.commitTask(id(), token)).rejects.toThrow("聊天文件保存失败");
     expect((await store.snapshot(id()))!.records).toEqual([row("saved", "已提交")]);
     store.saveSnapshot = async () => {};
     await store.repositories().records.create(row("next", "下一次"), []);
@@ -289,7 +289,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
     ).toHaveLength(1);
     expect(published).toHaveBeenCalledTimes(1);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     expect(published).toHaveBeenCalledTimes(2);
     expect(
       (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
@@ -310,7 +310,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       row("saved", "已提交"),
     ]);
     const next = await store.begin(id());
-    await store.finish(id(), next, false);
+    await store.rollbackTask(id(), next);
   });
 
   it("retries snapshot persistence without replaying a committed record write", async () => {
@@ -329,7 +329,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(after.history).toEqual(before.history);
     expect(after.records).toHaveLength(1);
     expect(persist).toHaveBeenCalledOnce();
-    expect(persist).toHaveBeenCalledWith(after);
+    expect(persist).toHaveBeenCalledWith(after, undefined);
   });
 
   it("record creation exposes its exact committed record when file persistence fails", async () => {
@@ -435,7 +435,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       store.repositories("write", Symbol("wrong")).records.create(row("wrong", "错误令牌"), []),
     ).rejects.toThrow("会话已结束");
     await store.repositories("write", token).records.create(row("task", "任务修改"), []);
-    await store.finish(id(), token, false);
+    await store.rollbackTask(id(), token);
     await store.repositories().records.create(row("ordinary", "普通修改"), []);
     expect(await store.repositories().records.list(id(), tableId())).toEqual([
       row("ordinary", "普通修改"),
@@ -446,14 +446,14 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     const token = await store.begin(id());
     const stale = store.repositories("write", token);
     await stale.records.create(row("discarded", "已取消"), []);
-    await store.finish(id(), token, false);
+    await store.rollbackTask(id(), token);
     await expect(stale.records.create(row("late", "迟到结果"), [])).rejects.toThrow("会话已结束");
     expect(await store.repositories().records.list(id(), tableId())).toEqual([]);
     const next = await store.begin(id());
     await expect(stale.records.create(row("late-again", "迟到结果"), [])).rejects.toThrow(
       "会话已结束",
     );
-    await store.finish(id(), next, false);
+    await store.rollbackTask(id(), next);
   });
 
   it("task revisions collapse repeated updates to one baseline history and preserve prior archives", async () => {
@@ -482,7 +482,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     const finalRevision = "task-revision" as MemoryRevisionId;
     const archivedAt = "2026-10-24T01:00:00.000Z";
     await store.consolidateTask(baseline, token, finalRevision, archivedAt);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     const snapshot = (await store.snapshot(id()))!;
     expect(snapshot.history).toHaveLength(baseline.history.length + 1);
     expect(snapshot.history).toEqual(expect.arrayContaining([...baseline.history]));
@@ -519,7 +519,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       patch: { name: "最终状态" },
     });
     await store.consolidateTask(baseline, token, "task-new" as MemoryRevisionId, stamp);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     const snapshot = (await store.snapshot(id()))!;
     expect(snapshot.records).toHaveLength(1);
     expect(snapshot.records[0]).toMatchObject({
@@ -562,7 +562,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     }))!;
     await records.delete(id(), tableId(), transient.id, updated.revisionId, "agent");
     await store.consolidateTask(baseline, token, "task-delete-new" as MemoryRevisionId, stamp);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     const snapshot = (await store.snapshot(id()))!;
     expect(snapshot.records).toEqual(baseline.records);
     expect(snapshot.history).toEqual(baseline.history);
@@ -587,7 +587,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       patch: { name: "原值" },
     });
     await store.consolidateTask(baseline, token, "unused-task-revision" as MemoryRevisionId, stamp);
-    await store.finish(id(), token, true);
+    await store.commitTask(id(), token);
     const snapshot = (await store.snapshot(id()))!;
     expect(snapshot.records).toEqual([original]);
     expect(snapshot.history).toEqual([]);
@@ -634,6 +634,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
     expect(committed).toHaveBeenCalledWith(
       expect.objectContaining({ space: expect.objectContaining({ macros }) }),
+      undefined,
     );
     await store.repositories().spaces.clearRecords(id());
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
@@ -674,7 +675,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     await expect(
       store.repositories().records.create(row("concurrent", "并发修改"), []),
     ).rejects.toThrow("正在填写或保存");
-    await store.finish(id(), next, false);
+    await store.rollbackTask(id(), next);
   });
 
   it("retains an import transaction error when structure replacement does not commit", async () => {

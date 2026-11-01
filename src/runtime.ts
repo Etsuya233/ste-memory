@@ -1,5 +1,6 @@
+import { PresetSpaceUpdater } from "./infrastructure/memory-runtime/preset-space-updater.ts";
+import { MemorySpaceLifecycle } from "./infrastructure/memory-runtime/memory-space-lifecycle.ts";
 import { instantiateTablePreset } from "./features/table-presets/preset-instantiation.ts";
-import type { ChatSpaceBinding } from "./features/chat-binding/chat-space-manager.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "./features/memory-snapshot/snapshot.ts";
 import { QueryChatStore } from "./features/query-chat/session-store.ts";
 import { PublicMemoryReader, type MemoryReadApi } from "./features/public-read/public-read-api.ts";
@@ -22,11 +23,7 @@ import {
   AutoFillService,
   type AutoFillNotification,
 } from "./features/fill-tasks/auto-fill-service.ts";
-import {
-  buildPresetUpdate,
-  previewPresetUpdate,
-  type PresetSpaceUpdateService,
-} from "./features/table-presets/preset-space-update.ts";
+import type { PresetSpaceUpdateService } from "./features/table-presets/preset-space-update.ts";
 import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
 import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
@@ -53,7 +50,6 @@ import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import {
   ChatSnapshotPersistence,
   type ChatSnapshotFileStore,
-  type ChatFileTarget,
 } from "./features/chat-mirror/chat-snapshot-persistence.ts";
 import {
   createSqliteMemoryClient,
@@ -237,7 +233,9 @@ export interface StartSteMemoryOptions {
  */
 export function defaultIdFactory(prefix: string): string {
   const cryptoApi = globalThis.crypto;
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  if (cryptoApi?.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
@@ -265,21 +263,13 @@ export async function startSteMemory(
     options.snapshotFiles ?? adapter.snapshotFileStore,
     () => options.version ?? "",
   );
-  const owners = new Map<string, { target: ChatFileTarget; binding: ChatSpaceBinding }>();
-  const saveSnapshot = (unit: MemorySpaceBackup, saved?: () => Promise<void>): Promise<void> => {
-    const owner = owners.get(unit.space.id);
-    if (!owner) throw new Error("已提交空间缺少固定聊天归属");
-    return persistence.saveCommitted(owner.target, owner.binding, unit, saved);
-  };
-
+  // 保存/编辑端口在构造时固定；首次加载前，所有生命周期依赖会完成装配。
+  const saveSnapshot = (unit: MemorySpaceBackup, saved?: () => Promise<void>) =>
+    lifecycle.saveSnapshot(unit, saved);
   const sqlite = await (options.createSqlite ?? createSqliteMemoryClient)();
   const memoryStore = new SqliteMemoryStore(sqlite, {
     saveSnapshot,
-    assertCanEdit: (id) => {
-      const owner = owners.get(id);
-      if (owner && persistence.hasPendingReplacement(owner.target.identity))
-        throw new Error("候选空间尚未完成保存，请先重试保存");
-    },
+    assertCanEdit: (id) => lifecycle.assertCanEdit(id),
     reportRefreshError: (error) => log.error("空间订阅刷新失败", error),
   });
   const repositories = memoryStore.repositories();
@@ -358,7 +348,9 @@ export async function startSteMemory(
         (spaceId, query, display) => querySqliteRecords(sqlite, spaceId, query, view, display),
       ).query(id, input),
     querySql: async (id, sql) => {
-      if (!memoryStore.hasSpace(id)) throw new Error(`记忆空间不存在: ${id}`);
+      if (!memoryStore.hasSpace(id)) {
+        throw new Error(`记忆空间不存在: ${id}`);
+      }
       const allowedTables: Record<string, readonly string[]> = {};
       const display = createReadTimeDisplayTextResolver({
         getTable: (tableId) => repos.tables.find(id, tableId),
@@ -367,7 +359,9 @@ export async function startSteMemory(
           repos.records.find(id, tableId, recordId as MemoryRecordId),
       });
       for (const table of await repos.tables.list(id)) {
-        if (!table.enabled) continue;
+        if (!table.enabled) {
+          continue;
+        }
         allowedTables[table.key] = [
           "$record_id",
           "$display_text",
@@ -483,17 +477,21 @@ export async function startSteMemory(
             now(),
           );
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, true, saved);
+          await memoryStore.commitTask(task.memorySpaceId, token, saved);
         },
         rollback: async () => {
-          if (ended) return;
+          if (ended) {
+            return;
+          }
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, false);
+          await memoryStore.rollbackTask(task.memorySpaceId, token);
         },
         release: async () => {
-          if (ended) return;
+          if (ended) {
+            return;
+          }
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, false);
+          await memoryStore.rollbackTask(task.memorySpaceId, token);
         },
       };
     },
@@ -512,7 +510,9 @@ export async function startSteMemory(
 
   const presetApply = new TablePresetApplyService({
     validateStructure: async (structure) => {
-      if (!structure.macros.length) return structure;
+      if (!structure.macros.length) {
+        return structure;
+      }
       const at = now();
       const snapshot: MemorySpaceBackup = {
         schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
@@ -600,35 +600,10 @@ export async function startSteMemory(
       });
     },
     validateSnapshot: (unit) => backup.validateSnapshot(unit),
-    activateSnapshot: async (target, binding, unit) => {
-      await memoryStore.whenIdle(unit.space.id);
-      await memoryStore.replace(unit);
-      owners.set(unit.space.id, { target, binding });
-    },
-    unloadSnapshot: async (id, target) => {
-      await memoryStore.whenIdle(id);
-      if (owners.get(id)?.target.identity !== target.identity) return;
-      await memoryStore.unload(id);
-      owners.delete(id);
-    },
-    stopSpaceWrites: async (id) => {
-      await tasks.cancelAll(id);
-      await vector.stop({ memorySpaceId: id });
-      assistantStore.cancelSpace(id);
-      await memoryStore.whenIdle(id);
-    },
-    retireSpace: (id, target) =>
-      memoryStore.exclusive(id, async (token) => {
-        const owner = owners.get(id);
-        // 旧聊天保存可以迟到；相同领域ID已由其他文件激活时，不退役其内容或辅助数据。
-        if (owner && owner.target.identity !== target.identity) return;
-        await fillTaskRepository.clear(id);
-        await floorLedgerRepository.clear(id);
-        await vector.purge({ memorySpaceId: id });
-        await assistantStore.clearSpaceHistory(id);
-        await memoryStore.unload(id, token);
-        owners.delete(id);
-      }),
+    activateSnapshot: (target, binding, unit) => lifecycle.activate(target, binding, unit),
+    unloadSnapshot: (id, target) => lifecycle.unload(id, target),
+    stopSpaceWrites: (id) => lifecycle.stopWrites(id),
+    retireSpace: (id, target) => lifecycle.retire(id, target),
     findSpace: (id) => spaceRepository.find(id),
     createIds: {
       space: () => createId("space") as MemorySpaceId,
@@ -730,9 +705,13 @@ export async function startSteMemory(
   };
   const semanticQuery = createSemanticQueryExecutor({
     snapshot: async (spaceId) => {
-      if (!memoryStore.hasSpace(spaceId)) throw new Error(`记忆空间不存在: ${spaceId}`);
+      if (!memoryStore.hasSpace(spaceId)) {
+        throw new Error(`记忆空间不存在: ${spaceId}`);
+      }
       const snapshot = await memoryStore.snapshot(spaceId);
-      if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+      if (!snapshot) {
+        throw new Error(`记忆空间不存在: ${spaceId}`);
+      }
       return snapshot;
     },
     createSession: (snapshot, context) =>
@@ -745,6 +724,19 @@ export async function startSteMemory(
     createId("assistant"),
   );
   await assistantStore.ready;
+  const lifecycle: MemorySpaceLifecycle = new MemorySpaceLifecycle({
+    memory: memoryStore,
+    persistence,
+    tasks,
+    vector,
+    assistant: assistantStore,
+    clearTasks: (id) => fillTaskRepository.clear(id),
+    clearLedger: (id) => floorLedgerRepository.clear(id),
+    reportSwitchError: (error) => {
+      manager.reportLoadError(error);
+      log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
+    },
+  });
   const queryChat = new QueryChatService({
     store: assistantStore,
     semanticQuery,
@@ -753,7 +745,9 @@ export async function startSteMemory(
     recordWriter: records,
     createLlm: createQueryChatLlm,
     getCurrentContext: () => {
-      if (!settings.read().enabled) return undefined;
+      if (!settings.read().enabled) {
+        return undefined;
+      }
       const status = manager.getStatus();
       const chatKey = chatIdentityKey(adapter.getChatSnapshot());
       return status?.kind === "active" && chatKey
@@ -773,13 +767,15 @@ export async function startSteMemory(
 
   // 页面/浏览器重开：运行项标记 interrupted 并暂停队列，等待项保留
   await tasks.markInterruptedOnStartup();
-  // 镜像同步启动：本地变更在轮询中回填进对话文件（文件自洽）
+  // 后续 SQLite 提交同步交接文件保存；辅助任务只恢复自身运行状态。
 
   const refreshChatMacros = async () => {
     const context = retrievalContext();
     const id = currentSpaceId();
     const space = id ? await spaces.find(id) : undefined;
-    if (context === retrievalContext()) chatMacros = space?.macros ?? [];
+    if (context === retrievalContext()) {
+      chatMacros = space?.macros ?? [];
+    }
   };
   const createMacroBatch = (
     snapshot: MemorySpaceBackup,
@@ -789,7 +785,9 @@ export async function startSteMemory(
     snapshot: MemorySpaceBackup,
     macros: readonly MemoryMacro[],
   ): Promise<readonly MemoryMacro[]> => {
-    if (!macros.length) return macros;
+    if (!macros.length) {
+      return macros;
+    }
     const signal = AbortSignal.timeout(10_000);
     const batch = await createMacroBatch(snapshot, {
       lastUserMessage: null,
@@ -813,7 +811,9 @@ export async function startSteMemory(
     macros: readonly MemoryMacro[],
     previous: readonly MemoryMacro[],
   ): Promise<readonly MemoryMacro[]> => {
-    if (!macros.length) return macros;
+    if (!macros.length) {
+      return macros;
+    }
     const normalized = new Map<string, MemoryMacro>();
     const pending: MemoryMacro[] = [];
     for (const macro of macros) {
@@ -842,19 +842,30 @@ export async function startSteMemory(
               before.expression.usesSemantic === true,
           },
         });
-      } else pending.push(macro);
+      } else {
+        pending.push(macro);
+      }
     }
-    if (!pending.length) return macros.map((macro) => normalized.get(macro.id)!);
+    if (!pending.length) {
+      return macros.map((macro) => normalized.get(macro.id)!);
+    }
     const id = currentSpaceId();
     if (!id) {
-      if (pending.some((macro) => macro.expression.language === "sql"))
+      if (pending.some((macro) => macro.expression.language === "sql")) {
         throw new Error("请先打开已绑定记忆空间的对话，再保存 SQL 宏");
-      for (const macro of pending) normalized.set(macro.id, macro);
+      }
+      for (const macro of pending) {
+        normalized.set(macro.id, macro);
+      }
       return macros.map((macro) => normalized.get(macro.id)!);
     }
     const snapshot = await memoryStore.snapshot(id);
-    if (!snapshot) throw new Error("当前记忆空间尚未准备好");
-    for (const macro of await classifyMacros(snapshot, pending)) normalized.set(macro.id, macro);
+    if (!snapshot) {
+      throw new Error("当前记忆空间尚未准备好");
+    }
+    for (const macro of await classifyMacros(snapshot, pending)) {
+      normalized.set(macro.id, macro);
+    }
     return macros.map((macro) => normalized.get(macro.id)!);
   };
   const normalizeImportedSpace = async (unit: MemorySpaceBackup): Promise<MemorySpaceBackup> => ({
@@ -864,10 +875,16 @@ export async function startSteMemory(
   const writeChatMacros = async (macros: readonly MemoryMacro[]) => {
     const id = currentSpaceId();
     const context = retrievalContext();
-    if (!id) throw new Error("当前对话尚未准备好");
+    if (!id) {
+      throw new Error("当前对话尚未准备好");
+    }
     const saved = await spaces.setMacros(id, macros);
-    if (!saved) throw new Error("记忆空间已不存在");
-    if (context !== retrievalContext()) return;
+    if (!saved) {
+      throw new Error("记忆空间已不存在");
+    }
+    if (context !== retrievalContext()) {
+      return;
+    }
     chatMacros = macros;
     await manager.refreshSpace(id);
   };
@@ -895,11 +912,16 @@ export async function startSteMemory(
       const status = manager.getStatus();
       const snapshot = adapter.getChatSnapshot();
       const identity = chatIdentityKey(snapshot);
-      if (!settings.read().enabled || status?.kind !== "active" || !identity) return undefined;
-      const binding = adapter.bindingStore.read();
-      if (binding.kind !== "bound" || binding.binding.spaceId !== status.space.id) return undefined;
-      if (binding.binding.version === 2 && binding.binding.chatIdentity !== identity)
+      if (!settings.read().enabled || status?.kind !== "active" || !identity) {
         return undefined;
+      }
+      const binding = adapter.bindingStore.read();
+      if (binding.kind !== "bound" || binding.binding.spaceId !== status.space.id) {
+        return undefined;
+      }
+      if (binding.binding.version === 2 && binding.binding.chatIdentity !== identity) {
+        return undefined;
+      }
       return {
         identity,
         chatId: snapshot.chatId,
@@ -928,11 +950,12 @@ export async function startSteMemory(
     adapter.clearLegacyRecall();
     const state = await manager.syncToCurrentChat();
     await refreshChatMacros();
-    if (state.kind === "active") await macro.migrateLegacyChatMacros();
+    if (state.kind === "active") {
+      await macro.migrateLegacyChatMacros();
+    }
     return state;
   }
 
-  let switching = Promise.resolve();
   adapter.registerEventBridge({
     onChatChanged: () => {
       const stoppingAutoFill = autoFill.chatChanged();
@@ -942,26 +965,16 @@ export async function startSteMemory(
       retrieval.setContext(retrievalContext(), null, true);
       const previous = manager.getStatus();
       manager.clearCurrent();
-      const next = switching.then(async () => {
-        await stoppingAutoFill;
-        await tasks.interruptForChatChange();
-        if (previous?.kind === "active") {
-          await vector.pauseSpace(previous.space.id);
-          await memoryStore.whenIdle(previous.space.id);
-          // 每次提交已捕获保存任务；离开仅释放SQLite，失败快照留在persistence。
-          const owner = owners.get(previous.space.id);
-          await memoryStore.unload(previous.space.id);
-          owners.delete(previous.space.id);
-          if (owner) persistence.release(owner.target.identity);
-        }
-        if (settings.read().enabled) await syncCurrentChat();
-        autoFill.chatReady();
-      });
-      switching = next.catch((error) => {
-        manager.reportLoadError(error);
-        log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
-      });
-      return switching;
+      return lifecycle.switchChat(
+        previous?.kind === "active" ? previous.space.id : undefined,
+        stoppingAutoFill,
+        async () => {
+          if (settings.read().enabled) {
+            await syncCurrentChat();
+          }
+          autoFill.chatReady();
+        },
+      );
     },
     onMessageEvent: (kind, floor) =>
       kind === "message_sent" && floor !== undefined
@@ -969,7 +982,9 @@ export async function startSteMemory(
         : undefined,
     onGenerationStarted: (type, options, dryRun) => {
       macro.started(type, options, dryRun);
-      if (!dryRun && type !== "quiet" && type !== "impersonate") autoFill.generationStarted();
+      if (!dryRun && type !== "quiet" && type !== "impersonate") {
+        autoFill.generationStarted();
+      }
     },
     onGenerationAfterCommands: (type, options, dryRun) => {
       let lastUserMessage: string | null = null;
@@ -1017,7 +1032,9 @@ export async function startSteMemory(
       log.error("记忆空间初始化失败", error);
     }
     const status = manager.getStatus();
-    if (status?.kind === "active") vectorSync.activate(status.space.id);
+    if (status?.kind === "active") {
+      vectorSync.activate(status.space.id);
+    }
   }
   // 空间就绪后注册宏，表达式只在实际生成或显式测试时求值。
   autoFill.start();
@@ -1051,144 +1068,26 @@ export async function startSteMemory(
       return vectorSync.refreshSettings();
     },
   });
-  const assertUpdateTarget = (spaceId: MemorySpaceId, chatIdentity: string) => {
-    presetApply.assertCurrentChat(chatIdentity);
-    memoryStore.assertCanEdit(spaceId);
-    const status = manager.getStatus();
-    if (!settings.read().enabled || status?.kind !== "active" || status.space.id !== spaceId)
-      throw new Error("当前空间绑定或插件状态已变化，请重新比较");
-  };
-  const finishPresetUpdate = async (spaceId: MemorySpaceId, initialIssues: string[] = []) => {
-    const issues = [...initialIssues];
-    try {
-      await manager.refreshSpace(spaceId);
-    } catch (error) {
-      issues.push(`空间状态刷新失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-    retrieval.invalidate(spaceId, "空间已更新，请重新搜索");
-    try {
-      await macro.kick();
-    } catch (error) {
-      issues.push(`宏刷新失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-    try {
-      await vector.reconcile({ memorySpaceId: spaceId });
-      const latest = await memoryStore.snapshot(spaceId);
-      if (!latest) throw new Error("记忆空间不存在");
-      const groupIds = new Map(
-        latest.tables.map((table) => [
-          table.id,
-          new Set(
-            effectiveVectorIndexGroups(
-              table.vectorIndex,
-              latest.fields.filter((field) => field.tableId === table.id),
-            ).map((group) => group.id),
-          ),
-        ]),
-      );
-      const recordIds = new Set(latest.records.map((record) => record.id));
-      for (const item of await vectorRepository.listVectors({ memorySpaceId: spaceId })) {
-        if (!recordIds.has(item.recordId) || !groupIds.get(item.tableId)?.has(item.groupId))
-          await vectorRepository.deleteVector(item.id);
-      }
-      for (const suppression of await vectorRepository.listSuppressions()) {
-        if (suppression.memorySpaceId !== spaceId) continue;
-        const [, tableId, recordId, groupId] = suppression.id.split("\u0000");
-        if (
-          !recordIds.has(recordId as MemoryRecordId) ||
-          !groupIds.get(tableId as MemoryTableId)?.has(groupId!)
-        )
-          await vectorRepository.deleteSuppression(suppression.id);
-      }
-    } catch (error) {
-      issues.push(`索引处理失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-    return { issues };
-  };
-  const presetUpdate: PresetSpaceUpdateService = {
-    async preview(spaceId, preset, chatIdentity) {
-      assertUpdateTarget(spaceId, chatIdentity);
-      const unit = await memoryStore.snapshot(spaceId);
-      if (!unit) throw new Error("记忆空间不存在");
-      assertUpdateTarget(spaceId, chatIdentity);
-      return previewPresetUpdate(unit, preset);
+  const presetUpdate = new PresetSpaceUpdater({
+    memory: memoryStore,
+    manager,
+    settings,
+    tasks,
+    presetApply,
+    persistence,
+    saveSnapshot,
+    retrieval,
+    macro,
+    vector,
+    vectors: vectorRepository,
+    getSelectionKey: retrievalContext,
+    ids: {
+      table: () => createId("table") as MemoryTableId,
+      field: () => createId("field") as MemoryFieldId,
+      group: () => createId("vector-group"),
     },
-    async apply(plan, selectedIds, chatIdentity) {
-      assertUpdateTarget(plan.spaceId, chatIdentity);
-      const previewUnit = await memoryStore.snapshot(plan.spaceId);
-      if (!previewUnit) throw new Error("记忆空间不存在");
-      buildPresetUpdate(
-        previewUnit,
-        plan,
-        selectedIds,
-        {
-          table: () => createId("table") as MemoryTableId,
-          field: () => createId("field") as MemoryFieldId,
-          group: () => createId("vector-group"),
-        },
-        now(),
-      );
-      await tasks.cancelAll(plan.spaceId);
-      await memoryStore.whenIdle(plan.spaceId);
-      const issues: string[] = [];
-      await memoryStore.exclusive(plan.spaceId, async (token) => {
-        assertUpdateTarget(plan.spaceId, chatIdentity);
-        const unit = await memoryStore.snapshot(plan.spaceId);
-        if (!unit) throw new Error("记忆空间不存在");
-        let next = buildPresetUpdate(
-          unit,
-          plan,
-          selectedIds,
-          {
-            table: () => createId("table") as MemoryTableId,
-            field: () => createId("field") as MemoryFieldId,
-            group: () => createId("vector-group"),
-          },
-          now(),
-        );
-        const display = createReadTimeDisplayTextResolver({
-          getTable: async (id) => next.tables.find((table) => table.id === id),
-          getFields: async (id) => next.fields.filter((field) => field.tableId === id),
-          findRecord: async (tableId, recordId) =>
-            next.records.find((record) => record.tableId === tableId && record.id === recordId),
-        });
-        next = {
-          ...next,
-          records: await Promise.all(
-            next.records.map(async (record) => ({ ...record, displayText: await display(record) })),
-          ),
-        };
-        assertUpdateTarget(plan.spaceId, chatIdentity);
-        // importSpace builds and commits a separate SQLite database before publishing it.
-        // It retains the old database if validation or publication fails; it does not clear vectors/tasks.
-        await memoryStore.replace(next, token);
-        try {
-          await saveSnapshot(next);
-        } catch (error) {
-          issues.push(
-            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      });
-      return finishPresetUpdate(plan.spaceId, issues);
-    },
-    async retrySave(spaceId, chatIdentity) {
-      assertUpdateTarget(spaceId, chatIdentity);
-      const issues: string[] = [];
-      await memoryStore.exclusive(spaceId, async () => {
-        const latest = await memoryStore.snapshot(spaceId);
-        if (!latest) throw new Error("记忆空间不存在");
-        try {
-          await persistence.retry(chatIdentity);
-        } catch (error) {
-          issues.push(
-            `对话文件保存失败：${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      });
-      return finishPresetUpdate(spaceId, issues);
-    },
-  };
+    now,
+  });
   const publicRead = new PublicMemoryReader(
     () => {
       const status = manager.getStatus();
@@ -1213,12 +1112,16 @@ export async function startSteMemory(
       };
     },
     async (spaceId) => {
-      if (!memoryStore.hasSpace(spaceId)) throw new Error("当前记忆空间已不存在");
+      if (!memoryStore.hasSpace(spaceId)) {
+        throw new Error("当前记忆空间已不存在");
+      }
       return sqlite.readSnapshot(spaceId);
     },
     sqlite,
     async (spaceId) => {
-      if (!memoryStore.hasSpace(spaceId)) throw new Error("当前记忆空间已不存在");
+      if (!memoryStore.hasSpace(spaceId)) {
+        throw new Error("当前记忆空间已不存在");
+      }
     },
     createMemoryChatApi({
       getChatIdentity: () => chatIdentityKey(adapter.getChatSnapshot()) ?? null,
@@ -1226,8 +1129,9 @@ export async function startSteMemory(
       readCleaningRule: () => {
         const selection = adapter.cleaningRuleStore.read();
         const rule = findSelectedCleaningRule(settings.read().cleaningRules, selection);
-        if (selection !== undefined && !rule)
+        if (selection !== undefined && !rule) {
           throw new Error("当前聊天所选清洗规则已不存在，请在 Memory 中重新选择");
+        }
         return rule;
       },
     }),
@@ -1235,7 +1139,9 @@ export async function startSteMemory(
   manager.onStatusChange(() => publicRead.invalidate());
   memoryStore.subscribe((spaceId) => {
     macro.markStale();
-    if (publicRead.getContext().spaceId === spaceId) publicRead.invalidate();
+    if (publicRead.getContext().spaceId === spaceId) {
+      publicRead.invalidate();
+    }
     retrieval.invalidate(spaceId as MemorySpaceId);
     vectorSync.committed(spaceId as MemorySpaceId);
     void macro.kick().catch((error) => log.error("记忆宏刷新失败", error));
@@ -1250,7 +1156,9 @@ export async function startSteMemory(
     manager,
     retryMemorySave: async () => {
       const identity = chatIdentityKey(adapter.getChatSnapshot());
-      if (!identity) throw new Error("当前聊天尚未保存");
+      if (!identity) {
+        throw new Error("当前聊天尚未保存");
+      }
       await persistence.retry(identity);
     },
     adapter,
@@ -1268,7 +1176,9 @@ export async function startSteMemory(
     retrieval,
     sqlConsole: {
       async execute(spaceId, sql, signal) {
-        if (!memoryStore.hasSpace(spaceId)) throw new Error(`记忆空间不存在: ${spaceId}`);
+        if (!memoryStore.hasSpace(spaceId)) {
+          throw new Error(`记忆空间不存在: ${spaceId}`);
+        }
         const started = performance.now();
         const results: SqlResultSet[] = [];
         let changes = 0;
@@ -1283,7 +1193,9 @@ export async function startSteMemory(
             results.push(...chunk.results);
             changes += chunk.changes;
             transactionOpen = chunk.transactionOpen;
-            if (!chunk.semanticStatement) break;
+            if (!chunk.semanticStatement) {
+              break;
+            }
             const result = await semanticQuery(spaceId, {
               sql: chunk.semanticStatement.sql,
               signal,
@@ -1297,8 +1209,9 @@ export async function startSteMemory(
               groups,
               coverage,
             }));
-            if (!semantic) semantic = { sources, diagnostics: result.diagnostics };
-            else
+            if (!semantic) {
+              semantic = { sources, diagnostics: result.diagnostics };
+            } else {
               semantic = {
                 sources: [...semantic.sources, ...sources],
                 diagnostics: {
@@ -1320,6 +1233,7 @@ export async function startSteMemory(
                   },
                 },
               };
+            }
             remainingSql = chunk.semanticStatement.remainingSql;
           } while (remainingSql.trim());
           return {
@@ -1335,15 +1249,21 @@ export async function startSteMemory(
         }
       },
       async schema(spaceId) {
-        if (!memoryStore.hasSpace(spaceId)) throw new Error(`记忆空间不存在: ${spaceId}`);
+        if (!memoryStore.hasSpace(spaceId)) {
+          throw new Error(`记忆空间不存在: ${spaceId}`);
+        }
         const [entries, snapshot] = await Promise.all([
           sqlite.consoleSchema(spaceId),
           memoryStore.snapshot(spaceId),
         ]);
-        if (!snapshot) throw new Error(`记忆空间不存在: ${spaceId}`);
+        if (!snapshot) {
+          throw new Error(`记忆空间不存在: ${spaceId}`);
+        }
         return entries.map((entry) => {
           const table = snapshot.tables.find((table) => table.key === entry.name && table.enabled);
-          if (!table?.vectorIndex?.enabled) return entry;
+          if (!table?.vectorIndex?.enabled) {
+            return entry;
+          }
           const fields = snapshot.fields.filter((field) => field.tableId === table.id);
           return {
             ...entry,

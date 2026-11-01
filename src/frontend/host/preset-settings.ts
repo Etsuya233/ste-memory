@@ -23,8 +23,9 @@ export function createPresetSettingsServices(
       !runtime.settings.read().enabled ||
       status?.kind !== "active" ||
       status.space.id !== context.spaceId
-    )
+    ) {
       throw new Error("当前对话的记忆空间已变化，请重新确认应用目标");
+    }
     return status;
   }
   return {

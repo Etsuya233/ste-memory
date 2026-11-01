@@ -79,13 +79,17 @@ export function unprocessedRanges(
   ledger: readonly FloorLedgerEntry[],
   chatLength: number,
 ): readonly FloorRange[] {
-  if (chatLength <= 0) return [];
+  if (chatLength <= 0) {
+    return [];
+  }
   const covered = new Set(ledger.map((entry) => entry.floor));
   const ranges: FloorRange[] = [];
   let rangeStart: number | undefined;
   for (let floor = 0; floor < chatLength; floor += 1) {
     if (!covered.has(floor)) {
-      if (rangeStart === undefined) rangeStart = floor;
+      if (rangeStart === undefined) {
+        rangeStart = floor;
+      }
       continue;
     }
     if (rangeStart !== undefined) {
@@ -93,7 +97,9 @@ export function unprocessedRanges(
       rangeStart = undefined;
     }
   }
-  if (rangeStart !== undefined) ranges.push({ from: rangeStart, to: chatLength - 1 });
+  if (rangeStart !== undefined) {
+    ranges.push({ from: rangeStart, to: chatLength - 1 });
+  }
   return ranges;
 }
 
@@ -103,7 +109,9 @@ export function unprocessedRanges(
  */
 export function validateBlockSize(text: string): BlockSizeValidation {
   const trimmed = text.trim();
-  if (trimmed === "") return { kind: "ok", value: DEFAULT_FILL_TASK_BLOCK_SIZE };
+  if (trimmed === "") {
+    return { kind: "ok", value: DEFAULT_FILL_TASK_BLOCK_SIZE };
+  }
   const value = Number(trimmed);
   if (!Number.isInteger(value)) {
     return { kind: "error", message: "每批楼层数请输入整数（每批处理的楼层数）" };
@@ -159,7 +167,9 @@ export function validateFloorRange(
   // 空串 = 边界默认（起点 0 / 终点 last）；非空非整数 = 非法输入
   const parse = (text: string): number | null | undefined => {
     const trimmed = text.trim();
-    if (trimmed === "") return null;
+    if (trimmed === "") {
+      return null;
+    }
     const value = Number(trimmed);
     return Number.isInteger(value) ? value : undefined;
   };
@@ -175,21 +185,25 @@ export function validateFloorRange(
  *  初始化任务（kind=init）无楼层：running 显示初始化文案，不显示楼层进度。 */
 export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
   // marker 在提交前建立；运行中沿用保存阶段，刷新中断后不能据此断言已经提交。
-  if (task.pendingSave && task.status === "failed")
+  if (task.pendingSave && task.status === "failed") {
     return {
       label: "等待保存",
       detail: "本批修改已提交，等待保存完成。请使用工作台顶部的保存重试。",
     };
-  if (task.pendingSave && task.status === "interrupted")
+  }
+  if (task.pendingSave && task.status === "interrupted") {
     return {
       label: "保存待核对",
       detail: "上次批次保存未确认，请先核对对话记忆。可取消队列后主动重新提交，取消不会自动重放。",
     };
+  }
   switch (task.status) {
     case "queued":
       return { label: "等待中", detail: "按提交顺序等待执行" };
     case "running":
-      if (task.phase === "saving") return { label: "保存中", detail: "正在提交当前批次…" };
+      if (task.phase === "saving") {
+        return { label: "保存中", detail: "正在提交当前批次…" };
+      }
       if (task.retryState) {
         const retry = task.retryState;
         const seconds = Math.max(0, Math.ceil((retry.retryAt - Date.now()) / 1000));
@@ -397,9 +411,15 @@ function cleaningRuleHint(
   rules: readonly CleaningRule[],
   selectedRuleId: string | undefined,
 ): string {
-  if (selectedRuleId === undefined) return "未启用清洗";
+  if (selectedRuleId === undefined) {
+    return "未启用清洗";
+  }
   const rule = rules.find((candidate) => candidate.id === selectedRuleId);
-  if (!rule) return "所选清洗规则不存在，未清洗";
-  if (!rule.enabled) return `清洗规则已停用：${rule.name}`;
+  if (!rule) {
+    return "所选清洗规则不存在，未清洗";
+  }
+  if (!rule.enabled) {
+    return `清洗规则已停用：${rule.name}`;
+  }
   return `清洗：${rule.name}`;
 }

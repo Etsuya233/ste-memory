@@ -106,7 +106,9 @@ function snapshot(overrides: Partial<Parameters<typeof composePresetMessages>[1]
 
 /** 消息纯文本（LLM 消息 content 可能是字符串或文本块数组）。 */
 function textOf(message: { readonly role: string; readonly content: unknown }): string {
-  if (typeof message.content === "string") return message.content;
+  if (typeof message.content === "string") {
+    return message.content;
+  }
   return (message.content as readonly { type: string; text?: string }[])
     .filter((block) => block.type === "text" && typeof block.text === "string")
     .map((block) => block.text as string)
@@ -263,7 +265,9 @@ async function createHarness(
       read: async () => undefined,
       write: async () => {
         await options.onSave?.();
-        if (options.saveError) throw new Error("聊天文件保存失败");
+        if (options.saveError) {
+          throw new Error("聊天文件保存失败");
+        }
       },
       publish: () => {},
     },
@@ -320,17 +324,21 @@ async function createHarness(
             NOW,
           );
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, true, saved);
+          await memoryStore.commitTask(task.memorySpaceId, token, saved);
         },
         rollback: async () => {
-          if (ended) return;
+          if (ended) {
+            return;
+          }
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, false);
+          await memoryStore.rollbackTask(task.memorySpaceId, token);
         },
         release: async () => {
-          if (ended) return;
+          if (ended) {
+            return;
+          }
           ended = true;
-          await memoryStore.finish(task.memorySpaceId, token, false);
+          await memoryStore.rollbackTask(task.memorySpaceId, token);
         },
       };
     },
@@ -339,7 +347,9 @@ async function createHarness(
         await work();
       }),
     createLlm: () => {
-      if (options.createLlmThrows) throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
+      if (options.createLlmThrows) {
+        throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
+      }
       return { streamFn: options.streamFn ?? scriptedFillAgent(), model: fakeModel() };
     },
     createRunId: () => `run-${++runSeq}`,
@@ -405,7 +415,9 @@ async function waitForTaskEndRow(harness: Harness, runId: string): Promise<void>
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const rows = await harness.logs.byKey(runId, 100);
-    if (rows.some((row) => row.type === "fill-task" && payloadOf(row).phase === "end")) return;
+    if (rows.some((row) => row.type === "fill-task" && payloadOf(row).phase === "end")) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`任务 ${runId} 的结束日志行未在 5s 内落库`);
@@ -1159,7 +1171,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
 function capturePrompts(onPrompt: (text: string) => void) {
   return scriptedStreamFn((context) => {
     for (const message of context.messages) {
-      if (message.role !== "user") continue;
+      if (message.role !== "user") {
+        continue;
+      }
       for (const part of message.content) {
         if (typeof part === "string") {
           onPrompt(part);
@@ -1699,7 +1713,9 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       logs: {
         append: async () => {
           appends += 1;
-          if (appends > 1) throw new Error("日志库写入失败");
+          if (appends > 1) {
+            throw new Error("日志库写入失败");
+          }
         },
         recent: async () => [],
         byKey: async () => [],
@@ -1781,7 +1797,9 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     const respond = scriptedFillAgent().respond;
     const streamFn = scriptedStreamFn((context) => {
       const result = respond(context);
-      if (lastToolResult(context)) changed = true;
+      if (lastToolResult(context)) {
+        changed = true;
+      }
       return result;
     });
     const harness = await createHarness({ source, streamFn });
@@ -1829,8 +1847,11 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       }
       if (last.toolName === MUTATE_TOOL_NAME) {
         const data = JSON.parse(textOf(last)) as { recordId: string };
-        if (block === 1) id = data.recordId;
-        else expect(data.recordId).toBe(id);
+        if (block === 1) {
+          id = data.recordId;
+        } else {
+          expect(data.recordId).toBe(id);
+        }
         return assistantMessage(
           [toolCallMessage("finish", SUBMIT_PROPOSAL_TOOL_NAME, {})],
           "toolUse",
@@ -1983,7 +2004,9 @@ describe("FillTaskService 填表 Agent 决策行（ADR 0016「上下文 + 轮次
     const calls = { n: 0 };
     const streamFn = scriptedStreamFn((context) => {
       calls.n += 1;
-      if (calls.n >= 3) return assistantMessage([textMessage("模型炸了")], "error", "模型炸了");
+      if (calls.n >= 3) {
+        return assistantMessage([textMessage("模型炸了")], "error", "模型炸了");
+      }
       if (!lastToolResult(context)) {
         return assistantMessage(
           [toolCallMessage("call-1", QUERY_RECORDS_TOOL_NAME, { table: "characters" })],
@@ -2156,7 +2179,9 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     // 捕获提示词的同时提交提案（空提案不落证据，无法验证证据原文）
     const streamFn = scriptedStreamFn((context) => {
       for (const message of context.messages) {
-        if (message.role !== "user") continue;
+        if (message.role !== "user") {
+          continue;
+        }
         for (const part of message.content) {
           if (typeof part === "string") {
             prompts.push(part);
@@ -2481,7 +2506,7 @@ describe("填表 API 请求重试", () => {
     const streamFn = scriptedStreamFn((context) => {
       contexts.push(structuredClone(context.messages));
       calls++;
-      if (calls === 1)
+      if (calls === 1) {
         return assistantMessage(
           [
             toolCallMessage("create", MUTATE_TOOL_NAME, {
@@ -2492,17 +2517,20 @@ describe("填表 API 请求重试", () => {
           ],
           "toolUse",
         );
-      if (calls === 2)
+      }
+      if (calls === 2) {
         return assistantMessage(
           [textMessage("半截"), toolCallMessage("broken", MUTATE_TOOL_NAME, {})],
           "error",
           "500 Internal Server Error",
         );
-      if (calls === 3)
+      }
+      if (calls === 3) {
         return assistantMessage(
           [toolCallMessage("submit", SUBMIT_PROPOSAL_TOOL_NAME, {})],
           "toolUse",
         );
+      }
       return assistantMessage([textMessage("完成")], "stop");
     });
     const harness = await createHarness({ streamFn });
@@ -2847,7 +2875,9 @@ describe("自动填表成功后续动作", () => {
       streamFn: emptyProposalAgent(),
       onAutomaticSuccess,
       onSave: async () => {
-        if (fail) throw new Error("保存失败");
+        if (fail) {
+          throw new Error("保存失败");
+        }
       },
     });
     const task = await h.service.submit({
@@ -2921,7 +2951,9 @@ describe("填表已提交批次的保存收口", () => {
     let writes = 0;
     const onSave = vi.fn(async () => {
       writes += 1;
-      if (writes === 1) await savingA;
+      if (writes === 1) {
+        await savingA;
+      }
       if (writes === 2) {
         await savingB;
         throw new Error("最新编辑B保存失败");
@@ -2992,7 +3024,9 @@ describe("填表已提交批次的保存收口", () => {
       const onAutomaticSuccess = vi.fn(async () => {});
       const onSave = vi.fn(async () => {
         await saving;
-        if (outcome === "failed") throw new Error("原聊天保存失败");
+        if (outcome === "failed") {
+          throw new Error("原聊天保存失败");
+        }
       });
       const h = await createHarness({
         streamFn: stream,
@@ -3050,7 +3084,9 @@ describe("填表已提交批次的保存收口", () => {
     const h = await createHarness({
       streamFn: stream,
       onSave: async () => {
-        if (failed) throw new Error("文件离线");
+        if (failed) {
+          throw new Error("文件离线");
+        }
       },
     });
     const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
@@ -3085,7 +3121,9 @@ describe("填表已提交批次的保存收口", () => {
     const h = await createHarness({
       streamFn: stream,
       onSave: async () => {
-        if (failed) throw new Error("文件离线");
+        if (failed) {
+          throw new Error("文件离线");
+        }
       },
     });
     const task = await h.service.submitInit({ memorySpaceId: h.spaceId, text: "初始设定" });
@@ -3107,7 +3145,9 @@ describe("填表已提交批次的保存收口", () => {
     const h = await createHarness({
       streamFn: stream,
       onSave: async () => {
-        if (failed) throw new Error("文件离线");
+        if (failed) {
+          throw new Error("文件离线");
+        }
       },
     });
     const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 5, blockSize: 2 });
@@ -3169,7 +3209,9 @@ describe("填表已提交批次的保存收口", () => {
       streamFn: emptyProposalAgent(),
       onAutomaticSuccess,
       onSave: async () => {
-        if (failed) throw new Error("文件离线");
+        if (failed) {
+          throw new Error("文件离线");
+        }
       },
     });
     const task = await h.service.submit({
@@ -3193,7 +3235,9 @@ describe("填表已提交批次的保存收口", () => {
     const h = await createHarness({
       streamFn: emptyProposalAgent(),
       onSave: async () => {
-        if (failed) throw new Error("文件离线");
+        if (failed) {
+          throw new Error("文件离线");
+        }
       },
     });
     const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });

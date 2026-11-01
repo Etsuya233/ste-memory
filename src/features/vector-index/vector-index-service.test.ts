@@ -231,7 +231,9 @@ describe("VectorIndexService", () => {
     });
     let first = true;
     ctx.repository.listTasks = async () => {
-      if (!first) return originalList();
+      if (!first) {
+        return originalList();
+      }
       first = false;
       const empty = await originalList();
       entered();

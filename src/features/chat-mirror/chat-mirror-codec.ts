@@ -36,7 +36,9 @@ export function createChatMirrorFile(
 ): ChatMirrorFile {
   assertSnapshotStructure(memorySpaceSnapshotSchema, unit);
   validateSnapshotIntegrity(unit, createSnapshotSeenIds());
-  if (unit.space.id !== spaceId) snapshotInvalid("镜像空间身份不一致");
+  if (unit.space.id !== spaceId) {
+    snapshotInvalid("镜像空间身份不一致");
+  }
   const content = mirrorContent(unit);
   return {
     format: CHAT_MIRROR_FORMAT,
@@ -67,7 +69,9 @@ export function decodeChatMirrorFile(value: unknown): ChatMirrorFile | null {
     assertSnapshotStructure(mirrorEnvelopeSchema, value);
     const file = value as Static<typeof mirrorEnvelopeSchema>;
     const envelopeVersion = file.version;
-    if (![1, 2, CHAT_MIRROR_VERSION].includes(envelopeVersion)) return null;
+    if (![1, 2, CHAT_MIRROR_VERSION].includes(envelopeVersion)) {
+      return null;
+    }
     const version =
       envelopeVersion === 1
         ? "legacy-views"
@@ -75,7 +79,9 @@ export function decodeChatMirrorFile(value: unknown): ChatMirrorFile | null {
           ? "legacy-macros"
           : MEMORY_SNAPSHOT_SCHEMA_VERSION;
     const data = migrateMemorySpaceSnapshot({ version, snapshot: file.data });
-    if (file.spaceId !== data.space.id) return null;
+    if (file.spaceId !== data.space.id) {
+      return null;
+    }
     return { ...file, version: CHAT_MIRROR_VERSION, data };
   } catch {
     return null;

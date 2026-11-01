@@ -20,28 +20,40 @@ export class VectorIndexChangeSync {
   }
   activate(spaceId: MemorySpaceId | undefined): void {
     this.#spaceId = spaceId;
-    if (spaceId) this.committed(spaceId);
+    if (spaceId) {
+      this.committed(spaceId);
+    }
   }
   committed(spaceId: MemorySpaceId): void {
-    if (this.#spaceId !== spaceId) return;
+    if (this.#spaceId !== spaceId) {
+      return;
+    }
     this.#dirty = true;
     this.#pending = this.#pending
       .then(async () => {
-        if (!this.#dirty) return;
+        if (!this.#dirty) {
+          return;
+        }
         this.#dirty = false;
         const active = this.#spaceId;
-        if (active && this.readEnabled()) await this.vector.reconcile({ memorySpaceId: active });
+        if (active && this.readEnabled()) {
+          await this.vector.reconcile({ memorySpaceId: active });
+        }
       })
       .catch(this.reportError);
   }
   async refreshSettings(): Promise<void> {
     const id = this.#spaceId;
     if (!this.readEnabled()) {
-      if (id) await this.vector.stop({ memorySpaceId: id });
+      if (id) {
+        await this.vector.stop({ memorySpaceId: id });
+      }
       return;
     }
     this.vector.resumeConnection();
-    if (id) this.committed(id);
+    if (id) {
+      this.committed(id);
+    }
     await this.#pending;
   }
   flush(): Promise<void> {

@@ -21,9 +21,13 @@ export class SqliteMemoryBackupRepository implements MemoryBackupRepository {
 
   async exportCurrentSpace(): Promise<MemorySpaceBackup> {
     const id = this.currentSpaceId();
-    if (!id) throw new Error("当前聊天的记忆空间尚未就绪");
+    if (!id) {
+      throw new Error("当前聊天的记忆空间尚未就绪");
+    }
     const snapshot = await this.memory.snapshot(id);
-    if (!snapshot) throw new Error("当前聊天的记忆空间尚未加载");
+    if (!snapshot) {
+      throw new Error("当前聊天的记忆空间尚未加载");
+    }
     return snapshot;
   }
   async validateSnapshot(unit: MemorySpaceBackup): Promise<void> {

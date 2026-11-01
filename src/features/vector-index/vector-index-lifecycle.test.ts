@@ -86,7 +86,11 @@ function fixture() {
     getTask: async (id) => tasks.get(id),
     listTasks: async () => [...tasks.values()],
     deleteTasks: async (scope) => {
-      for (const [id, task] of tasks) if (inScope(task, scope)) tasks.delete(id);
+      for (const [id, task] of tasks) {
+        if (inScope(task, scope)) {
+          tasks.delete(id);
+        }
+      }
     },
     saveVector: async (vector) => {
       vectors.set(vector.id, vector);
@@ -97,7 +101,11 @@ function fixture() {
       vectors.delete(id);
     },
     deleteVectors: async (scope) => {
-      for (const [id, vector] of vectors) if (inScope(vector, scope)) vectors.delete(id);
+      for (const [id, vector] of vectors) {
+        if (inScope(vector, scope)) {
+          vectors.delete(id);
+        }
+      }
     },
     saveSuppression: async (suppression) => {
       suppressions.set(suppression.id, suppression);
@@ -107,8 +115,11 @@ function fixture() {
       suppressions.delete(id);
     },
     deleteSuppressions: async (scope) => {
-      for (const [id, suppression] of suppressions)
-        if (suppression.memorySpaceId === scope.memorySpaceId) suppressions.delete(id);
+      for (const [id, suppression] of suppressions) {
+        if (suppression.memorySpaceId === scope.memorySpaceId) {
+          suppressions.delete(id);
+        }
+      }
     },
     listSuppressions: async () => [...suppressions.values()],
   };
@@ -190,8 +201,11 @@ describe("向量任务生命周期与调度", () => {
       };
       ctx.requests[0]!.resolve([1, 2]);
       await checking;
-      if (action === "cancel") await service.cancel(task.id);
-      else await service[action](item.scope);
+      if (action === "cancel") {
+        await service.cancel(task.id);
+      } else {
+        await service[action](item.scope);
+      }
       release();
       await flush();
       expect(ctx.requests).toHaveLength(1);
@@ -252,7 +266,9 @@ describe("向量任务生命周期与调度", () => {
     if (reason === "cancelled") {
       await service.cancel([...ctx.tasks.values()][0]!.id);
       ctx.requests[0]!.resolve([1, 2]);
-    } else ctx.requests[0]!.reject(new Error("临时失败"));
+    } else {
+      ctx.requests[0]!.reject(new Error("临时失败"));
+    }
     await flush();
     ctx.tables.set(item.table.id, {
       ...item.table,

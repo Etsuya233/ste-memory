@@ -1,3 +1,4 @@
+import { presetUpdateChanges } from "./features/table-presets/preset-space-update.ts";
 import { migrateMemoryView } from "./features/macros/macro-expression.ts";
 import { SYSTEM_TABLE_TEMPLATES } from "./features/memory/index.ts";
 import { describe, expect, it, vi } from "vitest";
@@ -531,6 +532,132 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         .file.data.tables.filter((table) => table.key === "pending_table"),
     ).toHaveLength(1);
   });
+
+  it("预设比较读取期间切到同 ID 的另一聊天，不取消新聊天任务", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const createSqlite = vi.fn(ports.createSqlite);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+      createSqlite,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    const metadata = structuredClone(context.chatMetadata);
+    const preset = { ...SYSTEM_TABLE_PRESET, prompt: "过期更新" };
+    const plan = await runtime.presetUpdate.preview(original.space.id, preset, "char:3:story");
+    const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
+    const sqlite = await createSqlite.mock.results[0]!.value;
+    const exportSpace = sqlite.exportSpace.bind(sqlite);
+    let markStarted!: () => void;
+    let releaseRead!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    vi.spyOn(sqlite, "exportSpace").mockImplementationOnce(async (...args) => {
+      markStarted();
+      await released;
+      return exportSpace(...args);
+    });
+    const cancelTasks = vi.spyOn(runtime.tasks, "cancelAll");
+    const updating = runtime.presetUpdate.apply(plan, selected, "char:3:story");
+    // 先注册拒绝断言，迟到读取失败也不会成为未观察的 Promise 拒绝。
+    const rejected = expect(updating).rejects.toThrow("对话已切换");
+    await started;
+    context.characterId = 0;
+    context.chatMetadata = metadata;
+    try {
+      await handlers.get("chat_id_changed")!();
+      expect(runtime.manager.getStatus()).toMatchObject({
+        kind: "active",
+        space: { id: original.space.id },
+      });
+    } finally {
+      releaseRead();
+    }
+    await rejected;
+    expect(cancelTasks).not.toHaveBeenCalled();
+    expect((await runtime.backup.exportCurrentSpace()).space.prompt).toBe(original.space.prompt);
+  });
+
+  it.each(["apply", "retry"] as const)(
+    "预设 %s 的文件保存等待期间允许切换聊天，迟到结果保留原归属",
+    async (operation) => {
+      const db = createTestDatabase();
+      const { context, handlers } = fakeStContext();
+      const ports = createRuntimeTestPorts(() => context);
+      const runtime = await startTestRuntime(() => context, {
+        createDb: () => db,
+        log: fakeLog(),
+        ...ports,
+      });
+      const original = await runtime.backup.exportCurrentSpace();
+      const identity = "char:3:story";
+      const preset = { ...SYSTEM_TABLE_PRESET, prompt: `gated-${operation}` };
+      const plan = await runtime.presetUpdate.preview(original.space.id, preset, identity);
+      const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
+      if (operation === "retry") {
+        vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("file offline"));
+        const outcome = await runtime.presetUpdate.apply(plan, selected, identity);
+        expect(outcome.issues).toContain("对话文件保存失败：file offline");
+      }
+
+      let markStarted!: () => void;
+      let releaseWrite!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      const write = ports.snapshotFiles.write;
+      vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+        markStarted();
+        await released;
+        await write(...args);
+      });
+      const saving =
+        operation === "apply"
+          ? runtime.presetUpdate.apply(plan, selected, identity)
+          : runtime.presetUpdate.retrySave(original.space.id, identity);
+      await started;
+      expect(runtime.persistence.getStatus(identity).kind).toBe("saving");
+
+      context.chatId = `preset-${operation}-B`;
+      context.chatMetadata = { otherPlugin: "B 独有数据" };
+      // 真实切聊会等待原空间 whenIdle；文件 gate 未释放时必须完成卸载和 B 的初始化。
+      // 有限竞速只用于失败断言，finally 仍释放网络，避免留下挂起任务影响后续用例。
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          handlers.get("chat_id_changed")!(),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error("切聊被文件网络阻塞")), 2000);
+          }),
+        ]);
+        const current = await runtime.publicRead.read();
+        expect(current.context.chatIdentity).toBe(`char:3:preset-${operation}-B`);
+        expect(current.snapshot.space.id).not.toBe(original.space.id);
+        expect(await runtime.spaces.find(original.space.id)).toBeUndefined();
+        expect(runtime.persistence.getStatus(identity).kind).toBe("saving");
+      } finally {
+        clearTimeout(timeout);
+        releaseWrite();
+      }
+      await saving;
+      const saved = ports.snapshotWrites
+        .filter((entry) => entry.target.identity === identity)
+        .at(-1)!;
+      expect(saved.file.data.space.prompt).toBe(`gated-${operation}`);
+      expect(context.chatMetadata.otherPlugin).toBe("B 独有数据");
+      expect(runtime.publicRead.getContext().chatIdentity).toBe(`char:3:preset-${operation}-B`);
+    },
+  );
 
   it("绑定已存在时只从聊天文件加载空间到 SQLite", async () => {
     const db = createTestDatabase();

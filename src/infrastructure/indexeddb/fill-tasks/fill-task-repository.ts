@@ -50,11 +50,15 @@ export class DexieFillTaskRepository implements FillTaskRepository {
         .equals(task.memorySpaceId)
         .toArray();
       const previous = replaces ? rows.find((row) => row.runId === replaces) : undefined;
-      if (replaces && !previous?.blocksQueue) throw new Error("待重试任务已处理，请刷新任务列表");
+      if (replaces && !previous?.blocksQueue) {
+        throw new Error("待重试任务已处理，请刷新任务列表");
+      }
       const queuePosition =
         previous?.queuePosition ??
         rows.reduce((max, row) => Math.max(max, row.queuePosition ?? 0), 0) + 1;
-      if (previous) await this.#db.memoryFillTasks.update(previous.runId, { blocksQueue: false });
+      if (previous) {
+        await this.#db.memoryFillTasks.update(previous.runId, { blocksQueue: false });
+      }
       const queued = { ...task, queuePosition };
       await this.#db.memoryFillTasks.add(queued);
       return queued;
@@ -80,7 +84,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   async beginBatchSave(runId: string, batch: FillTaskBatchResult): Promise<boolean> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.status !== "running" || task.pendingSave) return false;
+      if (task?.status !== "running" || task.pendingSave) {
+        return false;
+      }
       await this.#db.memoryFillTasks.put({ ...task, pendingSave: batch, updatedAt: this.#now() });
       return true;
     });
@@ -89,7 +95,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   async abandonBatchSave(runId: string, batch: FillTaskBatchResult): Promise<void> {
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) return;
+      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) {
+        return;
+      }
       const remaining = { ...task, pendingSave: undefined };
       await this.#db.memoryFillTasks.put(remaining);
     });
@@ -101,8 +109,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   ): Promise<FillTask | undefined> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to)
+      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) {
         return undefined;
+      }
       const remaining = { ...task, pendingSave: undefined };
       // 首次保存仍归执行循环；失败后的保存重试仅收口，不重新启动后续 Agent。
       const status =
@@ -127,9 +136,13 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   async markRunning(runId: string): Promise<boolean> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.#db.memoryFillTasks.get(runId);
-      if (task?.status !== "queued") return false;
+      if (task?.status !== "queued") {
+        return false;
+      }
       const head = (await this.pending(task.memorySpaceId))[0];
-      if (head?.runId !== runId) return false;
+      if (head?.runId !== runId) {
+        return false;
+      }
       await this.#db.memoryFillTasks.update(runId, { status: "running", updatedAt: this.#now() });
       return true;
     });
@@ -138,7 +151,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   async release(runId: string): Promise<void> {
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (!task) return;
+      if (!task) {
+        return;
+      }
       const remaining = { ...task, pendingSave: undefined };
       await this.#db.memoryFillTasks.put({ ...remaining, blocksQueue: false });
     });
@@ -195,7 +210,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
-        if (row.status !== "running" && !row.pendingSave) continue;
+        if (row.status !== "running" && !row.pendingSave) {
+          continue;
+        }
         const updated = {
           ...normalizeTaskRow(row),
           status: "interrupted" as const,
@@ -238,8 +255,9 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       if (
         !row ||
         (row.status !== "running" && !(status === "interrupted" && row.status === "queued"))
-      )
+      ) {
         return;
+      }
       await this.#db.memoryFillTasks.put({
         ...normalizeTaskRow(row),
         ...(interruptionReason ? { interruptionReason } : {}),

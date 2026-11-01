@@ -88,16 +88,19 @@ export class VectorIndexService {
   }
 
   async start(): Promise<void> {
-    if (this.started) return;
+    if (this.started) {
+      return;
+    }
     this.started = true;
     for (const task of await this.repository.listTasks()) {
-      if (active.has(task.status))
+      if (active.has(task.status)) {
         await this.repository.saveTask({
           ...task,
           status: "interrupted",
           waitReason: null,
           endedAt: now(),
         });
+      }
     }
   }
 
@@ -123,11 +126,15 @@ export class VectorIndexService {
     options: { source: VectorTaskSource; force?: boolean; groupId?: string },
   ): Promise<VectorSubmissionResult> {
     await this.start();
-    if (!this.readEnabled()) return emptyResult();
+    if (!this.readEnabled()) {
+      return emptyResult();
+    }
     const result = emptyResult();
     const counts = { ...result };
     for (const target of await this.targets(scope)) {
-      if (options.groupId && options.groupId !== target.groupId) continue;
+      if (options.groupId && options.groupId !== target.groupId) {
+        continue;
+      }
       if (
         target.status === "empty" ||
         target.status === "unavailable" ||
@@ -162,19 +169,25 @@ export class VectorIndexService {
           source: promoted ? "manual" : queued.source,
           force: queued.force || !!options.force,
         });
-        if (promoted) counts.promoted++;
-        else counts.reused++;
+        if (promoted) {
+          counts.promoted++;
+        } else {
+          counts.reused++;
+        }
         continue;
       }
       if (running) {
         if (options.source === "manual" && running.source === "automatic") {
           await this.repository.saveTask({ ...running, source: "manual" });
           counts.promoted++;
-        } else counts.reused++;
+        } else {
+          counts.reused++;
+        }
         continue;
       }
-      if (options.source === "manual")
+      if (options.source === "manual") {
         await this.repository.deleteSuppression(suppressionId(id, target.fingerprint));
+      }
       if (!options.force) {
         if (
           options.source === "automatic" &&
@@ -210,21 +223,28 @@ export class VectorIndexService {
   }
 
   async reconcile(scope: VectorScope): Promise<VectorSubmissionResult> {
-    if (!this.readEnabled() || scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
+    if (!this.readEnabled() || scope.memorySpaceId !== this.currentSpaceId()) {
+      return emptyResult();
+    }
     const tasks = await this.repository.listTasks();
     const missingRecords = new Map<string, VectorScope>();
     for (const task of tasks.filter((item) => this.inScope(item, scope))) {
       const record = await this.records.find(task.memorySpaceId, task.tableId, task.recordId);
-      if (scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
-      if (!record)
+      if (scope.memorySpaceId !== this.currentSpaceId()) {
+        return emptyResult();
+      }
+      if (!record) {
         missingRecords.set(`${task.tableId}:${task.recordId}`, {
           memorySpaceId: task.memorySpaceId,
           tableId: task.tableId,
           recordId: task.recordId,
         });
+      }
     }
     for (const removed of missingRecords.values()) {
-      if (scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
+      if (scope.memorySpaceId !== this.currentSpaceId()) {
+        return emptyResult();
+      }
       await this.purge(removed);
     }
     for (const task of (await this.repository.listTasks()).filter(
@@ -234,7 +254,9 @@ export class VectorIndexService {
       if (table && !table.vectorIndex?.enabled) {
         this.controllers.get(task.id)?.abort();
         await this.finish(task, "interrupted", null);
-      } else if (!(await this.matches(task))) await this.finish(task, "obsolete", null);
+      } else if (!(await this.matches(task))) {
+        await this.finish(task, "obsolete", null);
+      }
     }
     const targets = await this.targets(scope);
     const available = new Map(
@@ -252,25 +274,30 @@ export class VectorIndexService {
         (scope.tableId && tableId !== scope.tableId) ||
         (scope.recordId && recordId !== scope.recordId) ||
         available.has(vectorId(spaceId, tableId!, recordId!, groupId!))
-      )
+      ) {
         continue;
+      }
       let migrated = false;
       for (const target of targets) {
         if (
           target.table.id !== tableId ||
           target.record.id !== recordId ||
           target.fingerprint !== suppression.fingerprint
-        )
+        ) {
           continue;
+        }
         const id = suppressionId(
           vectorId(spaceId, tableId!, recordId!, target.groupId),
           target.fingerprint,
         );
-        if (!(await this.repository.getSuppression(id)))
+        if (!(await this.repository.getSuppression(id))) {
           await this.repository.saveSuppression({ ...suppression, id });
+        }
         migrated = true;
       }
-      if (migrated) await this.repository.deleteSuppression(suppression.id);
+      if (migrated) {
+        await this.repository.deleteSuppression(suppression.id);
+      }
     }
     const existingVectors = await this.repository.listVectors(scope);
     for (const target of targets) {
@@ -284,8 +311,9 @@ export class VectorIndexService {
         existingVectors.some(
           (vector) => vector.id === id && vector.fingerprint === target.fingerprint,
         )
-      )
+      ) {
         continue;
+      }
       const reusable = existingVectors.find(
         (vector) =>
           vector.memorySpaceId === target.record.memorySpaceId &&
@@ -293,20 +321,28 @@ export class VectorIndexService {
           vector.recordId === target.record.id &&
           vector.fingerprint === target.fingerprint,
       );
-      if (reusable) await this.repository.saveVector({ ...reusable, id, groupId: target.groupId });
+      if (reusable) {
+        await this.repository.saveVector({ ...reusable, id, groupId: target.groupId });
+      }
     }
     for (const vector of existingVectors) {
       const table = await this.tables.find(vector.memorySpaceId, vector.tableId);
-      if (table && !table.vectorIndex?.enabled) continue;
+      if (table && !table.vectorIndex?.enabled) {
+        continue;
+      }
       const target = available.get(vector.id);
-      if (!target || target.status === "empty") await this.repository.deleteVector(vector.id);
+      if (!target || target.status === "empty") {
+        await this.repository.deleteVector(vector.id);
+      }
     }
     let result = emptyResult();
     const tables = scope.tableId
       ? [await this.tables.find(scope.memorySpaceId, scope.tableId)]
       : await this.tables.list(scope.memorySpaceId);
     for (const table of tables) {
-      if (!table?.vectorIndex?.enabled || table.vectorIndex.updateMode !== "automatic") continue;
+      if (!table?.vectorIndex?.enabled || table.vectorIndex.updateMode !== "automatic") {
+        continue;
+      }
       const next = await this.submit({ ...scope, tableId: table.id }, { source: "automatic" });
       result = {
         created: result.created + next.created,
@@ -373,18 +409,24 @@ export class VectorIndexService {
       unavailable: 0,
     };
     for (const target of targets) {
-      if (target.status === "empty") summary.empty++;
-      else if (target.status === "configuration_invalid") summary.invalid++;
-      else if (target.status === "too_long") summary.tooLong++;
-      else if (target.status === "unavailable") summary.unavailable++;
-      else if (
+      if (target.status === "empty") {
+        summary.empty++;
+      } else if (target.status === "configuration_invalid") {
+        summary.invalid++;
+      } else if (target.status === "too_long") {
+        summary.tooLong++;
+      } else if (target.status === "unavailable") {
+        summary.unavailable++;
+      } else if (
         vectors.some(
           (vector) =>
             vector.recordId === target.record.id && vector.fingerprint === target.fingerprint,
         )
-      )
+      ) {
         summary.ready++;
-      else summary.pending++;
+      } else {
+        summary.pending++;
+      }
     }
     return summary;
   }
@@ -438,9 +480,13 @@ export class VectorIndexService {
         errors++;
         continue;
       }
-      if (allReady) ready++;
-      else if (failed) errors++;
-      else stale++;
+      if (allReady) {
+        ready++;
+      } else if (failed) {
+        errors++;
+      } else {
+        stale++;
+      }
     }
     return {
       records: records.length,
@@ -527,7 +573,9 @@ export class VectorIndexService {
 
   async cancel(id: string): Promise<boolean> {
     const task = await this.repository.getTask(id);
-    if (!task || !active.has(task.status)) return false;
+    if (!task || !active.has(task.status)) {
+      return false;
+    }
     this.controllers.get(id)?.abort();
     await this.finish(task, "cancelled", null);
     await this.repository.saveSuppression({
@@ -543,12 +591,18 @@ export class VectorIndexService {
   }
   async cancelMany(ids: readonly string[]): Promise<number> {
     let count = 0;
-    for (const id of ids) if (await this.cancel(id)) count++;
+    for (const id of ids) {
+      if (await this.cancel(id)) {
+        count++;
+      }
+    }
     return count;
   }
   async retry(id: string): Promise<VectorSubmissionResult> {
     const task = await this.repository.getTask(id);
-    if (!task || active.has(task.status)) return emptyResult();
+    if (!task || active.has(task.status)) {
+      return emptyResult();
+    }
     this.blocked.clear();
     this.capacityBlocked = null;
     const targets = await this.targets({
@@ -557,13 +611,14 @@ export class VectorIndexService {
       recordId: task.recordId,
     });
     const current = targets.find((target) => target.groupId === task.groupId);
-    if (current)
+    if (current) {
       await this.repository.deleteSuppression(
         suppressionId(
           vectorId(task.memorySpaceId, task.tableId, task.recordId, task.groupId),
           current.fingerprint,
         ),
       );
+    }
     return this.submit(
       { memorySpaceId: task.memorySpaceId, tableId: task.tableId, recordId: task.recordId },
       { source: "manual", groupId: task.groupId, force: task.force },
@@ -615,8 +670,9 @@ export class VectorIndexService {
   private async purgeInner(scope: VectorScope): Promise<void> {
     for (const task of (await this.repository.listTasks()).filter(
       (task) => active.has(task.status) && this.inScope(task, scope),
-    ))
+    )) {
       this.controllers.get(task.id)?.abort();
+    }
     await this.repository.deleteTasks(scope);
     await this.repository.deleteVectors(scope);
     await this.repository.deleteSuppressions(scope);
@@ -660,11 +716,12 @@ export class VectorIndexService {
     const recordCache = new Map<string, Promise<MemoryRecord | undefined>>();
     const findRecord = (tableId: MemoryTable["id"], recordId: string) => {
       const key = JSON.stringify([tableId, recordId]);
-      if (!recordCache.has(key))
+      if (!recordCache.has(key)) {
         recordCache.set(
           key,
           this.records.find(scope.memorySpaceId, tableId, recordId as MemoryRecord["id"]),
         );
+      }
       return recordCache.get(key)!;
     };
     const displayText = createReadTimeDisplayTextResolver({
@@ -674,7 +731,9 @@ export class VectorIndexService {
     });
     for (const table of tables) {
       const configuration = draft ?? table?.vectorIndex;
-      if (!table || !configuration || (!draft && !configuration.enabled)) continue;
+      if (!table || !configuration || (!draft && !configuration.enabled)) {
+        continue;
+      }
       const fields = await this.fields.list(scope.memorySpaceId, table.id);
       const records = scope.recordId
         ? [await this.records.find(scope.memorySpaceId, table.id, scope.recordId)]
@@ -685,7 +744,9 @@ export class VectorIndexService {
           signal?.throwIfAborted();
         }
         const record = records[recordIndex];
-        if (!record) continue;
+        if (!record) {
+          continue;
+        }
         for (const group of effectiveVectorIndexGroups(configuration, fields)) {
           signal?.throwIfAborted();
           const lines: string[] = [];
@@ -702,8 +763,9 @@ export class VectorIndexService {
               value === undefined ||
               value === "" ||
               (Array.isArray(value) && value.length === 0)
-            )
+            ) {
               continue;
+            }
             let display: string;
             if (field.type === "single_reference" || field.type === "multi_reference") {
               const ids = Array.isArray(value) ? value : [String(value)];
@@ -715,8 +777,12 @@ export class VectorIndexService {
                 break;
               }
               display = (await Promise.all(refs.map((ref) => displayText(ref!)))).join("、");
-            } else display = Array.isArray(value) ? value.join("、") : String(value);
-            if (display) lines.push(`${field.name}：${display}`);
+            } else {
+              display = Array.isArray(value) ? value.join("、") : String(value);
+            }
+            if (display) {
+              lines.push(`${field.name}：${display}`);
+            }
           }
           const input = lines.join("\n");
           const fingerprint = JSON.stringify([
@@ -764,7 +830,9 @@ export class VectorIndexService {
     predecessorId: string | null,
   ): Promise<void> {
     const profile = this.embedding.getProfile();
-    if (!profile) return;
+    if (!profile) {
+      return;
+    }
     const task: VectorTask = {
       id: this.createTaskId(),
       memorySpaceId: target.record.memorySpaceId,
@@ -819,7 +887,9 @@ export class VectorIndexService {
     error: string | null,
   ): Promise<void> {
     const current = await this.repository.getTask(task.id);
-    if (!current || !active.has(current.status)) return;
+    if (!current || !active.has(current.status)) {
+      return;
+    }
     await this.repository.saveTask({ ...current, status, error, waitReason: null, endedAt: now() });
   }
 
@@ -831,7 +901,9 @@ export class VectorIndexService {
     this.pumping = true;
     try {
       while (true) {
-        if (!this.readEnabled()) break;
+        if (!this.readEnabled()) {
+          break;
+        }
         const profile = this.embedding.getProfile();
         const current = this.currentSpaceId();
         // 未加载聊天没有可查询的在线内容，保留其队列，等该聊天再次激活。
@@ -845,8 +917,9 @@ export class VectorIndexService {
           await this.changeTasks(async () => {
             for (const task of queued) {
               const current = await this.repository.getTask(task.id);
-              if (current?.status === "queued")
+              if (current?.status === "queued") {
                 await this.repository.saveTask({ ...current, waitReason: reason });
+              }
             }
           });
           break;
@@ -863,10 +936,16 @@ export class VectorIndexService {
             !candidate.predecessorId ||
             !queued.some((other) => other.id === candidate.predecessorId),
         );
-        if (!candidate) break;
-        if (candidate.memorySpaceId !== this.currentSpaceId()) continue;
+        if (!candidate) {
+          break;
+        }
+        if (candidate.memorySpaceId !== this.currentSpaceId()) {
+          continue;
+        }
         const matches = await this.matches(candidate);
-        if (candidate.memorySpaceId !== this.currentSpaceId()) continue;
+        if (candidate.memorySpaceId !== this.currentSpaceId()) {
+          continue;
+        }
         if (!matches) {
           await this.finish(candidate, "obsolete", null);
           continue;
@@ -878,9 +957,12 @@ export class VectorIndexService {
             currentTask?.status !== "queued" ||
             !this.readEnabled() ||
             currentTask.memorySpaceId !== this.currentSpaceId()
-          )
+          ) {
             return null;
-          if (currentTask.error) return currentTask;
+          }
+          if (currentTask.error) {
+            return currentTask;
+          }
           this.controllers.set(currentTask.id, controller);
           const running: VectorTask = {
             ...currentTask,
@@ -891,7 +973,9 @@ export class VectorIndexService {
           await this.repository.saveTask(running);
           return running;
         });
-        if (!task) continue;
+        if (!task) {
+          continue;
+        }
         if (task.memorySpaceId !== this.currentSpaceId()) {
           await this.finish(task, "interrupted", null);
           continue;
@@ -913,21 +997,30 @@ export class VectorIndexService {
           const values = await this.embedding.embed(task.input, controller.signal);
           await this.changeTasks(async () => {
             const currentTask = await this.repository.getTask(task.id);
-            if (!currentTask || currentTask.status !== "running") return;
-            if (task.memorySpaceId !== this.currentSpaceId()) return;
+            if (!currentTask || currentTask.status !== "running") {
+              return;
+            }
+            if (task.memorySpaceId !== this.currentSpaceId()) {
+              return;
+            }
             const matches = await this.matches(task);
-            if (task.memorySpaceId !== this.currentSpaceId()) return;
+            if (task.memorySpaceId !== this.currentSpaceId()) {
+              return;
+            }
             if (!matches) {
               await this.finishTask(task, "obsolete", null);
               return;
             }
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted) {
+              return;
+            }
             if (
               values.length === 0 ||
               values.some((value) => !Number.isFinite(value)) ||
               (task.dimensions > 0 && values.length !== task.dimensions)
-            )
+            ) {
               throw new Error("向量响应维度或数值无效");
+            }
             await this.repository.saveVector({
               id: vectorId(task.memorySpaceId, task.tableId, task.recordId, task.groupId),
               memorySpaceId: task.memorySpaceId,
@@ -950,7 +1043,9 @@ export class VectorIndexService {
           });
         } catch (error) {
           const currentTask = await this.repository.getTask(task.id);
-          if (!currentTask || currentTask.status !== "running") continue;
+          if (!currentTask || currentTask.status !== "running") {
+            continue;
+          }
           const message = error instanceof Error ? error.message : String(error);
           await this.finish(task, "failed", message);
           await this.repository.saveSuppression({
@@ -963,10 +1058,15 @@ export class VectorIndexService {
             reason: "failed",
           });
           if (error instanceof VectorEmbeddingRequestError && error.global) {
-            if (error.category === "capacity") this.capacityBlocked = message;
-            else this.blocked.set(profile.version, message);
+            if (error.category === "capacity") {
+              this.capacityBlocked = message;
+            } else {
+              this.blocked.set(profile.version, message);
+            }
           }
-          if (/QuotaExceededError|存储容量/i.test(message)) this.capacityBlocked = message;
+          if (/QuotaExceededError|存储容量/i.test(message)) {
+            this.capacityBlocked = message;
+          }
         } finally {
           this.controllers.delete(task.id);
         }

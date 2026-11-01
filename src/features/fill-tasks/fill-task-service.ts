@@ -208,13 +208,17 @@ export class FillTaskService {
     this.#suspended = false;
     this.#requestedSpace = memorySpaceId;
     this.#currentSpace = memorySpaceId;
-    if (this.#worker) return;
+    if (this.#worker) {
+      return;
+    }
     this.#worker = this.#drain()
       .catch((error) => this.#logError("填表队列执行失败", error))
       .finally(() => {
         this.#worker = undefined;
         const pending = this.#requestedSpace;
-        if (pending && !this.#suspended) this.kick(pending);
+        if (pending && !this.#suspended) {
+          this.kick(pending);
+        }
       });
   }
 
@@ -230,9 +234,17 @@ export class FillTaskService {
       this.#requestedSpace = undefined;
       while (!this.#suspended && this.#currentSpace === spaceId) {
         const task = (await this.#tasks.pending(spaceId))[0];
-        if (this.#suspended || this.#currentSpace !== spaceId || !task || task.status !== "queued")
+        if (
+          this.#suspended ||
+          this.#currentSpace !== spaceId ||
+          !task ||
+          task.status !== "queued"
+        ) {
           break;
-        if (!(await this.#tasks.markRunning(task.runId))) break;
+        }
+        if (!(await this.#tasks.markRunning(task.runId))) {
+          break;
+        }
         const running: FillTask = { ...task, status: "running" };
         try {
           if (!(await this.#chatUnchanged(running))) {
@@ -283,7 +295,9 @@ export class FillTaskService {
   submit(input: FillTaskSubmitInput): Promise<FillTaskView> {
     const chatId = this.#source.chatId();
     const submitted = this.#submissions.then(async () => {
-      if (this.#source.chatId() !== chatId) throw new Error("对话已切换，请重新提交");
+      if (this.#source.chatId() !== chatId) {
+        throw new Error("对话已切换，请重新提交");
+      }
       return this.#submitFloor(input);
     });
     this.#submissions = submitted.catch(() => undefined);
@@ -306,8 +320,9 @@ export class FillTaskService {
         `消息楼层范围无效：请选择 [0, ${Math.max(chatLength - 1, 0)}] 内的闭区间（同步楼层从 0 开始），分块大小必须 >= 1`,
       );
     }
-    if (input.automatic && !input.automatic.canContinue())
+    if (input.automatic && !input.automatic.canContinue()) {
       throw new Error("对话或自动填表模式已变化，请重新触发");
+    }
     const now = this.#now();
     const task: FillTask = {
       ...(input.automatic
@@ -335,7 +350,9 @@ export class FillTaskService {
     };
     const queued = await this.#tasks.enqueue(task, input.retryOf);
     this.#policies.set(task.runId, input.automatic);
-    if (!this.#suspended) this.kick(task.memorySpaceId);
+    if (!this.#suspended) {
+      this.kick(task.memorySpaceId);
+    }
     return this.#toView(queued);
   }
 
@@ -358,21 +375,31 @@ export class FillTaskService {
       run.controller.abort(new Error(reason ? "对话已切换" : "用户取消填表任务"));
       run.interruptionReason = reason;
       await run.done;
-      if (reason) await this.#tasks.markInterrupted(runId, reason);
-      else await this.#tasks.release(runId);
+      if (reason) {
+        await this.#tasks.markInterrupted(runId, reason);
+      } else {
+        await this.#tasks.release(runId);
+      }
     } else if (task.blocksQueue && isFillTaskTerminal(task.status)) {
-      if (!reason) await this.#tasks.release(runId);
+      if (!reason) {
+        await this.#tasks.release(runId);
+      }
     } else {
       const applied = await this.#tasks.markInterrupted(runId, reason);
-      if (!applied && !reason) throw new FillTaskStateError(task);
-      if (applied)
+      if (!applied && !reason) {
+        throw new FillTaskStateError(task);
+      }
+      if (applied) {
         await this.#appendLog(
           fillTaskEndLog({ task, status: "interrupted", errorMessage: null, endedAt: this.#now() }),
           `填表任务 ${runId} 结束日志写入失败`,
         );
+      }
     }
     this.#policies.delete(runId);
-    if (!this.#suspended && !reason) this.kick(memorySpaceId);
+    if (!this.#suspended && !reason) {
+      this.kick(memorySpaceId);
+    }
     return this.#toView(await this.#requireTask(memorySpaceId, runId));
   }
 
@@ -381,7 +408,9 @@ export class FillTaskService {
     await Promise.all(
       [...this.#runs.keys()].map(async (runId) => {
         const task = await this.#tasks.find(runId);
-        if (task) await this.cancel(task.memorySpaceId, runId, "chat-changed");
+        if (task) {
+          await this.cancel(task.memorySpaceId, runId, "chat-changed");
+        }
       }),
     );
   }
@@ -404,7 +433,9 @@ export class FillTaskService {
   submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
     const chatId = this.#source.chatId();
     const submitted = this.#submissions.then(async () => {
-      if (this.#source.chatId() !== chatId) throw new Error("对话已切换，请重新提交");
+      if (this.#source.chatId() !== chatId) {
+        throw new Error("对话已切换，请重新提交");
+      }
       return this.#submitInit(input);
     });
     this.#submissions = submitted.catch(() => undefined);
@@ -429,15 +460,18 @@ export class FillTaskService {
       updatedAt: now,
     };
     const queued = await this.#tasks.enqueue(task, input.retryOf);
-    if (!this.#suspended) this.kick(task.memorySpaceId);
+    if (!this.#suspended) {
+      this.kick(task.memorySpaceId);
+    }
     return this.#toView(queued);
   }
 
   /** 重试生成新任务并保留历史；阻塞项沿用原位置，自动任务跳过已完成楼层。 */
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
-    if (!isFillTaskTerminal(task.status) || task.pendingSave || task.nextFrom === null)
+    if (!isFillTaskTerminal(task.status) || task.pendingSave || task.nextFrom === null) {
       throw new FillTaskStateError(task);
+    }
     const retryOf = task.blocksQueue ? task.runId : undefined;
     if (task.kind === "init") {
       return this.submitInit({ memorySpaceId, text: task.initText, retryOf });
@@ -455,8 +489,12 @@ export class FillTaskService {
         from,
       );
       if (from > to) {
-        if (task.blocksQueue) await this.#tasks.release(runId);
-        if (!this.#suspended) this.kick(memorySpaceId);
+        if (task.blocksQueue) {
+          await this.#tasks.release(runId);
+        }
+        if (!this.#suspended) {
+          this.kick(memorySpaceId);
+        }
         return this.#toView({ ...task, blocksQueue: false });
       }
     }
@@ -489,16 +527,20 @@ export class FillTaskService {
         task?.memorySpaceId !== memorySpaceId ||
         task.pendingSave?.from !== batch.from ||
         task.pendingSave.to !== batch.to
-      )
+      ) {
         return;
-      if (task.kind === "floor")
+      }
+      if (task.kind === "floor") {
         await this.#ledger.markProcessed(memorySpaceId, task.pendingSave.floors);
+      }
       completed = await this.#tasks.completeBatchSave(runId, batch);
     });
     // 首次收口由原循环写结束日志；保存重试成功后在此结束原任务。
     if (completed?.status === "succeeded") {
       await this.#announceSucceededTask(completed);
-      if (!this.#suspended && this.#currentSpace === memorySpaceId) this.kick(memorySpaceId);
+      if (!this.#suspended && this.#currentSpace === memorySpaceId) {
+        this.kick(memorySpaceId);
+      }
     }
   }
 
@@ -521,20 +563,24 @@ export class FillTaskService {
     }
   }
 
-  /** SQLite提交失败撤销凭据；提交后失败交给文件保存任务继续收口。 */
+  /** 先持久记录待保存批次，再提交 SQLite。文件失败保留凭据，保存重试只确认本批，
+   * 不重跑模型、不提前写 processed 台账；SQLite 未提交时才撤销凭据。 */
   async #saveBatch(
     task: FillTask,
     session: FillTaskSession,
     batch: FillTaskBatchResult,
   ): Promise<void> {
-    if (!(await this.#tasks.beginBatchSave(task.runId, batch))) throw new FillTaskStateError(task);
+    if (!(await this.#tasks.beginBatchSave(task.runId, batch))) {
+      throw new FillTaskStateError(task);
+    }
     try {
       await session.commitAndSave(() =>
         this.#completeSavedBatch(task.memorySpaceId, task.runId, batch),
       );
     } catch (error) {
-      if (!(error instanceof MemoryCommitPersistenceError))
+      if (!(error instanceof MemoryCommitPersistenceError)) {
         await this.#tasks.abandonBatchSave(task.runId, batch);
+      }
       throw error;
     }
   }
@@ -586,7 +632,9 @@ export class FillTaskService {
   ): Promise<void> {
     // 运行中任务守卫（与 submit 同语义）
     const active = await this.#tasks.findActive(memorySpaceId);
-    if (active) throw new FillTaskConflictError(active);
+    if (active) {
+      throw new FillTaskConflictError(active);
+    }
     // 范围校验（与 submit 一致）
     const chatLength = this.#source.chatMessageCount();
     if (
@@ -694,13 +742,16 @@ export class FillTaskService {
         let session: FillTaskSession | undefined;
         try {
           control.controller.signal.throwIfAborted();
-          if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
+          if (!(await this.#isRunning(task.runId))) {
+            throw new Error("填表任务已停止");
+          }
           if (!(await this.#chatUnchanged(task))) {
             control.interruptionReason = "chat-changed";
             control.controller.abort(new Error("对话已切换"));
           }
-          if (automatic && !automatic.canContinue())
+          if (automatic && !automatic.canContinue()) {
             control.controller.abort(new Error("自动填表已停止"));
+          }
           control.controller.signal.throwIfAborted();
           session = await this.#beginTask(task, control.controller.signal);
           await this.#processBlock(
@@ -719,14 +770,18 @@ export class FillTaskService {
                 control.interruptionReason = "chat-changed";
                 control.controller.abort(new Error("对话已切换"));
               }
-              if (automatic && !automatic.canContinue())
+              if (automatic && !automatic.canContinue()) {
                 control.controller.abort(new Error("自动填表已停止"));
+              }
               if (
                 task.kind !== "init" &&
                 JSON.stringify(messages) !== JSON.stringify(this.#source.messagesInRange(from, to))
-              )
+              ) {
                 throw new Error("填表输入消息已变化，本批修改已撤销，请重新填表");
-              if (!(await this.#isRunning(task.runId))) throw new Error("填表任务已停止");
+              }
+              if (!(await this.#isRunning(task.runId))) {
+                throw new Error("填表任务已停止");
+              }
               // 从此处开始禁止取消；保存成功后才发布本批楼层进度。
               control.controller.signal.throwIfAborted();
               control.phase = "saving";
@@ -745,8 +800,9 @@ export class FillTaskService {
                 control.interruptionReason = "chat-changed";
                 control.controller.abort(new Error("对话已切换"));
               }
-              if (automatic && !automatic.canContinue())
+              if (automatic && !automatic.canContinue()) {
                 control.controller.abort(new Error("自动填表已停止"));
+              }
               control.controller.signal.throwIfAborted();
             },
           );
@@ -764,7 +820,9 @@ export class FillTaskService {
         }
       }
       control.controller.signal.throwIfAborted();
-      if (await this.#tasks.markSucceeded(task.runId)) await this.#announceSucceededTask(task);
+      if (await this.#tasks.markSucceeded(task.runId)) {
+        await this.#announceSucceededTask(task);
+      }
     } catch (error) {
       try {
         if (error instanceof MemoryCommitPersistenceError) {
@@ -776,7 +834,7 @@ export class FillTaskService {
             task.runId,
             control.interruptionReason ?? automatic?.interruptionReason?.(),
           );
-          if (applied)
+          if (applied) {
             await this.#appendLog(
               fillTaskEndLog({
                 task,
@@ -786,10 +844,11 @@ export class FillTaskService {
               }),
               "填表任务 " + task.runId + " 结束日志写入失败",
             );
+          }
         } else {
           const current = await this.#tasks.find(task.runId);
           if (current && !isFillTaskTerminal(current.status)) {
-            if (failingBlock && task.kind !== "init")
+            if (failingBlock && task.kind !== "init") {
               await this.#ledger.markError(
                 task.memorySpaceId,
                 input
@@ -799,6 +858,7 @@ export class FillTaskService {
                   )
                   .map((message) => message.floor),
               );
+            }
             automatic?.onFailure?.(error instanceof Error ? error.message : String(error));
             await this.#failTask(task, error);
           }
@@ -825,7 +885,9 @@ export class FillTaskService {
    * 未保存对话（chatId = null）无法识别切换，跳过检查（漂移接受）。
    */
   async #chatUnchanged(task: FillTask): Promise<boolean> {
-    if (task.chatId === null) return true;
+    if (task.chatId === null) {
+      return true;
+    }
     return this.#source.chatId() === task.chatId;
   }
 
@@ -861,7 +923,9 @@ export class FillTaskService {
     try {
       // 输入源：楼层任务 = 任务开始时冻结的对话消息；初始化任务 = 合成单条消息
       // （楼层占位 0、名字为空、内容 = initText），无楼层、不进消息流。
-      if (rawMessages.length === 0) throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      if (rawMessages.length === 0) {
+        throw new Error(`消息块 [${from}, ${to}] 内没有可处理的消息`);
+      }
       // 清洗只作用于来源层标记为 AI 输出的消息；用户消息、系统消息与初始化文本保持原文。
       const messages =
         cleaningRule === undefined
@@ -1040,7 +1104,9 @@ export class FillTaskService {
     const message = error instanceof Error ? error.message : String(error);
     try {
       const applied = await this.#tasks.markFailed(task.runId, message);
-      if (!applied) return;
+      if (!applied) {
+        return;
+      }
     } catch (markError) {
       this.#logError(`填表任务 ${task.runId} 失败状态标记出错`, markError);
       return;

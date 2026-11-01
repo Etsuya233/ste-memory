@@ -22,12 +22,18 @@ export async function consolidateTaskRevisions(
   await memory.write(
     id,
     async () => {
-      for (const item of revision.intermediateHistory)
+      for (const item of revision.intermediateHistory) {
         await memory.client.deleteEntity(id, "history", item.id);
-      for (const record of revision.records) await memory.client.putEntity(id, "record", record);
-      for (const history of revision.history) await memory.client.putEntity(id, "history", history);
-      for (const evidenceId of evidenceIds)
+      }
+      for (const record of revision.records) {
+        await memory.client.putEntity(id, "record", record);
+      }
+      for (const history of revision.history) {
+        await memory.client.putEntity(id, "history", history);
+      }
+      for (const evidenceId of evidenceIds) {
         await memory.client.deleteEntity(id, "evidence", evidenceId);
+      }
     },
     token,
   );
@@ -49,13 +55,21 @@ function taskRevisionChanges(
     const previous = previousRecords.get(key);
     const record = currentRecords.get(key);
     if (previous && record && sameRecordState(previous, record)) {
-      if (previous.revisionId !== record.revisionId) records.push(previous);
+      if (previous.revisionId !== record.revisionId) {
+        records.push(previous);
+      }
       continue;
     }
-    if (record) records.push({ ...record, revisionId, revisionSource: "agent" });
-    if (!previous) continue;
+    if (record) {
+      records.push({ ...record, revisionId, revisionSource: "agent" });
+    }
+    if (!previous) {
+      continue;
+    }
     const first = intermediateHistory.find((item) => item.recordId === key);
-    if (!first) throw new Error("任务修订缺少原记录历史");
+    if (!first) {
+      throw new Error("任务修订缺少原记录历史");
+    }
     history.push({
       ...first,
       ...previous,

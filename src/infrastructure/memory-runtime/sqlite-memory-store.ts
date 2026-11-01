@@ -77,14 +77,20 @@ export class SqliteMemoryStore {
       this.#loaded.add(id);
       this.publish(id);
     } finally {
-      if (owner === undefined) this.releaseWriter(id);
+      if (owner === undefined) {
+        this.releaseWriter(id);
+      }
     }
   }
 
   assertWritable(spaceId: string, token?: symbol): void {
     const writer = this.#writers.get(spaceId);
-    if (token !== undefined && writer !== token) throw new Error("填表会话已结束，不能继续写入");
-    if (token === undefined && writer) throw new Error("该记忆空间正在填写或保存，请等待任务结束");
+    if (token !== undefined && writer !== token) {
+      throw new Error("填表会话已结束，不能继续写入");
+    }
+    if (token === undefined && writer) {
+      throw new Error("该记忆空间正在填写或保存，请等待任务结束");
+    }
   }
 
   async exclusive<T>(spaceId: string, work: (token: symbol) => Promise<T>): Promise<T> {
@@ -112,7 +118,9 @@ export class SqliteMemoryStore {
     this.assertCanEdit(spaceId);
     const token = this.acquireWriter(spaceId);
     try {
-      if (!this.hasSpace(spaceId)) throw new Error(`记忆空间不存在: ${spaceId}`);
+      if (!this.hasSpace(spaceId)) {
+        throw new Error(`记忆空间不存在: ${spaceId}`);
+      }
       await this.client.begin(spaceId);
       return token;
     } catch (error) {
@@ -131,87 +139,92 @@ export class SqliteMemoryStore {
     this.#idle.delete(spaceId);
   }
 
-  async finish(
-    spaceId: string,
-    token: symbol,
-    commit: boolean,
-    saved?: () => Promise<void>,
-  ): Promise<void> {
+  async commitTask(spaceId: string, token: symbol, saved?: () => Promise<void>): Promise<void> {
     this.assertWritable(spaceId, token);
-    let saving: Promise<void> | undefined;
+    let saving: Promise<void>;
     try {
-      if (!commit) {
-        await this.client.rollback(spaceId);
-        return;
-      }
-      try {
-        await this.client.commit(spaceId);
-      } catch (error) {
-        await this.client.rollback(spaceId);
-        throw error;
-      }
-      try {
-        this.publish(spaceId);
-        const snapshot = await this.client.exportSpace(spaceId);
-        // 同步交接独立快照后释放SQL writer；文件网络不再阻挡切聊天和后续编辑。
-        saving = this.saveSnapshot(snapshot, saved);
-      } catch (cause) {
-        throw new MemoryCommitPersistenceError(cause);
-      }
+      ({ saving } = await this.commitAndHandoff(spaceId, saved));
     } finally {
       this.releaseWriter(spaceId);
     }
+    await saving;
+  }
+
+  async rollbackTask(spaceId: string, token: symbol): Promise<void> {
+    this.assertWritable(spaceId, token);
     try {
-      await saving;
-    } catch (cause) {
-      throw new MemoryCommitPersistenceError(cause);
+      await this.client.rollback(spaceId);
+    } finally {
+      this.releaseWriter(spaceId);
     }
   }
 
   async write<T>(spaceId: string, work: () => Promise<T>, token?: symbol): Promise<T> {
     this.assertWritable(spaceId, token);
-    if (!token) this.assertCanEdit(spaceId);
-    if (token) {
-      const point = `tool_${++this.#savepoint}`;
-      await this.client.savepoint(spaceId, point);
-      try {
-        const result = await work();
-        await this.client.release(spaceId, point);
-        return result;
-      } catch (error) {
-        await this.client.rollbackTo(spaceId, point);
-        await this.client.release(spaceId, point);
-        throw error;
-      }
+    if (token !== undefined) {
+      return this.writeToolSavepoint(spaceId, work);
     }
     await this.begin(spaceId);
-    let committed = false;
-    let result!: T;
-    let saving!: Promise<void>;
+    let result: T;
+    let saving: Promise<void>;
     try {
-      result = await work();
-      await this.client.commit(spaceId);
-      committed = true;
-      this.publish(spaceId);
-      const snapshot = await this.client.exportSpace(spaceId);
-      saving = this.saveSnapshot(snapshot);
-    } catch (error) {
-      if (!committed) await this.client.rollback(spaceId);
-      else throw new MemoryCommitPersistenceError(error);
-      throw error;
+      try {
+        result = await work();
+      } catch (error) {
+        await this.client.rollback(spaceId);
+        throw error;
+      }
+      ({ saving } = await this.commitAndHandoff(spaceId));
     } finally {
       this.releaseWriter(spaceId);
     }
-    try {
-      await saving;
-    } catch (cause) {
-      throw new MemoryCommitPersistenceError(cause);
-    }
+    await saving;
     return result;
   }
 
+  private async writeToolSavepoint<T>(spaceId: string, work: () => Promise<T>): Promise<T> {
+    // 每次工具调用只管理保存点；批次提交、文件保存和 writer 释放由任务 commitTask/rollbackTask 负责。
+    const point = `tool_${++this.#savepoint}`;
+    await this.client.savepoint(spaceId, point);
+    try {
+      const result = await work();
+      await this.client.release(spaceId, point);
+      return result;
+    } catch (error) {
+      await this.client.rollbackTo(spaceId, point);
+      await this.client.release(spaceId, point);
+      throw error;
+    }
+  }
+
+  private async commitAndHandoff(
+    spaceId: string,
+    saved?: () => Promise<void>,
+  ): Promise<{ saving: Promise<void> }> {
+    try {
+      await this.client.commit(spaceId);
+    } catch (error) {
+      await this.client.rollback(spaceId);
+      throw error;
+    }
+    try {
+      this.publish(spaceId);
+      const snapshot = await this.client.exportSpace(spaceId);
+      // 返回对象避免 async 自动等待 saving。调用者同步交接快照后释放 writer，
+      // 再在锁外等待网络；较早保存的 finally 不再触及新 writer。
+      const saving = this.saveSnapshot(snapshot, saved).catch((cause) => {
+        throw new MemoryCommitPersistenceError(cause);
+      });
+      return { saving };
+    } catch (cause) {
+      throw new MemoryCommitPersistenceError(cause);
+    }
+  }
+
   async snapshot(spaceId: string): Promise<MemorySpaceBackup | undefined> {
-    if (!this.hasSpace(spaceId)) return undefined;
+    if (!this.hasSpace(spaceId)) {
+      return undefined;
+    }
     return this.client.exportSpace(spaceId);
   }
 
@@ -226,7 +239,9 @@ export class SqliteMemoryStore {
 
   async unload(spaceId: string, token?: symbol): Promise<void> {
     this.assertWritable(spaceId, token);
-    if (!this.#loaded.has(spaceId)) return;
+    if (!this.#loaded.has(spaceId)) {
+      return;
+    }
     await this.client.removeSpace(spaceId);
     this.#loaded.delete(spaceId);
   }
@@ -241,10 +256,11 @@ export class SqliteMemoryStore {
     return {
       rebuild: async (input) => {
         this.assertCanEdit(input.memorySpaceId);
-        let saving: Promise<void> | undefined;
-        const rebuilt = await this.exclusive(input.memorySpaceId, async (token) => {
+        const result = await this.exclusive(input.memorySpaceId, async (token) => {
           const unit = await this.snapshot(input.memorySpaceId);
-          if (!unit) return false;
+          if (!unit) {
+            return { kind: "missing" } as const;
+          }
           const snapshot: MemorySpaceBackup = {
             schemaVersion: unit.schemaVersion,
             space: {
@@ -262,18 +278,20 @@ export class SqliteMemoryStore {
           };
           await this.replace(snapshot, token);
           try {
-            saving = this.saveSnapshot(
+            const saving = this.saveSnapshot(
               snapshot,
               afterSaved ? () => afterSaved(input.memorySpaceId) : undefined,
             );
+            return { kind: "rebuilt", saving } as const;
           } catch (cause) {
             throw new MemoryCommitPersistenceError(cause);
           }
-          return true;
         });
-        if (!rebuilt) return false;
+        if (result.kind === "missing") {
+          return false;
+        }
         try {
-          await saving;
+          await result.saving;
         } catch (cause) {
           throw new MemoryCommitPersistenceError(cause);
         }

@@ -31,7 +31,9 @@ export async function buildBlockEvidence(
   const result: MemoryEvidence[] = [];
   for (const message of messages) {
     const existing = await findExisting(memorySpaceId, EVIDENCE_FLOOR_SOURCE_TYPE, message.floor);
-    if (existing) continue;
+    if (existing) {
+      continue;
+    }
     result.push({
       evidence_id: createEvidenceId(),
       source_type: EVIDENCE_FLOOR_SOURCE_TYPE,

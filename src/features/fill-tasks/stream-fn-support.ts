@@ -31,13 +31,19 @@ export class ScriptedEventStream implements AsyncIterable<AssistantMessageEvent>
   end(result: AssistantMessage): void {
     this.#result = result;
     this.#ended = true;
-    while (this.#waiters.length > 0) this.#waiters.shift()!();
+    while (this.#waiters.length > 0) {
+      this.#waiters.shift()!();
+    }
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
     while (true) {
-      while (this.#queue.length > 0) yield this.#queue.shift()!;
-      if (this.#ended) return;
+      while (this.#queue.length > 0) {
+        yield this.#queue.shift()!;
+      }
+      if (this.#ended) {
+        return;
+      }
       await new Promise<void>((resolve) => this.#waiters.push(resolve));
     }
   }
@@ -226,16 +232,22 @@ export function thinkingMessage(text: string): AssistantMessage["content"][numbe
     const stream = new ScriptedEventStream();
     let ended = false;
     const abort = () => {
-      if (ended) return;
+      if (ended) {
+        return;
+      }
       ended = true;
       const message = assistantMessage([], "aborted", "测试取消");
       stream.push({ type: "error", reason: "aborted", error: message });
       stream.end(message);
     };
     options?.signal?.addEventListener("abort", abort, { once: true });
-    if (options?.signal?.aborted) abort();
+    if (options?.signal?.aborted) {
+      abort();
+    }
     const respondNow = () => {
-      if (ended) return;
+      if (ended) {
+        return;
+      }
       ended = true;
       options?.signal?.removeEventListener("abort", abort);
       const message = respond(context);
@@ -259,7 +271,9 @@ export function thinkingMessage(text: string): AssistantMessage["content"][numbe
     return toStream(stream);
   };
   gate.open = () => {
-    if (gate.fired) return;
+    if (gate.fired) {
+      return;
+    }
     gate.fired = true;
     waiters.splice(0).forEach((respondNow) => respondNow());
   };

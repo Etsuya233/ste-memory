@@ -45,7 +45,9 @@ function harness() {
       files.set(owner.identity, { binding, unit: file.data });
     }),
     publish: vi.fn((owner, _file, binding) => {
-      if (owner.identity === target().identity) metadata.set(owner.identity, binding);
+      if (owner.identity === target().identity) {
+        metadata.set(owner.identity, binding);
+      }
     }),
   };
   const persistence = new ChatSnapshotPersistence(store, () => "test");

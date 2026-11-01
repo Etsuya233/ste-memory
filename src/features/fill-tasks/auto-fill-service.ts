@@ -87,10 +87,13 @@ export class AutoFillService {
       current.spaceId !== task.memorySpaceId ||
       current.chatId !== task.chatId ||
       this.#suspended
-    )
+    ) {
       return;
+    }
     const settings = this.settings();
-    if (settings.mode !== "auto" || !settings.hideAfterSuccess) return;
+    if (settings.mode !== "auto" || !settings.hideAfterSuccess) {
+      return;
+    }
     const epoch = this.#epoch;
     try {
       const ledger = await this.#ports.tasks.ledgerStatuses(
@@ -104,19 +107,26 @@ export class AutoFillService {
         this.#suspended ||
         latest?.identity !== current.identity ||
         latest.spaceId !== current.spaceId
-      )
+      ) {
         return;
+      }
       const activeSettings = this.settings();
-      if (activeSettings.mode !== "auto" || !activeSettings.hideAfterSuccess) return;
+      if (activeSettings.mode !== "auto" || !activeSettings.hideAfterSuccess) {
+        return;
+      }
       const highest = ledger.reduce(
         (max, entry) => (entry.status === "processed" ? Math.max(max, entry.floor) : max),
         -1,
       );
       const to = Math.min(latest.chatLength - 1 - activeSettings.keepRecentFloors, highest);
-      if (to >= 0) await this.#ports.hideFloors(current.identity, to);
+      if (to >= 0) {
+        await this.#ports.hideFloors(current.identity, to);
+      }
     } catch (error) {
       this.#ports.reportError(error);
-      if (this.#epoch !== epoch || this.#ports.current()?.identity !== current.identity) return;
+      if (this.#epoch !== epoch || this.#ports.current()?.identity !== current.identity) {
+        return;
+      }
       this.#observed.delete(task.runId);
       this.#ports.notify({
         kind: "failed",
@@ -134,13 +144,17 @@ export class AutoFillService {
 
   async range() {
     const current = this.#ports.current();
-    if (!current || current.aiFloor < 0) return undefined;
+    if (!current || current.aiFloor < 0) {
+      return undefined;
+    }
     const ledger = await this.#ports.tasks.ledgerStatuses(
       current.spaceId,
       0,
       current.chatLength - 1,
     );
-    if (this.#ports.current()?.identity !== current.identity) return undefined;
+    if (this.#ports.current()?.identity !== current.identity) {
+      return undefined;
+    }
     return autoFillRange(ledger, current.aiFloor, this.settings().delayFloors);
   }
 
@@ -161,9 +175,13 @@ export class AutoFillService {
     this.#promptedResume = undefined;
     this.#observed.clear();
     const current = this.#ports.current();
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     const active = await this.#ports.tasks.activeTask(current.spaceId);
-    if (active) await this.#ports.tasks.cancel(current.spaceId, active.runId, "chat-changed");
+    if (active) {
+      await this.#ports.tasks.cancel(current.spaceId, active.runId, "chat-changed");
+    }
   }
   chatReady(): void {
     this.#suspended = false;
@@ -172,7 +190,9 @@ export class AutoFillService {
 
   kick(): void {
     this.#pending = true;
-    if (this.#checking) return;
+    if (this.#checking) {
+      return;
+    }
     this.#checking = true;
     void (async () => {
       try {
@@ -190,7 +210,9 @@ export class AutoFillService {
 
   async #check(): Promise<void> {
     const current = this.#ports.current();
-    if (!current || this.#suspended) return;
+    if (!current || this.#suspended) {
+      return;
+    }
     const epoch = this.#epoch;
     const unchanged = () =>
       this.#epoch === epoch &&
@@ -198,7 +220,9 @@ export class AutoFillService {
       this.#ports.current()?.identity === current.identity;
     const settings = this.settings();
     let pending = await this.#ports.tasks.pendingTasks(current.spaceId);
-    if (!unchanged()) return;
+    if (!unchanged()) {
+      return;
+    }
 
     // 旧版本的聊天暂存项只在升级时转入任务表，之后删除旧状态。
     const legacy = this.read();
@@ -214,50 +238,71 @@ export class AutoFillService {
         current.chatLength - 1,
       );
       const remaining = autoFillRange(ledger, current.chatLength - 1, 0);
-      if (!unchanged()) return;
+      if (!unchanged()) {
+        return;
+      }
       for (const item of items) {
-        if (!unchanged()) return;
+        if (!unchanged()) {
+          return;
+        }
         const from = Math.max(item.from, remaining?.from ?? current.chatLength);
         const to = Math.min(item.to, current.chatLength - 1);
-        if (from > to) continue;
-        if (pending.some((task) => task.kind === "floor" && task.from <= from && task.to >= to))
+        if (from > to) {
           continue;
+        }
+        if (pending.some((task) => task.kind === "floor" && task.from <= from && task.to >= to)) {
+          continue;
+        }
         const task = await this.#submit(current, from, to, {
           ...settings,
           ...migrateAutoFillSettings(item.settings),
         });
-        if (item === items[0] && (legacy.pausedReason || legacy.pendingResumeTask))
+        if (item === items[0] && (legacy.pausedReason || legacy.pendingResumeTask)) {
           await this.#ports.tasks.cancel(current.spaceId, task.runId, "chat-changed");
+        }
       }
-      if (!unchanged()) return;
+      if (!unchanged()) {
+        return;
+      }
       this.#ports.chatStore.write({
         overrides: legacy.overrides,
         pausedReason: null,
         lastScheduled: legacy.lastScheduled,
       });
       pending = await this.#ports.tasks.pendingTasks(current.spaceId);
-      if (!unchanged()) return;
+      if (!unchanged()) {
+        return;
+      }
     }
 
     if (settings.mode !== "auto") {
       for (const task of pending.filter((task) => task.automatic)) {
-        if (!unchanged()) return;
+        if (!unchanged()) {
+          return;
+        }
         await this.#ports.tasks.cancel(current.spaceId, task.runId);
       }
       pending = pending.filter((task) => !task.automatic);
     }
-    if (!unchanged()) return;
+    if (!unchanged()) {
+      return;
+    }
     const recent = await this.#ports.tasks.recentTasks(current.spaceId, 20);
-    if (!unchanged()) return;
+    if (!unchanged()) {
+      return;
+    }
     for (const [runId, task] of this.#observed) {
-      if (pending.some((item) => item.runId === runId && item.status !== "failed")) continue;
+      if (pending.some((item) => item.runId === runId && item.status !== "failed")) {
+        continue;
+      }
       const finished = recent.find((item) => item.runId === runId);
-      if (finished?.status === "failed" || finished?.status === "succeeded")
+      if (finished?.status === "failed" || finished?.status === "succeeded") {
         this.#ports.notify({
           kind: finished.status === "failed" ? "failed" : "completed",
           identity: current.identity,
           message: `自动填表 #${task.from}–#${task.to} ${finished.status === "failed" ? `停止：${finished.errorMessage}` : "已完成"}`,
         });
+      }
       this.#observed.delete(runId);
     }
     const head = pending[0];
@@ -269,12 +314,20 @@ export class AutoFillService {
     ) {
       this.#promptedResume = `${current.identity}:${head.runId}`;
       const confirmed = await this.#ports.confirmResume(head);
-      if (!unchanged()) return;
-      if (confirmed) await this.#ports.tasks.retry(current.spaceId, head.runId);
+      if (!unchanged()) {
+        return;
+      }
+      if (confirmed) {
+        await this.#ports.tasks.retry(current.spaceId, head.runId);
+      }
     }
-    if (!unchanged()) return;
+    if (!unchanged()) {
+      return;
+    }
     const range = await this.range();
-    if (!unchanged()) return;
+    if (!unchanged()) {
+      return;
+    }
     if (settings.mode !== "remind") {
       this.#ports.dismissReminder();
       this.#reminded = undefined;
@@ -307,24 +360,29 @@ export class AutoFillService {
       ) {
         try {
           await this.#submit(current, from, range.to, settings);
-          if (!unchanged()) return;
+          if (!unchanged()) {
+            return;
+          }
           this.#ports.chatStore.write({
             ...this.read(),
             pausedReason: null,
             lastScheduled: { memorySpaceId: current.spaceId, to: range.to },
           });
         } catch (error) {
-          if (unchanged())
+          if (unchanged()) {
             this.#ports.notify({
               kind: "failed",
               identity: current.identity,
               message: `自动填表入队失败：${error instanceof Error ? error.message : String(error)}`,
             });
+          }
           return;
         }
       }
     }
-    if (unchanged()) this.#ports.tasks.kick(current.spaceId);
+    if (unchanged()) {
+      this.#ports.tasks.kick(current.spaceId);
+    }
   }
 
   async #submit(

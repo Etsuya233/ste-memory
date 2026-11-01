@@ -61,10 +61,14 @@ export class AgentMacroService {
   }
 
   kick(): Promise<void> {
-    if (!this.#active) return Promise.resolve();
+    if (!this.#active) {
+      return Promise.resolve();
+    }
     const revision = ++this.#revision;
     const spaceId = this.ports.getSpaceId();
-    if (spaceId !== this.#spaceId || !this.ports.readEnabled()) this.#snapshot = EMPTY_SNAPSHOT;
+    if (spaceId !== this.#spaceId || !this.ports.readEnabled()) {
+      this.#snapshot = EMPTY_SNAPSHOT;
+    }
     this.#spaceId = spaceId;
     // 每次通知使先前读取失效；连续提交合并到最新一轮，迟到结果不能覆盖新聊天。
     this.#refreshing = this.#refreshing.then(() => this.refresh(revision));
@@ -72,7 +76,9 @@ export class AgentMacroService {
   }
 
   private async refresh(revision: number): Promise<void> {
-    if (!this.#active || revision !== this.#revision) return;
+    if (!this.#active || revision !== this.#revision) {
+      return;
+    }
     if (!this.ports.readEnabled()) {
       this.unregister();
       return;
@@ -86,16 +92,22 @@ export class AgentMacroService {
       this.#registered = true;
     }
     const spaceId = this.#spaceId;
-    if (spaceId === undefined) return;
+    if (spaceId === undefined) {
+      return;
+    }
     try {
       const digest = await buildMemorySpaceTableDigest(this.ports.reader, spaceId);
-      if (!this.#active || revision !== this.#revision) return;
+      if (!this.#active || revision !== this.#revision) {
+        return;
+      }
       this.#snapshot = {
         digestText: composeTableDigestSummary(digest),
         defaultPromptText: composeProposalAgentSystemPrompt(digest),
       };
     } catch (error) {
-      if (!this.#active || revision !== this.#revision) return;
+      if (!this.#active || revision !== this.#revision) {
+        return;
+      }
       this.#snapshot = EMPTY_SNAPSHOT;
       this.ports.log?.error(
         `Agent 预设宏快照重建失败：${error instanceof Error ? error.message : String(error)}`,
@@ -104,7 +116,9 @@ export class AgentMacroService {
   }
 
   private unregister(): void {
-    if (!this.#registered) return;
+    if (!this.#registered) {
+      return;
+    }
     this.ports.registerMacro.unregister(AGENT_TABLES_DIGEST_MACRO);
     this.ports.registerMacro.unregister(AGENT_SYSTEM_DEFAULT_PROMPT_MACRO);
     this.#registered = false;

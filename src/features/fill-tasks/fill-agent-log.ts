@@ -187,7 +187,9 @@ export function createFillAgentTurnCollector(
   // 写入队列：listener 是同步回调、appendLog 异步——串行链保证行序 = 轮次序。
   let queue: Promise<void> = Promise.resolve();
   const listener: FillAgentTurnCollector["listener"] = (event) => {
-    if (event.type !== "turn_end") return;
+    if (event.type !== "turn_end") {
+      return;
+    }
     round += 1;
     const currentRound = round;
     // turn_end 的 message 必为本轮助手消息（循环事件契约：工具执行后与终止轮都发）。

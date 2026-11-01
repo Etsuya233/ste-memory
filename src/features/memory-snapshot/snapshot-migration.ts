@@ -11,7 +11,9 @@ export type MemorySnapshotVersion =
   "legacy-views" | "legacy-macros" | typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
 
 export function assertSnapshotStructure(schema: TSchema, value: unknown): void {
-  if (Value.Check(schema, value)) return;
+  if (Value.Check(schema, value)) {
+    return;
+  }
   const details = [...Value.Errors(schema, value)]
     .slice(0, 5)
     .map(
@@ -34,14 +36,17 @@ export function migrateMemorySpaceSnapshot(input: {
     input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION &&
     input.version !== "legacy-views" &&
     input.version !== "legacy-macros"
-  )
+  ) {
     snapshotInvalid(`快照版本不支持：${String(input.version)}`);
+  }
   let snapshot = input.snapshot;
   if (input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION) {
     assertSnapshotStructure(legacyMemorySpaceSnapshotSchema, snapshot);
     const legacy = snapshot as Static<typeof legacyMemorySpaceSnapshotSchema>;
     // 旧外壳没有领域版本标记，拒绝把未知或伪装成旧文件的新版本当旧数据修补。
-    if ("schemaVersion" in legacy) snapshotInvalid("旧格式快照不应含 schemaVersion");
+    if ("schemaVersion" in legacy) {
+      snapshotInvalid("旧格式快照不应含 schemaVersion");
+    }
     snapshot = upgradeLegacySnapshot(legacy, input.version);
   }
   assertSnapshotStructure(memorySpaceSnapshotSchema, snapshot);

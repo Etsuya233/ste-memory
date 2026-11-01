@@ -33,10 +33,14 @@ export function createRuntimeTestPorts(getContext: () => unknown) {
     },
     publish(target, file, binding) {
       const captured = structuredClone(file);
-      if (chatIdentityKey(adapter.getChatSnapshot()) !== target.identity) return;
+      if (chatIdentityKey(adapter.getChatSnapshot()) !== target.identity) {
+        return;
+      }
       const metadata = context().chatMetadata!;
       metadata[CHAT_METADATA_MIRROR_KEY] = captured;
-      if (binding) metadata[CHAT_METADATA_BINDING_KEY] = structuredClone(binding);
+      if (binding) {
+        metadata[CHAT_METADATA_BINDING_KEY] = structuredClone(binding);
+      }
     },
   };
   return { createSqlite: createInProcessSqliteMemoryClient, snapshotFiles, snapshotWrites: writes };

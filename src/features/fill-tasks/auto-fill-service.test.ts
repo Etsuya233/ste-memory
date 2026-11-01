@@ -59,7 +59,9 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
         blocksQueue: reason === "chat-changed",
       };
       pending = pending.filter((item) => item.runId !== runId);
-      if (interrupted.blocksQueue) pending.unshift(interrupted);
+      if (interrupted.blocksQueue) {
+        pending.unshift(interrupted);
+      }
       recent.unshift(interrupted);
       return interrupted;
     }),
@@ -341,8 +343,11 @@ describe("自动填表成功后隐藏", () => {
       { floor: 100, status: "error" },
     ]);
     await h.service.taskSucceeded(task);
-    if (end === undefined) expect(h.hideFloors).not.toHaveBeenCalled();
-    else expect(h.hideFloors).toHaveBeenCalledExactlyOnceWith("a", end);
+    if (end === undefined) {
+      expect(h.hideFloors).not.toHaveBeenCalled();
+    } else {
+      expect(h.hideFloors).toHaveBeenCalledExactlyOnceWith("a", end);
+    }
   });
 
   it("默认关闭，且仅整次自动楼层填表成功触发", async () => {

@@ -9,7 +9,9 @@ export function SnapshotSaveNotice({
   status: ChatSnapshotSaveStatus;
   onRetry: () => Promise<void>;
 }) {
-  if (status.kind !== "failed" && status.kind !== "saving") return null;
+  if (status.kind !== "failed" && status.kind !== "saving") {
+    return null;
+  }
   return (
     <div
       className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground"

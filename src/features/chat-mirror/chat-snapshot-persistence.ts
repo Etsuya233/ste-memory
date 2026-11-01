@@ -1,6 +1,7 @@
+import { ChatSnapshotSaveTask, type SavedChatContent } from "./chat-snapshot-save-task.ts";
 import type { MemorySpaceBackup } from "../backup/index.ts";
 import type { ChatSpaceBinding } from "../chat-binding/chat-space-manager.ts";
-import { createChatMirrorFile, decodeChatMirrorFile } from "./chat-mirror-codec.ts";
+import { decodeChatMirrorFile } from "./chat-mirror-codec.ts";
 import type { ChatMirrorFile } from "./chat-mirror-file.ts";
 
 /** 保存任务捕获文件身份，离开聊天后也不能从活动聊天推导保存目标。 */
@@ -56,53 +57,30 @@ export class ChatSnapshotReplacementSaveError extends Error {
     this.humanMsg = this.message;
   }
 }
-interface SavedChatContent {
-  readonly target: ChatFileTarget;
-  readonly snapshot: MemorySpaceBackup;
-  readonly binding: ChatSpaceBinding;
-}
-interface SaveWaiter {
-  resolve(): void;
-  reject(error: unknown): void;
-}
 
-type SaveTask = (
-  | {
-      readonly operation: "update";
-      readonly content: SavedChatContent;
-      readonly file: ChatMirrorFile;
-      stage: "write" | "complete";
-      readonly savedBatches: readonly (() => Promise<void>)[];
-    }
-  | {
-      readonly operation: "replacement";
-      readonly content: SavedChatContent;
-      readonly file: ChatMirrorFile;
-      stage: "write" | "activate";
-      readonly activate: () => Promise<void>;
-    }
-) & { readonly waiters: SaveWaiter[] };
 interface ChatSaveEntry {
-  current?: SavedChatContent;
-  retained: boolean;
-  pending?: SaveTask;
+  /** 当前已提交内容；未落盘的候选不能替代它。 */
+  committedContent?: SavedChatContent;
+  retention: "active" | "released";
+  pendingSave?: ChatSnapshotSaveTask;
   status: ChatSnapshotSaveStatus;
   queue: Promise<void>;
 }
 
-/** 每个文件持有自己的当前内容与最新保存任务；SQLite卸载不影响这份运行中状态。 */
+/** 每个文件拥有独立串行队列；SQLite 卸载不取消其保存与确认任务。 */
 export class ChatSnapshotPersistence {
   readonly #entries = new Map<string, ChatSaveEntry>();
   readonly #listeners = new Set<() => void>();
   private readonly store: ChatSnapshotFileStore;
   private readonly appVersion: () => string;
+
   constructor(store: ChatSnapshotFileStore, appVersion: () => string) {
     this.store = store;
     this.appVersion = appVersion;
   }
 
   hasPendingWrites(): boolean {
-    return [...this.#entries.values()].some((entry) => entry.pending !== undefined);
+    return [...this.#entries.values()].some((entry) => entry.pendingSave !== undefined);
   }
 
   getStatus(identity?: string): ChatSnapshotSaveStatus {
@@ -110,52 +88,67 @@ export class ChatSnapshotPersistence {
       ? IDLE_STATUS
       : (this.#entries.get(identity)?.status ?? IDLE_STATUS);
   }
+
   onStatusChange(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
     };
   }
+
   remember(target: ChatFileTarget, snapshot: MemorySpaceBackup, binding: ChatSpaceBinding): void {
-    this.entry(target.identity).retained = true;
-    this.entry(target.identity).current = {
-      target: { ...target },
-      snapshot: structuredClone(snapshot),
-      binding: { ...binding },
-    };
+    const entry = this.entry(target.identity);
+    entry.retention = "active";
+    entry.committedContent = structuredClone({ target, snapshot, binding });
   }
+
   current(identity: string): SavedChatContent | undefined {
     const entry = this.#entries.get(identity);
-    const pending = entry?.pending;
-    return pending?.operation === "replacement" && pending.stage === "activate"
-      ? pending.content
-      : entry?.current;
+    const task = entry?.pendingSave;
+    if (task?.phase === "activate") {
+      return task.content;
+    }
+    return entry?.committedContent;
   }
+
   release(identity: string): void {
     const entry = this.#entries.get(identity);
-    if (!entry) return;
-    entry.retained = false;
-    if (!entry.pending) entry.current = undefined;
+    if (!entry) {
+      return;
+    }
+    entry.retention = "released";
+    if (!entry.pendingSave) {
+      entry.committedContent = undefined;
+    }
   }
+
   hasSavedReplacement(identity: string): boolean {
-    const task = this.#entries.get(identity)?.pending;
-    return task?.operation === "replacement" && task.stage === "activate";
+    return this.#entries.get(identity)?.pendingSave?.phase === "activate";
   }
+
   hasPendingReplacement(identity: string): boolean {
-    return this.#entries.get(identity)?.pending?.operation === "replacement";
+    return this.#entries.get(identity)?.pendingSave?.operation === "replacement";
   }
 
   async load(target: ChatFileTarget, spaceId?: string): Promise<MemorySpaceBackup | undefined> {
-    const entry = this.#entries.get(target.identity);
-    // 返回未保存聊天时优先恢复已提交内存内容，磁盘可能仍是较早的快照。
-    if (entry?.pending) return this.current(target.identity)?.snapshot;
+    // 返回未保存聊天时先恢复已提交内存内容，磁盘可能仍是较早的快照。
+    if (this.#entries.get(target.identity)?.pendingSave) {
+      return this.current(target.identity)?.snapshot;
+    }
     const raw = await this.store.read(target);
-    if (this.#entries.get(target.identity)?.pending) return this.current(target.identity)?.snapshot;
-    if (raw === undefined) return undefined;
+    if (this.#entries.get(target.identity)?.pendingSave) {
+      return this.current(target.identity)?.snapshot;
+    }
+    if (raw === undefined) {
+      return undefined;
+    }
     const file = decodeChatMirrorFile(raw);
-    if (!file) throw new Error("对话文件中的记忆快照损坏或版本无法识别");
-    if (spaceId !== undefined && file.spaceId !== spaceId)
+    if (!file) {
+      throw new Error("对话文件中的记忆快照损坏或版本无法识别");
+    }
+    if (spaceId !== undefined && file.spaceId !== spaceId) {
       throw new Error("对话文件中的记忆快照与空间绑定不一致");
+    }
     return file.data;
   }
 
@@ -165,132 +158,112 @@ export class ChatSnapshotPersistence {
     snapshot: MemorySpaceBackup,
     saved?: () => Promise<void>,
   ): Promise<void> {
-    return this.schedule({ target, snapshot, binding }, "update", saved);
+    const task = new ChatSnapshotSaveTask(
+      { target, snapshot, binding },
+      { operation: "update", savedBatches: saved ? [saved] : [] },
+      this.appVersion(),
+    );
+    return this.schedule(task);
   }
+
   replace(
     target: ChatFileTarget,
     snapshot: MemorySpaceBackup,
     binding: ChatSpaceBinding,
     activate: () => Promise<void>,
   ): Promise<void> {
-    return this.schedule({ target, snapshot, binding }, "replacement", activate);
+    const task = new ChatSnapshotSaveTask(
+      { target, snapshot, binding },
+      { operation: "replacement", activate },
+      this.appVersion(),
+    );
+    return this.schedule(task);
   }
+
   retry(identity: string): Promise<void> {
     const entry = this.#entries.get(identity);
-    if (!entry?.pending) return Promise.resolve();
-    return this.enqueue(entry, entry.pending);
+    if (!entry?.pendingSave) {
+      return Promise.resolve();
+    }
+    // 任务保留实际阶段；文件已成功时只继续 complete 或 activate。
+    return this.enqueue(entry, entry.pendingSave);
   }
+
   private entry(identity: string): ChatSaveEntry {
     let entry = this.#entries.get(identity);
     if (!entry) {
-      entry = { status: IDLE_STATUS, queue: Promise.resolve(), retained: true };
+      entry = { status: IDLE_STATUS, queue: Promise.resolve(), retention: "active" };
       this.#entries.set(identity, entry);
     }
     return entry;
   }
-  private schedule(
-    content: SavedChatContent,
-    operation: SnapshotSaveOperation,
-    afterWrite?: () => Promise<void>,
-  ): Promise<void> {
-    const captured = structuredClone(content);
-    const file = createChatMirrorFile(
-      captured.snapshot,
-      captured.binding.spaceId,
-      captured.snapshot.space.updatedAt,
-      this.appVersion(),
-    );
-    const entry = this.entry(content.target.identity);
-    const previous = entry.pending;
-    const continuedUpdate = operation === "update" && previous?.operation === "update";
-    // 尚在写文件的调用随最新快照结算，内部旧job退出不能提前完成业务Promise。
-    const waiters = continuedUpdate && previous.stage === "write" ? previous.waiters.splice(0) : [];
-    if (previous && !continuedUpdate) {
-      const error = new Error("保存操作已被新的候选替代");
-      for (const waiter of previous.waiters.splice(0)) waiter.reject(error);
+
+  private schedule(task: ChatSnapshotSaveTask): Promise<void> {
+    const entry = this.entry(task.content.target.identity);
+    task.supersede(entry.pendingSave);
+    if (task.operation === "update") {
+      entry.committedContent = task.content;
     }
-    const task: SaveTask =
-      operation === "update"
-        ? {
-            content: captured,
-            file,
-            operation,
-            stage: "write",
-            waiters,
-            savedBatches: [
-              ...(entry.pending?.operation === "update" ? entry.pending.savedBatches : []),
-              ...(afterWrite ? [afterWrite] : []),
-            ],
-          }
-        : { content: captured, file, operation, activate: afterWrite!, stage: "write", waiters };
-    if (operation === "update") entry.current = captured;
-    entry.pending = task;
+    entry.pendingSave = task;
     const completion = this.enqueue(entry, task);
-    this.setStatus(entry, { kind: "saving", identity: content.target.identity, operation });
+    this.setStatus(entry, {
+      kind: "saving",
+      identity: task.content.target.identity,
+      operation: task.operation,
+    });
     return completion;
   }
-  private enqueue(entry: ChatSaveEntry, task: SaveTask): Promise<void> {
-    const completion = new Promise<void>((resolve, reject) =>
-      task.waiters.push({ resolve, reject }),
-    );
-    const run = entry.queue.then(() => this.writeLatest(entry, task));
+
+  private enqueue(entry: ChatSaveEntry, task: ChatSnapshotSaveTask): Promise<void> {
+    const completion = task.waitForCompletion();
+    const run = entry.queue.then(() => this.saveLatest(entry, task));
+    // 调度链保持可用；业务调用通过各自 waiter 接收失败并由明确重试继续。
     entry.queue = run.catch(() => undefined);
     return completion;
   }
-  private async writeLatest(entry: ChatSaveEntry, task: SaveTask): Promise<void> {
-    if (entry.pending !== task) return;
-    const { target, binding } = task.content;
-    this.setStatus(entry, { kind: "saving", identity: target.identity, operation: task.operation });
+
+  private async saveLatest(entry: ChatSaveEntry, task: ChatSnapshotSaveTask): Promise<void> {
+    if (entry.pendingSave !== task) {
+      return;
+    }
+    const identity = task.content.target.identity;
+    this.setStatus(entry, { kind: "saving", identity, operation: task.operation });
     try {
-      if (task.stage === "write") {
-        await this.store.write(target, task.file, binding, task.operation);
-        if (task.operation === "replacement") task.stage = "activate";
-        else task.stage = "complete";
+      await task.writeAndConfirm(this.store, () => entry.pendingSave === task);
+      task.resolveWaiters();
+      if (entry.pendingSave !== task) {
+        return;
       }
-      if (entry.pending !== task) return;
-      // 最新任务才可发布metadata；候选在文件成功后执行其明确的激活步骤。
-      this.store.publish(target, task.file, binding);
-      if (task.operation === "replacement") await task.activate();
-      else for (const acknowledge of task.savedBatches) await acknowledge();
-      // 已进入complete的任务已经确实落盘，确认过程中出现新编辑不撤销它的确认。
-      for (const waiter of task.waiters.splice(0)) waiter.resolve();
-      if (entry.pending !== task) return;
-      entry.current = entry.retained ? task.content : undefined;
-      entry.pending = undefined;
+      entry.committedContent = entry.retention === "active" ? task.content : undefined;
+      entry.pendingSave = undefined;
       this.setStatus(entry, {
         kind: "saved",
-        identity: target.identity,
+        identity,
         lastWrittenAt: new Date().toISOString(),
-        sizeBytes: new TextEncoder().encode(JSON.stringify(task.file)).length,
+        sizeBytes: task.sizeBytes,
       });
     } catch (error) {
-      if (entry.pending !== task) {
-        for (const waiter of task.waiters.splice(0)) waiter.reject(error);
+      if (entry.pendingSave !== task) {
+        task.rejectWaiters(error);
         return;
       }
       const reason = error instanceof Error ? error.message : String(error);
-      const humanMsg =
-        task.operation === "update"
-          ? task.stage === "write"
-            ? `记忆已提交、尚未保存：${reason}`
-            : `记忆已保存，批次确认尚未完成：${reason}`
-          : task.stage === "activate"
-            ? `候选空间已保存，激活尚未完成：${reason}`
-            : `候选空间尚未保存，当前空间未替换：${reason}`;
+      const humanMsg = task.failureMessage(reason);
       this.setStatus(entry, {
         kind: "failed",
-        identity: target.identity,
+        identity,
         operation: task.operation,
         error: reason,
         humanMsg,
       });
-      const failure =
+      task.rejectWaiters(
         task.operation === "replacement"
           ? new ChatSnapshotReplacementSaveError(error, humanMsg)
-          : error;
-      for (const waiter of task.waiters.splice(0)) waiter.reject(failure);
+          : error,
+      );
     }
   }
+
   private setStatus(entry: ChatSaveEntry, status: ChatSnapshotSaveStatus): void {
     entry.status = status;
     for (const listener of this.#listeners) {

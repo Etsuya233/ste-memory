@@ -32,7 +32,9 @@ export function createFillTaskPromptContext(
 ): (storyText: string) => Promise<FillTaskPromptContext | undefined> {
   return async (storyText) => {
     const preset = resolveActivePreset(options.readPresetSettings());
-    if (!preset) return undefined;
+    if (!preset) {
+      return undefined;
+    }
     let worldbookText = "";
     if (containsWorldbookReference(preset)) {
       try {

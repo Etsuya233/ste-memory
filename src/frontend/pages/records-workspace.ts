@@ -189,7 +189,9 @@ export class RecordsWorkspace {
     this.#update(session, { listLoading: true, listError: null });
     try {
       const tables = await this.#services.tables.list(context.spaceId);
-      if (epoch !== this.#epoch || request !== session.refreshRequest) return;
+      if (epoch !== this.#epoch || request !== session.refreshRequest) {
+        return;
+      }
       const oldTable = session.state.tableId;
       const tableId =
         oldTable && tables.some((table) => table.id === oldTable)
@@ -210,18 +212,23 @@ export class RecordsWorkspace {
         session.state.detailId ? this.#loadDetail(session) : Promise.resolve(),
       ]);
     } catch (error) {
-      if (epoch === this.#epoch && request === session.refreshRequest)
+      if (epoch === this.#epoch && request === session.refreshRequest) {
         this.#update(session, {
           listLoading: false,
           listError: String(error instanceof Error ? error.message : error),
         });
+      }
     }
   }
 
   async selectTable(tableId: MemoryTableId): Promise<void> {
     const session = this.#requireSession();
-    if (session.state.tableId === tableId) return;
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (session.state.tableId === tableId) {
+      return;
+    }
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
     session.detailRequest++;
     session.editorGeneration++;
     this.#update(session, {
@@ -252,10 +259,15 @@ export class RecordsWorkspace {
   async setSort(fieldId: MemoryRecordListOrder["fieldId"]): Promise<void> {
     const session = this.#requireSession();
     const { context, tableId, fields, order } = session.state;
-    if (!tableId) throw new Error("请先选择记忆表格");
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
-    if (!recordSortOptions(fields).some((option) => option.fieldId === fieldId))
+    if (!tableId) {
+      throw new Error("请先选择记忆表格");
+    }
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
+    if (!recordSortOptions(fields).some((option) => option.fieldId === fieldId)) {
       throw new Error("该字段不支持排序，请刷新字段列表");
+    }
     const next = nextRecordSort(order, fieldId);
     saveRecordSort(context!.spaceId, tableId, next, this.#services.sortStorage);
     this.#update(session, { order: next, page: 1 });
@@ -263,17 +275,22 @@ export class RecordsWorkspace {
   }
 
   async setPage(page: number): Promise<void> {
-    if (!Number.isInteger(page) || page < 1) throw new Error("页码必须是正整数");
+    if (!Number.isInteger(page) || page < 1) {
+      throw new Error("页码必须是正整数");
+    }
     const session = this.#requireSession();
     this.#update(session, { page });
     await this.#loadList(session);
   }
 
   async setPageSize(pageSize: number): Promise<void> {
-    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
       throw new Error("每页条数必须是 1–100 的整数");
+    }
     const session = this.#requireSession();
-    if (session.state.pageSize === pageSize) return;
+    if (session.state.pageSize === pageSize) {
+      return;
+    }
     this.#update(session, { pageSize, page: 1 });
     await this.#loadList(session);
   }
@@ -284,7 +301,9 @@ export class RecordsWorkspace {
 
   async openRecord(detailId: MemoryRecordId, mode: "detail" | "edit" = "detail"): Promise<void> {
     const session = this.#requireSession();
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
     session.editorGeneration++;
     this.#update(session, { detailId, detail: null, history: [], editor: null, notice: null });
     await this.#loadDetail(session, mode);
@@ -292,7 +311,9 @@ export class RecordsWorkspace {
 
   closeDetail(): void {
     const session = this.#requireSession();
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
     session.detailRequest++;
     session.editorGeneration++;
     this.#update(session, {
@@ -309,9 +330,15 @@ export class RecordsWorkspace {
   startEdit(): void {
     const session = this.#requireSession();
     const original = session.state.detail;
-    if (!original) throw new Error("请先打开一条记录");
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
-    if (session.state.listLoading || session.state.listError) throw new Error("请先完成字段加载");
+    if (!original) {
+      throw new Error("请先打开一条记录");
+    }
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
+    if (session.state.listLoading || session.state.listError) {
+      throw new Error("请先完成字段加载");
+    }
     session.editorGeneration++;
     this.#update(session, {
       editor: {
@@ -329,9 +356,15 @@ export class RecordsWorkspace {
 
   startCreate(): void {
     const session = this.#requireSession();
-    if (!session.state.tableId) throw new Error("请先选择表格");
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
-    if (session.state.listLoading || session.state.listError) throw new Error("请先完成字段加载");
+    if (!session.state.tableId) {
+      throw new Error("请先选择表格");
+    }
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
+    if (session.state.listLoading || session.state.listError) {
+      throw new Error("请先完成字段加载");
+    }
     session.editorGeneration++;
     this.#update(session, {
       editor: {
@@ -350,10 +383,16 @@ export class RecordsWorkspace {
   setField(fieldId: MemoryFieldId, value: RecordFormValue): void {
     const session = this.#requireSession();
     const editor = session.state.editor;
-    if (!editor) throw new Error("请先进入编辑");
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (!editor) {
+      throw new Error("请先进入编辑");
+    }
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
     const field = editor.fields.find((field) => field.id === fieldId);
-    if (!field?.enabled) throw new Error("该字段不能编辑");
+    if (!field?.enabled) {
+      throw new Error("该字段不能编辑");
+    }
     const draft = { values: { ...editor.draft.values, [fieldId]: value } };
     const enabled = editor.fields.filter((field) => field.enabled);
     const dirty = editor.original
@@ -366,7 +405,9 @@ export class RecordsWorkspace {
 
   cancelEdit(): void {
     const session = this.#requireSession();
-    if (session.state.saving) throw new Error("记录正在保存，请等待完成");
+    if (session.state.saving) {
+      throw new Error("记录正在保存，请等待完成");
+    }
     session.editorGeneration++;
     this.#update(session, { editor: null, notice: null });
   }
@@ -376,9 +417,15 @@ export class RecordsWorkspace {
     const context = session.state.context!;
     const editor = session.state.editor;
     const tableId = session.state.tableId;
-    if (!editor || !tableId) throw new Error("没有可保存的记录草稿");
-    if (session.state.saving) return;
-    if (editor.conflict) return;
+    if (!editor || !tableId) {
+      throw new Error("没有可保存的记录草稿");
+    }
+    if (session.state.saving) {
+      return;
+    }
+    if (editor.conflict) {
+      return;
+    }
     const enabled = editor.fields.filter((field) => field.enabled);
     const errors = validateRecordFormDraft(enabled, editor.draft);
     if (Object.keys(errors).length) {
@@ -402,11 +449,14 @@ export class RecordsWorkspace {
             payload: recordPayloadFromDraft(enabled, editor.draft),
             source: { type: "manual" },
           });
-      if (!result) throw new Error("记录或表格已不存在，草稿已保留");
+      if (!result) {
+        throw new Error("记录或表格已不存在，草稿已保留");
+      }
       record = result;
     } catch (error) {
-      if (operation !== session.saveRequest || editorGeneration !== session.editorGeneration)
+      if (operation !== session.saveRequest || editorGeneration !== session.editorGeneration) {
         return;
+      }
       if (error instanceof MemoryRecordSaveError) {
         record = error.record;
       } else {
@@ -426,7 +476,9 @@ export class RecordsWorkspace {
         return;
       }
     }
-    if (operation !== session.saveRequest || editorGeneration !== session.editorGeneration) return;
+    if (operation !== session.saveRequest || editorGeneration !== session.editorGeneration) {
+      return;
+    }
     this.#update(session, {
       saving: false,
       editor: null,
@@ -438,13 +490,15 @@ export class RecordsWorkspace {
     try {
       await this.#services.onSaved?.(context);
     } catch (error) {
-      if (operation === session.saveRequest && editorGeneration === session.editorGeneration)
+      if (operation === session.saveRequest && editorGeneration === session.editorGeneration) {
         this.#update(session, {
           saveWarning: `记录修改已提交，后续刷新失败：${error instanceof Error ? error.message : String(error)}`,
         });
+      }
     }
-    if (this.#current === session && editorGeneration === session.editorGeneration)
+    if (this.#current === session && editorGeneration === session.editorGeneration) {
       await Promise.all([this.#loadList(session), this.#loadDetail(session)]);
+    }
   }
 
   async #loadList(session: Session): Promise<void> {
@@ -463,7 +517,9 @@ export class RecordsWorkspace {
     this.#update(session, { listLoading: true, listError: null });
     try {
       const fields = await this.#services.fields.list(context.spaceId, tableId);
-      if (epoch !== this.#epoch || request !== session.listRequest) return;
+      if (epoch !== this.#epoch || request !== session.listRequest) {
+        return;
+      }
       const order = loadRecordSort(context.spaceId, tableId, fields, this.#services.sortStorage);
       const changedOrder =
         order.fieldId !== requestedOrder.fieldId || order.direction !== requestedOrder.direction;
@@ -475,7 +531,9 @@ export class RecordsWorkspace {
         search: search.trim() || undefined,
         order,
       });
-      if (!records) throw new Error("当前表格已不存在");
+      if (!records) {
+        throw new Error("当前表格已不存在");
+      }
       const targetIds = [
         ...new Set(
           fields
@@ -494,7 +552,9 @@ export class RecordsWorkspace {
                 page: targetPage,
                 pageSize: 100,
               });
-              if (!result) throw new Error("引用目标表已不存在");
+              if (!result) {
+                throw new Error("引用目标表已不存在");
+              }
               values.push(...result.records);
               totalPages = result.totalPages;
               targetPage++;
@@ -503,7 +563,9 @@ export class RecordsWorkspace {
           }),
         ),
       );
-      if (epoch !== this.#epoch || request !== session.listRequest) return;
+      if (epoch !== this.#epoch || request !== session.listRequest) {
+        return;
+      }
       const editor = session.state.editor;
       const schemaChanged = editor && JSON.stringify(editor.fields) !== JSON.stringify(fields);
       this.#update(session, {
@@ -522,17 +584,20 @@ export class RecordsWorkspace {
           : {}),
       });
     } catch (error) {
-      if (epoch === this.#epoch && request === session.listRequest)
+      if (epoch === this.#epoch && request === session.listRequest) {
         this.#update(session, {
           listLoading: false,
           listError: error instanceof Error ? error.message : String(error),
         });
+      }
     }
   }
 
   async #loadDetail(session: Session, mode: "detail" | "edit" = "detail"): Promise<void> {
     const { context, tableId, detailId } = session.state;
-    if (!context || !tableId || !detailId) return;
+    if (!context || !tableId || !detailId) {
+      return;
+    }
     const epoch = this.#epoch;
     const request = ++session.detailRequest;
     this.#update(session, { detailLoading: true, detailError: null });
@@ -541,8 +606,12 @@ export class RecordsWorkspace {
         this.#services.records.find(context.spaceId, tableId, detailId),
         this.#services.records.listHistory(context.spaceId, { tableId, recordId: detailId }),
       ]);
-      if (epoch !== this.#epoch || request !== session.detailRequest) return;
-      if (!detail) throw new Error("记录已不存在，已有草稿仍保留");
+      if (epoch !== this.#epoch || request !== session.detailRequest) {
+        return;
+      }
+      if (!detail) {
+        throw new Error("记录已不存在，已有草稿仍保留");
+      }
       const editor = session.state.editor;
       const revisionChanged = editor?.original && editor.original.revisionId !== detail.revisionId;
       this.#update(session, {
@@ -559,9 +628,13 @@ export class RecordsWorkspace {
             }
           : {}),
       });
-      if (mode === "edit") this.startEdit();
+      if (mode === "edit") {
+        this.startEdit();
+      }
     } catch (error) {
-      if (epoch !== this.#epoch || request !== session.detailRequest) return;
+      if (epoch !== this.#epoch || request !== session.detailRequest) {
+        return;
+      }
       const editor = session.state.editor;
       const message = error instanceof Error ? error.message : String(error);
       this.#update(session, {
@@ -573,7 +646,9 @@ export class RecordsWorkspace {
   }
 
   #requireSession(): Session {
-    if (!this.#current) throw new Error("当前没有已绑定的对话");
+    if (!this.#current) {
+      throw new Error("当前没有已绑定的对话");
+    }
     return this.#current;
   }
 
@@ -587,6 +662,8 @@ export class RecordsWorkspace {
       (session) => session !== this.#current && session.state.editor?.dirty,
     ).length;
     this.#snapshot = { ...(this.#current?.state ?? initialSnapshot(null)), retainedDraftCount };
-    for (const listener of this.#listeners) listener();
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 }
