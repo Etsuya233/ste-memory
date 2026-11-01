@@ -136,6 +136,7 @@ let fields = tables.flatMap((table) =>
 let records = Object.values(contexts).flatMap((context) =>
   Array.from({ length: 26 }, (_, index) => ({
     id: `${context.spaceId}-record-${index}`,
+ stableId: `${context.spaceId}-record-${index}`,
     memorySpaceId: context.spaceId,
     tableId: `${context.spaceId}-table-${index === 25 ? 1 : 0}`,
     payload: {
@@ -334,6 +335,7 @@ const recordRepository: MemoryRecordRepository = {
 };
 const spaces: MemorySpace[] = Object.values(contexts).map((context) => ({
   id: context.spaceId,
+ stableId: context.spaceId,
   name: context.title,
   initializationSource: null,
   macros: [],
@@ -459,6 +461,7 @@ const workspace = new RecordsWorkspace({
     create: async (spaceId, tableId, input) => {
       const created = {
         id: `record-${++serial}`,
+ stableId: `record-${++serial}`,
         memorySpaceId: spaceId,
         tableId,
         payload: input.payload,

@@ -243,6 +243,7 @@ describe("批内引用显示文本（提交路径，commitMemoryProposalBatch）
     const { records, ports, context } = setup(undefined, driftedFields);
     const existing: MemoryRecord = {
       id: "record-9" as MemoryRecordId,
+      stableId: "record-9" as MemoryRecordId,
       memorySpaceId: spaceId,
       tableId: peopleId,
       payload: { [nameId]: "顾川" },
@@ -323,6 +324,7 @@ describe("批内引用显示文本（提交路径，commitMemoryProposalBatch）
     const { records, context } = setup();
     const existing: MemoryRecord = {
       id: "record-0" as MemoryRecordId,
+      stableId: "record-0" as MemoryRecordId,
       memorySpaceId: spaceId,
       tableId: peopleId,
       payload: { [nameId]: "林夏", [homeId]: null },

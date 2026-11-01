@@ -234,6 +234,7 @@ describe("MemoryRecordService 批量 create", () => {
     const zhouyao = records.values.find((record) => record.payload[nameId] === "周遥")!;
     expect(port).toMatchObject({
       id: "record-3",
+      stableId: "record-3",
       payload: { [nameId]: "港口" },
       revisionId: "revision-batch",
       revisionSource: "agent",
@@ -242,6 +243,7 @@ describe("MemoryRecordService 批量 create", () => {
     });
     expect(zhouyao).toMatchObject({
       id: "record-4",
+      stableId: "record-4",
       payload: { [nameId]: "周遥", [homeId]: "record-3" },
       revisionId: "revision-batch",
       revisionSource: "agent",

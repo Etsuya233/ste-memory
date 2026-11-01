@@ -149,6 +149,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
           sqliteIdentifierKey(table.key),
           new Set([
             "$record_id",
+            "$stable_id",
             "$display_text",
             "$created_at",
             "$updated_at",
@@ -608,6 +609,10 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     db.exec(
       "PRAGMA foreign_keys=ON; CREATE TABLE __entities(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)),PRIMARY KEY(kind,id)) STRICT;",
     );
+    // __entities 是跨业务表的权威集合，因此在这里约束空间内稳定记录身份唯一。
+    db.exec(
+      "CREATE UNIQUE INDEX __record_stable_id ON __entities(json_extract(data,'$.stableId')) WHERE kind='record'",
+    );
     db.createFunction("ste_text_valid", (_ctx, value, required, max, pattern) => {
       if (value === null) {
         return required ? 0 : 1;
@@ -891,7 +896,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
         throw new Error(`SQLite 保留字段 Key：${table.key}`);
       }
       db.exec(
-        `CREATE TABLE ${quote(table.key)} (${quote("$record_id")} TEXT PRIMARY KEY NOT NULL, ${quote("$display_text")} TEXT NOT NULL, ${quote("$created_at")} TEXT NOT NULL, ${quote("$updated_at")} TEXT NOT NULL${columns.map((field) => `,${this.column(field, tables)}`).join("")}) STRICT`,
+        `CREATE TABLE ${quote(table.key)} (${quote("$record_id")} TEXT PRIMARY KEY NOT NULL, ${quote("$stable_id")} TEXT NOT NULL UNIQUE, ${quote("$display_text")} TEXT NOT NULL, ${quote("$created_at")} TEXT NOT NULL, ${quote("$updated_at")} TEXT NOT NULL${columns.map((field) => `,${this.column(field, tables)}`).join("")}) STRICT`,
       );
     }
     for (const field of fields.filter(isList)) {
@@ -928,6 +933,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     const columns = fields.filter((field) => field.tableId === table.id);
     const names = [
       "$record_id",
+      "$stable_id",
       "$display_text",
       "$created_at",
       "$updated_at",
@@ -935,6 +941,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
     ];
     const values = [
       record.id,
+      record.stableId,
       record.displayText,
       record.createdAt,
       record.updatedAt,

@@ -111,6 +111,7 @@ export function createToolsFixture(options: {
           space: {
             macros: [],
             id: context.spaceId,
+ stableId: context.spaceId,
             name: context.title,
             initializationSource: null,
             createdAt: "",

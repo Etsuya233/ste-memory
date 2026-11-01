@@ -24,10 +24,11 @@ import { describe, expect, it } from "vitest";
 /** 一个小而完整的备份数据：一个空间 + 表格定义 + 字段 + 记录（含证据与修订历史）。 */
 function sampleSnapshot(): MemoryBackupData {
   const space: MemorySpaceBackup = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     floorLedger: [],
     space: {
       id: "space-1" as MemorySpaceId,
+      stableId: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
       macros: [],
       initializationSource: {
@@ -96,6 +97,7 @@ function sampleSnapshot(): MemoryBackupData {
     records: [
       {
         id: "record-1" as MemoryRecordId,
+        stableId: "record-1" as MemoryRecordId,
         memorySpaceId: "space-1" as MemorySpaceId,
         tableId: "table-1" as MemoryTableId,
         payload: { "field-1": "林夏", "field-2": ["调查员"] },
@@ -126,6 +128,7 @@ function sampleSnapshot(): MemoryBackupData {
     history: [
       {
         id: "history-1" as MemoryRecordHistoryId,
+        stableId: "record-1" as MemoryRecordId,
         recordId: "record-1" as MemoryRecordId,
         memorySpaceId: "space-1" as MemorySpaceId,
         tableId: "table-1" as MemoryTableId,
@@ -334,7 +337,7 @@ describe("备份数据完整性校验", () => {
   it("跨空间重复的表格 id 报格式错误", () => {
     const unit = sampleSnapshot().spaces[0]!;
     const second: MemorySpaceBackup = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       floorLedger: [],
       space: { ...unit.space, id: "space-2" as MemorySpaceId },
       tables: [

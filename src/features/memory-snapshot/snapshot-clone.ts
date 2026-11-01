@@ -11,7 +11,7 @@ import type { BackupIdFactory } from "../backup/backup-port.ts";
 import type { MemorySpaceBackup } from "./snapshot.ts";
 import { migrateMemorySpaceSnapshot } from "./snapshot-migration.ts";
 
-/** 校验源快照后，一次分配新身份，再复制结构和内容；不写SQLite、文件或辅助数据。 */
+/** 校验后重建副本的本地实体 ID；空间、记录及历史的 stableId 保留原谱系，不写外部状态。 */
 export function cloneMemorySnapshot(
   unit: MemorySpaceBackup,
   ids: BackupIdFactory,
@@ -36,7 +36,7 @@ export function cloneMemorySnapshot(
   };
 }
 
-/** 一次副本转换的身份映射及字段引用规则集中在此，历史删记录身份也只分配一次。 */
+/** 本地身份映射及字段引用集中在此；历史删记录只分配一次，stableId 不参与重映射。 */
 class SnapshotIdentityCopy {
   readonly spaceId;
   private readonly unit: MemorySpaceBackup;

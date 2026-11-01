@@ -71,6 +71,7 @@ export async function installDefaultPreset(
     defaultPreset: () => SYSTEM_TABLE_PRESET,
     currentChatIdentity: () => undefined,
     clearChatScopeMacros: () => undefined,
+    createStableSpaceId: () => "new-stable-space",
     createIds: {
       table: () => `preset-table-${++presetIdSequence}` as MemoryTableId,
       field: () => `preset-field-${++presetIdSequence}` as MemoryFieldId,

@@ -16,11 +16,12 @@ describe("Agent read-only SQL tool with real SQLite", () => {
     client = await createInProcessSqliteMemoryClient();
     view = "committed";
     await client.importSpace({
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       floorLedger: [],
       space: {
         macros: [],
         id: spaceId,
+        stableId: spaceId,
         name: "测试",
         initializationSource: null,
         createdAt: "2026-10-24",

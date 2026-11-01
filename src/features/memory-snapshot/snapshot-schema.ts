@@ -249,6 +249,7 @@ export const memorySpaceSnapshotSchema = Type.Object({
   floorLedger: Type.Array(memorySpaceLedgerEntrySchema),
   space: Type.Object({
     ...memorySpaceSchema.properties,
+    stableId: Type.String({ minLength: 1 }),
     macros: Type.Array(memoryMacroSchema),
     initializationSource: Type.Union([memorySpaceInitializationSourceSchema, Type.Null()]),
   }),
@@ -258,6 +259,18 @@ export const memorySpaceSnapshotSchema = Type.Object({
       kind: Type.Optional(Type.Never()),
       position: Type.Number(),
       vectorIndex: Type.Optional(currentVectorIndexSchema),
+    }),
+  ),
+  records: Type.Array(
+    Type.Object({
+      ...memoryRecordSchema.properties,
+      stableId: Type.String({ minLength: 1 }),
+    }),
+  ),
+  history: Type.Array(
+    Type.Object({
+      ...memoryRecordHistorySchema.properties,
+      stableId: Type.String({ minLength: 1 }),
     }),
   ),
   chatScopeMacros: Type.Optional(Type.Never()),

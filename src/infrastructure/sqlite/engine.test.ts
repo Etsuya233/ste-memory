@@ -15,11 +15,12 @@ import type { QueryRecordsInput } from "../../features/memory/index.ts";
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     floorLedger: [],
     space: {
       macros: [],
       id: "s",
+      stableId: "stable-space",
       name: "空间",
       initializationSource: null,
       createdAt: stamp,
@@ -69,6 +70,7 @@ function fixture(): MemorySpaceBackup {
 function record(id: string, name: string): MemoryRecord {
   return {
     id,
+    stableId: `stable-${id}`,
     memorySpaceId: "s",
     tableId: "t",
     payload: { f: name },
@@ -96,7 +98,8 @@ describe("real SQLite WASM memory engine", () => {
     expect((await client.readSnapshot("s")).records).toHaveLength(0);
     await client.commit("s");
     const snapshot = await client.readSnapshot("s");
-    expect(snapshot.records.map((item) => item.id)).toEqual(["r"]);
+    expect(snapshot.space.stableId).toBe("stable-space");
+    expect(snapshot.records.map((item) => [item.id, item.stableId])).toEqual([["r", "stable-r"]]);
     expect(Object.keys(snapshot).sort()).toEqual(["fields", "records", "space", "tables"]);
   });
   it("public database views query committed data and survive record publication without a snapshot copy", async () => {
@@ -109,7 +112,8 @@ describe("real SQLite WASM memory engine", () => {
       "space",
       "tables",
     ]);
-    expect(schema.columns["角色"]).toContain("$record_id");
+    expect(schema.space.stableId).toBe("stable-space");
+    expect(schema.columns["角色"]).toEqual(expect.arrayContaining(["$record_id", "$stable_id"]));
     const binding = {
       chatIdentity: "chat",
       spaceId: "s",
@@ -134,6 +138,9 @@ describe("real SQLite WASM memory engine", () => {
     expect(
       (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_contacts" })).rows,
     ).toEqual([["r", "小红"]]);
+    expect(
+      (await client.queryDatabase({ ...binding, sql: 'SELECT "$stable_id" FROM "角色"' })).rows,
+    ).toEqual([["stable-r"]]);
     await client.exec({ spaceId: "s", access: "host", sql: "UPDATE 角色 SET 姓名='实时库'" });
     expect(
       (await client.queryDatabase({ ...binding, sql: "SELECT name FROM phone_contacts" })).rows,

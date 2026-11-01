@@ -28,9 +28,10 @@ function fixture() {
   const spaceId = "space" as MemorySpaceId;
   const structure = instantiateTablePreset(preset, spaceId, ids, stamp);
   const unit: MemorySpaceBackup = {
-    schemaVersion: 2,
+    schemaVersion: 3 as const,
     space: {
       id: spaceId,
+      stableId: spaceId,
       name: "测试空间",
       prompt: preset.prompt,
       macros: structure.macros,
@@ -84,6 +85,7 @@ describe("从表格预设选择性更新空间", () => {
     expect(result.fields).toEqual(unit.fields);
     expect(result.floorLedger).toEqual(unit.floorLedger);
     expect(result.space.initializationSource).toEqual(unit.space.initializationSource);
+    expect(result.space.stableId).toBe(unit.space.stableId);
   });
 
   it("字段同 Key 类型不同只提示，选名称更新仍保留当前类型", () => {
@@ -164,6 +166,7 @@ describe("从表格预设选择性更新空间", () => {
     const exclusive = { ...shared, evidence_id: "exclusive" };
     const record = {
       id: "record",
+      stableId: "record",
       memorySpaceId: unit.space.id,
       tableId: unit.tables[0]!.id,
       payload: { [removed.id]: "旧经历", [kept.id]: "名字" },
@@ -213,6 +216,7 @@ describe("从表格预设选择性更新空间", () => {
     const result = buildPresetUpdate(populated, plan, selected, ids, stamp);
     expect(result.records[0]).toMatchObject({
       id: "record",
+      stableId: "record",
       payload: { [kept.id]: "名字" },
       revisionId: "revision",
     });

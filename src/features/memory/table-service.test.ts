@@ -113,6 +113,7 @@ function service(
 ): MemoryTableService {
   repository.spaces.set(spaceId, {
     id: spaceId,
+    stableId: spaceId,
     name: "会话",
     initializationSource: null,
     createdAt: now,
@@ -206,6 +207,7 @@ describe("MemoryTableService", () => {
     const secondTableId = "table-2" as MemoryTableId;
     repository.spaces.set(spaceId, {
       id: spaceId,
+      stableId: spaceId,
       name: "会话",
       initializationSource: null,
       createdAt: now,
@@ -213,6 +215,7 @@ describe("MemoryTableService", () => {
     });
     repository.spaces.set(secondSpaceId, {
       id: secondSpaceId,
+      stableId: secondSpaceId,
       name: "另一会话",
       initializationSource: null,
       createdAt: now,

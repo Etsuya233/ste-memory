@@ -1,3 +1,4 @@
+import { createBackupFile, decodeBackupFile } from "../backup/backup-codec.ts";
 import { describe, expect, it } from "vitest";
 import type { BackupIdFactory } from "../backup/backup-port.ts";
 import type {
@@ -90,6 +91,7 @@ function fixture(): MemorySpaceBackup {
       {
         ...unit.history[0]!,
         recordId: "deleted" as MemoryRecordId,
+        stableId: "deleted",
         payload: {
           [field.id]: "已删除人物",
           [reference.id]: "deleted",
@@ -101,6 +103,7 @@ function fixture(): MemorySpaceBackup {
         ...unit.history[0]!,
         id: "history-second" as MemoryRecordHistoryId,
         recordId: "deleted" as MemoryRecordId,
+        stableId: "deleted",
         payload: { [reference.id]: "deleted" },
         fieldEvidence: {},
       },
@@ -123,6 +126,7 @@ describe("空间快照独立副本", () => {
       updatedAt: "2026-11-01T00:00:00.000Z",
     });
     expect(copy.space.id).not.toBe(unit.space.id);
+    expect(copy.space.stableId).toBe(unit.space.stableId);
     expect(table.id).not.toBe(unit.tables[0]!.id);
     expect(table.memorySpaceId).toBe(copy.space.id);
     expect(table.displayStrategy).toEqual({ type: "field", fieldId: name!.id });
@@ -136,6 +140,7 @@ describe("空间快照独立副本", () => {
     expect(reference!.referenceTableId).toBe(table.id);
     expect(multiple!.referenceTableId).toBe(table.id);
     expect(record.id).not.toBe(unit.records[0]!.id);
+    expect(record.stableId).toBe(unit.records[0]!.stableId);
     expect(record.payload).toEqual({
       [name!.id]: "人物",
       [reference!.id]: record.id,
@@ -166,10 +171,34 @@ describe("空间快照独立副本", () => {
     expect(deleted).not.toBe("deleted");
     expect(deleted).not.toBe(copy.records[0]!.id);
     expect(copy.history[1]!.recordId).toBe(deleted);
+    expect(copy.history.every((item) => item.stableId === "deleted")).toBe(true);
     expect(copy.history[0]!.payload[copy.fields[1]!.id]).toBe(deleted);
     expect(copy.history[0]!.payload[copy.fields[2]!.id]).toEqual([copy.records[0]!.id, deleted]);
     expect(copy.history[1]!.payload[copy.fields[1]!.id]).toBe(deleted);
     expect(copy.history[0]!.previousRevisionId).toBe(unit.history[0]!.previousRevisionId);
     expect(copy.history[0]!.revisionId).toBe(unit.history[0]!.revisionId);
+  });
+  it("两轮备份复制重建本地身份，空间与当前及已删记录的稳定身份保持不变", () => {
+    const source = fixture();
+    const factory = ids();
+    const first = cloneMemorySnapshot(source, factory, "副本一", "now");
+    const saved = createBackupFile({ spaces: [first] }, "test", "now");
+    const restored = decodeBackupFile(JSON.parse(JSON.stringify(saved))).data.spaces[0]!;
+    const second = cloneMemorySnapshot(restored, factory, "副本二", "now");
+    expect(new Set([source.space.id, first.space.id, second.space.id]).size).toBe(3);
+    expect(new Set([source.records[0]!.id, first.records[0]!.id, second.records[0]!.id]).size).toBe(
+      3,
+    );
+    for (const copy of [first, second]) {
+      expect(copy.space.stableId).toBe(source.space.stableId);
+      expect(copy.records[0]!.stableId).toBe(source.records[0]!.stableId);
+      expect(copy.history.map((item) => item.stableId)).toEqual(
+        source.history.map((item) => item.stableId),
+      );
+    }
+    // 副本有独立物理身份；跨空间共享稳定身份合法。
+    expect(() =>
+      createBackupFile({ spaces: [source, first, second] }, "test", "now"),
+    ).not.toThrow();
   });
 });

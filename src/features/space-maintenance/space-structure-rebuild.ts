@@ -21,6 +21,8 @@ export interface SpaceStructureRebuildInput {
   readonly macros?: readonly MemoryMacro[];
   readonly prompt?: string;
   readonly memorySpaceId: MemorySpaceId;
+  /** 每次重建分配新的稳定空间身份；保存重试继续使用同一候选。 */
+  readonly stableId: string;
   readonly tables: readonly MemoryTable[];
   readonly fields: readonly MemoryField[];
   readonly initializationSource: MemorySpaceInitializationSource;

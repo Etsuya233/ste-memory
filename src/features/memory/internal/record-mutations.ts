@@ -284,6 +284,7 @@ async function buildCreateMutation(
     kind: "create",
     current: {
       id: recordId,
+      stableId: recordId,
       memorySpaceId,
       tableId: operation.tableId,
       payload,
@@ -470,6 +471,7 @@ function historySnapshot(
   return {
     id,
     recordId: record.id,
+    stableId: record.stableId,
     memorySpaceId: record.memorySpaceId,
     tableId: record.tableId,
     payload: record.payload,

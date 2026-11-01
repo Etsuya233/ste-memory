@@ -77,6 +77,7 @@ function record(
 ): MemoryRecord {
   return {
     id: id as MemoryRecordId,
+    stableId: id as MemoryRecordId,
     memorySpaceId: spaceId,
     tableId,
     payload: {
@@ -433,6 +434,7 @@ function refFixtureRecord(
 ): MemoryRecord {
   return {
     id: id as MemoryRecordId,
+    stableId: id as MemoryRecordId,
     memorySpaceId: spaceId,
     tableId,
     payload,

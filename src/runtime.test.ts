@@ -674,11 +674,12 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("绑定已存在时只从聊天文件加载空间到 SQLite", async () => {
     const db = createTestDatabase();
     const fileUnit: MemorySpaceBackup = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       floorLedger: [],
       space: {
         macros: [],
         id: "file-first" as MemorySpaceId,
+        stableId: "file-first" as MemorySpaceId,
         name: "文件中的旧版本",
         initializationSource: null,
         createdAt: "2026-08-01T00:00:00.000Z",
@@ -1257,11 +1258,12 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("已有绑定和完整聊天快照：启动从文件加载真实 SQLite", async () => {
     const db = createTestDatabase();
     const unit: MemorySpaceBackup = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       floorLedger: [],
       space: {
         macros: [],
         id: "space-ghost" as MemorySpaceId,
+        stableId: "space-ghost" as MemorySpaceId,
         name: "爱丽丝 - story",
         initializationSource: null,
         createdAt: "2026-08-10T00:00:00.000Z",

@@ -212,6 +212,7 @@ function record(
 ): MemoryRecord {
   return {
     id: id as MemoryRecordId,
+    stableId: id as MemoryRecordId,
     memorySpaceId: SPACE_ID,
     tableId,
     payload,

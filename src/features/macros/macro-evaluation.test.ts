@@ -17,11 +17,12 @@ import { QueryVectorCache } from "../semantic-query/query-vector-cache.ts";
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(count = 120): MemorySpaceBackup {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     floorLedger: [],
     space: {
       macros: [],
       id: "s",
+      stableId: "s",
       name: "空间",
       initializationSource: null,
       createdAt: stamp,
@@ -74,6 +75,7 @@ function fixture(count = 120): MemorySpaceBackup {
     ],
     records: Array.from({ length: count }, (_, i) => ({
       id: `r${i}`,
+      stableId: `r${i}`,
       memorySpaceId: "s",
       tableId: "t",
       payload: { f: `内容${i}` },

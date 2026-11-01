@@ -225,6 +225,7 @@ describe("MemoryRecordService mutations", () => {
     expect(records.history).toEqual([
       expect.objectContaining({
         id: "history-1",
+        stableId: person.id,
         recordId: person.id,
         payload: person.payload,
         previousRevisionId: person.revisionId,
@@ -233,6 +234,7 @@ describe("MemoryRecordService mutations", () => {
       }),
       expect.objectContaining({
         id: "history-2",
+        stableId: place.id,
         recordId: place.id,
         payload: place.payload,
         previousRevisionId: place.revisionId,

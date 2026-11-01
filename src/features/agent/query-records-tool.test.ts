@@ -378,6 +378,7 @@ function relationshipsSpace(): TestMemorySpace {
   ]);
   const charA: MemoryRecord = {
     id: "char-1" as MemoryRecord["id"],
+    stableId: "char-1" as MemoryRecord["id"],
     memorySpaceId: SPACE_ID,
     tableId: charactersTableId,
     payload: { [nameId]: "秋元悦也" },
@@ -392,6 +393,7 @@ function relationshipsSpace(): TestMemorySpace {
   const charB: MemoryRecord = {
     ...charA,
     id: "char-2" as MemoryRecord["id"],
+    stableId: "char-2" as MemoryRecord["id"],
     payload: { [nameId]: "平野健介" },
     displayText: "平野健介",
     revisionId: "revision-char-2" as MemoryRevisionId,
@@ -399,6 +401,7 @@ function relationshipsSpace(): TestMemorySpace {
   // 存储 displayText 是修复前的过期值（引用解析为空）——读时解析应纠正展示
   const relationship: MemoryRecord = {
     id: "rel-1" as MemoryRecord["id"],
+    stableId: "rel-1" as MemoryRecord["id"],
     memorySpaceId: SPACE_ID,
     tableId: relationshipsTableId,
     payload: { [charAId]: "char-1", [charBId]: "char-2" },

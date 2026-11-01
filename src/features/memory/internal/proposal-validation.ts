@@ -269,6 +269,7 @@ async function collectDeletionSafetyErrors(
     } else {
       records.set(operation.tempId as MemoryRecord["id"], {
         id: operation.tempId as MemoryRecord["id"],
+        stableId: operation.tempId as MemoryRecord["id"],
         memorySpaceId,
         tableId: operation.tableId,
         payload: operation.patch as MemoryRecordPayload,

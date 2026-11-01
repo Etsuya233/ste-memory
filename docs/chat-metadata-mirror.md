@@ -10,7 +10,7 @@
 再导入 SQLite；插件不为普通加载额外下载完整聊天。旧文件与备份仍经
 `features/memory-snapshot/snapshot-migration.ts` 统一迁移，之后校验当前格式。
 文件外壳版本与 `data.schemaVersion` 分别管理外层协议和领域数据结构。
-当前文件外壳为 v3，领域快照为 schemaVersion 2，`floorLedger` 为必填集合。
+当前文件外壳为 v3，领域快照为 schemaVersion 3，`floorLedger`、`space.stableId`、当前记录与历史的 `stableId` 为必填。领域 v1/v2 明确迁移：空间取原空间 ID，当前及已删除记录的历史取原记录 ID；新格式缺失稳定身份拒绝加载和写回。
 
 旧快照未提供的楼层进度视为未知，不从本机 Dexie 的旧空间内容或独立台账猜测。
 当前快照导入、导出和克隆同时携带记忆内容及必要进度，不恢复旧辅助任务、向量或助手会话。

@@ -27,10 +27,11 @@ import { describe, expect, it } from "vitest";
 
 function sampleUnit(): MemorySpaceBackup {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     floorLedger: [],
     space: {
       id: "space-1" as MemorySpaceId,
+      stableId: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
       macros: [],
       initializationSource: null,
@@ -76,6 +77,7 @@ function sampleUnit(): MemorySpaceBackup {
     records: [
       {
         id: "record-1" as MemoryRecordId,
+        stableId: "record-1" as MemoryRecordId,
         memorySpaceId: "space-1" as MemorySpaceId,
         tableId: "table-1" as MemoryTableId,
         payload: { "field-1": "林夏" },
@@ -102,6 +104,7 @@ function sampleUnit(): MemorySpaceBackup {
     history: [
       {
         id: "history-1" as MemoryRecordHistoryId,
+        stableId: "record-1" as MemoryRecordId,
         recordId: "record-1" as MemoryRecordId,
         memorySpaceId: "space-1" as MemorySpaceId,
         tableId: "table-1" as MemoryTableId,

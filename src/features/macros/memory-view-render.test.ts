@@ -63,6 +63,7 @@ const FIELDS: readonly MemoryFieldDigest[] = [
 function record(id: string, displayText: string, payload: MemoryRecordPayload = {}) {
   return {
     id: id as MemoryRecordId,
+    stableId: id as MemoryRecordId,
     memorySpaceId: "space-1" as MemorySpaceId,
     tableId: "table-plots" as MemoryTableId,
     payload,

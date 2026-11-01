@@ -41,6 +41,7 @@ export function validateSnapshotIntegrity(unit: MemorySpaceBackup, seen: Snapsho
     seen.evidence.add(evidence.evidence_id);
     evidenceIds.add(evidence.evidence_id);
   }
+  validateStableRecordIdentities(unit);
   validateCurrentRecords(unit, seen, tableIds, fieldsByTable, evidenceIds);
   validateArchivedRecords(unit, seen, tableIds);
   validateTaskProgress(unit);
@@ -167,5 +168,24 @@ function validateTaskProgress(unit: MemorySpaceBackup): void {
       snapshotInvalid(`楼层进度条目重复：${entry.floor}`);
     }
     floors.add(entry.floor);
+  }
+}
+
+/** 稳定身份在单空间跨表唯一；历史必须与原记录对应，跨空间副本允许共享。 */
+function validateStableRecordIdentities(unit: MemorySpaceBackup): void {
+  const stableByRecord = new Map<string, string>();
+  const recordByStable = new Map<string, string>();
+  for (const entry of [...unit.records, ...unit.history]) {
+    const recordId = "recordId" in entry ? entry.recordId : entry.id;
+    const previous = stableByRecord.get(recordId);
+    if (previous !== undefined && previous !== entry.stableId) {
+      snapshotInvalid(`记录 ${recordId} 的稳定身份与历史不一致`);
+    }
+    const owner = recordByStable.get(entry.stableId);
+    if (owner !== undefined && owner !== recordId) {
+      snapshotInvalid(`记录稳定身份重复：${entry.stableId}`);
+    }
+    stableByRecord.set(recordId, entry.stableId);
+    recordByStable.set(entry.stableId, recordId);
   }
 }

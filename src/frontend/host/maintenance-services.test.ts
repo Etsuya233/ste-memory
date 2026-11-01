@@ -15,6 +15,7 @@ function harness() {
     floorLedger: [],
     space: {
       id: "imported" as MemorySpaceId,
+      stableId: "imported" as MemorySpaceId,
       name: "Imported",
       macros: [],
       initializationSource: null,

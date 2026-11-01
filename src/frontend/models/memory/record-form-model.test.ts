@@ -38,6 +38,7 @@ function field(overrides: Partial<MemoryField> & { readonly type?: MemoryFieldTy
 function record(payload: MemoryRecord["payload"] = {}): MemoryRecord {
   return {
     id: "record-1" as MemoryRecord["id"],
+    stableId: "record-1" as MemoryRecord["id"],
     memorySpaceId: "space-1" as MemoryRecord["memorySpaceId"],
     tableId: "table-1" as MemoryRecord["tableId"],
     payload,

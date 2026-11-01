@@ -66,6 +66,7 @@ const table: MemoryTable = {
 function record(spaceId = contextA.spaceId, name = "原文", revision = "v1"): MemoryRecord {
   return {
     id: recordId,
+    stableId: recordId,
     memorySpaceId: spaceId,
     tableId,
     payload: { [fieldId]: name, disabled: "保留" },

@@ -533,6 +533,7 @@ export async function startSteMemory(
         floorLedger: [],
         space: {
           id: structure.tables[0]?.memorySpaceId ?? ("preset-validation" as MemorySpaceId),
+          stableId: structure.tables[0]?.memorySpaceId ?? ("preset-validation" as MemorySpaceId),
           name: "预设校验",
           initializationSource: null,
           createdAt: at,
@@ -570,6 +571,7 @@ export async function startSteMemory(
       resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET),
     currentChatIdentity: () => chatIdentityKey(adapter.getChatSnapshot()),
     clearChatScopeMacros: () => adapter.chatScopeMacroStore.write([]),
+    createStableSpaceId: () => createId("space"),
     createIds: {
       table: () => createId("table") as MemoryTableId,
       field: () => createId("field") as MemoryFieldId,
@@ -601,6 +603,7 @@ export async function startSteMemory(
         floorLedger: [],
         space: {
           id,
+          stableId: id,
           name,
           macros: structure.macros,
           prompt: preset.prompt ?? "",

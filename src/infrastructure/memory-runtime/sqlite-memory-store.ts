@@ -285,6 +285,8 @@ export class SqliteMemoryStore {
               ...unit.space,
               prompt: input.prompt ?? "",
               macros: input.macros ?? [],
+              // 重建开始一条新的记忆谱系；本地空间 ID 与聊天绑定继续沿用。
+              stableId: input.stableId,
               initializationSource: input.initializationSource,
               updatedAt: input.initializationSource.appliedAt,
             },

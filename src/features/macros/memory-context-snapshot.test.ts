@@ -24,6 +24,7 @@ const BASE = "2026-07-28T00:00:00.000Z";
 function record(id: string, displayText: string, updatedAt: string = BASE): MemoryRecord {
   return {
     id: id as MemoryRecordId,
+    stableId: id as MemoryRecordId,
     memorySpaceId: "space-1" as MemorySpaceId,
     tableId: "table-1" as MemoryTableId,
     payload: {},

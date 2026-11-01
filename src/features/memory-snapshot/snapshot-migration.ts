@@ -8,7 +8,7 @@ import { snapshotInvalid } from "./snapshot-errors.ts";
 
 /** 来源外壳负责辨认历史版本，迁移入口只接收明确版本，不根据缺字段猜测。 */
 export type MemorySnapshotVersion =
-  "legacy-views" | "legacy-macros" | 1 | typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
+  "legacy-views" | "legacy-macros" | 1 | 2 | typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
 
 export function assertSnapshotStructure(schema: TSchema, value: unknown): void {
   if (Value.Check(schema, value)) {
@@ -35,24 +35,35 @@ export function migrateMemorySpaceSnapshot(input: {
   if (
     input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION &&
     input.version !== 1 &&
+    input.version !== 2 &&
     input.version !== "legacy-views" &&
     input.version !== "legacy-macros"
   ) {
     snapshotInvalid(`快照版本不支持：${String(input.version)}`);
   }
   let snapshot = input.snapshot;
-  if (input.version === 1) {
+  if (input.version === 1 || input.version === 2) {
     const previousSchema = Type.Object({
       ...memorySpaceSnapshotSchema.properties,
-      schemaVersion: Type.Literal(1),
-      floorLedger: legacyMemorySpaceSnapshotSchema.properties.floorLedger,
+      schemaVersion: Type.Literal(input.version),
+      space: Type.Omit(memorySpaceSnapshotSchema.properties.space, ["stableId"]),
+      records: legacyMemorySpaceSnapshotSchema.properties.records,
+      history: legacyMemorySpaceSnapshotSchema.properties.history,
+      floorLedger:
+        input.version === 1
+          ? legacyMemorySpaceSnapshotSchema.properties.floorLedger
+          : memorySpaceSnapshotSchema.properties.floorLedger,
     });
     assertSnapshotStructure(previousSchema, snapshot);
-    const previous = snapshot as { readonly floorLedger?: MemorySpaceBackup["floorLedger"] };
+    const previous = snapshot as LegacySnapshot;
     snapshot = {
-      ...(snapshot as Record<string, unknown>),
+      ...previous,
       schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
-      // 只采用文件自身携带的进度；缺失时保持未知，绝不读取本机旧台账。
+      // 迁移只认原始本地 ID；同一记录的所有历史共享该稳定身份。
+      space: { ...previous.space, stableId: previous.space.id },
+      records: previous.records.map((record) => ({ ...record, stableId: record.id })),
+      history: previous.history.map((history) => ({ ...history, stableId: history.recordId })),
+      // 只采用文件自身携带的进度；缺失时保持未知。
       floorLedger: previous.floorLedger ?? [],
     };
   } else if (input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION) {
@@ -90,6 +101,7 @@ function upgradeLegacySnapshot(
     floorLedger: legacy.floorLedger ?? [],
     space: {
       ...legacy.space,
+      stableId: legacy.space.id,
       initializationSource: legacy.space.initializationSource ?? null,
       macros,
     },
@@ -105,10 +117,12 @@ function upgradeLegacySnapshot(
         })),
       },
     })),
+    history: legacy.history.map((history) => ({ ...history, stableId: history.recordId })),
     // 旧字段删除会留下空证据键。仅移除当前记录中不携带证据的残留；非空仍由校验拒绝。
     // 历史按归档时的字段解释，保留其旧键，避免改写过去的字段状态。
     records: legacy.records.map((record) => ({
       ...record,
+      stableId: record.id,
       fieldEvidence: Object.fromEntries(
         Object.entries(record.fieldEvidence).filter(
           ([fieldId, entries]) => fieldTable.get(fieldId) === record.tableId || entries.length > 0,

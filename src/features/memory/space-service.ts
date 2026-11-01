@@ -15,8 +15,10 @@ export class MemorySpaceService {
 
   async create(name: string): Promise<MemorySpace> {
     const now = this.now();
+    const id = this.createId();
     const memorySpace: MemorySpace = {
-      id: this.createId(),
+      id,
+      stableId: id,
       name: memorySpaceName(name),
       initializationSource: null,
       macros: [],

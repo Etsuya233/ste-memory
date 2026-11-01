@@ -134,8 +134,10 @@ export class MemoryRecordService {
       });
     }
     const timestamp = this.now();
+    const id = this.createId();
     const record: MemoryRecord = {
-      id: this.createId(),
+      id,
+      stableId: id,
       memorySpaceId,
       tableId,
       payload,

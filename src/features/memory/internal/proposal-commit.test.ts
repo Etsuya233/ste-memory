@@ -211,6 +211,7 @@ describe("commitMemoryProposalBatch", () => {
     const { records, context } = setup();
     const linxia: MemoryRecord = {
       id: "record-0" as MemoryRecordId,
+      stableId: "record-0" as MemoryRecordId,
       memorySpaceId: spaceId,
       tableId: peopleId,
       payload: { [nameId]: "林夏" },

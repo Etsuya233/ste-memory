@@ -350,6 +350,7 @@ describe("MemoryRecordService", () => {
     const { records, service } = createService();
     records.values.push({
       id: "record-1" as MemoryRecordId,
+      stableId: "record-1" as MemoryRecordId,
       memorySpaceId: spaceId,
       tableId: characterTableId,
       payload: { [nameId]: "林夏", [ageId]: 27.5 },
@@ -564,6 +565,7 @@ describe("MemoryRecordService list 读时显示文本", () => {
     const stored: MemoryRecord[] = [
       {
         id: "loc-1" as MemoryRecordId,
+        stableId: "loc-1" as MemoryRecordId,
         memorySpaceId: spaceId,
         tableId: locTable,
         payload: { [locName]: "雾都" },
@@ -577,6 +579,7 @@ describe("MemoryRecordService list 读时显示文本", () => {
       },
       {
         id: "rel-1" as MemoryRecordId,
+        stableId: "rel-1" as MemoryRecordId,
         memorySpaceId: spaceId,
         tableId: relTable,
         payload: { [relFrom]: "loc-1" },

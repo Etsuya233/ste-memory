@@ -7,6 +7,7 @@
 ```ts
 interface MemoryReadApi {
   readonly version: 1;
+  readonly identity: { readonly version: 1 };
   readonly database?: MemoryDatabaseApi; // capability version 1
   readonly chat?: MemoryChatApi; // cleaned chat capability version 1
   getContext(): MemoryReadContext;
@@ -25,6 +26,12 @@ interface MemoryReadApi {
 
 接口只暴露读取能力；没有数据库对象或业务写入方法。只读快照的修改不会写回 Memory。
 
+## 稳定身份
+
+`identity.version === 1` 表示支持稳定身份；顶层接口与 `database` 仍为 v1。`read()` 返回的 `space.stableId`、`records[].stableId` 与 `database.describe().space.stableId`、业务表的 `$stable_id` 对应。消费方以空间和记录的 stableId 组合保存跨运行库加载的身份；`id`、`$record_id` 仍用于当前空间内引用与 JOIN，`chatIdentity` 仍用于当前聊天绑定。
+
+稳定身份随快照保存；领域快照 v1、v2 与旧备份、聊天镜像升级到 v3 时，空间稳定身份取原空间 ID，记录与对应历史的稳定身份取原记录 ID。导入和分支复制会重建本地实体 ID，同时保留稳定身份。普通编辑、归档与清除记录保留空间稳定身份；应用预设重建生成新的空间稳定身份，从预设按 Key 更新结构则保留。当前 v3 缺失稳定身份直接拒绝。
+
 ## 清洗后的最近聊天
 
 `chat` 是可选的 v1 能力，类型位于 `src/features/public-read/chat-api.ts`。调用方检查 `api.chat?.version === 1`，将 `getContext().chatIdentity` 与条数传入 `api.chat.readRecent({ chatIdentity, count })`；`count` 必须为正整数。聊天身份使用 Memory 公开身份，调用方其他系统的身份不能直接替用。
@@ -39,9 +46,9 @@ interface MemoryReadApi {
 
 `database` 是可选的 v1 能力，类型位于 `src/features/public-read/database-api.ts`。消费方检查能力存在后，先绑定 `getContext()` 返回的 `chatIdentity` 和 `spaceId`，调用 `describe(binding)`。结果只有 `space`、启用的 `tables`/`fields`、可查询的 `columns`，以及不透明的 `schemaKey` 和 `databaseKey`；不会复制记忆记录、历史或证据。停用表和字段不对外开放。
 
-`columns[table.key]` 列出物理业务表可以公开查询的列，包括 `$record_id`、`$display_text`、`$created_at`、`$updated_at` 和启用字段的 Key。列表、多选和多引用列沿用运行库的 JSON 文本表示。`$display_text` 是最近提交时保存的显示值；需要即时展开引用名称的适配器可通过公开字段自行组合 SQL。内部 `__entities`、关系辅助表、SQLite 结构表均不可读。
+`columns[table.key]` 列出物理业务表可以公开查询的列，包括 `$record_id`、`$stable_id`、`$display_text`、`$created_at`、`$updated_at` 和启用字段的 Key。列表、多选和多引用列沿用运行库的 JSON 文本表示。`$display_text` 是最近提交时保存的显示值；需要即时展开引用名称的适配器可通过公开字段自行组合 SQL。内部 `__entities`、关系辅助表、SQLite 结构表均不可读。
 
-`schemaKey` 包含空间身份与名称、表和字段的完整结构语义，含标签、顺序、引用与显示策略，排除创建和更新时间。记录提交不会改变它。`databaseKey` 在每次加载或重新导入空间时改变，普通记录发布期间保持不变。适配器以 `databaseKey + schemaKey` 判断是否需要重新注册视图，不能只以空间身份缓存注册状态；切换对话后回到原空间可能已经卸载过运行库。
+`schemaKey` 包含空间 id、stableId 与名称、表和字段的完整结构语义，含标签、顺序、引用与显示策略，排除创建和更新时间。记录提交不会改变它。`databaseKey` 在每次加载或重新导入空间时改变，普通记录发布期间保持不变。适配器以 `databaseKey + schemaKey` 判断是否需要重新注册视图，不能只以空间身份缓存注册状态；切换对话后回到原空间可能已经卸载过运行库。
 
 消费方持有自己的业务映射，Memory 只接受通用的临时 SELECT 视图定义：
 

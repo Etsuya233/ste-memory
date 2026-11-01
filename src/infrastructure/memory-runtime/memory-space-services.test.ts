@@ -12,6 +12,7 @@ describe("SQLite memory space services", () => {
 
     expect(space).toEqual({
       id: "space-1",
+      stableId: "space-1",
       name: "会话",
       initializationSource: null,
       macros: [],
@@ -34,6 +35,7 @@ describe("SQLite memory space services", () => {
 
     expect(renamed).toEqual({
       id: space.id,
+      stableId: space.id,
       name: "重命名会话",
       initializationSource: null,
       macros: [],

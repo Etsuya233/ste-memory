@@ -37,6 +37,9 @@ describe("public memory read boundary", () => {
       },
       port,
     );
+    expect(reader.version).toBe(1);
+    expect(reader.identity).toEqual({ version: 1 });
+    expect(reader.database!.version).toBe(1);
     const input = {
       chatIdentity: "chat",
       spaceId: "space",

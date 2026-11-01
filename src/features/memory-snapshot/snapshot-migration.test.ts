@@ -36,7 +36,12 @@ describe("统一记忆空间快照迁移", () => {
     expect(legacy).toEqual(before);
     expect(decodeBackupFile(backup(legacy, version)).data.spaces[0]).toEqual(fromBackup);
     expect(fromBackup.schemaVersion).toBe(MEMORY_SNAPSHOT_SCHEMA_VERSION);
-    expect(fromBackup.space).toMatchObject({ id: "space", macros: [], initializationSource: null });
+    expect(fromBackup.space).toMatchObject({
+      id: "space",
+      stableId: "space",
+      macros: [],
+      initializationSource: null,
+    });
     expect(fromBackup.tables[0]).toMatchObject({ id: "table", position: 0 });
     expect(fromBackup.tables[0]).not.toHaveProperty("kind");
     expect(fromBackup.tables[0]!.vectorIndex!.groups[0]).toMatchObject({
@@ -44,7 +49,9 @@ describe("统一记忆空间快照迁移", () => {
       key: "group",
     });
     expect(fromBackup.records[0]!.fieldEvidence).toEqual({ field: [] });
-    expect(fromBackup.history).toEqual(legacy.history);
+    expect(fromBackup.history).toEqual(
+      legacy.history.map((item) => ({ ...item, stableId: item.recordId })),
+    );
   });
 
   it("非空孤立证据拒绝迁移，保留原始内容", () => {
@@ -162,10 +169,81 @@ describe("统一记忆空间快照迁移", () => {
     ).toEqual(fileProgress);
     expect(decodeBackupFile(backup(previous, 3)).data.spaces[0]).toEqual(upgraded);
     expect(decodeChatMirrorFile(mirror(previous, 3))!.data).toEqual(upgraded);
-    const broken = { ...current };
+    const broken = { ...current, schemaVersion: 2 };
     Reflect.deleteProperty(broken, "floorLedger");
     expect(() => migrateMemorySpaceSnapshot({ version: 2, snapshot: broken })).toThrow(
       "floorLedger",
     );
+  });
+  it.each([1, 2])("领域 v%i 按原始 ID 迁移稳定身份，历史删除记录也保持一致", (version) => {
+    const current = migrateMemorySpaceSnapshot({
+      version: "legacy-macros",
+      snapshot: legacySnapshotFixture(),
+    });
+    const previous = {
+      ...current,
+      schemaVersion: version,
+      space: { ...current.space },
+      records: current.records.map((record) => ({ ...record })),
+      history: current.history.map((history) => ({ ...history, recordId: "deleted" })),
+    };
+    Reflect.deleteProperty(previous.space, "stableId");
+    previous.records.forEach((record) => Reflect.deleteProperty(record, "stableId"));
+    previous.history.forEach((history) => Reflect.deleteProperty(history, "stableId"));
+    const before = structuredClone(previous);
+    const upgraded = migrateMemorySpaceSnapshot({ version, snapshot: previous });
+    expect(upgraded.space.stableId).toBe("space");
+    expect(upgraded.records[0]!.stableId).toBe("record");
+    expect(upgraded.history[0]!.stableId).toBe("deleted");
+    expect(decodeBackupFile(backup(previous, 3)).data.spaces[0]).toEqual(upgraded);
+    expect(decodeChatMirrorFile(mirror(previous, 3))!.data).toEqual(upgraded);
+    expect(previous).toEqual(before);
+  });
+
+  it("当前格式缺稳定身份或历史身份不一致时拒绝，不执行补字段", () => {
+    const current = migrateMemorySpaceSnapshot({
+      version: "legacy-macros",
+      snapshot: legacySnapshotFixture(),
+    });
+    for (const target of ["space", "records", "history"] as const) {
+      const broken = structuredClone(current);
+      const entity = target === "space" ? broken.space : broken[target][0]!;
+      Reflect.deleteProperty(entity, "stableId");
+      expect(() =>
+        migrateMemorySpaceSnapshot({ version: current.schemaVersion, snapshot: broken }),
+      ).toThrow("stableId");
+      expect(decodeChatMirrorFile(mirror(broken, 3))).toBeNull();
+    }
+    expect(() =>
+      migrateMemorySpaceSnapshot({
+        version: current.schemaVersion,
+        snapshot: { ...current, history: [{ ...current.history[0]!, stableId: "other" }] },
+      }),
+    ).toThrow("稳定身份与历史不一致");
+  });
+
+  it("同空间跨表稳定记录身份唯一", () => {
+    const current = migrateMemorySpaceSnapshot({
+      version: "legacy-macros",
+      snapshot: legacySnapshotFixture(),
+    });
+    const table = { ...current.tables[0]!, id: "second-table", key: "second" };
+    const duplicate = {
+      ...current.records[0]!,
+      id: "second-record",
+      tableId: table.id,
+      payload: {},
+      fieldEvidence: {},
+    };
+    expect(() =>
+      migrateMemorySpaceSnapshot({
+        version: current.schemaVersion,
+        snapshot: {
+          ...current,
+          tables: [...current.tables, table],
+          records: [...current.records, duplicate],
+        },
+      }),
+    ).toThrow("记录稳定身份重复");
   });
 });

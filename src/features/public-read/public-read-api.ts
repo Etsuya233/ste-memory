@@ -28,6 +28,7 @@ export interface MemoryReadContext {
 
 export interface MemoryReadApi {
   readonly version: 1;
+  readonly identity: { readonly version: 1 };
   readonly database?: MemoryDatabaseApi;
   readonly chat?: MemoryChatApi;
   getContext(): MemoryReadContext;
@@ -37,6 +38,7 @@ export interface MemoryReadApi {
 
 export class PublicMemoryReader implements MemoryReadApi {
   readonly version = 1;
+  readonly identity = { version: 1 as const };
   readonly database?: MemoryDatabaseApi;
   readonly chat?: MemoryChatApi;
   readonly #context: () => Omit<MemoryReadContext, "revision">;

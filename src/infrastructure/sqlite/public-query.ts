@@ -10,7 +10,7 @@ import type {
 
 const key = (name: string): string => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
-const systemColumns = ["$record_id", "$display_text", "$created_at", "$updated_at"];
+const systemColumns = ["$record_id", "$stable_id", "$display_text", "$created_at", "$updated_at"];
 const maxValueBytes = 1024 * 1024;
 const maxResultBytes = 2 * 1024 * 1024;
 interface Registration {
@@ -45,7 +45,7 @@ export class PublicSqlDatabase {
     // Preserve the actual structural identity, including labels, references and display strategy.
     // Timestamps and space updates also change for ordinary record commits and are excluded.
     const schemaKey = JSON.stringify([
-      { id: input.space.id, name: input.space.name },
+      { id: input.space.id, stableId: input.space.stableId, name: input.space.name },
       tables.map((table) =>
         Object.fromEntries(
           Object.entries(table).filter(([name]) => name !== "createdAt" && name !== "updatedAt"),

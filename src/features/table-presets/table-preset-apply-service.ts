@@ -34,6 +34,7 @@ export interface TablePresetApplyPorts {
   /** 清除当前对话已废弃的旧 metadata 宏（不能清除本次新空间宏） */
   readonly clearChatScopeMacros: () => void;
   readonly createIds: PresetInstantiationIds;
+  readonly createStableSpaceId: () => string;
   readonly now: () => string;
   readonly validateStructure: (
     structure: InstantiatedSpaceStructure,
@@ -154,6 +155,7 @@ export class TablePresetApplyService {
     );
     return this.#ports.rebuild.rebuild({
       memorySpaceId,
+      stableId: this.#ports.createStableSpaceId(),
       prompt: preset.prompt ?? "",
       tables: structure.tables,
       fields: structure.fields,

@@ -17,7 +17,7 @@ export interface MemorySpaceBackupLedgerEntry {
 }
 
 /** 单个记忆空间的序列化单元。 */
-export const MEMORY_SNAPSHOT_SCHEMA_VERSION = 2 as const;
+export const MEMORY_SNAPSHOT_SCHEMA_VERSION = 3 as const;
 
 export interface MemorySpaceBackup {
   readonly schemaVersion: typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;

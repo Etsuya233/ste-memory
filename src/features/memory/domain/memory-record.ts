@@ -55,6 +55,8 @@ export type MemoryRecordSource =
 
 export interface MemoryRecord {
   readonly id: MemoryRecordId;
+  /** 首次创建时分配，更新、归档和副本转换始终保留。 */
+  readonly stableId: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tableId: MemoryTableId;
   readonly payload: MemoryRecordPayload;
@@ -70,6 +72,8 @@ export interface MemoryRecord {
 export interface MemoryRecordHistory {
   readonly id: MemoryRecordHistoryId;
   readonly recordId: MemoryRecordId;
+  /** 原记忆记录的稳定身份，包含已经删除的记录。 */
+  readonly stableId: string;
   readonly memorySpaceId: MemorySpaceId;
   readonly tableId: MemoryTableId;
   readonly payload: MemoryRecordPayload;

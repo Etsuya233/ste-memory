@@ -22,6 +22,7 @@ describe("preset rebuild commit boundary", () => {
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => "a",
       clearChatScopeMacros: clear,
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => `t-${++seq}` as MemoryTableId,
         field: () => `f-${++seq}` as MemoryFieldId,
@@ -40,6 +41,9 @@ describe("preset rebuild commit boundary", () => {
       message: expect.stringContaining("file unavailable"),
     });
     expect(rebuild).toHaveBeenCalledOnce();
+    expect(rebuild).toHaveBeenCalledWith(
+      expect.objectContaining({ memorySpaceId: "s", stableId: "new-stable-space" }),
+    );
     expect(clear).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledOnce();
   });

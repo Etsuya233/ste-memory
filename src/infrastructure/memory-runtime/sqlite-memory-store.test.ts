@@ -17,11 +17,12 @@ import {
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     floorLedger: [],
     space: {
       macros: [],
       id: "space",
+      stableId: "space",
       name: "空间",
       initializationSource: null,
       createdAt: stamp,
@@ -71,6 +72,7 @@ function fixture(): MemorySpaceBackup {
 function row(id: string, name: string): MemoryRecord {
   return {
     id,
+    stableId: id,
     memorySpaceId: "space",
     tableId: "characters",
     payload: { name },
@@ -523,6 +525,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(snapshot.records).toHaveLength(1);
     expect(snapshot.records[0]).toMatchObject({
       id: created.id,
+      stableId: created.id,
       payload: { name: "最终状态" },
       revisionId: "task-new",
     });
@@ -634,11 +637,14 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(committed).toHaveBeenCalledWith(
       expect.objectContaining({ space: expect.objectContaining({ macros }) }),
     );
+    const stableId = (await store.snapshot(id()))!.space.stableId;
     await store.repositories().spaces.clearRecords(id());
+    expect((await store.snapshot(id()))!.space.stableId).toBe(stableId);
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
     await store
       .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
       .rebuild({
+        stableId: "rebuilt-stable-space",
         memorySpaceId: id(),
         tables: unit.tables,
         fields: unit.fields,
@@ -646,6 +652,10 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
         initializationSource: { presetId: "preset", presetName: "预设", appliedAt: stamp },
       });
     expect((await store.snapshot(id()))!.space.macros).toEqual([]);
+    expect((await store.snapshot(id()))!.space).toMatchObject({
+      id: id(),
+      stableId: "rebuilt-stable-space",
+    });
   });
 
   it("结构重建提交后释放writer，旧文件回调完成不得释放后续writer", async () => {
@@ -664,6 +674,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     const rebuild = store
       .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
       .rebuild({
+        stableId: "rebuilt-stable-space",
         memorySpaceId: id(),
         tables: unit.tables,
         fields: unit.fields,
@@ -689,6 +700,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       store
         .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
         .rebuild({
+          stableId: "rebuilt-stable-space",
           memorySpaceId: id(),
           tables: unit.tables,
           fields: unit.fields,
@@ -732,5 +744,26 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     );
     await store.unload(id());
     expect(store.hasSpace(id())).toBe(false);
+  });
+  it("SQLite 在跨业务表写入时拒绝重复稳定记录身份，并保留已提交记录", async () => {
+    const secondTable = {
+      ...unit.tables[0]!,
+      id: "second-table",
+      key: "second",
+      displayStrategy: null,
+    } as (typeof unit.tables)[number];
+    await store.replace({ ...unit, tables: [...unit.tables, secondTable] });
+    await store.repositories().records.create(row("first", "原记录"), []);
+    const duplicate = {
+      ...row("second", "副本"),
+      stableId: "first",
+      tableId: secondTable.id,
+      payload: {},
+    };
+    await expect(store.repositories().records.create(duplicate, [])).rejects.toThrow(
+      "UNIQUE constraint failed",
+    );
+    const snapshot = (await store.snapshot(id()))!;
+    expect(snapshot.records.map((record) => record.id)).toEqual(["first"]);
   });
 });

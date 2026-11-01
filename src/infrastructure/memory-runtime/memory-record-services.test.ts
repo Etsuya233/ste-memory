@@ -37,6 +37,7 @@ describe("SQLite memory record services", () => {
       revisionSource: "user",
       payload: { [name.id]: "林夏", [identity.id]: "调查员" },
     });
+    expect(first!.stableId).toBe(first!.id);
     expect(await recordRepository.find(space.id, table.id, first!.id)).toEqual(first);
 
     const second = await records.create(space.id, table.id, {
@@ -84,6 +85,7 @@ describe("SQLite memory record services", () => {
       revisionSource: "user",
     });
     expect(updated!.revisionId).not.toBe(created!.revisionId);
+    expect(updated!.stableId).toBe(created!.stableId);
 
     await expect(
       records.update(space.id, table.id, created!.id, {
@@ -107,6 +109,7 @@ describe("SQLite memory record services", () => {
     expect(histories).toEqual([
       expect.objectContaining({
         recordId: created!.id,
+        stableId: created!.stableId,
         payload: { [name.id]: "林夏", [identity.id]: "调查员" },
       }),
     ]);
@@ -125,7 +128,11 @@ describe("SQLite memory record services", () => {
 
     const histories = await records.listHistory(space.id, { recordId: created!.id });
     expect(histories).toEqual([
-      expect.objectContaining({ recordId: created!.id, displayText: "林夏" }),
+      expect.objectContaining({
+        recordId: created!.id,
+        stableId: created!.stableId,
+        displayText: "林夏",
+      }),
     ]);
   });
 
@@ -265,6 +272,7 @@ describe("SQLite memory record services", () => {
         // 上面的展开会丢掉 branded 类型，这里重新断言
         history: {
           id: "history-1" as MemoryRecordHistoryId,
+          stableId: stale.id,
           recordId: stale.id,
           memorySpaceId: stale.memorySpaceId,
           tableId: stale.tableId,

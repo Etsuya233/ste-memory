@@ -140,6 +140,7 @@ async function setup() {
     defaultPreset: () => SYSTEM_TABLE_PRESET,
     currentChatIdentity: () => "char:3:story",
     clearChatScopeMacros: () => undefined,
+    createStableSpaceId: () => "new-stable-space",
     createIds: {
       table: () => `applied-table-${++tableSeq}` as MemoryTableId,
       field: () => `applied-field-${++fieldSeq}` as MemoryFieldId,
@@ -179,6 +180,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => preset,
       currentChatIdentity: () => "chat",
       clearChatScopeMacros: () => {},
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => crypto.randomUUID() as MemoryTableId,
         field: () => crypto.randomUUID() as MemoryFieldId,
@@ -218,6 +220,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => "char:9:other",
       clearChatScopeMacros,
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => "unused" as MemoryTableId,
         field: () => "unused" as MemoryFieldId,
@@ -247,6 +250,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => TARGET_PRESET,
       currentChatIdentity: () => undefined,
       clearChatScopeMacros: () => undefined,
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => `init-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `init-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
@@ -516,6 +520,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => identity,
       clearChatScopeMacros,
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => `swap-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `swap-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
@@ -557,6 +562,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => "char:3:story",
       clearChatScopeMacros,
+      createStableSpaceId: () => "new-stable-space",
       createIds: {
         table: () => `keep-table-${Math.random().toString(36).slice(2)}` as MemoryTableId,
         field: () => `keep-field-${Math.random().toString(36).slice(2)}` as MemoryFieldId,
