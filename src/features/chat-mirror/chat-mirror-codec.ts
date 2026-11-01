@@ -1,3 +1,4 @@
+import { assertSnapshotStructure } from "../memory-snapshot/snapshot-validation.ts";
 import {
   createSnapshotSeenIds,
   validateSnapshotIntegrity,
@@ -5,10 +6,7 @@ import {
 import { snapshotInvalid } from "../memory-snapshot/snapshot-errors.ts";
 import { Type, type Static } from "typebox";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
-import {
-  migrateMemorySpaceSnapshot,
-  assertSnapshotStructure,
-} from "../memory-snapshot/snapshot-migration.ts";
+import { migrateMemorySpaceSnapshot } from "../memory-snapshot/snapshot-migration.ts";
 import { memorySpaceSnapshotSchema } from "../memory-snapshot/snapshot-schema.ts";
 import {
   CHAT_MIRROR_FORMAT,

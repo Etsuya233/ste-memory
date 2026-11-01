@@ -1,4 +1,4 @@
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { memoryMacroSchema } from "../macros/macro-expression.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "./snapshot.ts";
 
@@ -229,27 +229,26 @@ export const legacyMemorySpaceSnapshotSchema = Type.Object({
   chatScopeMacros: Type.Optional(Type.Array(Type.Unknown())),
 });
 
-// 当前格式的必填键与旧格式分开声明；标记为当前版本的数据不得走补字段路径。
-const currentVectorGroupSchema = Type.Object({
+// v1 固定的向量结构：组 key 必填，后续版本沿用该结构。
+const snapshotV1VectorGroupSchema = Type.Object({
   id: Type.String(),
   key: Type.String(),
   name: Type.String(),
   fieldIds: Type.Array(Type.String()),
 });
-const currentVectorIndexSchema = Type.Object({
+const snapshotV1VectorIndexSchema = Type.Object({
   enabled: Type.Boolean(),
   source: Type.Union([Type.Literal("automatic"), Type.Literal("preset"), Type.Literal("custom")]),
   updateMode: Type.Union([Type.Literal("manual"), Type.Literal("automatic")]),
-  groups: Type.Array(currentVectorGroupSchema),
-  presetGroups: Type.Optional(Type.Array(currentVectorGroupSchema)),
+  groups: Type.Array(snapshotV1VectorGroupSchema),
+  presetGroups: Type.Optional(Type.Array(snapshotV1VectorGroupSchema)),
 });
-export const memorySpaceSnapshotSchema = Type.Object({
+/** legacy→v1：宏与初始化来源必填、表位置与组 key 必填，禁止 kind/chatScopeMacros。 */
+export const memorySpaceSnapshotV1Schema = Type.Object({
   ...legacyMemorySpaceSnapshotSchema.properties,
-  schemaVersion: Type.Literal(MEMORY_SNAPSHOT_SCHEMA_VERSION),
-  floorLedger: Type.Array(memorySpaceLedgerEntrySchema),
+  schemaVersion: Type.Literal(1),
   space: Type.Object({
     ...memorySpaceSchema.properties,
-    stableId: Type.String({ minLength: 1 }),
     macros: Type.Array(memoryMacroSchema),
     initializationSource: Type.Union([memorySpaceInitializationSourceSchema, Type.Null()]),
   }),
@@ -258,14 +257,29 @@ export const memorySpaceSnapshotSchema = Type.Object({
       ...memoryTableSchema.properties,
       kind: Type.Optional(Type.Never()),
       position: Type.Number(),
-      vectorIndex: Type.Optional(currentVectorIndexSchema),
+      vectorIndex: Type.Optional(snapshotV1VectorIndexSchema),
     }),
   ),
+  chatScopeMacros: Type.Optional(Type.Never()),
+});
+
+/** v2 唯一新增约束：floorLedger 必填，空数组表示进度未知。 */
+export const memorySpaceSnapshotV2Schema = Type.Object({
+  ...memorySpaceSnapshotV1Schema.properties,
+  schemaVersion: Type.Literal(2),
+  floorLedger: Type.Array(memorySpaceLedgerEntrySchema),
+});
+
+/** v3 新增空间、当前记录及历史记录的稳定身份，其他结构沿用固定的 v2。 */
+export const memorySpaceSnapshotSchema = Type.Object({
+  ...memorySpaceSnapshotV2Schema.properties,
+  schemaVersion: Type.Literal(MEMORY_SNAPSHOT_SCHEMA_VERSION),
+  space: Type.Object({
+    ...memorySpaceSnapshotV2Schema.properties.space.properties,
+    stableId: Type.String({ minLength: 1 }),
+  }),
   records: Type.Array(
-    Type.Object({
-      ...memoryRecordSchema.properties,
-      stableId: Type.String({ minLength: 1 }),
-    }),
+    Type.Object({ ...memoryRecordSchema.properties, stableId: Type.String({ minLength: 1 }) }),
   ),
   history: Type.Array(
     Type.Object({
@@ -273,5 +287,12 @@ export const memorySpaceSnapshotSchema = Type.Object({
       stableId: Type.String({ minLength: 1 }),
     }),
   ),
-  chatScopeMacros: Type.Optional(Type.Never()),
 });
+
+// 迁移只读取输入；序列化字段与 schema 一致，集合无需具备可变能力。
+type SnapshotData<T> = { readonly [K in keyof T]: SnapshotData<T[K]> };
+
+export type LegacySnapshot = SnapshotData<Static<typeof legacyMemorySpaceSnapshotSchema>>;
+export type SnapshotV1 = SnapshotData<Static<typeof memorySpaceSnapshotV1Schema>>;
+export type SnapshotV2 = SnapshotData<Static<typeof memorySpaceSnapshotV2Schema>>;
+export type SnapshotV3 = SnapshotData<Static<typeof memorySpaceSnapshotSchema>>;

@@ -1,10 +1,8 @@
+import { assertSnapshotStructure } from "../memory-snapshot/snapshot-validation.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../memory-snapshot/snapshot.ts";
 import { Type, type Static } from "typebox";
 import { DomainError } from "../memory/index.ts";
-import {
-  migrateMemorySpaceSnapshot,
-  assertSnapshotStructure,
-} from "../memory-snapshot/snapshot-migration.ts";
+import { migrateMemorySpaceSnapshot } from "../memory-snapshot/snapshot-migration.ts";
 import {
   createSnapshotSeenIds,
   validateSnapshotIntegrity,
