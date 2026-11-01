@@ -18,6 +18,7 @@ try {
   await button("标记楼层进度").click();
   assert.equal(await button("标记进度").isDisabled(), true);
   await button("取消任务").first().click();
+  await button("确认取消任务").click();
   await page.waitForFunction(
     () =>
       !window.frontendPreview.tasksWorkspace

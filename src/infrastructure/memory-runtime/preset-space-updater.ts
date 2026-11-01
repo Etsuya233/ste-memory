@@ -1,6 +1,5 @@
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
 import type { ChatSpaceManager } from "../../features/chat-binding/chat-space-manager.ts";
-import type { ChatSnapshotPersistence } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 import type { FillTaskService } from "../../features/fill-tasks/fill-task-service.ts";
 import type { MemoryMacroService } from "../../features/macros/memory-macro-service.ts";
 import {
@@ -34,7 +33,7 @@ interface PresetSpaceUpdaterPorts {
   readonly settings: SettingsStore;
   readonly tasks: Pick<FillTaskService, "cancelAll">;
   readonly presetApply: Pick<TablePresetApplyService, "assertCurrentChat">;
-  readonly persistence: ChatSnapshotPersistence;
+  readonly forceSync: (id: MemorySpaceId, assertActive: () => void) => Promise<void>;
   readonly saveSnapshot: (unit: MemorySpaceBackup) => Promise<void>;
   readonly retrieval: Pick<VectorRetrievalService, "invalidate">;
   readonly macro: Pick<MemoryMacroService, "kick">;
@@ -52,7 +51,7 @@ interface UpdateTarget {
   readonly selectionKey: string;
 }
 
-/** 增量预设更新拥有比较校验、SQLite 替换、文件保存与派生数据刷新。
+/** 增量预设更新拥有比较校验、SQLite 替换、宿主提交与派生数据刷新。
  * SQL 独占区止于提交及同步保存交接，网络等待不会阻挡聊天卸载或下一次编辑。 */
 export class PresetSpaceUpdater implements PresetSpaceUpdateService {
   private readonly ports: PresetSpaceUpdaterPorts;
@@ -103,13 +102,10 @@ export class PresetSpaceUpdater implements PresetSpaceUpdateService {
   async retrySave(spaceId: MemorySpaceId, chatIdentity: string): Promise<PresetUpdateOutcome> {
     const target = { spaceId, chatIdentity, selectionKey: this.ports.getSelectionKey() };
     this.assertTarget(target);
-    const { saving } = await this.ports.memory.exclusive(spaceId, async () => {
-      const latest = await this.ports.memory.snapshot(spaceId);
-      if (!latest) {
-        throw new Error("记忆空间不存在");
+    const saving = this.ports.forceSync(spaceId, () => {
+      if (!this.isCurrentTarget(target)) {
+        throw new Error("聊天或空间已切换，请在当前聊天重新同步");
       }
-      this.assertTarget(target);
-      return { saving: this.ports.persistence.retry(chatIdentity) };
     });
     return this.finishAfterSave(target, saving);
   }
@@ -183,10 +179,10 @@ export class PresetSpaceUpdater implements PresetSpaceUpdateService {
     try {
       await saving;
     } catch (error) {
-      issues.push(`对话文件保存失败：${error instanceof Error ? error.message : String(error)}`);
+      issues.push(`宿主提交或核验失败：${error instanceof Error ? error.message : String(error)}`);
     }
-    // 文件保存属于原目标；后续界面和可变辅助数据只在同一聊天代次仍活动时刷新。
-    // 切聊后保存仍完成，但不能用旧快照删除另一个文件接管的同 ID 向量。
+    // 已进入宿主的请求由宿主完成；后续界面和辅助数据只在原聊天代次仍活动时刷新。
+    // 旧结果不能删除另一个文件接管的同 ID 向量。
     const { spaceId } = target;
     if (!this.isCurrentTarget(target)) {
       return { issues };

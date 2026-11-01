@@ -149,7 +149,8 @@ describe("宏定义与持久化边界", () => {
 
   it("备份和普通镜像加载保留宏启用态，旧独立视图集合显式迁入空间", () => {
     const unit = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      floorLedger: [],
       space: {
         id: "space" as MemorySpaceId,
         name: "对话",

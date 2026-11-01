@@ -159,7 +159,7 @@ function validateTaskProgress(unit: MemorySpaceBackup): void {
     }
   }
   const floors = new Set<number>();
-  for (const entry of unit.floorLedger ?? []) {
+  for (const entry of unit.floorLedger) {
     if (!Number.isInteger(entry.floor) || entry.floor < 0) {
       snapshotInvalid(`楼层进度条目的楼层无效：${entry.floor}`);
     }

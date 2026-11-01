@@ -15,7 +15,6 @@ describe("preset rebuild commit boundary", () => {
     });
     const clear = vi.fn();
     const refresh = vi.fn(async () => {});
-    const mirror = vi.fn(async () => {});
     let seq = 0;
     const service = new TablePresetApplyService({
       rebuild: { rebuild },
@@ -35,7 +34,6 @@ describe("preset rebuild commit boundary", () => {
       await service.applyPreset("s" as MemorySpaceId, SYSTEM_TABLE_PRESET, {
         chatIdentity: "a",
         refreshMacros: refresh,
-        saveSnapshot: mirror,
       }),
     ).toMatchObject({
       kind: "applied-with-sync-issue",
@@ -44,6 +42,5 @@ describe("preset rebuild commit boundary", () => {
     expect(rebuild).toHaveBeenCalledOnce();
     expect(clear).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledOnce();
-    expect(mirror).toHaveBeenCalledOnce();
   });
 });

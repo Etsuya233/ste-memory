@@ -75,14 +75,14 @@ try {
   await label("名称").fill("保存失败后的表格");
   await page.evaluate(() => window.frontendPreview.failNextSchemaPersistence());
   await save("table");
-  await page.getByText("已提交、未保存：preview file failure", { exact: false }).waitFor();
+  await page.getByText("已提交、未交给 ST 保存：preview file failure", { exact: false }).waitFor();
   check(
     "schema commit ends its editor despite file save failure",
     (await action("save-table").count()) === 0,
   );
   await button("重试保存").click();
   await page
-    .getByText("已提交、未保存：preview file failure", { exact: false })
+    .getByText("已提交、未交给 ST 保存：preview file failure", { exact: false })
     .waitFor({ state: "hidden" });
   check(
     "top-level retry clears every table file warning without replaying its edit",

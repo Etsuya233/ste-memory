@@ -55,7 +55,15 @@ export function decodeBackupFile(value: unknown): MemoryBackupFile {
         ? "legacy-macros"
         : MEMORY_SNAPSHOT_SCHEMA_VERSION;
   const data = {
-    spaces: file.data.spaces.map((snapshot) => migrateMemorySpaceSnapshot({ version, snapshot })),
+    spaces: file.data.spaces.map((snapshot) =>
+      migrateMemorySpaceSnapshot({
+        version:
+          envelope.version === BACKUP_VERSION
+            ? (snapshot as { schemaVersion?: unknown }).schemaVersion
+            : version,
+        snapshot,
+      }),
+    ),
   };
   validateBackupData(data);
   return { ...file, version: BACKUP_VERSION, data };

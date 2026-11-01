@@ -1,10 +1,11 @@
 import { MemoryCommitPersistenceError } from "../../src/features/memory/index.ts";
-import type { ChatSnapshotSaveStatus } from "../../src/features/chat-mirror/chat-snapshot-persistence.ts";
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../src/features/memory-snapshot/snapshot.ts";
 import { parseMemoryMacros } from "../../src/features/macros/macro-expression.ts";
 import { MemoryRecordQueryService } from "../../src/features/memory/index.ts";
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
 import { createRoot } from "react-dom/client";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
+import { createSnapshotSaveFixture } from "./frontend-snapshot-save-fixture.ts";
 import {
   AutoFillToasts,
   autoFillNotifications,
@@ -64,6 +65,7 @@ import type {
   MemoryRecordRepository,
   MemorySpaceRepository,
   MemorySpace,
+  MemorySpaceId,
   MemoryRecord,
   MemoryRecordHistory,
   MemoryTable,
@@ -189,10 +191,27 @@ let ready = true;
 let serial = 100;
 let failSave = false;
 let failPersistence = false;
-let publishSaveFailure: () => void;
+const snapshotSaveFixture = createSnapshotSaveFixture(
+  Object.values(contexts).map((context) => context.chatKey),
+  () => contexts[current].chatKey,
+  date,
+);
+const publishSaveFailure = snapshotSaveFixture.showFailure;
 let delaySave = 0;
 let delaySchemaSave = 0;
 let failSchemaPersistence = false;
+// 独立预览与导入导出共用一份台账；未跟踪楼层不保存行。
+const floorProgress = new Map(
+  Object.values(contexts).map(({ spaceId }) => [
+    spaceId,
+    new Map<number, "processed" | "error">([0, 1, 2, 3, 8].map((floor) => [floor, "processed"])),
+  ]),
+);
+function previewFloorLedger(spaceId: MemorySpaceId) {
+  return [...floorProgress.get(spaceId)!.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([floor, status]) => ({ floor, status, updatedAt: date }));
+}
 const tableRepository: MemoryTableRepository = {
   list: async (spaceId) =>
     structuredClone(tables.filter((table) => table.memorySpaceId === spaceId)),
@@ -627,7 +646,8 @@ const presetUpdateFixture = createPresetUpdateFixture({
         .map((entry) => [entry.evidence_id, entry]),
     );
     return structuredClone({
-      schemaVersion: 1 as const,
+      schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+      floorLedger: previewFloorLedger(spaceId),
       space: { ...space, macros: parseMemoryMacros(space.macros) },
       tables: tables.filter((table) => table.memorySpaceId === spaceId),
       fields: fields.filter((field) => field.memorySpaceId === spaceId),
@@ -637,6 +657,10 @@ const presetUpdateFixture = createPresetUpdateFixture({
     });
   },
   write: (unit) => {
+    floorProgress.set(
+      unit.space.id,
+      new Map(unit.floorLedger.map(({ floor, status }) => [floor, status])),
+    );
     spaces[spaces.findIndex((space) => space.id === unit.space.id)] = structuredClone(unit.space);
     tables = [...tables.filter((table) => table.memorySpaceId !== unit.space.id), ...unit.tables];
     fields = [...fields.filter((field) => field.memorySpaceId !== unit.space.id), ...unit.fields];
@@ -898,7 +922,6 @@ const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
   })),
 );
 const agentPresetOverrides = new Map<string, string>();
-const floorProgressOverrides = new Map<string, Map<number, "processed" | "untracked" | "error">>();
 const taskServices: TasksServices = {
   tasks: {
     pendingTasks: async (spaceId) =>
@@ -919,16 +942,16 @@ const taskServices: TasksServices = {
     ledgerStatuses: async (spaceId, from, to) =>
       Array.from({ length: to - from + 1 }, (_, i) => ({
         floor: from + i,
-        status:
-          floorProgressOverrides.get(spaceId)?.get(from + i) ??
-          (from + i < 4 || from + i === 8 ? ("processed" as const) : ("untracked" as const)),
+        status: floorProgress.get(spaceId)!.get(from + i) ?? ("untracked" as const),
       })),
     markFloorStatuses: async (spaceId, from, to, status) => {
       if (fillTasks.some((task) => task.memorySpaceId === spaceId && task.status === "running"))
         throw new Error("请等待运行中的填表任务结束后再标记");
-      const floors = floorProgressOverrides.get(spaceId) ?? new Map();
-      for (let floor = from; floor <= to; floor++) floors.set(floor, status);
-      floorProgressOverrides.set(spaceId, floors);
+      const floors = floorProgress.get(spaceId)!;
+      for (let floor = from; floor <= to; floor++) {
+        if (status === "untracked") floors.delete(floor);
+        else floors.set(floor, status);
+      }
     },
     submit: async (input) => {
       const task: FillTaskView = {
@@ -976,7 +999,7 @@ const taskServices: TasksServices = {
       );
       if (index < 0) throw new Error("任务不存在");
       const task = { ...fillTasks[index]!, status: "interrupted" as const, blocksQueue: false };
-      delete task.pendingSave;
+      delete task.pendingCommit;
       fillTasks[index] = task;
       return structuredClone(task);
     },
@@ -1066,6 +1089,13 @@ const autoFillServices = {
   assertContext,
 };
 const toolsFixture = createToolsFixture({
+  readLedger: (spaceId) => previewFloorLedger(spaceId as MemorySpaceId),
+  writeLedger: (spaceId, ledger) => {
+    floorProgress.set(
+      spaceId as MemorySpaceId,
+      new Map(ledger.map(({ floor, status }) => [floor, status])),
+    );
+  },
   ports: { tables: tableRepository, fields: fieldRepository, records: recordRepository },
   recordWriter: recordService,
   reader: {
@@ -1102,28 +1132,10 @@ function activeStatus(): SpaceContextStatus {
   } as SpaceContextStatus;
 }
 function Preview() {
-  const [persistenceByChat, setPersistenceByChat] = useState(
-    () =>
-      new Map<string, ChatSnapshotSaveStatus>(
-        Object.values(contexts).map((context) => [
-          context.chatKey,
-          { kind: "saved", identity: context.chatKey, lastWrittenAt: date, sizeBytes: 1000 },
-        ]),
-      ),
+  const persistence = useSyncExternalStore(
+    snapshotSaveFixture.subscribe,
+    snapshotSaveFixture.getSnapshot,
   );
-  const persistence = persistenceByChat.get(contexts[current].chatKey)!;
-  publishSaveFailure = () => {
-    const identity = contexts[current].chatKey;
-    setPersistenceByChat((previous) =>
-      new Map(previous).set(identity, {
-        kind: "failed",
-        identity,
-        operation: "update",
-        error: "preview file failure",
-        humanMsg: "已提交、未保存：preview file failure",
-      }),
-    );
-  };
   const [status, setStatus] = useState<SpaceContextStatus | undefined>(activeStatus);
   const [tone, setTone] = useState<"light" | "dark">(
     location.search.includes("dark") ? "dark" : "light",
@@ -1149,6 +1161,7 @@ function Preview() {
     setSettingsRevision((value) => value + 1);
   };
   async function switchChat(next: "a" | "b") {
+    snapshotSaveFixture.leaveChat();
     ready = false;
     syncSearchContext();
     setStatus(undefined);
@@ -1264,20 +1277,24 @@ function Preview() {
       failNextSchemaPersistence: () => {
         failSchemaPersistence = true;
       },
-      setPendingFillSave: async (status: "failed" | "interrupted") => {
+      setPendingFillCommit: async (status: "failed" | "interrupted") => {
         const index = fillTasks.findIndex(
           (task) => task.runId === `${contexts[current].spaceId}-failed-fill`,
         );
         fillTasks[index] = {
           ...fillTasks[index]!,
           status,
-          pendingSave: { from: 4, to: 7, floors: [4, 5, 6, 7], nextFrom: 8 },
+          pendingCommit: { from: 4, to: 7, floors: [4, 5, 6, 7], nextFrom: 8 },
           nextFrom: 8,
           blocksQueue: true,
         };
         await tasksWorkspace.refresh();
       },
       showSaveFailure: () => publishSaveFailure(),
+      delayNextForceSync: snapshotSaveFixture.delayNext,
+      failNextForceSync: snapshotSaveFixture.failNext,
+      failNextForceSyncBeforeStart: snapshotSaveFixture.failBeforeStart,
+      forceSyncCalls: snapshotSaveFixture.syncCalls,
       failNextPersistence: () => {
         failPersistence = true;
       },
@@ -1327,26 +1344,13 @@ function Preview() {
               workspace={workspace}
               status={status}
               persistence={persistence}
-              hasPendingSnapshotWrites={() =>
-                [...persistenceByChat.values()].some(
-                  (state) => state.kind === "failed" || state.kind === "saving",
-                )
-              }
+              hasPendingSnapshotWrites={snapshotSaveFixture.hasPendingWrites}
               onClose={() => setOpen(false)}
               onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
               onRetryContext={() => switchChat(current)}
               onResolveBranch={() => switchChat(current)}
-              onRetrySave={async () => {
-                const identity = contexts[current].chatKey;
-                setPersistenceByChat((previous) =>
-                  new Map(previous).set(identity, {
-                    kind: "saved",
-                    identity,
-                    lastWrittenAt: date,
-                    sizeBytes: 1000,
-                  }),
-                );
-              }}
+              onRetrySave={snapshotSaveFixture.retry}
+              onForceSync={snapshotSaveFixture.forceSync}
               getMessageAt={(floor) => ({
                 floor,
                 name: "爱丽丝",

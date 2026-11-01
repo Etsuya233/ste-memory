@@ -168,7 +168,6 @@ function StFrontend({
       createPresetSettingsServices(
         runtime,
         async (context) => {
-          await queryStore.clearSpaceHistory(context.spaceId);
           if (chatIdentityKey(runtime.adapter.getChatSnapshot()) === context.chatIdentity) {
             await Promise.all([workspace.refresh(), tables.refresh(), tasks.refresh()]);
           }
@@ -196,9 +195,7 @@ function StFrontend({
     };
     return {
       logs: runtime.logs,
-      maintenance: createMaintenanceServices(runtime, refresh, (id) =>
-        queryStore.clearSpaceHistory(id),
-      ),
+      maintenance: createMaintenanceServices(runtime, refresh),
       query: {
         store: queryStore,
         service: runtime.queryChat,
@@ -265,6 +262,7 @@ function StFrontend({
             );
           }}
           onRetrySave={() => runtime.retryMemorySave()}
+          onForceSync={() => runtime.forceSyncMemory()}
           getMessageAt={(floor) => runtime.adapter.getMessageAt(floor)}
           onJumpFloor={(floor) => runtime.adapter.scrollToFloor(floor)}
         />

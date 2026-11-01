@@ -496,13 +496,13 @@ describe("预设更新的运行时接线", () => {
       ),
     };
     const plan = await runtime.presetUpdate.preview(spaceId, preset, status.binding.chatIdentity);
-    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("测试保存失败"));
+    vi.spyOn(ports.snapshotFiles, "submit").mockRejectedValueOnce(new Error("测试保存失败"));
     const outcome = await runtime.presetUpdate.apply(
       plan,
       presetUpdateChanges(plan.nodes).map((change) => change.id),
       status.binding.chatIdentity,
     );
-    expect(outcome.issues.join()).toContain("对话文件保存失败");
+    expect(outcome.issues.join()).toContain("宿主提交或核验失败");
     expect((await runtime.tables.find(spaceId, tableId))!.prompt).toBe("已提交规则");
     await runtime.tables.update(spaceId, tableId, { prompt: "后续编辑" });
     expect(await runtime.presetUpdate.retrySave(spaceId, status.binding.chatIdentity)).toEqual({

@@ -20,10 +20,7 @@ export interface SqliteRepositories {
 }
 
 export interface SqliteMemoryStorePorts {
-  readonly saveSnapshot: (
-    snapshot: MemorySpaceBackup,
-    saved?: () => Promise<void>,
-  ) => Promise<void>;
+  readonly saveSnapshot: (snapshot: MemorySpaceBackup) => Promise<void>;
   readonly assertCanEdit: (spaceId: string) => void;
   readonly reportRefreshError: (error: unknown) => void;
 }
@@ -139,24 +136,48 @@ export class SqliteMemoryStore {
     this.#idle.delete(spaceId);
   }
 
-  async commitTask(spaceId: string, token: symbol, saved?: () => Promise<void>): Promise<void> {
+  async commitTask(spaceId: string, token: symbol): Promise<void> {
     this.assertWritable(spaceId, token);
     let saving: Promise<void>;
     try {
-      ({ saving } = await this.commitAndHandoff(spaceId, saved));
+      ({ saving } = await this.commitAndHandoff(spaceId));
     } finally {
       this.releaseWriter(spaceId);
     }
     await saving;
   }
 
-  async rollbackTask(spaceId: string, token: symbol): Promise<void> {
+  async rollbackTask(
+    spaceId: string,
+    token: symbol,
+    failure?: { readonly floors: readonly number[]; readonly updatedAt: string },
+  ): Promise<void> {
     this.assertWritable(spaceId, token);
+    let saving: Promise<void> | undefined;
     try {
       await this.client.rollback(spaceId);
+      if (failure) {
+        // 失败楼层在原 writer 归属内提交；强制同步等待该 writer 时会捕获这些 error 行。
+        await this.client.begin(spaceId);
+        try {
+          for (const floor of failure.floors) {
+            await this.client.putEntity(spaceId, "floor", {
+              id: String(floor),
+              floor,
+              status: "error",
+              updatedAt: failure.updatedAt,
+            });
+          }
+        } catch (error) {
+          await this.client.rollback(spaceId);
+          throw error;
+        }
+        ({ saving } = await this.commitAndHandoff(spaceId));
+      }
     } finally {
       this.releaseWriter(spaceId);
     }
+    await saving;
   }
 
   async write<T>(spaceId: string, work: () => Promise<T>, token?: symbol): Promise<T> {
@@ -197,10 +218,7 @@ export class SqliteMemoryStore {
     }
   }
 
-  private async commitAndHandoff(
-    spaceId: string,
-    saved?: () => Promise<void>,
-  ): Promise<{ saving: Promise<void> }> {
+  private async commitAndHandoff(spaceId: string): Promise<{ saving: Promise<void> }> {
     try {
       await this.client.commit(spaceId);
     } catch (error) {
@@ -212,7 +230,7 @@ export class SqliteMemoryStore {
       const snapshot = await this.client.exportSpace(spaceId);
       // 返回对象避免 async 自动等待 saving。调用者同步交接快照后释放 writer，
       // 再在锁外等待网络；较早保存的 finally 不再触及新 writer。
-      const saving = this.saveSnapshot(snapshot, saved).catch((cause) => {
+      const saving = this.saveSnapshot(snapshot).catch((cause) => {
         throw new MemoryCommitPersistenceError(cause);
       });
       return { saving };
@@ -250,7 +268,9 @@ export class SqliteMemoryStore {
     return sqliteRepositories(this, view, token);
   }
 
-  structureRebuild(afterSaved?: () => Promise<void>): SpaceStructureRebuild {
+  structureRebuild(
+    saveCandidate: (snapshot: MemorySpaceBackup) => Promise<void>,
+  ): SpaceStructureRebuild {
     return {
       rebuild: async (input) => {
         // 调用方拥有文件归属及编辑门控；此处只负责 SQL 替换与固定保存交接。
@@ -273,10 +293,11 @@ export class SqliteMemoryStore {
             records: [],
             history: [],
             evidence: [],
+            floorLedger: [],
           };
           await this.replace(snapshot, token);
           try {
-            const saving = this.saveSnapshot(snapshot, afterSaved);
+            const saving = saveCandidate(snapshot);
             return { kind: "rebuilt", saving } as const;
           } catch (cause) {
             throw new MemoryCommitPersistenceError(cause);

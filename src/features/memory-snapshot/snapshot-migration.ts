@@ -1,5 +1,5 @@
 import { Value } from "typebox/value";
-import type { Static, TSchema } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { migrateMemoryViews, parseMemoryMacros } from "../macros/macro-expression.ts";
 import { legacyMemorySpaceSnapshotSchema, memorySpaceSnapshotSchema } from "./snapshot-schema.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION, type MemorySpaceBackup } from "./snapshot.ts";
@@ -8,7 +8,7 @@ import { snapshotInvalid } from "./snapshot-errors.ts";
 
 /** 来源外壳负责辨认历史版本，迁移入口只接收明确版本，不根据缺字段猜测。 */
 export type MemorySnapshotVersion =
-  "legacy-views" | "legacy-macros" | typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
+  "legacy-views" | "legacy-macros" | 1 | typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
 
 export function assertSnapshotStructure(schema: TSchema, value: unknown): void {
   if (Value.Check(schema, value)) {
@@ -34,13 +34,28 @@ export function migrateMemorySpaceSnapshot(input: {
 }): MemorySpaceBackup {
   if (
     input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION &&
+    input.version !== 1 &&
     input.version !== "legacy-views" &&
     input.version !== "legacy-macros"
   ) {
     snapshotInvalid(`快照版本不支持：${String(input.version)}`);
   }
   let snapshot = input.snapshot;
-  if (input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION) {
+  if (input.version === 1) {
+    const previousSchema = Type.Object({
+      ...memorySpaceSnapshotSchema.properties,
+      schemaVersion: Type.Literal(1),
+      floorLedger: legacyMemorySpaceSnapshotSchema.properties.floorLedger,
+    });
+    assertSnapshotStructure(previousSchema, snapshot);
+    const previous = snapshot as { readonly floorLedger?: MemorySpaceBackup["floorLedger"] };
+    snapshot = {
+      ...(snapshot as Record<string, unknown>),
+      schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+      // 只采用文件自身携带的进度；缺失时保持未知，绝不读取本机旧台账。
+      floorLedger: previous.floorLedger ?? [],
+    };
+  } else if (input.version !== MEMORY_SNAPSHOT_SCHEMA_VERSION) {
     assertSnapshotStructure(legacyMemorySpaceSnapshotSchema, snapshot);
     const legacy = snapshot as Static<typeof legacyMemorySpaceSnapshotSchema>;
     // 旧外壳没有领域版本标记，拒绝把未知或伪装成旧文件的新版本当旧数据修补。
@@ -72,6 +87,7 @@ function upgradeLegacySnapshot(
   return {
     ...content,
     schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+    floorLedger: legacy.floorLedger ?? [],
     space: {
       ...legacy.space,
       initializationSource: legacy.space.initializationSource ?? null,

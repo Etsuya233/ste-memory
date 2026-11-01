@@ -48,9 +48,9 @@ export interface FillTaskBatchResult {
 }
 
 interface FillTaskBase {
-  /** 已提交批次的保存收口凭据；存在时只能重试保存，禁止重新执行 Agent。 */
-  readonly pendingSave?: FillTaskBatchResult;
-  /** 最近已保存批次后的继续位置；null 表示全部批次已保存。 */
+  /** 进入 SQL 提交的批次归属；任务历史失败时按权威进度续跑，初始化须人工核对。 */
+  readonly pendingCommit?: FillTaskBatchResult;
+  /** 最近已提交批次后的继续位置；null 表示全部批次已提交。 */
   readonly nextFrom?: number | null;
   readonly automatic?: boolean;
   /** 持久化的入队序号；同空间内递增，重试沿用原位置。 */
@@ -153,10 +153,10 @@ export interface FillTaskRepository {
   /** 原子分配队列位置并创建；重试替换阻塞项时沿用其位置。 */
   enqueue(task: FillTask, replaces?: string): Promise<FillTask>;
   pending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;
-  /** 提交前持久记录批次归属；提交失败时撤销，保存成功时原子收口。 */
-  beginBatchSave(runId: string, batch: FillTaskBatchResult): Promise<boolean>;
-  abandonBatchSave(runId: string, batch: FillTaskBatchResult): Promise<void>;
-  completeBatchSave(runId: string, batch: FillTaskBatchResult): Promise<FillTask | undefined>;
+  /** 提交前记录批次归属；SQL失败时撤销，SQL提交后更新任务执行位置。 */
+  beginBatchCommit(runId: string, batch: FillTaskBatchResult): Promise<boolean>;
+  abandonBatchCommit(runId: string, batch: FillTaskBatchResult): Promise<void>;
+  completeBatchCommit(runId: string, batch: FillTaskBatchResult): Promise<FillTask | undefined>;
   markRunning(runId: string): Promise<boolean>;
   release(runId: string): Promise<void>;
   interruptPending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;

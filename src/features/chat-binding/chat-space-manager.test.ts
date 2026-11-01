@@ -41,10 +41,23 @@ function harness() {
       const content = files.get(owner.identity);
       return content && createChatMirrorFile(content.unit, content.binding.spaceId, "now", "test");
     }),
-    write: vi.fn(async (owner, file, binding) => {
+    verify: vi.fn(async (owner) => {
+      const content = files.get(owner.identity)!;
+      return {
+        steMemory: content.binding,
+        steMemoryMirror: createChatMirrorFile(
+          content.unit,
+          content.binding.spaceId,
+          content.unit.space.updatedAt,
+          "test",
+        ),
+      };
+    }),
+    submit: vi.fn(async (owner, file, binding) => {
+      store.restore(owner, file, binding);
       files.set(owner.identity, { binding, unit: file.data });
     }),
-    publish: vi.fn((owner, _file, binding) => {
+    restore: vi.fn((owner, _file, binding) => {
       if (owner.identity === target().identity) {
         metadata.set(owner.identity, binding);
       }
@@ -79,7 +92,7 @@ function harness() {
       memory.delete(id);
     },
     stopSpaceWrites: stop,
-    retireSpace: retire,
+    captureRetirement: (id) => () => retire(id),
     findSpace: async (id) => memory.get(id)?.space,
     now: () => "now",
     createIds: {
@@ -120,20 +133,24 @@ function gate() {
 }
 
 describe("当前聊天空间的候选提交", () => {
-  it("初始化和导入均先同次保存binding与snapshot，成功后激活；失败保留旧空间", async () => {
+  it("初始化和导入先启用候选，失败保留候选与旧辅助，核验后清理", async () => {
     const h = harness();
     await h.manager.syncToCurrentChat();
     const original = h.manager.getStatus();
-    vi.mocked(h.store.write).mockRejectedValueOnce(new Error("offline"));
-    await expect(h.manager.importSpace(h.sample())).rejects.toThrow("当前空间未替换");
-    expect(h.manager.getStatus()).toEqual(original);
-    expect(h.metadata.get(h.target().identity)!.spaceId).toBe("space");
+    vi.mocked(h.store.submit).mockImplementationOnce(async (target, file, binding) => {
+      h.store.restore(target, file, binding);
+      throw new Error("offline");
+    });
+    await expect(h.manager.importSpace(h.sample())).rejects.toThrow("候选空间已启用");
+    expect(h.manager.getStatus()).not.toEqual(original);
+    expect(h.metadata.get(h.target().identity)!.spaceId).not.toBe("space");
     expect(h.retire).not.toHaveBeenCalled();
-    await h.persistence.retry(h.target().identity);
+    const pending = h.persistence.current(h.target().identity)!;
+    await h.persistence.forceSync(h.target(), pending.binding, pending.snapshot, () => {});
     const status = h.manager.getStatus();
     expect(status?.kind).toBe("active");
     expect(status?.kind === "active" && status.space.id).not.toBe("space");
-    expect(h.retire).toHaveBeenCalledWith("space", h.target());
+    expect(h.retire).toHaveBeenCalledWith("space");
   });
 
   it("已有文件快照但缺绑定时拒绝初始化，不覆盖唯一持久化内容", async () => {
@@ -144,7 +161,7 @@ describe("当前聊天空间的候选提交", () => {
       binding: { version: 1, spaceId: source.space.id },
     });
     await expect(h.manager.syncToCurrentChat()).rejects.toThrow("已有记忆快照但缺少空间绑定");
-    expect(h.store.write).not.toHaveBeenCalled();
+    expect(h.store.submit).not.toHaveBeenCalled();
     expect(h.files.get(h.target().identity)!.unit).toEqual(source);
   });
 

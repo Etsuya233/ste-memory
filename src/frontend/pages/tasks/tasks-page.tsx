@@ -458,9 +458,7 @@ function TasksMain({
         title="确认取消任务？"
         description={
           pendingCancel?.kind === "fill"
-            ? pendingCancel.task.pendingSave
-              ? `${taskRangeText(pendingCancel.task)}：取消将释放队列并保留已有记忆修改，不会自动重放填表；请核对聊天文件中的批次保存结果。`
-              : `${taskRangeText(pendingCancel.task)}：尚未完成的批次将停止，当前批次未提交的修改会回滚，已保存的批次会保留。`
+            ? `${taskRangeText(pendingCancel.task)}：尚未完成的批次将停止，当前批次未提交的修改会回滚，已提交的批次会保留。`
             : `将取消选中的 ${cancelVectors.length} 个向量任务，已生成的向量会保留。`
         }
         cancelLabel="继续运行"
@@ -520,8 +518,8 @@ function FloorProgressForm({
             }}
           >
             <p id="floor-progress-help" className="ste:text-xs ste:text-muted-foreground">
-              仅修改当前记忆空间的楼层进度，不执行填表或修改记忆内容。楼层从 0
-              开始，范围包含起止楼层。
+              楼层进度随当前记忆快照保存，不执行填表或修改记忆正文。楼层从 0
+              开始，范围包含起止楼层；保存状态见工作台顶部。
             </p>
             <FieldGroup className="ste:grid ste:grid-cols-2 ste:gap-3">
               <Field>
@@ -670,11 +668,7 @@ function RunningTask({
         {formatCompactTime(task.createdAt)}
       </p>
       {task.blocksQueue && (
-        <p className="ste:text-xs ste:text-destructive">
-          {task.pendingSave
-            ? "队列已暂停；取消可释放队列并保留已有记忆修改，取消不会自动重放填表。"
-            : "队列已暂停，重试或取消此任务后继续。"}
-        </p>
+        <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
       )}
     </div>
   );
@@ -701,7 +695,7 @@ function LastResult({
           {formatCompactTime(task.createdAt)}
         </span>
       </div>
-      {task.pendingSave && (
+      {task.kind === "init" && task.pendingCommit && (
         <p className="ste:basis-full ste:text-xs ste:text-muted-foreground">{status.detail}</p>
       )}
       <div className="ste:flex ste:gap-1">
@@ -714,18 +708,19 @@ function LastResult({
         >
           查看日志
         </Button>
-        {!task.pendingSave && (task.status === "failed" || task.status === "interrupted") && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-action="retry-task"
-            data-task-key={task.runId}
-            onClick={() => onRetry(task)}
-          >
-            重试
-          </Button>
-        )}
+        {!(task.kind === "init" && task.pendingCommit) &&
+          (task.status === "failed" || task.status === "interrupted") && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              data-action="retry-task"
+              data-task-key={task.runId}
+              onClick={() => onRetry(task)}
+            >
+              重试
+            </Button>
+          )}
       </div>
     </div>
   );
@@ -821,7 +816,9 @@ function FillRow({
 }) {
   const status = taskStatusViewModel(task);
   const canCancel = task.status === "queued" || task.status === "running" || task.blocksQueue;
-  const canRetry = !task.pendingSave && (task.status === "failed" || task.status === "interrupted");
+  const canRetry =
+    !(task.kind === "init" && task.pendingCommit) &&
+    (task.status === "failed" || task.status === "interrupted");
   const openLog = () => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`);
   return (
     <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
@@ -865,9 +862,7 @@ function FillRow({
         </span>
         {task.blocksQueue && (
           <span className="ste:text-xs ste:text-destructive">
-            {task.pendingSave
-              ? "队列已暂停；取消可释放队列并保留已有记忆修改，取消不会自动重放填表。"
-              : "队列已暂停，重试或取消此任务后继续。"}
+            队列已暂停，重试或取消此任务后继续。
           </span>
         )}
       </div>

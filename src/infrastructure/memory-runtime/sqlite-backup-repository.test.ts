@@ -13,9 +13,7 @@ describe("当前聊天备份", () => {
   it("导出已加载SQLite完整快照，不查本地目录或保存副本", async () => {
     client = await createInProcessSqliteMemoryClient();
     const store = new SqliteMemoryStore(client, {
-      saveSnapshot: async (_snapshot, saved) => {
-        await saved?.();
-      },
+      saveSnapshot: async () => {},
       assertCanEdit: () => {},
       reportRefreshError: console.error,
     });
@@ -36,9 +34,7 @@ describe("当前聊天备份", () => {
   it("候选结构和SQLite约束独立验证，不改变当前空间", async () => {
     client = await createInProcessSqliteMemoryClient();
     const store = new SqliteMemoryStore(client, {
-      saveSnapshot: async (_snapshot, saved) => {
-        await saved?.();
-      },
+      saveSnapshot: async () => {},
       assertCanEdit: () => {},
       reportRefreshError: console.error,
     });

@@ -1,7 +1,6 @@
-import type { MemorySpaceId } from "../../features/memory/index.ts";
 import { Dexie, type Table } from "dexie";
 import type { AssistantSession } from "../../features/query-chat/session-store.ts";
-import type { FillTask, FloorFillStatus } from "../../features/fill-tasks/fill-task.ts";
+import type { FillTask } from "../../features/fill-tasks/fill-task.ts";
 import type {
   RecordVector,
   VectorSuppression,
@@ -10,11 +9,10 @@ import type {
 
 export const ST_MEMORY_DB_NAME = "ste-memory";
 
-/** IndexedDB只管理任务、台账、向量与助手会话，废弃空间内容不读取、不迁移。 */
+/** IndexedDB只管理任务、向量与助手会话，废弃空间内容不读取、不迁移。 */
 export class SteMemoryDatabase extends Dexie {
   assistantSessions!: Table<AssistantSession, string>;
   memoryFillTasks!: Table<FillTask, string>;
-  floorFillLedger!: Table<FloorLedgerRow, string>;
   vectorTasks!: Table<VectorTask, string>;
   recordVectors!: Table<RecordVector, string>;
   vectorSuppressions!: Table<VectorSuppression, string>;
@@ -68,14 +66,20 @@ export class SteMemoryDatabase extends Dexie {
       memoryRecordHistory: null,
       memoryEvidence: null,
     });
+    this.version(13)
+      .stores({ floorFillLedger: null })
+      .upgrade(async (transaction) => {
+        // 仅迁移旧任务的提交归属，保证曾进入提交的初始化继续要求人工核对。
+        // 旧楼层台账直接废弃，不能据本机辅助数据推定聊天文件中的权威进度。
+        await transaction
+          .table("memoryFillTasks")
+          .toCollection()
+          .modify((row) => {
+            if ("pendingSave" in row) {
+              row.pendingCommit = row.pendingSave;
+              delete row.pendingSave;
+            }
+          });
+      });
   }
-}
-
-/** 楼层进度台账行：floor 与领域楼层号同值，状态只存非 untracked。 */
-export interface FloorLedgerRow {
-  readonly id: string;
-  readonly memorySpaceId: MemorySpaceId;
-  readonly floor: number;
-  readonly status: Exclude<FloorFillStatus, "untracked">;
-  readonly updatedAt: string;
 }

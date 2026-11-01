@@ -1,4 +1,6 @@
 import type { SettingsTools } from "../../src/frontend/pages/settings/SettingsPage.tsx";
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../src/features/memory-snapshot/snapshot.ts";
+import type { MemorySpaceBackupLedgerEntry } from "../../src/features/memory-snapshot/snapshot.ts";
 import type { RecordsContext } from "../../src/frontend/pages/records-workspace.ts";
 import type {
   MemoryTable,
@@ -49,6 +51,8 @@ export function createToolsFixture(options: {
   reader: MemorySpaceReader;
   ports: MemoryProposalPorts;
   recordWriter: Pick<MemoryRecordService, "commitProposal">;
+  readLedger: (spaceId: string) => readonly MemorySpaceBackupLedgerEntry[];
+  writeLedger: (spaceId: string, ledger: readonly MemorySpaceBackupLedgerEntry[]) => void;
 }) {
   const queryStore = new QueryChatStore(
     new IndexedDbAssistantSessions(new SteMemoryDatabase("ste-memory-assistant-preview")),
@@ -98,7 +102,8 @@ export function createToolsFixture(options: {
           for (const entries of Object.values(record.fieldEvidence))
             for (const entry of entries) evidence.set(entry.evidence_id, entry);
         return {
-          schemaVersion: 1 as const,
+          schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+          floorLedger: options.readLedger(context.spaceId),
           space: {
             macros: [],
             id: context.spaceId,
@@ -192,6 +197,7 @@ export function createToolsFixture(options: {
               ],
             });
             applied = true;
+            options.writeLedger(context.spaceId, source.floorLedger);
             for (const id of ids) await queryStore.clearSpaceHistory(id);
             await options.changed();
             return { kind: "done", message: "当前对话的记忆空间已替换。" };
@@ -205,6 +211,7 @@ export function createToolsFixture(options: {
           ...data,
           records: data.records.filter((record) => record.memorySpaceId !== context.spaceId),
         });
+        options.writeLedger(context.spaceId, []);
         await queryStore.clearSpaceHistory(context.spaceId);
         await options.changed();
         return { kind: "done", message: "当前空间记录已清除。" };

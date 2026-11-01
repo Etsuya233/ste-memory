@@ -31,12 +31,25 @@ it("旧库损坏空间内容不参与辅助DB启动，原任务与向量保持",
   await old
     .table("memoryFillTasks")
     .add({ runId: "task", memorySpaceId: "space", status: "queued" });
+  await old.table("memoryFillTasks").add({
+    runId: "legacy-init",
+    memorySpaceId: "space",
+    kind: "init",
+    initText: "旧初始化",
+    status: "failed",
+    pendingSave: { from: 0, to: 0, floors: [], nextFrom: null },
+  });
   await old.table("recordVectors").add({ id: "vector", memorySpaceId: "space" });
   old.close();
   const db = createTestDatabase(name);
   await db.open();
   expect(db.tables.map((table) => table.name)).not.toContain("memorySpaces");
   expect(db.tables.map((table) => table.name)).not.toContain("memoryRecords");
+  expect(db.tables.map((table) => table.name)).not.toContain("floorFillLedger");
   expect(await db.memoryFillTasks.get("task")).toMatchObject({ status: "queued" });
+  expect(await db.memoryFillTasks.get("legacy-init")).toMatchObject({
+    pendingCommit: { from: 0, to: 0, floors: [], nextFrom: null },
+  });
+  expect(await db.memoryFillTasks.get("legacy-init")).not.toHaveProperty("pendingSave");
   expect(await db.recordVectors.get("vector")).toMatchObject({ memorySpaceId: "space" });
 });

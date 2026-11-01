@@ -27,7 +27,8 @@ import { describe, expect, it } from "vitest";
 
 function sampleUnit(): MemorySpaceBackup {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    floorLedger: [],
     space: {
       id: "space-1" as MemorySpaceId,
       name: "爱丽丝 - story",
@@ -148,7 +149,7 @@ describe("createChatMirrorFile（组装信封）", () => {
     expect(file.data).toEqual(sampleUnit());
   });
 
-  it("镜像不带任务与楼层进度，对话宏跟随空间保存", () => {
+  it("镜像携带权威楼层进度和对话宏，任务历史留在本机", () => {
     const withRuntimeRows: MemorySpaceBackup = {
       ...sampleUnit(),
       fillTasks: [],
@@ -173,7 +174,7 @@ describe("createChatMirrorFile（组装信封）", () => {
       "0.1.0",
     );
     expect("fillTasks" in file.data).toBe(false);
-    expect("floorLedger" in file.data).toBe(false);
+    expect(file.data.floorLedger).toEqual(withRuntimeRows.floorLedger);
     expect("chatScopeMacros" in file.data).toBe(false);
     expect(file.data.space.macros).toEqual(withRuntimeRows.space.macros);
     expect(file.data.space).toEqual(withRuntimeRows.space);

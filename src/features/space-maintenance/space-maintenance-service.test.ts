@@ -1,3 +1,4 @@
+import { SqliteFloorLedger } from "../../infrastructure/memory-runtime/sqlite-floor-ledger.ts";
 /**
  * 空间维护服务测试 —— 主接缝（行为全量）。
  *
@@ -17,12 +18,9 @@ import {
   installDefaultPreset,
   NOW,
 } from "../../infrastructure/indexeddb/test-support.ts";
-import {
-  DexieFillTaskRepository,
-  DexieFloorLedgerRepository,
-} from "../../infrastructure/indexeddb/fill-tasks/fill-task-repository.ts";
+import { DexieFillTaskRepository } from "../../infrastructure/indexeddb/fill-tasks/fill-task-repository.ts";
 import { DexieLogRepository } from "../../infrastructure/indexeddb/logs/log-repository.ts";
-import { RecordsClearCleanupError, SpaceMaintenanceService } from "./space-maintenance-service.ts";
+import { SpaceMaintenanceService } from "./space-maintenance-service.ts";
 
 /** 出厂 characters 表字段数（system-memory-table-definitions）。 */
 const CHARACTERS_DEFAULT_FIELD_COUNT = 7;
@@ -33,7 +31,7 @@ async function setup() {
   const space = await services.spaces.create("会话");
   await installDefaultPreset(services.memoryStore, space.id);
   const taskRepository = new DexieFillTaskRepository(db, () => NOW);
-  const ledgerRepository = new DexieFloorLedgerRepository(db, () => NOW);
+  const ledgerRepository = new SqliteFloorLedger(services.memoryStore, () => NOW);
   const logs = new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
 
   // 给表格加一条记录（含字段证据 → 证据行）+ 更新一次（→ 历史行）
@@ -85,10 +83,15 @@ async function setup() {
 
   const cancelActiveTask = vi.fn(async () => {});
   const maintenance = new SpaceMaintenanceService({
-    clearRecords: (id) => services.spaces.clearRecords(id),
+    clearRecords: async (id) => {
+      const cleared = await services.spaces.clearRecords(id);
+      if (cleared) {
+        await taskRepository.clear(id);
+        await ledgerRepository.clear(id);
+      }
+      return cleared;
+    },
     cancelActiveTask,
-    clearTasks: (id) => taskRepository.clear(id),
-    clearLedger: (id) => ledgerRepository.clear(id),
   });
 
   return {
@@ -109,8 +112,6 @@ describe("SpaceMaintenanceService（清除空间记录）", () => {
     const service = new SpaceMaintenanceService({
       clearRecords,
       cancelActiveTask: async () => {},
-      clearTasks: async () => {},
-      clearLedger: async () => {},
     });
     await expect(
       service.clearRecords("space" as MemorySpaceId, () => {
@@ -118,21 +119,6 @@ describe("SpaceMaintenanceService（清除空间记录）", () => {
       }),
     ).rejects.toThrow("chat changed");
     expect(clearRecords).not.toHaveBeenCalled();
-  });
-  it("identifies cleanup failure after the record deletion has committed", async () => {
-    const clearRecords = vi.fn(async () => true);
-    const service = new SpaceMaintenanceService({
-      clearRecords,
-      cancelActiveTask: async () => {},
-      clearTasks: async () => {
-        throw new Error("tasks unavailable");
-      },
-      clearLedger: async () => {},
-    });
-    await expect(service.clearRecords("space" as MemorySpaceId)).rejects.toBeInstanceOf(
-      RecordsClearCleanupError,
-    );
-    expect(clearRecords).toHaveBeenCalledOnce();
   });
   it("清除空间记录：记录/历史/证据消失，表格结构保留，任务与台账清空，空间保留", async () => {
     const { db, memoryStore, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
@@ -174,7 +160,7 @@ describe("SpaceMaintenanceService（清除空间记录）", () => {
     ).toBe(CHARACTERS_DEFAULT_FIELD_COUNT + 1);
     // 填表任务与楼层台账清空；通用日志在独立库，不随空间维护清空（审计数据）
     expect(await db.memoryFillTasks.count()).toBe(0);
-    expect(await db.floorFillLedger.count()).toBe(0);
+    expect((await memoryStore.snapshot(spaceId))!.floorLedger).toEqual([]);
     expect((await logs.recent(10)).map((row) => row.key)).toEqual(["run-1"]);
     // 空间身份与初始化来源保留（清除记录不套用预设、不改来源）
     const after = await spaces.find(spaceId);

@@ -20,6 +20,12 @@ export interface SqliteEntities {
   record: MemoryRecord;
   history: MemoryRecordHistory;
   evidence: MemoryEvidence;
+  floor: {
+    readonly id: string;
+    readonly floor: number;
+    readonly status: "processed" | "error";
+    readonly updatedAt: string;
+  };
 }
 export type SqliteEntityKind = keyof SqliteEntities;
 export type SqliteView = "write" | "committed";

@@ -1,7 +1,7 @@
-import { snapshotSaveSummary } from "../../models/shell/space-info.ts";
 import { useEffect, useState } from "react";
-import { ChevronRight, Settings } from "lucide-react";
 import type { ChatSnapshotSaveStatus } from "../../../features/chat-mirror/chat-snapshot-persistence.ts";
+import { SnapshotSyncControl } from "./snapshot-sync-control.tsx";
+import { ChevronRight, Settings } from "lucide-react";
 import { AutoFillSettingsPage } from "./auto-fill-settings-page.tsx";
 import { ConnectionsPage } from "./connections-page.tsx";
 import { EmbeddingSettingsPage } from "./embedding-settings-page.tsx";
@@ -76,6 +76,7 @@ type SettingsPageProps = {
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
   persistence: ChatSnapshotSaveStatus;
+  onForceSync: () => Promise<void>;
   cleaning: CleaningServices;
   macros: MacroServices;
   presets: PresetSettingsServices;
@@ -235,6 +236,7 @@ function SettingsOverview({
   controls,
   registerLeaveGuard,
   persistence,
+  onForceSync,
   context,
   onOpen,
 }: SettingsPageProps & { onOpen: (section: SettingsSection) => void }) {
@@ -297,13 +299,13 @@ function SettingsOverview({
         {...controls}
         busy={busy}
       />
-      <div
-        className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground"
-        aria-live="polite"
-      >
-        {persistence.kind === "saved" ? snapshotSaveSummary(persistence) : "记忆随当前对话文件保存"}
-      </div>
       <PageContent ref={scroll.ref} onScroll={scroll.onScroll} className="ste:space-y-4">
+        <SnapshotSyncControl
+          key={JSON.stringify([context?.chatKey, context?.spaceId])}
+          status={persistence}
+          available={context !== null}
+          onSync={onForceSync}
+        />
         {notice ? (
           <StatusNotice variant={notice.error ? "destructive" : "default"}>
             {notice.text}

@@ -1,196 +1,106 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MemorySpaceBackup } from "../../features/backup/index.ts";
-import { createChatMirrorFile, type ChatFileTarget } from "../../features/chat-mirror/index.ts";
-import type { MemorySpaceId } from "../../features/memory/index.ts";
-import { StChatAdapter, type StContext } from "./chat-adapter.ts";
 import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
+import { createChatMirrorFile } from "../../features/chat-mirror/chat-mirror-codec.ts";
+import { migrateMemorySpaceSnapshot } from "../../features/memory-snapshot/snapshot-migration.ts";
+import { legacySnapshotFixture } from "../../features/memory-snapshot/snapshot-test-fixture.ts";
+import type { ChatFileTarget } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 
-function unit(): MemorySpaceBackup {
-  return {
-    schemaVersion: 1 as const,
-    space: {
-      macros: [],
-      id: "s1" as MemorySpaceId,
-      name: "空间",
-      initializationSource: null,
-      createdAt: "2026-10-24T00:00:00Z",
-      updatedAt: "2026-10-24T00:00:00Z",
-    },
-    tables: [],
-    fields: [],
-    records: [],
-    history: [],
-    evidence: [],
-  };
-}
 const target: ChatFileTarget = {
   kind: "character",
-  identity: "character:0:A",
+  identity: "char:1:A",
   chatId: "A",
-  avatarUrl: "alice.png",
+  avatarUrl: "a.png",
 };
-
-function requests(chat: unknown, saveStatus = 200) {
-  const saved: { endpoint: string; body: Record<string, unknown> }[] = [];
-  const request = vi.fn<typeof fetch>(async (input, init) => {
-    const endpoint = String(input);
-    if (endpoint === "/csrf-token") return Response.json({ token: "csrf" });
-    if (endpoint.endsWith("/get")) return Response.json(chat);
-    saved.push({ endpoint, body: JSON.parse(init!.body as string) as Record<string, unknown> });
-    return Response.json(saveStatus === 200 ? { ok: true } : { error: "integrity" }, {
-      status: saveStatus,
-    });
+function harness() {
+  let active = target.identity;
+  const metadata: Record<string, unknown> = {};
+  const save = vi.fn(async () => {});
+  const request = vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify([{ chat_metadata: metadata }])),
+  );
+  const store = new StChatSnapshotFileStore(
+    {
+      assertActive: (owner) => {
+        if (owner.identity !== active) {
+          throw new Error("聊天已切换");
+        }
+      },
+      metadata: () => metadata,
+      saveMetadata: save,
+      headers: () => ({ "Content-Type": "application/json", "X-CSRF-Token": "host" }),
+    },
+    request,
+  );
+  const snapshot = migrateMemorySpaceSnapshot({
+    version: "legacy-macros",
+    snapshot: legacySnapshotFixture(),
   });
-  return { request, saved };
+  const binding = {
+    version: 2 as const,
+    spaceId: snapshot.space.id,
+    chatIdentity: target.identity,
+  };
+  const file = createChatMirrorFile(snapshot, snapshot.space.id, snapshot.space.updatedAt, "test");
+  return {
+    store,
+    request,
+    save,
+    metadata,
+    binding,
+    file,
+    switchChat: () => {
+      active = "char:1:B";
+    },
+  };
 }
 
-describe("指定对话快照文件保存", () => {
-  it("默认请求保持浏览器原生 fetch 的全局调用绑定", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = function (this: unknown) {
-      expect(this).toBe(globalThis);
-      return Promise.resolve(Response.json({ token: "csrf" }));
-    } as typeof fetch;
-    try {
-      await expect(new StChatSnapshotFileStore(vi.fn()).read(target)).rejects.toThrow(
-        "目标聊天文件不存在",
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it("从最新文件保留完整正文、头部和其他 metadata，仅替换镜像", async () => {
-    const chat = [
-      {
-        user_name: "u",
-        character_name: "a",
-        chat_metadata: {
-          steMemory: { version: 1, spaceId: "s1" },
-          integrity: "slug",
-          otherPlugin: { keep: true },
-        },
-      },
-      { name: "a", mes: "最新正文", extra: { x: 1 } },
-    ];
-    const { request, saved } = requests(chat);
-    const afterWrite = vi.fn();
-    const file = createChatMirrorFile(unit(), "s1", "now", "test");
-    await new StChatSnapshotFileStore(afterWrite, request).write(
-      target,
-      file,
-      { version: 1, spaceId: "s1" as MemorySpaceId },
-      "update",
-    );
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.body).toEqual({
-      avatar_url: "alice.png",
-      file_name: "A",
-      chat: [
-        { ...chat[0], chat_metadata: { ...chat[0]!.chat_metadata, steMemoryMirror: file } },
-        chat[1],
-      ],
+describe("ST 原生元数据保存", () => {
+  it("加载使用已载metadata，保存只调用原生接口且保留其他键", async () => {
+    const h = harness();
+    h.metadata.other = "宿主数据";
+    h.store.restore(target, h.file, h.binding);
+    expect(await h.store.read(target)).toEqual(h.file);
+    await h.store.submit(target, h.file, h.binding);
+    expect(h.save).toHaveBeenCalledOnce();
+    expect(h.request).not.toHaveBeenCalled();
+    expect(h.metadata).toEqual({
+      other: "宿主数据",
+      steMemory: h.binding,
+      steMemoryMirror: h.file,
     });
-    expect(afterWrite).not.toHaveBeenCalled();
   });
 
-  it.each([{}, [], [{ mes: "无头部" }], [{ chat_metadata: {} }, { broken: true }]])(
-    "坏读 %j 不发起覆盖",
-    async (chat) => {
-      const { request, saved } = requests(chat);
-      const store = new StChatSnapshotFileStore(vi.fn(), request);
-      await expect(
-        store.write(
-          target,
-          createChatMirrorFile(unit(), "s1", "now", "test"),
-          { version: 1, spaceId: "s1" as MemorySpaceId },
-          "update",
-        ),
-      ).rejects.toThrow();
-      expect(saved).toEqual([]);
-    },
-  );
-
-  it("损坏镜像和绑定变化均拒绝覆盖", async () => {
-    for (const metadata of [
-      { steMemory: { spaceId: "s2" } },
-      { steMemory: { spaceId: "s1" }, steMemoryMirror: { version: 999 } },
-    ]) {
-      const { request, saved } = requests([{ chat_metadata: metadata }]);
-      await expect(
-        new StChatSnapshotFileStore(vi.fn(), request).write(
-          target,
-          createChatMirrorFile(unit(), "s1", "now", "test"),
-          { version: 1, spaceId: "s1" as MemorySpaceId },
-          "update",
-        ),
-      ).rejects.toThrow();
-      expect(saved).toEqual([]);
-    }
-  });
-
-  it("群聊使用捕获的聊天 ID，与群组 ID 无关", async () => {
-    const { request, saved } = requests([{ chat_metadata: { steMemory: { spaceId: "s1" } } }]);
-    await new StChatSnapshotFileStore(vi.fn(), request).write(
-      { kind: "group", identity: "group:g:A", chatId: "group-file-A" },
-      createChatMirrorFile(unit(), "s1", "now", "test"),
-      { version: 1, spaceId: "s1" as MemorySpaceId },
-      "update",
+  it("固定目标核验只发get接口并复用宿主请求头，不获取第二份CSRF", async () => {
+    const h = harness();
+    h.store.restore(target, h.file, h.binding);
+    h.switchChat();
+    expect(await h.store.verify(target)).toEqual({ steMemory: h.binding, steMemoryMirror: h.file });
+    expect(h.request).toHaveBeenCalledExactlyOnceWith(
+      "/api/chats/get",
+      expect.objectContaining({
+        body: JSON.stringify({ avatar_url: "a.png", file_name: "A" }),
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": "host" },
+      }),
     );
-    expect(saved[0]!.endpoint).toBe("/api/chats/group/save");
-    expect(saved[0]!.body.id).toBe("group-file-A");
   });
 
-  it("读取网络失败不写文件，保存失败不发布已保存内存状态", async () => {
-    const store = new StChatSnapshotFileStore(
-      vi.fn(),
-      vi.fn<typeof fetch>().mockRejectedValue(new Error("offline")),
+  it("切聊后禁止发布和写入旧目标，固定目标核验仍可只读", async () => {
+    const h = harness();
+    h.switchChat();
+    expect(() => h.store.restore(target, h.file, h.binding)).toThrow("聊天已切换");
+    expect(() => h.store.submit(target, h.file, h.binding)).toThrow("聊天已切换");
+    expect(h.save).not.toHaveBeenCalled();
+  });
+
+  it("群聊核验沿用group/get目标协议，缺文件明确失败", async () => {
+    const h = harness();
+    h.request.mockResolvedValueOnce(new Response("[]"));
+    await expect(
+      h.store.verify({ kind: "group", identity: "group:g", chatId: "g" }),
+    ).rejects.toThrow("缺失");
+    expect(h.request).toHaveBeenCalledWith(
+      "/api/chats/group/get",
+      expect.objectContaining({ body: JSON.stringify({ id: "g" }) }),
     );
-    await expect(
-      store.write(
-        target,
-        createChatMirrorFile(unit(), "s1", "now", "test"),
-        { version: 1, spaceId: "s1" as MemorySpaceId },
-        "update",
-      ),
-    ).rejects.toThrow("offline");
-    const { request } = requests([{ chat_metadata: { steMemory: { spaceId: "s1" } } }], 400);
-    const afterWrite = vi.fn();
-    await expect(
-      new StChatSnapshotFileStore(afterWrite, request).write(
-        target,
-        createChatMirrorFile(unit(), "s1", "now", "test"),
-        { version: 1, spaceId: "s1" as MemorySpaceId },
-        "update",
-      ),
-    ).rejects.toThrow();
-    expect(afterWrite).not.toHaveBeenCalled();
-  });
-
-  it("切到 B 后保存捕获的 A，绝不修改 B 的 metadata", async () => {
-    let context: StContext = {
-      chatId: "A",
-      characterId: 0,
-      name2: "a",
-      characters: [{ avatar: "alice.png" }],
-      chatMetadata: {},
-    };
-    const adapter = new StChatAdapter(() => context);
-    const oldTarget = adapter.captureFileTarget()!;
-    context = { ...context, chatId: "B", chatMetadata: { other: "B" } };
-    const { request, saved } = requests([{ chat_metadata: { steMemory: { spaceId: "s1" } } }]);
-    vi.stubGlobal("fetch", request);
-    try {
-      await adapter.snapshotFileStore.write(
-        oldTarget,
-        createChatMirrorFile(unit(), "s1", "now", "test"),
-        { version: 1, spaceId: "s1" as MemorySpaceId },
-        "update",
-      );
-      expect(saved[0]!.body.file_name).toBe("A");
-      expect(context.chatMetadata).toEqual({ other: "B" });
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });

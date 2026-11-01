@@ -8,7 +8,7 @@ import {
   parseBackupFile,
   serializeBackupFile,
 } from "../../features/backup/backup-codec.ts";
-import { MemoryCommitPersistenceError, type MemorySpaceId } from "../../features/memory/index.ts";
+import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
 import { downloadTextFile } from "../../infrastructure/browser/download.ts";
 import type { RecordsContext } from "../pages/records-workspace.ts";
 import type { MaintenanceServices } from "../pages/maintenance/maintenance-page.tsx";
@@ -16,7 +16,6 @@ import type { MaintenanceServices } from "../pages/maintenance/maintenance-page.
 export function createMaintenanceServices(
   runtime: SteMemoryRuntime,
   onChanged: () => Promise<void>,
-  clearHistory: (id: MemorySpaceId) => void | Promise<void>,
 ): MaintenanceServices {
   const currentContext = (): RecordsContext | null => {
     const status = runtime.manager.getStatus();
@@ -71,7 +70,7 @@ export function createMaintenanceServices(
           assertTarget(target);
           const normalized = await runtime.normalizeImportedSpace(unit);
           assertTarget(target);
-          // 候选空间先保存到原对话文件；失败时由 persistence 保留候选并提供保存重试。
+          // 候选先在内存生效；核验失败仍由 persistence 持有，重试不再次导入。
           try {
             await runtime.manager.importSpace(normalized);
           } catch (cause) {
@@ -79,11 +78,10 @@ export function createMaintenanceServices(
               throw cause;
             }
             applied = true;
-            return { kind: "replacement-not-saved", message: cause.humanMsg };
+            return { kind: "replacement-unverified", message: cause.humanMsg };
           }
           applied = true;
           try {
-            await clearHistory(target.spaceId);
             await refresh();
             return { kind: "done", message: "当前对话的记忆空间已替换。" };
           } catch (cause) {
@@ -99,7 +97,6 @@ export function createMaintenanceServices(
       assertTarget(target);
       let applied = false;
       try {
-        await clearHistory(target.spaceId);
         if (
           !(await runtime.spaceMaintenance.clearRecords(target.spaceId, () => assertTarget(target)))
         ) {
@@ -109,6 +106,10 @@ export function createMaintenanceServices(
         await refresh();
         return { kind: "done", message: `已清除「${target.title}」的记录、历史与证据。` };
       } catch (cause) {
+        if (cause instanceof ChatSnapshotReplacementSaveError) {
+          // 候选已在内存生效，旧辅助数据由核心保留到核验完成；页面不可自行清理或重放清除。
+          return { kind: "replacement-unverified", message: cause.humanMsg };
+        }
         if (
           cause instanceof MemoryCommitPersistenceError ||
           cause instanceof RecordsClearCleanupError

@@ -27,6 +27,7 @@ import { PageEmpty } from "./components/page-state.tsx";
 export interface WorkbenchProps extends RecordsPageProps {
   persistence: ChatSnapshotSaveStatus;
   onRetrySave: () => Promise<void>;
+  onForceSync: () => Promise<void>;
   hasPendingSnapshotWrites: () => boolean;
   tables: TablesWorkspace;
   tasks: TasksWorkspace;
@@ -89,7 +90,13 @@ export function WorkbenchApp(props: WorkbenchProps) {
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col ste:md:flex-row">
       <div className="ste:flex ste:min-h-0 ste:min-w-0 ste:flex-1 ste:flex-col">
-        <SnapshotSaveNotice status={props.persistence} onRetry={props.onRetrySave} />
+        {/* 对话或空间变化即销毁请求展示，A → B → A 也不会接收旧请求的迟到错误。 */}
+        <SnapshotSaveNotice
+          key={JSON.stringify([context?.chatKey, context?.spaceId])}
+          status={props.persistence}
+          available={context !== null}
+          onRetry={props.onRetrySave}
+        />
         <div className="ste:min-h-0 ste:flex-1">
           {!enabled && page !== "settings" ? (
             <div className="ste:flex ste:h-full ste:flex-col">
@@ -134,10 +141,11 @@ export function WorkbenchApp(props: WorkbenchProps) {
             />
           ) : (
             <SettingsPage
+              persistence={props.persistence}
+              onForceSync={props.onForceSync}
               services={props.settings}
               controls={controls}
               registerLeaveGuard={registerLeaveGuard}
-              persistence={props.persistence}
               initialSection={settingsSection}
               initialLogKey={logKey}
               logTitle={logReturn === "tasks" ? "任务日志" : undefined}

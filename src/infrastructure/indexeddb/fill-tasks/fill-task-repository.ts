@@ -6,8 +6,6 @@ import type {
 } from "../../../features/fill-tasks/fill-task.ts";
 import type { SteMemoryDatabase } from "../database.ts";
 
-export { DexieFloorLedgerRepository } from "./floor-ledger-repository.ts";
-
 /**
  * 旧任务行兼容（初始化填表新增 kind/initText 字段前的行）：缺省视为楼层填表任务
  * （kind: "floor"、initText: null）。IndexedDB 行是动态对象，旧行不迁移、读取时
@@ -21,8 +19,8 @@ export function normalizeTaskRow(row: FillTask): FillTask {
 }
 
 /**
- * 任务状态与批次保存凭据由同一张表管理；文件成功后，调用方把台账写入与
- * completeBatchSave 放在同一个事务内。取消和空间清理撤销凭据，迟到通知不再生效。
+ * 任务状态与批次提交归属由同一张表管理；SQLite 持有权威楼层进度。
+ * 这里的阶段仅记录执行位置，不证明宿主文件已经保存。
  */
 
 /** 任务行排序：createdAt 倒序（id 兜底，保证确定性）——活动任务与最近列表共用。 */
@@ -81,39 +79,39 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       );
   }
 
-  async beginBatchSave(runId: string, batch: FillTaskBatchResult): Promise<boolean> {
+  async beginBatchCommit(runId: string, batch: FillTaskBatchResult): Promise<boolean> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.status !== "running" || task.pendingSave) {
+      if (task?.status !== "running" || task.pendingCommit) {
         return false;
       }
-      await this.#db.memoryFillTasks.put({ ...task, pendingSave: batch, updatedAt: this.#now() });
+      await this.#db.memoryFillTasks.put({ ...task, pendingCommit: batch, updatedAt: this.#now() });
       return true;
     });
   }
 
-  async abandonBatchSave(runId: string, batch: FillTaskBatchResult): Promise<void> {
+  async abandonBatchCommit(runId: string, batch: FillTaskBatchResult): Promise<void> {
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) {
+      if (task?.pendingCommit?.from !== batch.from || task.pendingCommit.to !== batch.to) {
         return;
       }
-      const remaining = { ...task, pendingSave: undefined };
+      const remaining = { ...task, pendingCommit: undefined };
       await this.#db.memoryFillTasks.put(remaining);
     });
   }
 
-  async completeBatchSave(
+  async completeBatchCommit(
     runId: string,
     batch: FillTaskBatchResult,
   ): Promise<FillTask | undefined> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.find(runId);
-      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) {
+      if (task?.pendingCommit?.from !== batch.from || task.pendingCommit.to !== batch.to) {
         return undefined;
       }
-      const remaining = { ...task, pendingSave: undefined };
-      // 首次保存仍归执行循环；失败后的保存重试仅收口，不重新启动后续 Agent。
+      const remaining = { ...task, pendingCommit: undefined };
+      // 提交归执行循环；历史写入失败后不能根据本行重放已提交内容。
       const status =
         task.status === "running"
           ? "running"
@@ -154,7 +152,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       if (!task) {
         return;
       }
-      const remaining = { ...task, pendingSave: undefined };
+      const remaining = { ...task, pendingCommit: undefined };
       await this.#db.memoryFillTasks.put({ ...remaining, blocksQueue: false });
     });
   }
@@ -163,7 +161,7 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const pending = await this.pending(memorySpaceId);
       for (const task of pending) {
-        const remaining = { ...task, pendingSave: undefined };
+        const remaining = { ...task, pendingCommit: undefined };
         await this.#db.memoryFillTasks.put({
           ...remaining,
           status: task.status === "failed" ? "failed" : "interrupted",
@@ -204,21 +202,21 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "interrupted", null, reason);
   }
 
-  /** 页面重开丢失文件保存任务；保留批次凭据并标为未确认，禁止从辅助行推定保存成功。 */
+  /** 页面重开时保留未完成提交归属；文件中的 SQLite 进度是唯一权威，不由辅助行推定。 */
   async markInterruptedOnStartup(): Promise<readonly FillTask[]> {
     const interrupted: FillTask[] = [];
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
-        if (row.status !== "running" && !row.pendingSave) {
+        if (row.status !== "running" && !row.pendingCommit) {
           continue;
         }
         const updated = {
           ...normalizeTaskRow(row),
           status: "interrupted" as const,
           blocksQueue: true,
-          errorMessage: row.pendingSave
-            ? "保存结果未确认，请核对对话记忆；可取消队列后主动重新提交"
+          errorMessage: row.pendingCommit
+            ? "批次提交结果待核对，请检查当前记忆；初始化可取消队列后重新决定"
             : row.errorMessage,
           updatedAt: this.#now(),
         };

@@ -20,7 +20,7 @@ import {
 } from "../../components/confirmation.tsx";
 
 export interface MaintenanceOutcome {
-  kind: "done" | "applied-with-sync-issue" | "replacement-not-saved";
+  kind: "done" | "applied-with-sync-issue" | "replacement-unverified";
   message: string;
 }
 export interface MaintenanceImportPreview {
@@ -224,7 +224,8 @@ export function MaintenancePage({
           <CardHeader>
             <CardTitle>清除当前空间记录</CardTitle>
             <CardDescription>
-              删除当前空间全部记录、修订历史、证据与填表进度，保留表格结构。清除结果保存到当前对话文件。
+              删除当前空间全部记录、修订历史、证据与填表进度，保留表格结构。清除后立即交给 ST
+              保存，文件核验状态见工作台顶部。
             </CardDescription>
           </CardHeader>
           <CardContent>

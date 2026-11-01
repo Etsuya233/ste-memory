@@ -12,6 +12,7 @@ import type {
 } from "../../../features/vector-index/types.ts";
 import { validateFloorRange, validateBlockSize } from "../../models/tasks/task-panel-model.ts";
 import type { RecordsContext } from "../records-workspace.ts";
+import { MemoryCommitPersistenceError } from "../../../features/memory/index.ts";
 
 export interface TasksChatConfigServices {
   readCleaningSelection: () => string | undefined;
@@ -341,9 +342,19 @@ export class TasksWorkspace {
         if (!from.trim() || !to.trim()) throw new Error("请输入起始楼层和结束楼层");
         const range = validateFloorRange(from, to, this.services.messageCount());
         if (range.kind === "error") throw new Error(range.message);
-        await this.services.tasks.markFloorStatuses(context.spaceId, range.from, range.to, status);
+        try {
+          await this.services.tasks.markFloorStatuses(
+            context.spaceId,
+            range.from,
+            range.to,
+            status,
+          );
+        } catch (cause) {
+          // 台账已随记忆提交时保留提交结果；宿主保存失败由顶部统一状态提供重试。
+          if (!(cause instanceof MemoryCommitPersistenceError)) throw cause;
+        }
       },
-      "楼层进度已更新",
+      "楼层进度已提交，保存状态见工作台顶部",
       { surfaceError: false },
     );
   submitInit = () => {

@@ -98,7 +98,10 @@ describe("统一记忆空间快照迁移", () => {
     const table = { ...current.tables[0]! };
     Reflect.deleteProperty(table, "position");
     expect(() =>
-      migrateMemorySpaceSnapshot({ version: 1, snapshot: { ...current, tables: [table] } }),
+      migrateMemorySpaceSnapshot({
+        version: current.schemaVersion,
+        snapshot: { ...current, tables: [table] },
+      }),
     ).toThrow("position");
     const group = { ...current.tables[0]!.vectorIndex!.groups[0]! };
     Reflect.deleteProperty(group, "key");
@@ -107,7 +110,10 @@ describe("统一记忆空间快照迁移", () => {
       vectorIndex: { ...current.tables[0]!.vectorIndex!, groups: [group] },
     };
     expect(() =>
-      migrateMemorySpaceSnapshot({ version: 1, snapshot: { ...current, tables: [vectorTable] } }),
+      migrateMemorySpaceSnapshot({
+        version: current.schemaVersion,
+        snapshot: { ...current, tables: [vectorTable] },
+      }),
     ).toThrow("key");
   });
 
@@ -133,9 +139,33 @@ describe("统一记忆空间快照迁移", () => {
     expect(decodeChatMirrorFile({ ...chat, data: broken })).toBeNull();
     expect(() =>
       decodeBackupFile({ ...file, data: { spaces: [{ ...current, schemaVersion: 999 }] } }),
-    ).toThrow("schemaVersion");
+    ).toThrow("快照版本不支持");
     expect(() => decodeBackupFile(backup(current, 1))).toThrow("不应含 schemaVersion");
     expect(decodeChatMirrorFile(mirror({ ...current, schemaVersion: 999 }, 2))).toBeNull();
     expect(() => decodeBackupFile(backup(current, 999))).toThrow("文件版本不支持");
+  });
+  it("领域v1只在统一入口升级，缺失进度保持未知；schema2缺失进度直接拒绝", () => {
+    const current = migrateMemorySpaceSnapshot({
+      version: "legacy-macros",
+      snapshot: legacySnapshotFixture(),
+    });
+    const previous = { ...current, schemaVersion: 1 };
+    Reflect.deleteProperty(previous, "floorLedger");
+    const upgraded = migrateMemorySpaceSnapshot({ version: 1, snapshot: previous });
+    expect(upgraded.floorLedger).toEqual([]);
+    const fileProgress = [{ floor: 4, status: "processed" as const, updatedAt: "now" }];
+    expect(
+      migrateMemorySpaceSnapshot({
+        version: 1,
+        snapshot: { ...previous, floorLedger: fileProgress },
+      }).floorLedger,
+    ).toEqual(fileProgress);
+    expect(decodeBackupFile(backup(previous, 3)).data.spaces[0]).toEqual(upgraded);
+    expect(decodeChatMirrorFile(mirror(previous, 3))!.data).toEqual(upgraded);
+    const broken = { ...current };
+    Reflect.deleteProperty(broken, "floorLedger");
+    expect(() => migrateMemorySpaceSnapshot({ version: 2, snapshot: broken })).toThrow(
+      "floorLedger",
+    );
   });
 });

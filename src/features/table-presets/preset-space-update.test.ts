@@ -28,7 +28,7 @@ function fixture() {
   const spaceId = "space" as MemorySpaceId;
   const structure = instantiateTablePreset(preset, spaceId, ids, stamp);
   const unit: MemorySpaceBackup = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     space: {
       id: spaceId,
       name: "测试空间",

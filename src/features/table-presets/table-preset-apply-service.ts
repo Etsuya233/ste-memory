@@ -16,7 +16,7 @@ import type { ResolvedTablePreset } from "./preset-model.ts";
  *    再有旧任务写入，防止最后一次写入未被备份便被清空）；
  * 2. 原子重建空间结构与数据（首次创建同一路径，见 installDefaultStructure）；
  * 3. 重建已提交后的同步阶段：清除本次操作所属对话的对话级宏、重建宏快照、
- *    同步当前对话记忆镜像（后两者由调用方按现有编排模式注入）。
+ *    刷新宏快照。聊天文件提交与核验由重建生命周期唯一负责。
  *
  * 失败区分：重建本身失败整体回滚（原持久化内容保留，不更新来源）；重建成功后
  * 的同步失败不重做重建、不再清空空间，错误按同步失败明确回报给界面。
@@ -25,7 +25,7 @@ import type { ResolvedTablePreset } from "./preset-model.ts";
 export interface TablePresetApplyPorts {
   /** 取消该空间进行中的填表任务（安全点停止、未提交提案丢弃） */
   readonly cancelActiveTask: (id: MemorySpaceId) => Promise<void>;
-  /** SQLite 原子重建结构、数据与来源；文件成功后按原归属清理任务与进度。 */
+  /** SQLite 激活完整候选，调用宿主保存并核验，确认后按原归属清理辅助数据。 */
   readonly rebuild: SpaceStructureRebuild;
   /** 新空间默认预设（首次创建记忆空间时复制的内容） */
   readonly defaultPreset: () => ResolvedTablePreset;
@@ -45,7 +45,6 @@ export interface TablePresetSyncActions {
   /** 用户打开确认框时固定的对话身份，不能在执行时重新捕获。 */
   readonly chatIdentity: string;
   readonly refreshMacros: () => Promise<void>;
-  readonly saveSnapshot: () => Promise<void>;
 }
 
 export type ApplyTablePresetOutcome =
@@ -137,12 +136,6 @@ export class TablePresetApplyService {
       await sync.refreshMacros();
     } catch (error) {
       issues.push(`宏快照重建失败：${messageOf(error)}`);
-    }
-    try {
-      this.assertCurrentChat(chatIdentity);
-      await sync.saveSnapshot();
-    } catch (error) {
-      issues.push(`记忆镜像同步失败：${messageOf(error)}`);
     }
     return issues.length > 0
       ? { kind: "applied-with-sync-issue", message: issues.join("；") }

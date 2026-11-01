@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemorySpaceId } from "../../../features/memory/index.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import { TasksWorkspace, type TasksServices } from "./tasks-workspace.ts";
+import { MemoryCommitPersistenceError } from "../../../features/memory/index.ts";
 const a: RecordsContext = { chatKey: "a", spaceId: "a" as MemorySpaceId, title: "A" };
 const b: RecordsContext = { chatKey: "b", spaceId: "b" as MemorySpaceId, title: "B" };
 function setup() {
@@ -61,9 +62,18 @@ describe("TasksWorkspace", () => {
     expect(services.tasks.markFloorStatuses).toHaveBeenCalledWith(a.spaceId, 2, 4, "processed");
     expect(workspace.getSnapshot()).toMatchObject({
       ledger: [{ floor: 2, status: "processed" }],
-      notice: "楼层进度已更新",
+      notice: "楼层进度已提交，保存状态见工作台顶部",
     });
     stop();
+  });
+  it("keeps committed floor progress successful when the host save fails", async () => {
+    const { services, workspace } = setup();
+    vi.mocked(services.tasks.markFloorStatuses).mockRejectedValueOnce(
+      new MemoryCommitPersistenceError(new Error("ST save failed")),
+    );
+    expect(await workspace.markFloors("2", "4", "processed")).toEqual({ ok: true, error: null });
+    expect(workspace.getSnapshot().notice).toBe("楼层进度已提交，保存状态见工作台顶部");
+    expect(services.tasks.markFloorStatuses).toHaveBeenCalledOnce();
   });
   it("rejects empty, reversed and out-of-bounds ranges before marking", async () => {
     const { services, workspace } = setup();

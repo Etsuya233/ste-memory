@@ -24,6 +24,7 @@ export class SqliteSpaceRepository implements MemorySpaceRepository {
     }
     await memory.replace({
       schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+      floorLedger: [],
       space: { ...space, macros: parseMemoryMacros(space.macros) },
       tables: [],
       fields: [],
@@ -77,7 +78,7 @@ export class SqliteSpaceRepository implements MemorySpaceRepository {
       id,
       async () => {
         // 记录清除保留空间与表结构；修订身份随记录/历史一并移除。
-        for (const kind of ["record", "history", "evidence"] as const) {
+        for (const kind of ["record", "history", "evidence", "floor"] as const) {
           for (const item of await list(id, kind)) {
             await erase(id, kind, "evidence_id" in item ? item.evidence_id : item.id);
           }

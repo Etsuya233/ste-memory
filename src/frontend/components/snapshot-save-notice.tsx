@@ -1,41 +1,54 @@
 import type { ChatSnapshotSaveStatus } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 import { Button } from "../primitives/button.tsx";
+import { useState } from "react";
 
-/** 文件状态始终来自 persistence，重试只保存待写快照，不重新提交页面操作。 */
+/** 仅在保存需要处理时提示，重试不会重新提交业务操作。 */
 export function SnapshotSaveNotice({
   status,
+  available,
   onRetry,
 }: {
   status: ChatSnapshotSaveStatus;
+  available: boolean;
   onRetry: () => Promise<void>;
 }) {
-  if (status.kind !== "failed" && status.kind !== "saving") {
+  const [request, setRequest] = useState<
+    { kind: "idle" | "running" } | { kind: "failed"; message: string }
+  >({ kind: "idle" });
+  if ((status.kind !== "failed" || status.operation === "force-sync") && request.kind === "idle") {
     return null;
+  }
+  const busy =
+    request.kind === "running" || status.kind === "saving" || status.kind === "verifying";
+  async function retry() {
+    setRequest({ kind: "running" });
+    try {
+      await onRetry();
+      setRequest({ kind: "idle" });
+    } catch (cause) {
+      setRequest({
+        kind: "failed",
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
   }
   return (
     <div
-      className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground"
+      className="ste:flex ste:shrink-0 ste:flex-wrap ste:items-center ste:gap-2 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-destructive"
       aria-live="polite"
     >
-      {status.kind === "saving" ? (
-        "正在保存到对话文件…"
-      ) : (
-        <span className="ste:text-destructive">
-          {status.humanMsg}{" "}
-          <Button
-            variant="link"
-            size="xs"
-            onClick={() => {
-              // 保存器在拒绝 Promise 前已发布 failed；统一状态负责显示原因。
-              void onRetry().catch((cause: unknown) =>
-                console.error("对话快照保存重试失败", cause),
-              );
-            }}
-          >
-            重试保存
-          </Button>
-        </span>
-      )}
+      <span className="ste:min-w-0 ste:flex-1">
+        {busy
+          ? "正在重试保存…"
+          : status.kind === "failed"
+            ? status.humanMsg
+            : request.kind === "failed"
+              ? request.message
+              : ""}
+      </span>
+      <Button variant="link" size="xs" disabled={!available || busy} onClick={() => void retry()}>
+        重试保存
+      </Button>
     </div>
   );
 }

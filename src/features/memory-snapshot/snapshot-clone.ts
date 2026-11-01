@@ -30,6 +30,7 @@ export function cloneMemorySnapshot(
       updatedAt: at,
       macros: copyMemoryMacros(unit.space.macros, ids.macro),
     },
+    floorLedger: structuredClone(unit.floorLedger),
     ...copy.structure(),
     ...copy.content(),
   };

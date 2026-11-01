@@ -17,7 +17,8 @@ import {
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    floorLedger: [],
     space: {
       macros: [],
       id: "space",
@@ -104,9 +105,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
   beforeEach(async () => {
     client = await createInProcessSqliteMemoryClient();
     store = new SqliteMemoryStore(client, {
-      saveSnapshot: async (_snapshot, saved) => {
-        await saved?.();
-      },
+      saveSnapshot: async () => {},
       assertCanEdit: () => {},
       reportRefreshError: console.error,
     });
@@ -329,7 +328,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect(after.history).toEqual(before.history);
     expect(after.records).toHaveLength(1);
     expect(persist).toHaveBeenCalledOnce();
-    expect(persist).toHaveBeenCalledWith(after, undefined);
+    expect(persist).toHaveBeenCalledWith(after);
   });
 
   it("record creation exposes its exact committed record when file persistence fails", async () => {
@@ -634,17 +633,18 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
     expect(committed).toHaveBeenCalledWith(
       expect.objectContaining({ space: expect.objectContaining({ macros }) }),
-      undefined,
     );
     await store.repositories().spaces.clearRecords(id());
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
-    await store.structureRebuild().rebuild({
-      memorySpaceId: id(),
-      tables: unit.tables,
-      fields: unit.fields,
-      macros: [],
-      initializationSource: { presetId: "preset", presetName: "预设", appliedAt: stamp },
-    });
+    await store
+      .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
+      .rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        macros: [],
+        initializationSource: { presetId: "preset", presetName: "预设", appliedAt: stamp },
+      });
     expect((await store.snapshot(id()))!.space.macros).toEqual([]);
   });
 
@@ -661,12 +661,14 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
       entered();
       await gate;
     };
-    const rebuild = store.structureRebuild().rebuild({
-      memorySpaceId: id(),
-      tables: unit.tables,
-      fields: unit.fields,
-      initializationSource: { presetId: "preset", presetName: "测试预设", appliedAt: stamp },
-    });
+    const rebuild = store
+      .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
+      .rebuild({
+        memorySpaceId: id(),
+        tables: unit.tables,
+        fields: unit.fields,
+        initializationSource: { presetId: "preset", presetName: "测试预设", appliedAt: stamp },
+      });
     await saving;
     await store.whenIdle(id());
     const next = await store.begin(id());
@@ -684,12 +686,14 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
     const failure = new Error("invalid replacement");
     vi.spyOn(client, "importSpace").mockRejectedValueOnce(failure);
     await expect(
-      store.structureRebuild().rebuild({
-        memorySpaceId: id(),
-        tables: unit.tables,
-        fields: unit.fields,
-        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
-      }),
+      store
+        .structureRebuild((snapshot) => store.saveSnapshot(snapshot))
+        .rebuild({
+          memorySpaceId: id(),
+          tables: unit.tables,
+          fields: unit.fields,
+          initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
+        }),
     ).rejects.toBe(failure);
     expect(await store.snapshot(id())).toEqual(before);
   });
@@ -697,9 +701,7 @@ describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
   it("订阅同步抛错或异步刷新拒绝不影响文件保存，卸载不自动恢复", async () => {
     const errors = vi.fn();
     const independent = new SqliteMemoryStore(client, {
-      saveSnapshot: async (_snapshot, saved) => {
-        await saved?.();
-      },
+      saveSnapshot: async () => {},
       assertCanEdit: () => {},
       reportRefreshError: errors,
     });

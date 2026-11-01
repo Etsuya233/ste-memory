@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"）
 import { createTestDatabase } from "../test-support.ts";
-import { DexieFillTaskRepository, DexieFloorLedgerRepository } from "./fill-task-repository.ts";
+import { DexieFillTaskRepository } from "./fill-task-repository.ts";
 import {
   isFillTaskTerminal,
   type FillTask,
@@ -31,97 +31,6 @@ function task(overrides: Partial<FillTask> = {}): FillTask {
     ...overrides,
   } as FillTask;
 }
-
-describe("DexieFloorLedgerRepository（楼层进度台账，ticket 13）", () => {
-  it("markProcessed 写入行；statuses 范围内补 untracked 并升序", async () => {
-    const db = createTestDatabase();
-    const ledger = new DexieFloorLedgerRepository(db);
-
-    await ledger.markProcessed(SPACE_A, [1, 3]);
-
-    expect(await ledger.statuses(SPACE_A, 0, 4)).toEqual([
-      { floor: 0, status: "untracked" },
-      { floor: 1, status: "processed" },
-      { floor: 2, status: "untracked" },
-      { floor: 3, status: "processed" },
-      { floor: 4, status: "untracked" },
-    ]);
-    expect(await ledger.processedCount(SPACE_A, 0, 4)).toBe(2);
-    // 范围外不计入
-    expect(await ledger.processedCount(SPACE_A, 3, 4)).toBe(1);
-  });
-
-  it("markError 写入；error 被后续 markProcessed 覆盖（可重试语义）", async () => {
-    const db = createTestDatabase();
-    const ledger = new DexieFloorLedgerRepository(db);
-
-    await ledger.markError(SPACE_A, [2, 5]);
-    expect(await ledger.statuses(SPACE_A, 2, 5)).toEqual([
-      { floor: 2, status: "error" },
-      { floor: 3, status: "untracked" },
-      { floor: 4, status: "untracked" },
-      { floor: 5, status: "error" },
-    ]);
-
-    // 重跑成功：error → processed（同一行 upsert，不产生重复行）
-    await ledger.markProcessed(SPACE_A, [2, 3]);
-    const rows = await db.floorFillLedger.toArray();
-    expect(rows.filter((row) => row.floor === 2)).toHaveLength(1);
-    expect(await ledger.statuses(SPACE_A, 2, 5)).toEqual([
-      { floor: 2, status: "processed" },
-      { floor: 3, status: "processed" },
-      { floor: 4, status: "untracked" },
-      { floor: 5, status: "error" },
-    ]);
-    expect(await ledger.processedCount(SPACE_A, 0, 9)).toBe(2);
-  });
-
-  it("台账按记忆空间隔离：不同空间同楼层互不影响", async () => {
-    const db = createTestDatabase();
-    const ledger = new DexieFloorLedgerRepository(db);
-
-    await ledger.markProcessed(SPACE_A, [0]);
-    await ledger.markError(SPACE_B, [0]);
-
-    expect(await ledger.statuses(SPACE_A, 0, 0)).toEqual([{ floor: 0, status: "processed" }]);
-    expect(await ledger.statuses(SPACE_B, 0, 0)).toEqual([{ floor: 0, status: "error" }]);
-  });
-
-  it("deleteStatuses 删除范围内台账行（目标 untracked 语义）；不存在的行不报错", async () => {
-    const db = createTestDatabase();
-    const ledger = new DexieFloorLedgerRepository(db);
-
-    await ledger.markProcessed(SPACE_A, [0, 1, 2]);
-    await ledger.markError(SPACE_A, [4]);
-    // 楼层 3 本来就没有行（untracked）
-
-    await ledger.deleteStatuses(SPACE_A, 1, 4);
-
-    // 楼层 0 保留（范围外）
-    expect(await ledger.statuses(SPACE_A, 0, 5)).toEqual([
-      { floor: 0, status: "processed" },
-      { floor: 1, status: "untracked" },
-      { floor: 2, status: "untracked" },
-      { floor: 3, status: "untracked" },
-      { floor: 4, status: "untracked" },
-      { floor: 5, status: "untracked" },
-    ]);
-    expect(await ledger.processedCount(SPACE_A, 0, 5)).toBe(1);
-  });
-
-  it("deleteStatuses 跨空间隔离：只删除目标空间的行", async () => {
-    const db = createTestDatabase();
-    const ledger = new DexieFloorLedgerRepository(db);
-
-    await ledger.markProcessed(SPACE_A, [2]);
-    await ledger.markProcessed(SPACE_B, [2]);
-
-    await ledger.deleteStatuses(SPACE_A, 2, 2);
-
-    expect(await ledger.statuses(SPACE_A, 2, 2)).toEqual([{ floor: 2, status: "untracked" }]);
-    expect(await ledger.statuses(SPACE_B, 2, 2)).toEqual([{ floor: 2, status: "processed" }]);
-  });
-});
 
 describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () => {
   it("create/find/findActive：running 占用活动名额，终态后释放", async () => {
@@ -281,25 +190,13 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     expect(await tasks.listRecent(SPACE_B, 10)).toEqual([]);
   });
 
-  it("按空间清理任务行与楼层台账，其他空间保留", async () => {
+  it("按空间清理任务行，其他空间保留", async () => {
     const db = createTestDatabase();
     const tasks = new DexieFillTaskRepository(db, () => NOW);
-    const ledger = new DexieFloorLedgerRepository(db);
-
     await tasks.create(task());
     await tasks.create(task({ runId: "run-2", memorySpaceId: SPACE_B }));
-    await ledger.markProcessed(SPACE_A, [0, 1]);
-    await ledger.markError(SPACE_B, [2]);
-
     await tasks.clear(SPACE_A);
-    await ledger.clear(SPACE_A);
-    // 空间 A 的任务与台账行被清掉；空间 B 不受影响
     expect(await tasks.find("run-1")).toBeUndefined();
     expect(await tasks.find("run-2")).toMatchObject({ status: "running" });
-    expect(await ledger.statuses(SPACE_A, 0, 1)).toEqual([
-      { floor: 0, status: "untracked" },
-      { floor: 1, status: "untracked" },
-    ]);
-    expect(await ledger.statuses(SPACE_B, 2, 2)).toEqual([{ floor: 2, status: "error" }]);
   });
 });

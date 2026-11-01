@@ -83,6 +83,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       this.store(db, "space", snapshot.space);
       for (const kind of Object.keys(collections) as (keyof typeof collections)[])
         for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
+      for (const entry of snapshot.floorLedger) {
+        this.store(db, "floor", { ...entry, id: String(entry.floor) });
+      }
       this.rebuild(db);
       db.exec("COMMIT");
       const id = String(++this.evaluationSequence);
@@ -582,6 +585,9 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       for (const kind of Object.keys(collections) as (keyof typeof collections)[]) {
         for (const entity of snapshot[collections[kind]]) this.store(db, kind, entity);
       }
+      for (const entry of snapshot.floorLedger) {
+        this.store(db, "floor", { ...entry, id: String(entry.floor) });
+      }
       this.rebuild(db);
       db.exec("COMMIT");
     } catch (error) {
@@ -659,6 +665,7 @@ export class SqliteMemoryEngine implements SqliteMemoryClient {
       records: this.entities(db, "record"),
       history: this.entities(db, "history"),
       evidence: this.entities(db, "evidence"),
+      floorLedger: this.entities(db, "floor").map(({ id: _id, ...entry }) => entry),
     };
   }
   /** One worker call reads only committed structure and records; no history or evidence copies. */

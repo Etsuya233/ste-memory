@@ -173,19 +173,17 @@ describe("validateFloorRangeIntegers（楼层整数校验：同步楼层 0 基�
 });
 
 describe("taskStatusViewModel（任务状态 → 文案，失败原因可读）", () => {
-  it("批次marker按运行、失败和刷新中断阶段展示，禁止业务重试", () => {
-    const pendingSave = { from: 0, to: 3, floors: [0, 1, 2, 3], nextFrom: 4 };
-    expect(taskStatusViewModel(task({ phase: "saving", pendingSave }))).toEqual({
+  it("批次执行凭据不再承担文件确认，失败任务沿用普通重试", () => {
+    const pendingCommit = { from: 0, to: 3, floors: [0, 1, 2, 3], nextFrom: 4 };
+    expect(taskStatusViewModel(task({ phase: "saving", pendingCommit }))).toEqual({
       label: "保存中",
       detail: "正在提交当前批次…",
     });
     for (const status of ["failed", "interrupted"] as const) {
-      const pending = task({ status, blocksQueue: true, pendingSave });
+      const pending = task({ status, blocksQueue: true, pendingCommit, nextFrom: null });
       const state = taskStatusViewModel(pending);
-      expect(state.label).toBe(status === "failed" ? "等待保存" : "保存待核对");
-      expect(state.detail).toContain(
-        status === "failed" ? "本批修改已提交，等待保存完成" : "上次批次保存未确认",
-      );
+      expect(state.label).toBe(status === "failed" ? "失败" : "已中断");
+      expect(state.detail).not.toContain("保存未确认");
       const view = buildTasksTabViewModel({
         chatLength: 10,
         ledger: [],
@@ -193,8 +191,27 @@ describe("taskStatusViewModel（任务状态 → 文案，失败原因可读）"
         historyTasks: [pending],
         cleaning: { selectedRuleId: undefined, rules: [] },
       });
-      expect(view.history[0]!.retryable).toBe(false);
+      expect(view.history[0]!.retryable).toBe(true);
     }
+  });
+  it("初始化提交凭据保留时展示未知提交结果并禁止重放", () => {
+    const initialized = task({
+      kind: "init",
+      status: "failed",
+      pendingCommit: { from: 0, to: 0, floors: [], nextFrom: 1 },
+    });
+    expect(taskStatusViewModel(initialized)).toEqual({
+      label: "提交待核对",
+      detail: "初始化提交结果待核对，任务历史尚未收口。请核对当前记忆，可取消任务释放队列。",
+    });
+    const view = buildTasksTabViewModel({
+      chatLength: 10,
+      ledger: [],
+      activeTask: undefined,
+      historyTasks: [initialized],
+      cleaning: { selectedRuleId: undefined, rules: [] },
+    });
+    expect(view.history[0]!.retryable).toBe(false);
   });
   it("手动和初始化任务共用重试倒计时及失败原因展示", () => {
     const retryState = {

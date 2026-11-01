@@ -1,3 +1,4 @@
+import { SqliteFloorLedger } from "./infrastructure/memory-runtime/sqlite-floor-ledger.ts";
 import { PresetSpaceUpdater } from "./infrastructure/memory-runtime/preset-space-updater.ts";
 import { MemorySpaceLifecycle } from "./infrastructure/memory-runtime/memory-space-lifecycle.ts";
 import { instantiateTablePreset } from "./features/table-presets/preset-instantiation.ts";
@@ -27,6 +28,7 @@ import type { PresetSpaceUpdateService } from "./features/table-presets/preset-s
 import { VectorRetrievalService } from "./features/vector-retrieval/vector-retrieval-service.ts";
 import { trackRetrievalChanges } from "./infrastructure/indexeddb/retrieval-change-sync.ts";
 import {
+  MemoryCommitPersistenceError,
   MemoryFieldService,
   MemoryRecordQueryService,
   MemoryRecordService,
@@ -49,6 +51,7 @@ import { buildMemorySpaceTableDigest } from "./features/agent/index.ts";
 import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import {
   ChatSnapshotPersistence,
+  ChatSnapshotReplacementSaveError,
   type ChatSnapshotFileStore,
 } from "./features/chat-mirror/chat-snapshot-persistence.ts";
 import {
@@ -64,7 +67,6 @@ import type { MemorySpaceBackup } from "./features/backup/backup-file.ts";
 import type { FillTaskSession } from "./features/fill-tasks/fill-task-session.ts";
 import {
   DexieFillTaskRepository,
-  DexieFloorLedgerRepository,
   DexieLogRepository,
   SteMemoryDatabase,
   SteMemoryLogDatabase,
@@ -77,7 +79,6 @@ import { VectorIndexChangeSync } from "./infrastructure/memory-runtime/vector-in
 import { OpenAiEmbeddingPort } from "./infrastructure/sillytavern/embedding/openai-embedding.ts";
 import { SpaceMaintenanceService } from "./features/space-maintenance/space-maintenance-service.ts";
 import { QueryChatService } from "./features/query-chat/query-chat-service.ts";
-import type { Table } from "dexie";
 import type { LogRepository } from "./features/logging/log.ts";
 import { MemoryMacroService } from "./features/macros/memory-macro-service.ts";
 import { createMacroEvaluationBatch } from "./features/macros/macro-evaluation.ts";
@@ -98,7 +99,11 @@ import type { FillSourceMessage } from "./features/fill-tasks/fill-task.ts";
 import type { SettingsStore } from "./features/settings/plugin-settings.ts";
 import { SettingsService } from "./features/settings/settings-service.ts";
 import { findSelectedCleaningRule } from "./features/cleaning/cleaning-rules.ts";
-import { ChatSpaceManager, chatIdentityKey } from "./features/chat-binding/chat-space-manager.ts";
+import {
+  ChatSpaceManager,
+  chatIdentityKey,
+  type SpaceContextStatus,
+} from "./features/chat-binding/chat-space-manager.ts";
 import { TablePresetApplyService } from "./features/table-presets/table-preset-apply-service.ts";
 import { SYSTEM_TABLE_PRESET } from "./features/table-presets/system-preset.ts";
 import { resolveDefaultTablePreset } from "./features/table-presets/preset-model.ts";
@@ -128,6 +133,8 @@ export interface SteMemoryRuntime {
   readonly records: MemoryRecordService;
   /** 重试当前聊天最新待保存快照，不重放已经提交的业务。 */
   readonly retryMemorySave: () => Promise<void>;
+  /** 保存已提交 SQLite 完整快照并从固定文件核验；不提交 UI 草稿。 */
+  readonly forceSyncMemory: () => Promise<void>;
   /** 当前聊天完整空间导出与候选SQLite验证 */
   readonly backup: MemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
@@ -264,8 +271,7 @@ export async function startSteMemory(
     () => options.version ?? "",
   );
   // 保存/编辑端口在构造时固定；首次加载前，所有生命周期依赖会完成装配。
-  const saveSnapshot = (unit: MemorySpaceBackup, saved?: () => Promise<void>) =>
-    lifecycle.saveSnapshot(unit, saved);
+  const saveSnapshot = (unit: MemorySpaceBackup) => lifecycle.saveSnapshot(unit);
   const sqlite = await (options.createSqlite ?? createSqliteMemoryClient)();
   const memoryStore = new SqliteMemoryStore(sqlite, {
     saveSnapshot,
@@ -423,17 +429,8 @@ export async function startSteMemory(
     logWarn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
   });
   const logs = new DexieLogRepository(logDb, { now });
-  /**
-   * 填表任务台账使用 Dexie 原子事务；scope 必须声明为 async，
-   * 供 Dexie expected-awaits 追踪，避免 PrematureCommit。
-   * 记忆记录的提交事务由 MemoryRecordService 管理。
-   */
-  const runInTransaction = (tables: readonly Table[]) => (work: () => Promise<void>) =>
-    db.transaction("rw", tables, async () => {
-      await work();
-    });
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
-  const floorLedgerRepository = new DexieFloorLedgerRepository(db);
+  const floorLedgerRepository = new SqliteFloorLedger(memoryStore, now);
   const tasks = new FillTaskService({
     assertCanEditSpace: (id) => lifecycle.assertCanEdit(id),
     onAutomaticSuccess: (task): Promise<void> => autoFill.taskSucceeded(task),
@@ -443,7 +440,7 @@ export async function startSteMemory(
     source: adapter,
     beginTask: async (task, signal): Promise<FillTaskSession> => {
       signal.throwIfAborted();
-      const token = await memoryStore.begin(task.memorySpaceId);
+      const token = await lifecycle.beginFillBatch(task.memorySpaceId, signal);
       const baseline = await sqlite.exportSpace(task.memorySpaceId, "write");
       const taskRepos = memoryStore.repositories("write", token);
       const taskRecords = new MemoryRecordService(
@@ -463,7 +460,7 @@ export async function startSteMemory(
         ports: { tables: taskRepos.tables, fields: taskRepos.fields, records: taskRepos.records },
         evidence: taskRepos.records,
         recordWriter: taskRecords,
-        commitAndSave: async (saved) => {
+        commitAndSave: async (batch) => {
           signal.throwIfAborted();
           await memoryStore.consolidateTask(
             baseline,
@@ -471,15 +468,38 @@ export async function startSteMemory(
             createId("revision") as MemoryRevisionId,
             now(),
           );
+          if (task.kind === "floor") {
+            await new SqliteFloorLedger(memoryStore, now, token).markProcessed(
+              task.memorySpaceId,
+              batch.floors,
+            );
+          }
           ended = true;
-          await memoryStore.commitTask(task.memorySpaceId, token, saved);
+          try {
+            await memoryStore.commitTask(task.memorySpaceId, token);
+          } catch (error) {
+            // SQL 已提交：宿主保存失败由独立保存状态呈现，任务继续前进，不能重放本批。
+            if (!(error instanceof MemoryCommitPersistenceError)) {
+              throw error;
+            }
+          }
         },
-        rollback: async () => {
+        rollback: async (failedFloors) => {
           if (ended) {
             return;
           }
           ended = true;
-          await memoryStore.rollbackTask(task.memorySpaceId, token);
+          try {
+            await memoryStore.rollbackTask(
+              task.memorySpaceId,
+              token,
+              failedFloors && { floors: failedFloors, updatedAt: now() },
+            );
+          } catch (error) {
+            if (!(error instanceof MemoryCommitPersistenceError)) {
+              throw error;
+            }
+          }
         },
         release: async () => {
           if (ended) {
@@ -490,7 +510,6 @@ export async function startSteMemory(
         },
       };
     },
-    runInTransaction: runInTransaction([db.floorFillLedger, db.memoryFillTasks]),
     createLlm,
     createPromptContext,
     createRunId: () => createId("task"),
@@ -511,6 +530,7 @@ export async function startSteMemory(
       const at = now();
       const snapshot: MemorySpaceBackup = {
         schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+        floorLedger: [],
         space: {
           id: structure.tables[0]?.memorySpaceId ?? ("preset-validation" as MemorySpaceId),
           name: "预设校验",
@@ -578,6 +598,7 @@ export async function startSteMemory(
       );
       return normalizeImportedSpace({
         schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+        floorLedger: [],
         space: {
           id,
           name,
@@ -598,7 +619,7 @@ export async function startSteMemory(
     activateSnapshot: (target, binding, unit) => lifecycle.activate(target, binding, unit),
     unloadSnapshot: (id, target) => lifecycle.unload(id, target),
     stopSpaceWrites: (id) => lifecycle.stopWrites(id),
-    retireSpace: (id, target) => lifecycle.retire(id, target),
+    captureRetirement: (id, target) => lifecycle.captureRetirement(id, target),
     findSpace: (id) => spaceRepository.find(id),
     createIds: {
       space: () => createId("space") as MemorySpaceId,
@@ -631,7 +652,7 @@ export async function startSteMemory(
     () => createId("vector-task"),
   );
   let chatEpoch = 0;
-  const retrievalContext = () => {
+  const memorySelectionKey = () => {
     const status = manager.getStatus();
     return JSON.stringify([
       chatEpoch,
@@ -645,14 +666,14 @@ export async function startSteMemory(
     vector,
     vectorRepository,
     embedding,
-    retrievalContext,
+    memorySelectionKey,
   );
   const currentSpaceId = () => {
     const status = manager.getStatus();
     return status?.kind === "active" ? status.space.id : null;
   };
   let chatMacros: readonly MemoryMacro[] = [];
-  const syncRetrievalContext = () => retrieval.setContext(retrievalContext(), currentSpaceId());
+  const syncRetrievalContext = () => retrieval.setContext(memorySelectionKey(), currentSpaceId());
   manager.onStatusChange(syncRetrievalContext);
   trackRetrievalChanges(db, retrieval);
   await vector.start();
@@ -726,7 +747,6 @@ export async function startSteMemory(
     vector,
     assistant: assistantStore,
     clearTasks: (id) => fillTaskRepository.clear(id),
-    clearLedger: (id) => floorLedgerRepository.clear(id),
     reportSwitchError: (error) => {
       manager.reportLoadError(error);
       log.error(`[${PLUGIN_DISPLAY_NAME}] 同步空间上下文失败`, error);
@@ -754,10 +774,8 @@ export async function startSteMemory(
   // 空间维护：清除空间记录（保留表格结构与初始化来源）；按预设重建统一走
   // 表格预设的应用流程（TablePresetApplyService）。
   const spaceMaintenance = new SpaceMaintenanceService({
-    clearRecords: (id) => spaces.clearRecords(id),
+    clearRecords: (id) => lifecycle.clearRecords(id),
     cancelActiveTask: (id) => tasks.cancelAll(id),
-    clearTasks: (id) => fillTaskRepository.clear(id),
-    clearLedger: (id) => floorLedgerRepository.clear(id),
   });
 
   // 页面/浏览器重开：运行项标记 interrupted 并暂停队列，等待项保留
@@ -765,10 +783,10 @@ export async function startSteMemory(
   // 后续 SQLite 提交同步交接文件保存；辅助任务只恢复自身运行状态。
 
   const refreshChatMacros = async () => {
-    const context = retrievalContext();
+    const context = memorySelectionKey();
     const id = currentSpaceId();
     const space = id ? await spaces.find(id) : undefined;
-    if (context === retrievalContext()) {
+    if (context === memorySelectionKey()) {
       chatMacros = space?.macros ?? [];
     }
   };
@@ -869,7 +887,7 @@ export async function startSteMemory(
   });
   const writeChatMacros = async (macros: readonly MemoryMacro[]) => {
     const id = currentSpaceId();
-    const context = retrievalContext();
+    const context = memorySelectionKey();
     if (!id) {
       throw new Error("当前对话尚未准备好");
     }
@@ -877,14 +895,14 @@ export async function startSteMemory(
     if (!saved) {
       throw new Error("记忆空间已不存在");
     }
-    if (context !== retrievalContext()) {
+    if (context !== memorySelectionKey()) {
       return;
     }
     chatMacros = macros;
     await manager.refreshSpace(id);
   };
   const macro = new MemoryMacroService({
-    getContext: retrievalContext,
+    getContext: memorySelectionKey,
     getChatMacros: () => chatMacros,
     saveChatMacros: writeChatMacros,
     readLegacyChatMacros: () => adapter.chatScopeMacroStore.read(),
@@ -908,6 +926,9 @@ export async function startSteMemory(
       const snapshot = adapter.getChatSnapshot();
       const identity = chatIdentityKey(snapshot);
       if (!settings.read().enabled || status?.kind !== "active" || !identity) {
+        return undefined;
+      }
+      if (persistence.hasPendingReplacement(identity)) {
         return undefined;
       }
       const binding = adapter.bindingStore.read();
@@ -943,9 +964,22 @@ export async function startSteMemory(
   async function syncCurrentChat() {
     adapter.cleaningRuleStore.read();
     adapter.clearLegacyRecall();
-    const state = await manager.syncToCurrentChat();
+    let state: SpaceContextStatus;
+    try {
+      state = await manager.syncToCurrentChat();
+    } catch (error) {
+      const current = manager.getStatus();
+      if (!(error instanceof ChatSnapshotReplacementSaveError) || current?.kind !== "active") {
+        throw error;
+      }
+      // 候选已经激活，核验失败只保留保存待办；聊天的读取与自动任务就绪流程继续。
+      // 新编辑与填表仍受生命周期的关键操作门控，确认成功后可正常调度。
+      log.error("候选记忆尚待核验", error);
+      state = current;
+    }
     await refreshChatMacros();
-    if (state.kind === "active") {
+    const identity = chatIdentityKey(adapter.getChatSnapshot());
+    if (state.kind === "active" && identity && !persistence.hasPendingReplacement(identity)) {
       await macro.migrateLegacyChatMacros();
     }
     return state;
@@ -957,7 +991,7 @@ export async function startSteMemory(
       macro.chatChanged();
       chatMacros = [];
       chatEpoch++;
-      retrieval.setContext(retrievalContext(), null, true);
+      retrieval.setContext(memorySelectionKey(), null, true);
       const previous = manager.getStatus();
       manager.clearCurrent();
       return lifecycle.switchChat(
@@ -1055,7 +1089,7 @@ export async function startSteMemory(
     refreshMemoryMacros: () => macro.kick(),
     validateMacros,
     getChatScopeMacros: () => chatMacros,
-    getChatContext: retrievalContext,
+    getChatContext: memorySelectionKey,
     refreshAgentMacros: () => agentMacro.kick(),
     writeChatScopeMacros: writeChatMacros,
     refreshVectorIndex: () => {
@@ -1069,13 +1103,13 @@ export async function startSteMemory(
     settings,
     tasks,
     presetApply,
-    persistence,
+    forceSync: (id, assertActive) => lifecycle.forceSync(id, assertActive),
     saveSnapshot,
     retrieval,
     macro,
     vector,
     vectors: vectorRepository,
-    getSelectionKey: retrievalContext,
+    getSelectionKey: memorySelectionKey,
     ids: {
       table: () => createId("table") as MemoryTableId,
       field: () => createId("field") as MemoryFieldId,
@@ -1146,16 +1180,25 @@ export async function startSteMemory(
       .catch((error) => log.error("空间状态刷新失败", error));
     void refreshChatMacros().catch((error) => log.error("空间宏读取失败", error));
   });
+  const forceSyncMemory = async (): Promise<void> => {
+    const status = manager.getStatus();
+    const target = adapter.captureFileTarget();
+    const selectionKey = memorySelectionKey();
+    if (status?.kind !== "active" || !target) {
+      throw new Error("当前聊天记忆尚未就绪");
+    }
+    await lifecycle.forceSync(status.space.id, () => {
+      if (memorySelectionKey() !== selectionKey) {
+        throw new Error("聊天已切换，请在当前聊天重新强制同步");
+      }
+    });
+    autoFill.kick();
+  };
   return {
     publicRead,
     manager,
-    retryMemorySave: async () => {
-      const identity = chatIdentityKey(adapter.getChatSnapshot());
-      if (!identity) {
-        throw new Error("当前聊天尚未保存");
-      }
-      await persistence.retry(identity);
-    },
+    retryMemorySave: forceSyncMemory,
+    forceSyncMemory,
     adapter,
     spaces,
     tables,
@@ -1174,6 +1217,7 @@ export async function startSteMemory(
         if (!memoryStore.hasSpace(spaceId)) {
           throw new Error(`记忆空间不存在: ${spaceId}`);
         }
+        const selectionKey = memorySelectionKey();
         const started = performance.now();
         const results: SqlResultSet[] = [];
         let changes = 0;
@@ -1183,6 +1227,10 @@ export async function startSteMemory(
         try {
           do {
             signal?.throwIfAborted();
+            lifecycle.assertCanEdit(spaceId);
+            if (memorySelectionKey() !== selectionKey || currentSpaceId() !== spaceId) {
+              throw new Error("聊天或空间已切换，SQL 执行已停止");
+            }
             const chunk = await sqlite.executeConsole(spaceId, remainingSql);
             signal?.throwIfAborted();
             results.push(...chunk.results);

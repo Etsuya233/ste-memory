@@ -246,6 +246,7 @@ const currentVectorIndexSchema = Type.Object({
 export const memorySpaceSnapshotSchema = Type.Object({
   ...legacyMemorySpaceSnapshotSchema.properties,
   schemaVersion: Type.Literal(MEMORY_SNAPSHOT_SCHEMA_VERSION),
+  floorLedger: Type.Array(memorySpaceLedgerEntrySchema),
   space: Type.Object({
     ...memorySpaceSchema.properties,
     macros: Type.Array(memoryMacroSchema),

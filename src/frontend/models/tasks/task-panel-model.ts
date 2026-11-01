@@ -184,17 +184,15 @@ export function validateFloorRange(
 /** 任务状态 → 文案：running 带进度；failed 带可读失败原因；succeeded/interrupted 终态短语。
  *  初始化任务（kind=init）无楼层：running 显示初始化文案，不显示楼层进度。 */
 export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
-  // marker 在提交前建立；运行中沿用保存阶段，刷新中断后不能据此断言已经提交。
-  if (task.pendingSave && task.status === "failed") {
+  // 凭据在 SQLite 提交前建立，刷新后不能推断提交结果；初始化没有楼层进度可判断续跑位置。
+  if (
+    task.kind === "init" &&
+    task.pendingCommit &&
+    (task.status === "failed" || task.status === "interrupted")
+  ) {
     return {
-      label: "等待保存",
-      detail: "本批修改已提交，等待保存完成。请使用工作台顶部的保存重试。",
-    };
-  }
-  if (task.pendingSave && task.status === "interrupted") {
-    return {
-      label: "保存待核对",
-      detail: "上次批次保存未确认，请先核对对话记忆。可取消队列后主动重新提交，取消不会自动重放。",
+      label: "提交待核对",
+      detail: "初始化提交结果待核对，任务历史尚未收口。请核对当前记忆，可取消任务释放队列。",
     };
   }
   switch (task.status) {
@@ -351,7 +349,9 @@ function toHistoryItem(task: FillTaskView): TaskHistoryItemViewModel {
     timeText: formatDisplayTime(task.createdAt),
     progressText: taskProgressText(task),
     errorMessage: task.errorMessage,
-    retryable: !task.pendingSave && (task.status === "failed" || task.status === "interrupted"),
+    retryable:
+      !(task.kind === "init" && task.pendingCommit) &&
+      (task.status === "failed" || task.status === "interrupted"),
   };
 }
 

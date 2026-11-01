@@ -17,7 +17,7 @@ export interface MemorySpaceBackupLedgerEntry {
 }
 
 /** 单个记忆空间的序列化单元。 */
-export const MEMORY_SNAPSHOT_SCHEMA_VERSION = 1 as const;
+export const MEMORY_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 
 export interface MemorySpaceBackup {
   readonly schemaVersion: typeof MEMORY_SNAPSHOT_SCHEMA_VERSION;
@@ -29,6 +29,6 @@ export interface MemorySpaceBackup {
   readonly evidence: readonly MemoryEvidence[];
   /** 旧备份的辅助任务集合，仅保留文件读取兼容；当前导出和空间替换不保存或恢复 */
   readonly fillTasks?: readonly FillTask[];
-  /** 旧备份的辅助台账集合，仅保留文件读取兼容；当前导出和空间替换不保存或恢复 */
-  readonly floorLedger?: readonly MemorySpaceBackupLedgerEntry[];
+  /** 权威楼层进度，与记忆记录一起提交和保存；旧快照缺失时保持未知。 */
+  readonly floorLedger: readonly MemorySpaceBackupLedgerEntry[];
 }

@@ -15,7 +15,8 @@ import type { QueryRecordsInput } from "../../features/memory/index.ts";
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    floorLedger: [],
     space: {
       macros: [],
       id: "s",

@@ -67,7 +67,7 @@ export async function installDefaultPreset(
   const apply = new TablePresetApplyService({
     validateStructure: async (structure) => structure,
     cancelActiveTask: async () => undefined,
-    rebuild: memoryStore.structureRebuild(),
+    rebuild: memoryStore.structureRebuild((snapshot) => memoryStore.saveSnapshot(snapshot)),
     defaultPreset: () => SYSTEM_TABLE_PRESET,
     currentChatIdentity: () => undefined,
     clearChatScopeMacros: () => undefined,
@@ -103,9 +103,7 @@ export async function createServices(
   const client = await createInProcessSqliteMemoryClient();
   memoryClients.push(client);
   const memoryStore = new SqliteMemoryStore(client, {
-    saveSnapshot: async (_snapshot, saved) => {
-      await saved?.();
-    },
+    saveSnapshot: async () => {},
     assertCanEdit: () => {},
     reportRefreshError: console.error,
   });

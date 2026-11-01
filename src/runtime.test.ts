@@ -8,10 +8,7 @@ import {
   createTestDatabase,
   createTestLogDatabase,
 } from "./infrastructure/indexeddb/test-support.ts";
-import {
-  DexieFillTaskRepository,
-  DexieFloorLedgerRepository,
-} from "./infrastructure/indexeddb/index.ts";
+import { DexieFillTaskRepository } from "./infrastructure/indexeddb/index.ts";
 import { startSteMemory, type StartSteMemoryOptions, type SteMemoryRuntime } from "./runtime.ts";
 import type { StBackendsModel } from "./infrastructure/sillytavern/llm/st-completion-settings.ts";
 import {
@@ -330,7 +327,6 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const outcome = await runtime.presetApply.applyPreset(status.space.id, SYSTEM_TABLE_PRESET, {
       chatIdentity: status.binding.version === 2 ? status.binding.chatIdentity : "",
       refreshMacros: () => runtime.macro.kick(),
-      saveSnapshot: () => runtime.retryMemorySave(),
     });
     expect(outcome).toEqual({ kind: "applied" });
     const tables = await runtime.tables.list(status.space.id);
@@ -502,11 +498,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       ...ports,
     });
     expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({
-      kind: "saved",
+      kind: "verified",
       identity: "char:3:story",
     });
     const spaceId = (await runtime.backup.exportCurrentSpace()).space.id;
-    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("file offline"));
+    vi.spyOn(ports.snapshotFiles, "submit").mockRejectedValueOnce(new Error("file offline"));
     await expect(
       runtime.tables.create(spaceId, {
         key: "pending_table",
@@ -524,7 +520,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     await runtime.retryMemorySave();
     expect(runtime.settings.read().enabled).toBe(false);
-    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("saved");
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
     expect(runtime.persistence.hasPendingWrites()).toBe(false);
     expect(
       ports.snapshotWrites
@@ -602,9 +598,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       const plan = await runtime.presetUpdate.preview(original.space.id, preset, identity);
       const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
       if (operation === "retry") {
-        vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("file offline"));
+        vi.spyOn(ports.snapshotFiles, "submit").mockRejectedValueOnce(new Error("file offline"));
         const outcome = await runtime.presetUpdate.apply(plan, selected, identity);
-        expect(outcome.issues).toContain("对话文件保存失败：file offline");
+        expect(outcome.issues).toContain("宿主提交或核验失败：file offline");
       }
 
       let markStarted!: () => void;
@@ -615,11 +611,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       const released = new Promise<void>((resolve) => {
         releaseWrite = resolve;
       });
-      const write = ports.snapshotFiles.write;
-      vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+      const write = ports.snapshotFiles.submit;
+      vi.spyOn(ports.snapshotFiles, "submit").mockImplementationOnce(async (...args) => {
+        await write(...args);
         markStarted();
         await released;
-        await write(...args);
       });
       const saving =
         operation === "apply"
@@ -662,7 +658,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("绑定已存在时只从聊天文件加载空间到 SQLite", async () => {
     const db = createTestDatabase();
     const fileUnit: MemorySpaceBackup = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      floorLedger: [],
       space: {
         macros: [],
         id: "file-first" as MemorySpaceId,
@@ -698,72 +695,44 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     expect(await runtime.spaces.find(fileUnit.space.id)).toEqual({ ...fileUnit.space, macros: [] });
   });
 
-  it("切换聊天保留 A 未保存快照，回到 A 后重试不串写 B", async () => {
+  it("普通保存失败切聊后不后台补写，返回按宿主文件加载并可强制同步", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();
     const ports = createRuntimeTestPorts(() => context);
-    let failNextSave = false;
-    const write = vi.fn<typeof ports.snapshotFiles.write>(
-      async (target, file, binding, operation) => {
-        if (failNextSave) {
-          failNextSave = false;
-          throw new Error("file offline");
-        }
-        await ports.snapshotFiles.write(target, file, binding, operation);
-      },
-    );
     const runtime = await startTestRuntime(() => context, {
       createDb: () => db,
       log: fakeLog(),
       ...ports,
-      snapshotFiles: { ...ports.snapshotFiles, write },
     });
-    const first = runtime.manager.getStatus();
-    if (first?.kind !== "active") throw new Error("expect A active");
-    const table = (await runtime.tables.list(first.space.id)).find(
-      (item) => item.key === "characters",
-    )!;
-    const field = (await runtime.fields.list(first.space.id, table.id)).find(
-      (item) => item.key === "name",
-    )!;
-    failNextSave = true;
+    const original = await runtime.backup.exportCurrentSpace();
+    const persistedMetadata = structuredClone(context.chatMetadata);
+    const table = original.tables.find((item) => item.key === "characters")!;
+    const name = original.fields.find((item) => item.tableId === table.id && item.key === "name")!;
+    vi.spyOn(ports.snapshotFiles, "submit").mockRejectedValueOnce(new Error("file offline"));
     await expect(
-      runtime.records.create(first.space.id, table.id, {
-        payload: { [field.id]: "切换时仍需保存" },
+      runtime.records.create(original.space.id, table.id, {
+        payload: { [name.id]: "仅本次内存提交" },
       }),
     ).rejects.toThrow("file offline");
-    expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({ kind: "failed" });
-    const metadataA = structuredClone(context.chatMetadata);
+    expect((await runtime.backup.exportCurrentSpace()).records).toHaveLength(1);
     ports.snapshotWrites.length = 0;
     context.chatId = "B";
     context.chatMetadata = { otherPlugin: "B 独有数据" };
-    await handlers.get("chat_id_changed")!("B");
-    const second = runtime.manager.getStatus();
-    if (second?.kind !== "active") throw new Error("expect B active");
-    expect(second.space.id).not.toBe(first.space.id);
-    expect(ports.snapshotWrites.some((saved) => saved.target.chatId === "story")).toBe(false);
-    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("failed");
-    const savedB = ports.snapshotWrites.find((saved) => saved.target.chatId === "B");
-    expect(savedB?.file.spaceId).toBe(second.space.id);
-    expect(savedB?.file.data.records).toEqual([]);
+    await handlers.get("chat_id_changed")!();
+    expect(ports.snapshotWrites.some((entry) => entry.target.chatId === "story")).toBe(false);
     expect(context.chatMetadata.otherPlugin).toBe("B 独有数据");
-    expect(context.chatMetadata![CHAT_METADATA_MIRROR_KEY]).toMatchObject({
-      spaceId: second.space.id,
-    });
+
+    // 模拟宿主重新载入原文件，普通失败输入不会被插件当作跨聊天缓存恢复。
     context.chatId = "story";
-    context.chatMetadata = metadataA;
-    await handlers.get("chat_id_changed")!("story");
-    await runtime.retryMemorySave();
-    const savedA = ports.snapshotWrites.find((saved) => saved.target.chatId === "story");
-    expect(savedA?.target).toMatchObject({ identity: "char:3:story", avatarUrl: "alice.png" });
-    expect(savedA?.file.spaceId).toBe(first.space.id);
-    expect(
-      savedA?.file.data.records.some((record) => record.payload[field.id] === "切换时仍需保存"),
-    ).toBe(true);
-    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("saved");
+    context.chatMetadata = persistedMetadata;
+    await handlers.get("chat_id_changed")!();
+    expect((await runtime.backup.exportCurrentSpace()).records).toEqual([]);
+    await runtime.forceSyncMemory();
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+    expect(ports.snapshotWrites.at(-1)!.target.identity).toBe("char:3:story");
   });
 
-  it("切聊与候选保存失败保留辅助数据，替换成功后清理旧空间任务和台账", async () => {
+  it("候选核验失败保留新空间和旧辅助，切聊返回继续同一候选", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();
     const ports = createRuntimeTestPorts(() => context);
@@ -772,11 +741,9 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       log: fakeLog(),
       ...ports,
     });
-    const original = runtime.manager.getStatus();
-    if (original?.kind !== "active") throw new Error("expect original active");
-    const metadata = structuredClone(context.chatMetadata);
+    const original = await runtime.backup.exportCurrentSpace();
+    const metadataBeforeImport = structuredClone(context.chatMetadata);
     const tasks = new DexieFillTaskRepository(db);
-    const ledger = new DexieFloorLedgerRepository(db);
     await tasks.create({
       runId: "retained-task",
       memorySpaceId: original.space.id,
@@ -791,39 +758,29 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       createdAt: "2026-11-01T00:00:00.000Z",
       updatedAt: "2026-11-01T00:00:00.000Z",
     });
-    await ledger.markProcessed(original.space.id, [0]);
-    context.chatId = "aux-other";
+    vi.spyOn(ports.snapshotFiles, "verify").mockRejectedValueOnce(new Error("readback offline"));
+    await expect(runtime.manager.importSpace(original)).rejects.toThrow("readback offline");
+    const candidate = await runtime.backup.exportCurrentSpace();
+    expect(candidate.space.id).not.toBe(original.space.id);
+    expect(await tasks.find("retained-task")).toBeDefined();
+    await expect(
+      runtime.tasks.markFloorStatuses(candidate.space.id, 0, 0, "processed"),
+    ).rejects.toThrow("候选空间");
+
+    context.chatId = "B";
     context.chatMetadata = {};
-    await handlers.get("chat_id_changed")!("aux-other");
-    expect(await tasks.find("retained-task")).toBeDefined();
-    expect(await ledger.statuses(original.space.id, 0, 0)).toEqual([
-      { floor: 0, status: "processed" },
-    ]);
-    expect(await runtime.spaces.find(original.space.id)).toBeUndefined();
+    await handlers.get("chat_id_changed")!();
     context.chatId = "story";
-    context.chatMetadata = metadata;
-    await handlers.get("chat_id_changed")!("story");
-    const unit = await runtime.backup.exportCurrentSpace();
-    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(
-      new Error("candidate file offline"),
-    );
-    await expect(runtime.manager.importSpace(unit)).rejects.toThrow("candidate file offline");
-    expect(runtime.manager.getStatus()).toMatchObject({
-      kind: "active",
-      space: { id: original.space.id },
-    });
-    expect(await tasks.find("retained-task")).toBeDefined();
-    expect(await ledger.statuses(original.space.id, 0, 0)).toEqual([
-      { floor: 0, status: "processed" },
-    ]);
-    await runtime.retryMemorySave();
-    const replacement = runtime.manager.getStatus();
-    if (replacement?.kind !== "active") throw new Error("expect replacement active");
-    expect(replacement.space.id).not.toBe(original.space.id);
+    context.chatMetadata = metadataBeforeImport;
+    await handlers.get("chat_id_changed")!();
+    expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
+    await expect(
+      runtime.tasks.markFloorStatuses(candidate.space.id, 0, 0, "processed"),
+    ).rejects.toThrow("候选空间");
+    await runtime.forceSyncMemory();
     expect(await tasks.find("retained-task")).toBeUndefined();
-    expect(await db.floorFillLedger.where("memorySpaceId").equals(original.space.id).count()).toBe(
-      0,
-    );
+    expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
+    await runtime.tasks.markFloorStatuses(candidate.space.id, 0, 0, "processed");
   });
 
   it.each([false, true])(
@@ -847,16 +804,15 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       const released = new Promise<void>((resolve) => {
         releaseWrite = resolve;
       });
-      const write = ports.snapshotFiles.write;
-      vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+      const write = ports.snapshotFiles.submit;
+      vi.spyOn(ports.snapshotFiles, "submit").mockImplementationOnce(async (...args) => {
+        await write(...args);
         markStarted();
         await released;
-        await write(...args);
       });
       const applying = runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
         chatIdentity: "char:3:story",
         refreshMacros: async () => {},
-        saveSnapshot: async () => {},
       });
       await started;
       context.characterId = 0;
@@ -911,9 +867,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       }
       await applying;
       expect(await db.memoryFillTasks.get("B-full-rebuild-task")).toBeDefined();
-      expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
-        { floor: 0, status: "processed" },
-      ]);
+      if (!unloadNewChat) {
+        expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
+          { floor: 0, status: "processed" },
+        ]);
+      }
       expect(await db.recordVectors.get("B-full-rebuild-vector")).toMatchObject({
         recordId: recordId!,
       });
@@ -952,11 +910,10 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       ...ports,
     });
     const original = await runtime.backup.exportCurrentSpace();
-    const saves = vi.spyOn(runtime.persistence, "saveCommitted");
+    const saves = vi.spyOn(runtime.persistence, "replace");
     const sync = {
       chatIdentity: "char:3:story",
       refreshMacros: async () => {},
-      saveSnapshot: async () => {},
     };
     await runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, sync);
     const oldConfirmation = saves.mock.calls.at(-1)![3]!;
@@ -982,11 +939,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const released = new Promise<void>((resolve) => {
       releaseWrite = resolve;
     });
-    const write = ports.snapshotFiles.write;
-    vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+    const write = ports.snapshotFiles.submit;
+    vi.spyOn(ports.snapshotFiles, "submit").mockImplementationOnce(async (...args) => {
+      await write(...args);
       markStarted();
       await released;
-      await write(...args);
     });
     const applying = runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, sync);
     await started;
@@ -995,7 +952,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       expect(await db.memoryFillTasks.get("second-rebuild-old-task")).toBeDefined();
       await expect(
         runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed"),
-      ).rejects.toThrow("预设重建尚待保存确认");
+      ).rejects.toThrow("空间替换尚待核验");
     } finally {
       releaseWrite();
     }
@@ -1025,7 +982,6 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
         chatIdentity: "char:3:story",
         refreshMacros: async () => {},
-        saveSnapshot: async () => {},
       }),
     ).rejects.toThrow("invalid rebuild");
     expect(await runtime.backup.exportCurrentSpace()).toEqual(original);
@@ -1066,11 +1022,10 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       createdAt: "2026-11-01T00:00:00Z",
       updatedAt: "2026-11-01T00:00:00Z",
     });
-    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("file offline"));
+    vi.spyOn(ports.snapshotFiles, "submit").mockRejectedValueOnce(new Error("file offline"));
     const outcome = await runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
       chatIdentity: "char:3:story",
       refreshMacros: async () => {},
-      saveSnapshot: async () => {},
     });
     expect(outcome.kind).toBe("applied-with-sync-issue");
     const rebuilt = await runtime.backup.exportCurrentSpace();
@@ -1080,22 +1035,22 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     )!;
     await expect(
       runtime.records.create(rebuilt.space.id, table.id, { payload: { [name.id]: "尚不可写" } }),
-    ).rejects.toThrow("预设重建尚待保存确认");
+    ).rejects.toThrow("空间替换尚待核验");
     await expect(
       runtime.tasks.submit({ memorySpaceId: rebuilt.space.id, from: 0, to: 0 }),
-    ).rejects.toThrow("预设重建尚待保存确认");
+    ).rejects.toThrow("空间替换尚待核验");
     await expect(
       runtime.tasks.submitInit({ memorySpaceId: rebuilt.space.id, text: "尚不可填" }),
-    ).rejects.toThrow("预设重建尚待保存确认");
+    ).rejects.toThrow("空间替换尚待核验");
     await expect(runtime.tasks.retry(rebuilt.space.id, "old-rebuild-task")).rejects.toThrow(
-      "预设重建尚待保存确认",
+      "空间替换尚待核验",
     );
     await expect(
       runtime.tasks.markFloorStatuses(rebuilt.space.id, 1, 1, "processed"),
-    ).rejects.toThrow("预设重建尚待保存确认");
+    ).rejects.toThrow("空间替换尚待核验");
     expect(await db.memoryFillTasks.count()).toBe(1);
     expect(await runtime.tasks.ledgerStatuses(rebuilt.space.id, 0, 1)).toEqual([
-      { floor: 0, status: "processed" },
+      { floor: 0, status: "untracked" },
       { floor: 1, status: "untracked" },
     ]);
     await runtime.retryMemorySave();
@@ -1136,11 +1091,11 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const writeReleased = new Promise<void>((resolve) => {
       releaseWrite = resolve;
     });
-    const write = ports.snapshotFiles.write;
-    vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+    const write = ports.snapshotFiles.submit;
+    vi.spyOn(ports.snapshotFiles, "submit").mockImplementationOnce(async (...args) => {
+      await write(...args);
       markWriteStarted();
       await writeReleased;
-      await write(...args);
     });
     const lateCandidate = runtime.manager.importSpace(unit);
     await writeStarted;
@@ -1161,7 +1116,6 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     });
     if (!record) throw new Error("expect B record created");
     const tasks = new DexieFillTaskRepository(db);
-    const ledger = new DexieFloorLedgerRepository(db);
     await tasks.create({
       runId: "B-retained-task",
       memorySpaceId: original.space.id,
@@ -1176,7 +1130,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       createdAt: "2026-11-01T00:00:00.000Z",
       updatedAt: "2026-11-01T00:00:00.000Z",
     });
-    await ledger.markProcessed(original.space.id, [0]);
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
     releaseWrite();
     const completed = await lateCandidate;
     if (completed.kind !== "active") throw new Error("expect A candidate saved");
@@ -1192,7 +1146,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       "B 的新记录",
     );
     expect(await tasks.find("B-retained-task")).toBeDefined();
-    expect(await ledger.statuses(original.space.id, 0, 0)).toEqual([
+    expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
       { floor: 0, status: "processed" },
     ]);
     expect(context.chatMetadata.otherPlugin).toBe("B 独有数据");
@@ -1275,7 +1229,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
   it("已有绑定和完整聊天快照：启动从文件加载真实 SQLite", async () => {
     const db = createTestDatabase();
     const unit: MemorySpaceBackup = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
+      floorLedger: [],
       space: {
         macros: [],
         id: "space-ghost" as MemorySpaceId,
@@ -1516,7 +1471,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     await runtime.settingsService.setPluginEnabled(false);
     expect([...registered.keys()]).toEqual([]);
     expect(registered.has("memoryRecall")).toBe(false);
-    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("saved");
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("submitted");
 
     await runtime.settingsService.setPluginEnabled(true);
     expect([...registered.keys()].sort()).toEqual(
@@ -1724,5 +1679,404 @@ describe("startSteMemory → createLlm（ticket 12 接线）", () => {
       log: fakeLog(),
     });
     expect(() => runtimeBare.createLlm()).toThrow(/Chat Completion 源未知/);
+  });
+});
+
+describe("强制同步与快照内进度", () => {
+  it("普通修改不回读，强制同步核验当前记忆与进度", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const verify = vi.spyOn(ports.snapshotFiles, "verify");
+    const original = await runtime.backup.exportCurrentSpace();
+    const table = original.tables.find((item) => item.key === "characters")!;
+    const name = original.fields.find((item) => item.tableId === table.id && item.key === "name")!;
+    await runtime.records.create(original.space.id, table.id, {
+      payload: { [name.id]: "已提交人物" },
+    });
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
+    expect(verify).not.toHaveBeenCalled();
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("submitted");
+    await runtime.forceSyncMemory();
+    expect(verify).toHaveBeenCalledOnce();
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+    expect(ports.snapshotWrites.at(-1)!.file.data).toMatchObject({
+      records: [{ payload: { [name.id]: "已提交人物" } }],
+      floorLedger: [{ floor: 0, status: "processed" }],
+    });
+  });
+
+  it("强制同步等待已有 SQLite 提交及导出，核验包含该次修改", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const createSqlite = vi.fn(ports.createSqlite);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+      createSqlite,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    const table = original.tables.find((item) => item.key === "characters")!;
+    const name = original.fields.find((item) => item.tableId === table.id && item.key === "name")!;
+    const sqlite = await createSqlite.mock.results[0]!.value;
+    const exportSpace = sqlite.exportSpace.bind(sqlite);
+    let signalStarted!: () => void;
+    let releaseExport!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseExport = resolve;
+    });
+    vi.spyOn(sqlite, "exportSpace").mockImplementationOnce(async (id) => {
+      signalStarted();
+      await released;
+      return exportSpace(id);
+    });
+    const verify = vi.spyOn(ports.snapshotFiles, "verify");
+    const editing = runtime.records.create(original.space.id, table.id, {
+      payload: { [name.id]: "同步开始前已经提交" },
+    });
+    await started;
+    const syncing = runtime.forceSyncMemory();
+    try {
+      expect(verify).not.toHaveBeenCalled();
+    } finally {
+      releaseExport();
+    }
+    await Promise.all([editing, syncing]);
+    expect(verify).toHaveBeenCalledOnce();
+    expect(ports.snapshotWrites.at(-1)!.file.data.records).toMatchObject([
+      { payload: { [name.id]: "同步开始前已经提交" } },
+    ]);
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+  });
+
+  it("远端核验不一致后解除同步门控，下一次捕获最新提交", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    vi.spyOn(ports.snapshotFiles, "verify").mockResolvedValueOnce({
+      steMemory: {},
+      steMemoryMirror: {},
+    });
+    await expect(runtime.forceSyncMemory()).rejects.toThrow("完整记忆元数据与本次提交不一致");
+    expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({
+      kind: "failed",
+      operation: "force-sync",
+    });
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
+    await runtime.forceSyncMemory();
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+    expect(ports.snapshotWrites.at(-1)!.file.data.floorLedger).toMatchObject([
+      { floor: 0, status: "processed" },
+    ]);
+  });
+
+  it.each([false, true])(
+    "核验期间阻止原聊天写入，切聊结果隔离（相同空间 ID：%s）",
+    async (sameSpaceId) => {
+      const db = createTestDatabase();
+      const { context, handlers } = fakeStContext();
+      const ports = createRuntimeTestPorts(() => context);
+      const runtime = await startTestRuntime(() => context, {
+        createDb: () => db,
+        log: fakeLog(),
+        ...ports,
+      });
+      const original = await runtime.backup.exportCurrentSpace();
+      let signalStarted!: () => void;
+      let releaseVerify!: () => void;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseVerify = resolve;
+      });
+      const verify = ports.snapshotFiles.verify;
+      vi.spyOn(ports.snapshotFiles, "verify").mockImplementationOnce(async (target) => {
+        const persisted = await verify(target);
+        signalStarted();
+        await released;
+        return persisted;
+      });
+      const syncing = runtime.forceSyncMemory();
+      // 同一轮事件中发起的新编辑也必须被挡住，不能等到回读阶段才建立门控。
+      const table = original.tables.find((item) => item.key === "characters")!;
+      const name = original.fields.find(
+        (item) => item.tableId === table.id && item.key === "name",
+      )!;
+      await expect(
+        runtime.records.create(original.space.id, table.id, {
+          payload: { [name.id]: "同步期间不可提交" },
+        }),
+      ).rejects.toThrow("强制同步");
+      await started;
+      try {
+        await expect(
+          runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed"),
+        ).rejects.toThrow("强制同步");
+        await expect(runtime.forceSyncMemory()).rejects.toThrow("强制同步");
+        await expect(runtime.sqlConsole.execute(original.space.id, "SELECT 1")).rejects.toThrow(
+          "强制同步",
+        );
+        if (sameSpaceId) {
+          context.characterId = 0;
+          context.chatMetadata = {
+            ...structuredClone(context.chatMetadata),
+            otherPlugin: "B 独有数据",
+          };
+        } else {
+          context.chatId = "force-sync-B";
+          context.chatMetadata = { otherPlugin: "B 独有数据" };
+        }
+        await handlers.get("chat_id_changed")!();
+        const newSpace = await runtime.backup.exportCurrentSpace();
+        expect(newSpace.space.id === original.space.id).toBe(sameSpaceId);
+        await runtime.tasks.markFloorStatuses(newSpace.space.id, 0, 0, "processed");
+        await runtime.forceSyncMemory();
+      } finally {
+        releaseVerify();
+      }
+      await syncing;
+      expect(runtime.publicRead.getContext().chatIdentity).toBe(
+        sameSpaceId ? "char:0:story" : "char:3:force-sync-B",
+      );
+      expect(context.chatMetadata.otherPlugin).toBe("B 独有数据");
+      expect(context.chatMetadata[CHAT_METADATA_MIRROR_KEY]).toMatchObject({
+        spaceId: runtime.publicRead.getContext().spaceId,
+      });
+    },
+  );
+
+  it("返回聊天时从快照恢复进度，其他聊天的楼层状态不混入", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    const original = await runtime.backup.exportCurrentSpace();
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
+    const metadataA = structuredClone(context.chatMetadata);
+    context.chatId = "progress-B";
+    context.chatMetadata = {};
+    await handlers.get("chat_id_changed")!();
+    const other = await runtime.backup.exportCurrentSpace();
+    expect(await runtime.tasks.ledgerStatuses(other.space.id, 0, 0)).toEqual([
+      { floor: 0, status: "untracked" },
+    ]);
+    await runtime.tasks.markFloorStatuses(other.space.id, 0, 0, "error");
+    context.chatId = "story";
+    context.chatMetadata = metadataA;
+    await handlers.get("chat_id_changed")!();
+    expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
+      { floor: 0, status: "processed" },
+    ]);
+  });
+});
+
+describe("关键清理与填表同步交错", () => {
+  it.each(["clear-records", "apply-preset"] as const)(
+    "%s 核验失败保留助手历史，继续强制同步后才清理",
+    async (operation) => {
+      const db = createTestDatabase();
+      const { context } = fakeStContext();
+      const ports = createRuntimeTestPorts(() => context);
+      const runtime = await startTestRuntime(() => context, {
+        createDb: () => db,
+        log: fakeLog(),
+        ...ports,
+      });
+      const original = await runtime.backup.exportCurrentSpace();
+      const store = runtime.queryChat.store;
+      await store.ready;
+      const session = store.create({ chatKey: "char:3:story", spaceId: original.space.id });
+      await store.flush();
+      vi.spyOn(ports.snapshotFiles, "verify").mockRejectedValueOnce(new Error("readback offline"));
+      if (operation === "clear-records") {
+        await expect(runtime.spaceMaintenance.clearRecords(original.space.id)).rejects.toThrow(
+          "readback offline",
+        );
+      } else {
+        const outcome = await runtime.presetApply.applyPreset(
+          original.space.id,
+          SYSTEM_TABLE_PRESET,
+          {
+            chatIdentity: "char:3:story",
+            refreshMacros: async () => {},
+          },
+        );
+        expect(outcome.kind).toBe("applied-with-sync-issue");
+      }
+      expect(store.get(session.id)).toBeDefined();
+      await runtime.forceSyncMemory();
+      expect(() => store.get(session.id)).toThrow("会话已不存在");
+      expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+    },
+  );
+
+  it("多批填表在强制核验边界等待，完成后续跑且不重放前批", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      chat: [
+        { name: "用户", is_user: true, mes: "第一楼剧情" },
+        { name: "角色", mes: "第二楼剧情" },
+      ],
+      chatCompletionSettings: { chat_completion_source: "openai" },
+      getChatCompletionModel: () => "test-model",
+    });
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    const firstSaveStarted = Promise.withResolvers<void>();
+    const firstSaveReleased = Promise.withResolvers<void>();
+    const verifyStarted = Promise.withResolvers<void>();
+    const verifyReleased = Promise.withResolvers<void>();
+    const submit = ports.snapshotFiles.submit;
+    const verify = ports.snapshotFiles.verify;
+    vi.spyOn(ports.snapshotFiles, "submit").mockImplementationOnce(async (...args) => {
+      await submit(...args);
+      firstSaveStarted.resolve();
+      await firstSaveReleased.promise;
+    });
+    vi.spyOn(ports.snapshotFiles, "verify").mockImplementationOnce(async (target) => {
+      const persisted = await verify(target);
+      verifyStarted.resolve();
+      await verifyReleased.promise;
+      return persisted;
+    });
+    let generationCount = 0;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "/csrf-token") {
+        return Response.json({ token: "test-token" });
+      }
+      if (String(url) !== "/api/backends/chat-completions/generate") {
+        throw new Error("unexpected test request: " + String(url));
+      }
+      generationCount++;
+      const event = {
+        choices: [{ index: 0, delta: { content: "本批无需新增记忆" }, finish_reason: "stop" }],
+      };
+      return new Response("data: " + JSON.stringify(event) + "\n\ndata: [DONE]\n\n", {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+    try {
+      const task = await runtime.tasks.submit({
+        memorySpaceId: original.space.id,
+        from: 0,
+        to: 1,
+        blockSize: 1,
+      });
+      await firstSaveStarted.promise;
+      // 第一批已提交而原生保存调用尚未返回，此时同步先建立门控。
+      const syncing = runtime.forceSyncMemory();
+      firstSaveReleased.resolve();
+      await verifyStarted.promise;
+      expect(generationCount).toBe(1);
+      expect((await db.memoryFillTasks.get(task.runId))!.status).toBe("running");
+      expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 1)).toEqual([
+        { floor: 0, status: "processed" },
+        { floor: 1, status: "untracked" },
+      ]);
+      verifyReleased.resolve();
+      await syncing;
+      await vi.waitFor(
+        async () => {
+          expect((await db.memoryFillTasks.get(task.runId))!.status).toBe("succeeded");
+        },
+        { timeout: 5000 },
+      );
+      expect(generationCount).toBe(2);
+      expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 1)).toEqual([
+        { floor: 0, status: "processed" },
+        { floor: 1, status: "processed" },
+      ]);
+    } finally {
+      firstSaveReleased.resolve();
+      verifyReleased.resolve();
+      await runtime.tasks.cancelAll(original.space.id);
+      request.mockRestore();
+    }
+  });
+});
+
+describe("已激活候选的核验恢复", () => {
+  it("新聊天核验失败仍完成聊天就绪，强制同步后无需再次切聊", async () => {
+    const db = createTestDatabase();
+    const { context, handlers } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const ready = vi.spyOn(runtime.autoFill, "chatReady");
+    vi.spyOn(ports.snapshotFiles, "verify").mockRejectedValueOnce(
+      new Error("new chat verify offline"),
+    );
+    context.chatId = "new-chat";
+    context.chatMetadata = {};
+    await handlers.get("chat_id_changed")!();
+    expect(runtime.manager.getStatus()?.kind).toBe("active");
+    expect(ready).toHaveBeenCalledOnce();
+    await runtime.forceSyncMemory();
+    expect(runtime.persistence.getStatus("char:3:new-chat").kind).toBe("verified");
+  });
+
+  it("首次聊天核验失败仍保持活动候选，设置页可强制同步恢复", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    vi.spyOn(ports.snapshotFiles, "verify").mockRejectedValueOnce(
+      new Error("initial verify offline"),
+    );
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const candidate = runtime.manager.getStatus();
+    expect(candidate?.kind).toBe("active");
+    const snapshot = await runtime.backup.exportCurrentSpace();
+    expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({
+      kind: "failed",
+      operation: "replacement",
+    });
+    await runtime.forceSyncMemory();
+    expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(snapshot.space.id);
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+  });
+
+  it("导入核验后辅助清理失败保留活动候选，同页重试不重复导入", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    const original = await runtime.backup.exportCurrentSpace();
+    vi.spyOn(runtime.queryChat.store, "clearSpaceHistory").mockRejectedValueOnce(
+      new Error("history cleanup failed"),
+    );
+    await expect(runtime.manager.importSpace(original)).rejects.toThrow("history cleanup failed");
+    expect(runtime.manager.getStatus()?.kind).toBe("active");
+    const candidate = await runtime.backup.exportCurrentSpace();
+    expect(candidate.space.id).not.toBe(original.space.id);
+    await runtime.forceSyncMemory();
+    expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
+    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
   });
 });

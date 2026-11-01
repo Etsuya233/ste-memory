@@ -111,7 +111,6 @@ export function createPresetSettingsServices(
       const outcome = await runtime.presetApply.applyPreset(context.spaceId, preset, {
         chatIdentity: context.chatIdentity,
         refreshMacros: () => runtime.macro.kick(),
-        saveSnapshot: () => runtime.retryMemorySave(),
       });
       try {
         await onRebuilt(context);

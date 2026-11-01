@@ -3,7 +3,6 @@ import {
   validateSnapshotIntegrity,
 } from "../memory-snapshot/snapshot-integrity.ts";
 import { snapshotInvalid } from "../memory-snapshot/snapshot-errors.ts";
-import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../memory-snapshot/snapshot.ts";
 import { Type, type Static } from "typebox";
 import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import {
@@ -27,7 +26,7 @@ const mirrorEnvelopeSchema = Type.Object({
 });
 
 /** 组装对话文件镜像（完整空间内容，无历史裁剪）。
- *  镜像包含空间内的对话宏；任务和楼层进度使用各自的持久化路径，镜像不带它们。 */
+ *  镜像包含空间内的对话宏与权威楼层进度；任务执行历史由本机辅助库保存。 */
 export function createChatMirrorFile(
   unit: MemorySpaceBackup,
   spaceId: string,
@@ -50,7 +49,7 @@ export function createChatMirrorFile(
   };
 }
 
-/** 镜像内容 = 记忆内容六要素（结构 / 记录 / 修订历史 / 证据）；其余键不带走。 */
+/** 镜像保存完整领域内容与楼层进度；任务历史等本机辅助键不带走。 */
 function mirrorContent(unit: MemorySpaceBackup): MemorySpaceBackup {
   return {
     schemaVersion: unit.schemaVersion,
@@ -60,6 +59,7 @@ function mirrorContent(unit: MemorySpaceBackup): MemorySpaceBackup {
     records: unit.records,
     history: unit.history,
     evidence: unit.evidence,
+    floorLedger: unit.floorLedger,
   };
 }
 
@@ -77,7 +77,7 @@ export function decodeChatMirrorFile(value: unknown): ChatMirrorFile | null {
         ? "legacy-views"
         : envelopeVersion === 2
           ? "legacy-macros"
-          : MEMORY_SNAPSHOT_SCHEMA_VERSION;
+          : (file.data as { schemaVersion?: unknown }).schemaVersion;
     const data = migrateMemorySpaceSnapshot({ version, snapshot: file.data });
     if (file.spaceId !== data.space.id) {
       return null;

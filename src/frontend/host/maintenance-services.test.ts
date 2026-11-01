@@ -6,11 +6,13 @@ import { MemoryCommitPersistenceError, type MemorySpaceId } from "../../features
 import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import { createMaintenanceServices } from "./maintenance-services.ts";
 import { RecordsClearCleanupError } from "../../features/space-maintenance/space-maintenance-service.ts";
+import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../features/memory-snapshot/snapshot.ts";
 
 function harness() {
   let chatId = "a";
   const unit: MemorySpaceBackup = {
-    schemaVersion: 1,
+    schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+    floorLedger: [],
     space: {
       id: "imported" as MemorySpaceId,
       name: "Imported",
@@ -29,6 +31,7 @@ function harness() {
   const stop = vi.fn(async () => {});
   const changed = vi.fn(async () => {});
   const clear = vi.fn(async () => true);
+  const clearAssistantHistory = vi.fn(async () => {});
   const runtime = {
     version: "test",
     settings: { read: () => ({ enabled: true }) },
@@ -42,8 +45,9 @@ function harness() {
     spaceMaintenance: { clearRecords: clear },
     macro: { kick: async () => {} },
     normalizeImportedSpace: async (value: unknown) => value,
+    queryChat: { store: { clearSpaceHistory: clearAssistantHistory } },
   } as unknown as SteMemoryRuntime;
-  const services = createMaintenanceServices(runtime, changed, () => {});
+  const services = createMaintenanceServices(runtime, changed);
   const text = serializeBackupFile(createBackupFile({ spaces: [unit] }, "test", ""));
   return {
     services,
@@ -52,6 +56,7 @@ function harness() {
     stop,
     changed,
     clear,
+    clearAssistantHistory,
     switchChat: () => {
       chatId = "b";
     },
@@ -98,17 +103,33 @@ describe("maintenance import boundaries", () => {
     h.restore.mockRejectedValueOnce(
       new ChatSnapshotReplacementSaveError(
         new Error("file failed"),
-        "候选空间尚未保存，当前空间尚未替换：file failed",
+        "候选空间已在内存生效，保存尚未核验：file failed",
       ),
     );
     const preview = await h.services.previewImport(h.text);
     expect(await preview.apply()).toMatchObject({
-      kind: "replacement-not-saved",
-      message: expect.stringContaining("当前空间尚未替换"),
+      kind: "replacement-unverified",
+      message: expect.stringContaining("保存尚未核验"),
     });
     await expect(preview.apply()).rejects.toThrow("此导入预览已使用");
     expect(h.restore).toHaveBeenCalledOnce();
     expect(h.changed).not.toHaveBeenCalled();
+    expect(h.clearAssistantHistory).not.toHaveBeenCalled();
+  });
+  it("keeps assistant history when record-clear candidate verification fails", async () => {
+    const h = harness();
+    h.clear.mockRejectedValueOnce(
+      new ChatSnapshotReplacementSaveError(
+        new Error("remote differs"),
+        "清除候选已在内存生效，远端文件尚未核验：remote differs",
+      ),
+    );
+    expect(await h.services.clearRecords(h.services.currentContext()!)).toEqual({
+      kind: "replacement-unverified",
+      message: "清除候选已在内存生效，远端文件尚未核验：remote differs",
+    });
+    expect(h.clear).toHaveBeenCalledOnce();
+    expect(h.clearAssistantHistory).not.toHaveBeenCalled();
   });
   it("reports committed record clear even when saving or task cleanup fails", async () => {
     for (const failure of [

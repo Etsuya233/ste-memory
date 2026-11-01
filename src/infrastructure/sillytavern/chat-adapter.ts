@@ -104,6 +104,8 @@ export interface StContext {
   chatMetadata?: Record<string, unknown>;
   /** 防抖持久化 chatMetadata（script.js saveMetadataDebounced） */
   saveMetadataDebounced?: () => void;
+  saveMetadata?: () => Promise<void>;
+  getRequestHeaders?: () => Record<string, string>;
   /**
    * ST 全局扩展设置对象（extensions.js extension_settings，随 settings.json
    * 持久化）。插件设置写在该对象的 steMemory 命名空间下（见 settings/）。
@@ -331,13 +333,33 @@ export class StChatAdapter {
   }
 
   get snapshotFileStore(): ChatSnapshotFileStore {
-    return new StChatSnapshotFileStore((target, file, binding) => {
-      if (chatIdentityKey(this.getChatSnapshot()) !== target.identity) return;
-      const metadata = this.#getContext().chatMetadata;
-      if (!metadata) return;
-      // 保持活动页内存与已保存插件键一致，避免宿主下次保存把旧镜像写回来。
-      metadata[CHAT_METADATA_MIRROR_KEY] = file;
-      if (binding) metadata[CHAT_METADATA_BINDING_KEY] = binding;
+    return new StChatSnapshotFileStore({
+      assertActive: (target) => {
+        if (chatIdentityKey(this.getChatSnapshot()) !== target.identity) {
+          throw new Error("聊天已切换，请返回原聊天后保存");
+        }
+      },
+      metadata: () => {
+        const metadata = this.#getContext().chatMetadata;
+        if (!metadata) {
+          throw new Error("当前宿主没有聊天元数据");
+        }
+        return metadata;
+      },
+      saveMetadata: () => {
+        const save = this.#getContext().saveMetadata;
+        if (!save) {
+          throw new Error("当前宿主未提供即时元数据保存接口");
+        }
+        return save();
+      },
+      headers: () => {
+        const headers = this.#getContext().getRequestHeaders;
+        if (!headers) {
+          throw new Error("当前宿主未提供聊天请求头");
+        }
+        return headers();
+      },
     });
   }
 

@@ -113,9 +113,9 @@ export interface FillTaskInitInput {
 }
 
 export interface FillTaskServiceOptions {
-  /** 新任务和手动楼层修改遵守空间生命周期门控；已保存批次的确认不受此门控影响。 */
+  /** 新任务和手动楼层修改遵守空间生命周期门控；持有 writer 的批次可以完成自己的提交。 */
   readonly assertCanEditSpace: (id: MemorySpaceId) => void;
-  /** 整次自动楼层填表保存成功后的宿主动作，失败不改变填表结果。 */
+  /** 整次自动楼层填表提交完成后的宿主动作，失败不改变填表结果。 */
   readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   readonly readAgentTimeoutMs?: () => number;
   readonly tasks: FillTaskRepository;
@@ -123,8 +123,6 @@ export interface FillTaskServiceOptions {
   /** 消息来源（楼层 → 原文；同步楼层随时从 ST 对话实时读取） */
   readonly source: FillTaskSource;
   readonly beginTask: BeginFillTaskSession;
-  /** 保存完成后，短 IndexedDB 事务更新任务与楼层台账。 */
-  readonly runInTransaction: (work: () => Promise<void>) => Promise<void>;
   /** LLM 端口工厂：任务开始时读 ST 当前配置构造一次（模型+参数快照） */
   readonly createLlm: () => LlmPort;
   /**
@@ -173,7 +171,6 @@ export class FillTaskService {
       done: Promise<void>;
     }
   >();
-  readonly #runInTransaction: (work: () => Promise<void>) => Promise<void>;
   readonly #createLlm: () => LlmPort;
   readonly #createPromptContext:
     ((storyText: string) => Promise<FillTaskPromptContext | undefined>) | undefined;
@@ -192,7 +189,6 @@ export class FillTaskService {
     this.#ledger = options.ledger;
     this.#source = options.source;
     this.#beginTask = options.beginTask;
-    this.#runInTransaction = options.runInTransaction;
     this.#createLlm = options.createLlm;
     this.#createPromptContext = options.createPromptContext;
     this.#logs = options.logs;
@@ -476,25 +472,28 @@ export class FillTaskService {
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     this.#assertCanEditSpace(memorySpaceId);
     const task = await this.#requireTask(memorySpaceId, runId);
-    if (!isFillTaskTerminal(task.status) || task.pendingSave || task.nextFrom === null) {
+    if (
+      !isFillTaskTerminal(task.status) ||
+      (task.kind === "init" && (task.pendingCommit || task.nextFrom === null))
+    ) {
       throw new FillTaskStateError(task);
     }
     const retryOf = task.blocksQueue ? task.runId : undefined;
     if (task.kind === "init") {
       return this.submitInit({ memorySpaceId, text: task.initText, retryOf });
     }
-    let from = task.nextFrom ?? task.from;
+    let from = task.from;
     const to = task.automatic ? Math.min(task.to, this.#source.chatMessageCount() - 1) : task.to;
-    if (task.automatic) {
+    {
       const ledger = await this.#ledger.statuses(
         memorySpaceId,
         0,
         this.#source.chatMessageCount() - 1,
       );
-      from = ledger.reduce(
-        (first, entry) => (entry.status === "processed" ? Math.max(first, entry.floor + 1) : first),
-        from,
-      );
+      // 只跳过任务起点后连续已提交的楼层；更后方的已处理行不能掩盖中间失败。
+      while (from <= to && ledger.find((entry) => entry.floor === from)?.status === "processed") {
+        from += 1;
+      }
       if (from > to) {
         if (task.blocksQueue) {
           await this.#tasks.release(runId);
@@ -521,36 +520,6 @@ export class FillTaskService {
     });
   }
 
-  /** 文件保存凭据只收口所属任务；清理、取消或重复通知均不能重建旧台账。 */
-  async #completeSavedBatch(
-    memorySpaceId: MemorySpaceId,
-    runId: string,
-    batch: FillTaskBatchResult,
-  ): Promise<void> {
-    let completed: FillTask | undefined;
-    await this.#runInTransaction(async () => {
-      const task = await this.#tasks.find(runId);
-      if (
-        task?.memorySpaceId !== memorySpaceId ||
-        task.pendingSave?.from !== batch.from ||
-        task.pendingSave.to !== batch.to
-      ) {
-        return;
-      }
-      if (task.kind === "floor") {
-        await this.#ledger.markProcessed(memorySpaceId, task.pendingSave.floors);
-      }
-      completed = await this.#tasks.completeBatchSave(runId, batch);
-    });
-    // 首次收口由原循环写结束日志；保存重试成功后在此结束原任务。
-    if (completed?.status === "succeeded") {
-      await this.#announceSucceededTask(completed);
-      if (!this.#suspended && this.#currentSpace === memorySpaceId) {
-        this.kick(memorySpaceId);
-      }
-    }
-  }
-
   async #announceSucceededTask(task: FillTask): Promise<void> {
     await this.#appendLog(
       fillTaskEndLog({ task, status: "succeeded", errorMessage: null, endedAt: this.#now() }),
@@ -570,25 +539,29 @@ export class FillTaskService {
     }
   }
 
-  /** 先持久记录待保存批次，再提交 SQLite。文件失败保留凭据，保存重试只确认本批，
-   * 不重跑模型、不提前写 processed 台账；SQLite 未提交时才撤销凭据。 */
+  /** 辅助任务行仅记录执行位置。SQL 提交后，即使宿主或任务行更新失败也不能重跑本批。 */
   async #saveBatch(
     task: FillTask,
     session: FillTaskSession,
     batch: FillTaskBatchResult,
   ): Promise<void> {
-    if (!(await this.#tasks.beginBatchSave(task.runId, batch))) {
+    if (!(await this.#tasks.beginBatchCommit(task.runId, batch))) {
       throw new FillTaskStateError(task);
     }
     try {
-      await session.commitAndSave(() =>
-        this.#completeSavedBatch(task.memorySpaceId, task.runId, batch),
-      );
+      await session.commitAndSave(batch);
     } catch (error) {
-      if (!(error instanceof MemoryCommitPersistenceError)) {
-        await this.#tasks.abandonBatchSave(task.runId, batch);
+      if (error instanceof MemoryCommitPersistenceError) {
+        await this.#tasks.completeBatchCommit(task.runId, batch);
+      } else {
+        await this.#tasks.abandonBatchCommit(task.runId, batch);
       }
       throw error;
+    }
+    try {
+      await this.#tasks.completeBatchCommit(task.runId, batch);
+    } catch (cause) {
+      throw new MemoryCommitPersistenceError(cause);
     }
   }
 
@@ -792,7 +765,7 @@ export class FillTaskService {
               if (!(await this.#isRunning(task.runId))) {
                 throw new Error("填表任务已停止");
               }
-              // 从此处开始禁止取消；保存成功后才发布本批楼层进度。
+              // 从此处开始禁止取消；楼层进度与本批记忆在同一 SQLite 事务提交。
               control.controller.signal.throwIfAborted();
               control.phase = "saving";
               const batch: FillTaskBatchResult = {
@@ -801,7 +774,7 @@ export class FillTaskService {
                 floors: messages.map((message) => message.floor),
                 nextFrom: task.kind === "init" || to === task.to ? null : to + 1,
               };
-              // 先留下批次凭据，再提交 SQLite；页面中断时不能把辅助进度当成文件已保存。
+              // 任务历史仅记录执行归属，权威楼层状态随 SQLite 快照保存。
               await this.#saveBatch(task, session!, batch);
               failingBlock = undefined;
             },
@@ -817,7 +790,19 @@ export class FillTaskService {
             },
           );
         } catch (error) {
-          await session?.rollback();
+          const failedFloors =
+            !control.controller.signal.aborted &&
+            task.kind === "floor" &&
+            failingBlock &&
+            (await this.#isRunning(task.runId))
+              ? input
+                  .filter(
+                    (message) =>
+                      message.floor >= failingBlock!.from && message.floor <= failingBlock!.to,
+                  )
+                  .map((message) => message.floor)
+              : undefined;
+          await session?.rollback(failedFloors);
           throw error;
         } finally {
           this.retryStates.delete(task.runId);
@@ -858,17 +843,6 @@ export class FillTaskService {
         } else {
           const current = await this.#tasks.find(task.runId);
           if (current && !isFillTaskTerminal(current.status)) {
-            if (failingBlock && task.kind !== "init") {
-              await this.#ledger.markError(
-                task.memorySpaceId,
-                input
-                  .filter(
-                    (message) =>
-                      message.floor >= failingBlock!.from && message.floor <= failingBlock!.to,
-                  )
-                  .map((message) => message.floor),
-              );
-            }
             automatic?.onFailure?.(error instanceof Error ? error.message : String(error));
             await this.#failTask(task, error);
           }

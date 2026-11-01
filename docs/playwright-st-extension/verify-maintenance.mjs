@@ -44,7 +44,7 @@ try {
   await action("nav-settings").click();
   check("settings has no snapshot sync toggle", (await label("同步到对话文件").count()) === 0);
   await page.evaluate(() => window.frontendPreview.showSaveFailure());
-  await page.getByText("已提交、未保存：preview file failure", { exact: false }).waitFor();
+  await page.getByText("已提交、未交给 ST 保存：preview file failure", { exact: false }).waitFor();
   await switchChat("b");
   check("other chat hides an unrelated file error", (await button("重试保存").count()) === 0);
   check(

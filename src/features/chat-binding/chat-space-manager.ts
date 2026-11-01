@@ -34,7 +34,7 @@ export interface ChatSpaceManagerPorts {
   ) => Promise<void>;
   readonly unloadSnapshot: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
   readonly stopSpaceWrites: (id: MemorySpaceId) => Promise<void>;
-  readonly retireSpace: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
+  readonly captureRetirement: (id: MemorySpaceId, target: ChatFileTarget) => () => Promise<void>;
   readonly findSpace: (id: MemorySpaceId) => Promise<MemorySpace | undefined>;
   readonly createIds: BackupIdFactory;
   readonly now: () => string;
@@ -49,6 +49,7 @@ type ActivationOrigin = "created" | "restored" | "replacement";
 interface CandidateRequest {
   readonly selection: ChatSelection;
   readonly oldId: MemorySpaceId | undefined;
+  retireOld?: () => Promise<void>;
 }
 
 /** 当前聊天只激活一个空间；候选与待保存状态由 persistence 持有。 */
@@ -112,18 +113,15 @@ export class ChatSpaceManager {
     // 每次进入聊天都建立新的选择对象；A→B→A 不能让第一次 A 的异步结果重新生效。
     const selection = { chat, target };
     this.#selection = selection;
-    if (this.ports.persistence.hasSavedReplacement(target.identity)) {
-      await this.ports.persistence.retry(target.identity);
-      return this.currentSelectionStatus(selection);
-    }
     const read = this.ports.bindingStore.read();
     if (read.kind === "unrecognized") {
       return this.publish({ kind: "binding-unrecognized", humanMsg: BINDING_UNRECOGNIZED_MESSAGE });
     }
     const pending = this.ports.persistence.current(target.identity);
     if (pending && this.ports.persistence.hasPendingReplacement(target.identity)) {
-      // 候选尚未写入时恢复原空间；已落盘候选由上面的激活重试路径处理。
+      // 返回本页中的待确认聊天时恢复唯一候选，继续保持其编辑门控。
       this.ports.persistence.remember(target, pending.snapshot, pending.binding);
+      this.ports.persistence.restoreCandidate(target.identity);
       return this.activate(selection, pending.binding, pending.snapshot, "replacement");
     }
     if (read.kind === "none") {
@@ -245,7 +243,10 @@ export class ChatSpaceManager {
     build: () => MemorySpaceBackup | Promise<MemorySpaceBackup>,
     origin: "created" | "replacement",
   ): Promise<SpaceContextStatus> {
-    const request = {
+    if (this.ports.persistence.hasPendingReplacement(selection.target.identity)) {
+      throw new Error("候选空间尚待核验，请先强制同步");
+    }
+    const request: CandidateRequest = {
       selection,
       oldId: this.#status?.kind === "active" ? this.#status.space.id : undefined,
     };
@@ -259,14 +260,17 @@ export class ChatSpaceManager {
       await this.ports.stopSpaceWrites(request.oldId);
       this.assertCandidateCurrent(request);
     }
+    if (request.oldId && request.oldId !== unit.space.id) {
+      request.retireOld = this.ports.captureRetirement(request.oldId, selection.target);
+    }
     const binding: ChatSpaceBindingV2 = {
       version: 2,
       spaceId: unit.space.id,
       chatIdentity: selection.target.identity,
     };
-    await this.ports.persistence.replace(selection.target, unit, binding, () =>
-      this.activateSavedCandidate(request, binding, unit, origin),
-    );
+    await this.activate(selection, binding, unit, origin);
+    this.assertCandidateCurrent(request);
+    await this.ports.persistence.replace(selection.target, unit, binding, request.retireOld);
     return {
       kind: "active",
       binding,
@@ -274,43 +278,6 @@ export class ChatSpaceManager {
       created: origin === "created",
       restored: false,
     };
-  }
-
-  private async activateSavedCandidate(
-    request: CandidateRequest,
-    binding: ChatSpaceBinding,
-    unit: MemorySpaceBackup,
-    origin: "created" | "replacement",
-  ): Promise<void> {
-    const { selection, oldId } = request;
-    try {
-      if (oldId && oldId !== unit.space.id) {
-        await this.ports.retireSpace(oldId, selection.target);
-      }
-      // 保存可跨聊天完成，退休按原文件归属执行；仅当前文件可重新装载 SQLite。
-      if (chatIdentityKey(this.ports.getChat()) !== selection.target.identity) {
-        return;
-      }
-      const current = this.#selection;
-      if (current?.target.identity === selection.target.identity) {
-        await this.activate(current, binding, unit, origin);
-      }
-    } catch (error) {
-      if (chatIdentityKey(this.ports.getChat()) === selection.target.identity) {
-        this.reportLoadError(error);
-      }
-      throw error;
-    }
-  }
-
-  private currentSelectionStatus(selection: ChatSelection): SpaceContextStatus {
-    if (this.#selection !== selection) {
-      return { kind: "load-error", humanMsg: "聊天已切换" };
-    }
-    if (!this.#status) {
-      throw new Error("候选保存完成后未发布空间状态");
-    }
-    return this.#status;
   }
 
   private async activate(
