@@ -3,7 +3,7 @@ import type { MemorySpaceId } from "../../features/memory/index.ts";
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import { captureSpaceStructure } from "../../features/table-presets/space-structure-capture.ts";
 import { createBackupFile, serializeBackupFile } from "../../features/backup/backup-codec.ts";
-import { buildSpaceExportUnit, spaceExportFilename } from "../../features/backup/space-transfer.ts";
+import { spaceExportFilename } from "../../features/backup/space-transfer.ts";
 import { saveTextFile } from "../../infrastructure/browser/download.ts";
 import type {
   PresetContext,
@@ -95,11 +95,8 @@ export function createPresetSettingsServices(
         stopQueries(context.spaceId);
         await runtime.presetApply.stopSpaceWrites(context.spaceId);
         assertTarget(context);
-        const macros = runtime.cleaning.readChatScopeMacros();
-        const snapshot = await runtime.backup.loadSnapshot();
+        const unit = await runtime.backup.exportCurrentSpace();
         assertTarget(context);
-        const unit = buildSpaceExportUnit(snapshot, context.spaceId, true, macros);
-        if (!unit) throw new Error("目标记忆空间已不存在，无法备份");
         return serializeBackupFile(
           createBackupFile({ spaces: [unit] }, runtime.version, new Date().toISOString()),
         );
@@ -113,7 +110,7 @@ export function createPresetSettingsServices(
       const outcome = await runtime.presetApply.applyPreset(context.spaceId, preset, {
         chatIdentity: context.chatIdentity,
         refreshMacros: () => runtime.macro.kick(),
-        syncMirror: () => runtime.mirror.flushRebuiltSpace(context.spaceId, context.chatIdentity),
+        saveSnapshot: () => runtime.retryMemorySave(),
       });
       try {
         await onRebuilt(context);

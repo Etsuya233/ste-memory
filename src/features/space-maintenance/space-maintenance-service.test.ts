@@ -1,7 +1,7 @@
 /**
  * 空间维护服务测试 —— 主接缝（行为全量）。
  *
- * 用内存 Dexie 库 + 真实表格预设初始化 + 真实填表任务/台账仓库接线（同一库）：
+ * 用真实 SQLite 空间 + 表格预设初始化 + 独立 Dexie 填表任务/台账仓库接线：
  * - 清除空间记录：记录派生数据消失而表格结构保留；填表任务与楼层台账被清；
  *   空间身份与初始化来源不变；
  * - 进行中填表任务在执行前被取消（cancelActiveTask 先于数据操作被调用）；
@@ -29,9 +29,9 @@ const CHARACTERS_DEFAULT_FIELD_COUNT = 7;
 
 async function setup() {
   const db = createTestDatabase();
-  const services = createServices(db);
+  const services = await createServices(db);
   const space = await services.spaces.create("会话");
-  await installDefaultPreset(db, space.id);
+  await installDefaultPreset(services.memoryStore, space.id);
   const taskRepository = new DexieFillTaskRepository(db, () => NOW);
   const ledgerRepository = new DexieFloorLedgerRepository(db, () => NOW);
   const logs = new DexieLogRepository(createTestLogDatabase(), { now: () => NOW });
@@ -135,7 +135,7 @@ describe("SpaceMaintenanceService（清除空间记录）", () => {
     expect(clearRecords).toHaveBeenCalledOnce();
   });
   it("清除空间记录：记录/历史/证据消失，表格结构保留，任务与台账清空，空间保留", async () => {
-    const { db, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
+    const { db, memoryStore, spaces, maintenance, space, logs, taskRepository, ledgerRepository } =
       await setup();
     const spaceId = space.id;
 
@@ -160,16 +160,17 @@ describe("SpaceMaintenanceService（清除空间记录）", () => {
     expect(existed).toBe(true);
 
     // 记录派生数据消失
-    expect(await db.memoryRecords.count()).toBe(0);
-    expect(await db.memoryRecordHistory.count()).toBe(0);
-    expect(await db.memoryEvidence.count()).toBe(0);
+    expect((await memoryStore.snapshot(spaceId))!.records.length).toBe(0);
+    expect((await memoryStore.snapshot(spaceId))!.history.length).toBe(0);
+    expect((await memoryStore.snapshot(spaceId))!.evidence.length).toBe(0);
     // 表格结构保留（8 张预设表 + 1 张用户新增表），字段原样（含新增的 extra）
-    const remaining = await db.memoryTables.toArray();
+    const remaining = (await memoryStore.snapshot(spaceId))!.tables;
     expect(remaining).toHaveLength(9);
     expect(remaining.map((table) => table.key)).toContain("clues");
     const chars = remaining.find((table) => table.key === "characters")!;
     expect(
-      await db.memoryFields.where("[memorySpaceId+tableId]").equals([spaceId, chars.id]).count(),
+      (await memoryStore.snapshot(spaceId))!.fields.filter((field) => field.tableId === chars.id)
+        .length,
     ).toBe(CHARACTERS_DEFAULT_FIELD_COUNT + 1);
     // 填表任务与楼层台账清空；通用日志在独立库，不随空间维护清空（审计数据）
     expect(await db.memoryFillTasks.count()).toBe(0);

@@ -1,7 +1,5 @@
 /**
- * Agent 预设宏服务测试（ticket 17）：fake 变更源 + fake reader + fake 注册端口，
- * 验证注册生命周期（停用注销/启用注册）、快照重建时机（指纹变化重建、未变跳过、
- * 切空间置空收敛）与两个宏的 handler 输出（摘要文本 / 默认提示词全文）。
+ * 使用只读端口和同步宏注册端口，验证提交通知驱动的刷新与异步结果归属。
  */
 import type {
   MemoryField,
@@ -15,8 +13,7 @@ import type {
 } from "../memory/index.ts";
 import type { QueryRecordsInput, QueryRecordsPage } from "../memory/index.ts";
 import type { MemorySpaceReader } from "../memory/index.ts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemoryChangeFingerprint, MemoryChangeSource } from "../memory/index.ts";
+import { describe, expect, it } from "vitest";
 import type {
   MemoryMacroExecutionContext,
   MemoryMacroRegistrationPort,
@@ -29,15 +26,6 @@ import {
 } from "./agent-macro-service.ts";
 
 const BASE = "2026-07-28T00:00:00.000Z";
-
-function fingerprint(
-  updatedAt: string,
-  counts: Partial<MemoryChangeFingerprint> = {},
-): MemoryChangeFingerprint {
-  return { tables: 0, fields: 0, records: 0, history: 0, evidence: 0, updatedAt, ...counts };
-}
-
-const EMPTY_FINGERPRINT = fingerprint("");
 
 function table(id: string, name: string, enabled = true): MemoryTable {
   return {
@@ -109,20 +97,9 @@ class FakeRegistrar implements MemoryMacroRegistrationPort {
   }
 }
 
-class FakeChangeSource implements MemoryChangeSource {
-  fingerprints = new Map<string, MemoryChangeFingerprint>();
-  async listSpaceIds() {
-    return [...this.fingerprints.keys()].sort();
-  }
-  async fingerprint(spaceId: string) {
-    return this.fingerprints.get(spaceId) ?? EMPTY_FINGERPRINT;
-  }
-}
-
 function createHarness(overrides: Partial<AgentMacroServicePorts> = {}) {
   const reader = new FakeReader();
   const registrar = new FakeRegistrar();
-  const changes = new FakeChangeSource();
   let currentSpaceId: MemorySpaceId | undefined = "space-1" as MemorySpaceId;
   let enabled = true;
   const errors: string[] = [];
@@ -131,19 +108,12 @@ function createHarness(overrides: Partial<AgentMacroServicePorts> = {}) {
     reader,
     readEnabled: () => enabled,
     registerMacro: registrar,
-    changes,
-    pollIntervalMs: 2_000,
-    timers: {
-      setTimeout: (handler, ms) => setTimeout(handler, ms),
-      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    },
     log: { info: () => {}, warn: () => {}, error: (message) => errors.push(message) },
     ...overrides,
   });
   return {
     reader,
     registrar,
-    changes,
     service,
     errors,
     setSpace(spaceId: MemorySpaceId | undefined) {
@@ -158,24 +128,11 @@ function createHarness(overrides: Partial<AgentMacroServicePorts> = {}) {
   };
 }
 
-beforeEach(() => {
-  vi.useFakeTimers();
-});
-afterEach(() => {
-  vi.useRealTimers();
-});
-
-/** 推进一步轮询（间隔 2s） */
-async function tick() {
-  await vi.advanceTimersByTimeAsync(2_000);
-}
-
 describe("AgentMacroService 注册生命周期", () => {
   it("start：注册两个宏，handler 同步返回摘要文本与默认提示词全文", async () => {
     const h = createHarness();
     h.reader.tables = [table("t1", "人物")];
     h.reader.fieldsByTable.set("t1" as MemoryTableId, [field("f1", "name")]);
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1, fields: 1 }));
 
     await h.service.start();
 
@@ -190,9 +147,8 @@ describe("AgentMacroService 注册生命周期", () => {
     expect(defaultPrompt).toContain(digestText); // 默认全文含摘要
   });
 
-  it("插件停用：注销宏 + 快照清空 + 停止轮询；重新启用后恢复注册", async () => {
+  it("插件停用时注销宏并清空快照，重新启用后恢复注册", async () => {
     const h = createHarness();
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1 }));
     await h.service.start();
     expect(h.registrar.registered.size).toBe(2);
 
@@ -209,55 +165,83 @@ describe("AgentMacroService 注册生命周期", () => {
     expect(h.registrar.registered.size).toBe(2);
   });
 
-  it("无活动空间：快照置空；切回空间后轮询恢复", async () => {
+  it("聊天切换通知立即清空旧空间宏，重新激活后显式刷新", async () => {
     const h = createHarness();
     h.reader.tables = [table("t1", "人物")];
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1 }));
     await h.service.start();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("人物");
 
     h.setSpace(undefined);
-    await tick();
+    const leaving = h.service.kick();
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toBe("");
+    await leaving;
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toBe("");
     expect(h.invokeHandler(AGENT_SYSTEM_DEFAULT_PROMPT_MACRO)).toBe("");
 
     h.setSpace("space-1" as MemorySpaceId);
-    await tick();
+    await h.service.kick();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("人物");
   });
 
-  it("指纹未变：跳过重建（handler 返回旧快照）；指纹变化：重建", async () => {
+  it("只有显式提交通知才刷新，不依赖本地指纹或轮询", async () => {
     const h = createHarness();
     h.reader.tables = [table("t1", "人物")];
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1 }));
     await h.service.start();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("【table-t1｜人物】");
 
-    // 数据变化 → 指纹变化 → 重建
     h.reader.tables = [table("t1", "人物"), table("t2", "地点")];
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 2 }));
-    await tick();
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).not.toContain("地点");
+    await h.service.kick();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("【table-t2｜地点】");
 
-    // 指纹未变 → 跳过（快照仍是上次内容）
     h.reader.tables = [table("t1", "人物")];
-    await tick();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("【table-t2｜地点】");
+    await h.service.kick();
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).not.toContain("地点");
   });
 
-  it("单轮重建失败：记日志，快照保持旧值，下轮重试", async () => {
+  it("重建失败清空失效宏并报告错误，下一次通知可以恢复", async () => {
     const h = createHarness();
     h.reader.tables = [table("t1", "人物")];
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 1 }));
     await h.service.start();
     expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("人物");
 
     h.reader.listTables = async () => {
       throw new Error("db closed");
     };
-    h.changes.fingerprints.set("space-1", fingerprint(BASE, { tables: 2 }));
-    await tick();
+    await h.service.kick();
     expect(h.errors.some((m) => m.includes("Agent 预设宏快照重建失败"))).toBe(true);
-    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("人物"); // 旧快照仍在
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toBe("");
+    h.reader.listTables = async () => [table("t2", "地点")];
+    await h.service.kick();
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toContain("地点");
+  });
+
+  it("切换期间旧读取迟到或服务停止后不能重新发布快照", async () => {
+    const h = createHarness();
+    h.reader.tables = [table("t1", "人物")];
+    await h.service.start();
+    let finishRead!: (tables: MemoryTable[]) => void;
+    let reading!: () => void;
+    const started = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    h.reader.listTables = async () => {
+      reading();
+      return new Promise<MemoryTable[]>((resolve) => {
+        finishRead = resolve;
+      });
+    };
+    const pending = h.service.kick();
+    await started;
+    h.setSpace(undefined);
+    const leaving = h.service.kick();
+    finishRead([table("late", "迟到人物")]);
+    await Promise.all([pending, leaving]);
+    expect(h.invokeHandler(AGENT_TABLES_DIGEST_MACRO)).toBe("");
+    h.service.stop();
+    expect(h.registrar.registered.size).toBe(0);
+    await h.service.kick();
+    expect(h.registrar.registered.size).toBe(0);
   });
 });

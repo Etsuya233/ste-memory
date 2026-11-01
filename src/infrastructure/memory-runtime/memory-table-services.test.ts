@@ -1,14 +1,10 @@
-import type {
-  MemoryFieldId,
-  MemorySpaceId,
-  MemoryTableKey,
-} from "../../../features/memory/index.ts";
+import type { MemoryFieldId, MemorySpaceId, MemoryTableKey } from "../../features/memory/index.ts";
 import { describe, expect, it } from "vitest";
-import { createServices, createTestDatabase } from "../test-support.ts";
+import { createServices, createTestDatabase } from "../indexeddb/test-support.ts";
 
-describe("Dexie memory table repository", () => {
+describe("SQLite memory table services", () => {
   it("creates, finds, enables/disables, updates and deletes a table", async () => {
-    const { spaces, tables, tableRepository } = createServices(createTestDatabase());
+    const { spaces, tables, tableRepository } = await createServices(createTestDatabase());
     const space = await spaces.create("会话");
 
     const created = await tables.create(space.id, {
@@ -59,7 +55,7 @@ describe("Dexie memory table repository", () => {
   });
 
   it("isolates tables by memory space (跨空间互不可见)", async () => {
-    const { spaces, tables, tableRepository } = createServices(createTestDatabase());
+    const { spaces, tables, tableRepository } = await createServices(createTestDatabase());
     const spaceA = await spaces.create("空间 A");
     const spaceB = await spaces.create("空间 B");
 
@@ -91,7 +87,7 @@ describe("Dexie memory table repository", () => {
   });
 
   it("rejects a duplicate table key within the same space (Memory 规则)", async () => {
-    const { spaces, tables } = createServices(createTestDatabase());
+    const { spaces, tables } = await createServices(createTestDatabase());
     const space = await spaces.create("会话");
     await tables.create(space.id, {
       key: "clues",
@@ -123,7 +119,7 @@ describe("Dexie memory table repository", () => {
   });
 
   it("rename via service keeps the table in place", async () => {
-    const { spaces, tables, tableRepository } = createServices(createTestDatabase());
+    const { spaces, tables, tableRepository } = await createServices(createTestDatabase());
     const space = await spaces.create("会话");
     const created = await tables.create(space.id, {
       key: "clues",
@@ -146,7 +142,7 @@ describe("Dexie memory table repository", () => {
       "2026-07-28T02:00:00.000Z",
     ];
     let index = 0;
-    const { spaces, tables, tableRepository } = createServices(
+    const { spaces, tables, tableRepository } = await createServices(
       createTestDatabase(),
       () => times[index++]!,
     );
@@ -170,7 +166,7 @@ describe("Dexie memory table repository", () => {
   });
 
   it("service create returns undefined for a missing space", async () => {
-    const { tables } = createServices(createTestDatabase());
+    const { tables } = await createServices(createTestDatabase());
     const created = await tables.create("missing" as MemorySpaceId, {
       key: "clues",
       position: 0,
@@ -182,7 +178,7 @@ describe("Dexie memory table repository", () => {
   });
 
   it("cascades deletion to the table's fields", async () => {
-    const { spaces, tables, fields, fieldRepository } = createServices(createTestDatabase());
+    const { spaces, tables, fields, fieldRepository } = await createServices(createTestDatabase());
     const space = await spaces.create("会话");
     const table = await tables.create(space.id, {
       key: "clues",

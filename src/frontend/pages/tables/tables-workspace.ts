@@ -38,7 +38,6 @@ export interface TablesServices {
   >;
   assertContext(context: RecordsContext): void;
   onChanged(context: RecordsContext): Promise<void> | void;
-  retryMemorySave(): Promise<void>;
 }
 export interface TableDraft {
   key: string;
@@ -67,7 +66,6 @@ export interface TablesSnapshot {
   saving: boolean;
   error: string | null;
   notice: string | null;
-  persistenceError: string | null;
   previews: readonly string[];
   vectorPreview: VectorRecordPreview | null;
 }
@@ -98,7 +96,6 @@ const initial = (context: RecordsContext | null): TablesSnapshot => ({
   saving: false,
   error: null,
   notice: null,
-  persistenceError: null,
   previews: [],
   vectorPreview: null,
 });
@@ -469,7 +466,6 @@ export class TablesWorkspace {
     } catch (error) {
       if (error instanceof MemoryCommitPersistenceError) {
         committed = true;
-        this.#update(session, { persistenceError: message(error) });
       } else this.#update(session, { error: message(error) });
     }
     if (committed) {
@@ -563,19 +559,6 @@ export class TablesWorkspace {
     } catch (error) {
       this.#update(session, { error: message(error) });
       throw error;
-    } finally {
-      this.#update(session, { saving: false });
-    }
-  }
-  async retryPersistence() {
-    const session = this.#session();
-    this.#update(session, { saving: true });
-    try {
-      this.#services.assertContext(session.state.context!);
-      await this.#services.retryMemorySave();
-      this.#update(session, { persistenceError: null, notice: "已重新保存到对话文件" });
-    } catch (error) {
-      this.#update(session, { persistenceError: message(error) });
     } finally {
       this.#update(session, { saving: false });
     }

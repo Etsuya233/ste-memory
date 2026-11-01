@@ -108,6 +108,42 @@ try {
         .vectorTasks.find((task) => task.id === "space-b-vector-queued").status === "cancelled",
   );
   check("batch confirmation cancels captured selection", true);
+  await page.getByRole("tab", { name: "填表任务", exact: true }).click();
+  const pending = page.locator('[data-fill-task="space-b-failed-fill"]');
+  for (const status of ["failed", "interrupted"]) {
+    await page.evaluate((status) => window.frontendPreview.setPendingFillSave(status), status);
+    await pending
+      .getByText(status === "failed" ? "等待保存" : "保存待核对", { exact: true })
+      .waitFor();
+    check(
+      `${status} committed task hides Agent retry`,
+      (await pending.locator('[data-action="retry-task"]').count()) === 0,
+    );
+    check(
+      `${status} committed task points to snapshot saving`,
+      status === "failed"
+        ? (await pending.innerText()).includes("本批修改已提交，等待保存完成") &&
+            (await pending.innerText()).includes("顶部的保存重试")
+        : (await pending.innerText()).includes("上次批次保存未确认"),
+    );
+  }
+  await pending.getByRole("button", { name: "取消任务", exact: true }).click();
+  check(
+    "pending-save cancellation explains retained commit without replay",
+    (await page.getByRole("alertdialog").innerText()).includes("不会自动重放填表"),
+  );
+  await button("确认取消任务").click();
+  await page.waitForFunction(() => {
+    const task = window.frontendPreview
+      .tasksSnapshot()
+      .fillTasks.find((task) => task.runId === "space-b-failed-fill");
+    return !task.blocksQueue && !task.pendingSave;
+  });
+  check(
+    "cancelling pending save releases queue without replay",
+    (await snapshot()).fillTasks.find((task) => task.runId === "space-b-failed-fill").status ===
+      "interrupted",
+  );
   check("no browser exceptions", errors.length === 0);
 } finally {
   await browser.close();

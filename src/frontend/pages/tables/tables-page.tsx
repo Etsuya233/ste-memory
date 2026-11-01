@@ -156,14 +156,6 @@ export function TablesPage({
             />
           ) : null}
           {state.notice ? <StatusNotice>{state.notice}</StatusNotice> : null}
-          {state.persistenceError ? (
-            <StatusNotice variant="destructive">
-              修改已提交，但对话文件保存失败：{state.persistenceError}
-              <Button disabled={state.saving} onClick={() => void workspace.retryPersistence()}>
-                重试文件保存
-              </Button>
-            </StatusNotice>
-          ) : null}
           {!state.context ? (
             <PageEmpty title="请选择对话" />
           ) : state.loading ? (

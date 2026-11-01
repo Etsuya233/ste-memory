@@ -16,8 +16,6 @@ import {
   DexieFillTaskRepository,
   DexieFloorLedgerRepository,
 } from "../../infrastructure/indexeddb/fill-tasks/fill-task-repository.ts";
-import { DexieMemorySpaceRepository } from "../../infrastructure/indexeddb/memory/memory-space-repository.ts";
-import { DexieSpaceStructureRebuild } from "../../infrastructure/indexeddb/space/space-structure-rebuild-repository.ts";
 
 /** 应用目标预设：两张表（人物 ← 引用；关系用模板显示策略），含停用字段。 */
 const TARGET_PRESET: ResolvedTablePreset = {
@@ -113,11 +111,10 @@ const TARGET_PRESET: ResolvedTablePreset = {
 /** 建库 + 空间 + 系统默认结构；返回接线好的服务与端口。 */
 async function setup() {
   const db = createTestDatabase();
-  const services = createServices(db);
+  const services = await createServices(db);
   const space = await services.spaces.create("会话");
-  await installDefaultPreset(db, space.id);
-  const spaceRepository = new DexieMemorySpaceRepository(db);
-  const rebuild = new DexieSpaceStructureRebuild(db, spaceRepository);
+  await installDefaultPreset(services.memoryStore, space.id);
+  const spaceRepository = services.spaceRepository;
   const taskRepository = new DexieFillTaskRepository(db, () => NOW);
   const ledgerRepository = new DexieFloorLedgerRepository(db, () => NOW);
   let tableSeq = 0;
@@ -128,7 +125,16 @@ async function setup() {
       const active = await taskRepository.findActive(id);
       if (active) await taskRepository.markInterrupted(active.runId);
     },
-    rebuild,
+    rebuild: {
+      rebuild: async (input) => {
+        const rebuilt = await services.memoryStore.structureRebuild().rebuild(input);
+        if (rebuilt) {
+          await taskRepository.clear(input.memorySpaceId);
+          await ledgerRepository.clear(input.memorySpaceId);
+        }
+        return rebuilt;
+      },
+    },
     defaultPreset: () => SYSTEM_TABLE_PRESET,
     currentChatIdentity: () => "char:3:story",
     clearChatScopeMacros: () => undefined,
@@ -202,7 +208,7 @@ describe("TablePresetApplyService（应用预设）", () => {
   it("确认后切换对话：在任何重建和宏清理之前拒绝操作", async () => {
     const rebuild = vi.fn(async () => true);
     const clearChatScopeMacros = vi.fn();
-    const syncMirror = vi.fn(async () => undefined);
+    const saveSnapshot = vi.fn(async () => undefined);
     const apply = new TablePresetApplyService({
       validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
@@ -221,21 +227,21 @@ describe("TablePresetApplyService（应用预设）", () => {
       apply.applyPreset("space-A" as MemorySpaceId, TARGET_PRESET, {
         chatIdentity: "char:3:story",
         refreshMacros: async () => undefined,
-        syncMirror,
+        saveSnapshot,
       }),
     ).rejects.toThrow("对话已切换");
     expect(rebuild).not.toHaveBeenCalled();
     expect(clearChatScopeMacros).not.toHaveBeenCalled();
-    expect(syncMirror).not.toHaveBeenCalled();
+    expect(saveSnapshot).not.toHaveBeenCalled();
   });
 
   it("首次创建：按默认预设写结构并记录初始化来源", async () => {
-    const { db, services } = await setup();
+    const { services } = await setup();
     const fresh = await services.spaces.create("新空间");
     const apply = new TablePresetApplyService({
       validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
-      rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
+      rebuild: services.memoryStore.structureRebuild(),
       defaultPreset: () => TARGET_PRESET,
       currentChatIdentity: () => undefined,
       clearChatScopeMacros: () => undefined,
@@ -249,7 +255,7 @@ describe("TablePresetApplyService（应用预设）", () => {
 
     await apply.installDefaultStructure(fresh.id);
 
-    const tables = await db.memoryTables.where("memorySpaceId").equals(fresh.id).toArray();
+    const tables = (await services.memoryStore.snapshot(fresh.id))!.tables;
     expect(tables.map((table) => table.key).sort()).toEqual(["people", "relations"]);
     const stored = await services.spaces.find(fresh.id);
     expect(stored?.macros).toEqual([expect.objectContaining({ name: "人物摘要", enabled: true })]);
@@ -296,28 +302,28 @@ describe("TablePresetApplyService（应用预设）", () => {
     });
     await ledgerRepository.markProcessed(space.id, [0, 1]);
     const other = await services.spaces.create("另一个空间");
-    await installDefaultPreset(db, other.id);
+    await installDefaultPreset(services.memoryStore, other.id);
 
     const clearedChatScopeMacros = vi.fn();
     const refreshMacros = vi.fn(async () => undefined);
-    const syncMirror = vi.fn(async () => undefined);
+    const saveSnapshot = vi.fn(async () => undefined);
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
       chatIdentity: "char:3:story",
       refreshMacros,
-      syncMirror,
+      saveSnapshot,
     });
 
     expect(outcome).toEqual({ kind: "applied" });
     expect(refreshMacros).toHaveBeenCalledTimes(1);
-    expect(syncMirror).toHaveBeenCalledTimes(1);
+    expect(saveSnapshot).toHaveBeenCalledTimes(1);
     expect(clearedChatScopeMacros).not.toHaveBeenCalled();
 
     // 结构替换：旧表（含记录/历史/证据）全部消失，新结构就位
     const tables = (await services.tables.list(space.id)).map((table) => table.key);
     expect(tables).toEqual(["people", "relations"]);
-    expect(await db.memoryRecords.where("memorySpaceId").equals(space.id).count()).toBe(0);
-    expect(await db.memoryRecordHistory.where("memorySpaceId").equals(space.id).count()).toBe(0);
-    expect(await db.memoryEvidence.where("memorySpaceId").equals(space.id).count()).toBe(0);
+    expect((await services.memoryStore.snapshot(space.id))!.records.length).toBe(0);
+    expect((await services.memoryStore.snapshot(space.id))!.history.length).toBe(0);
+    expect((await services.memoryStore.snapshot(space.id))!.evidence.length).toBe(0);
     // 任务与楼层进度清空
     expect(await db.memoryFillTasks.where("memorySpaceId").equals(space.id).count()).toBe(0);
     expect(await db.floorFillLedger.where("memorySpaceId").equals(space.id).count()).toBe(0);
@@ -334,24 +340,18 @@ describe("TablePresetApplyService（应用预设）", () => {
   });
 
   it("应用后新结构可用：引用与显示策略按新 ID 建立、停用字段保留（AC-16）", async () => {
-    const { db, services, space, apply } = await setup();
+    const { services, space, apply } = await setup();
     await apply.applyPreset(space.id, TARGET_PRESET, {
       chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
-      syncMirror: async () => undefined,
+      saveSnapshot: async () => undefined,
     });
 
-    const tables = await db.memoryTables.where("memorySpaceId").equals(space.id).toArray();
+    const tables = (await services.memoryStore.snapshot(space.id))!.tables;
     const people = tables.find((table) => table.key === "people")!;
     const relations = tables.find((table) => table.key === "relations")!;
-    const peopleFields = await db.memoryFields
-      .where("[memorySpaceId+tableId]")
-      .equals([space.id, people.id])
-      .toArray();
-    const relationFields = await db.memoryFields
-      .where("[memorySpaceId+tableId]")
-      .equals([space.id, relations.id])
-      .toArray();
+    const peopleFields = await services.fields.list(space.id, people.id);
+    const relationFields = await services.fields.list(space.id, relations.id);
     expect(people.displayStrategy).toEqual({ type: "field", fieldId: peopleFields[0]!.id });
     expect(peopleFields[1]!.enabled).toBe(false);
     expect(relations.displayStrategy).toEqual({
@@ -373,7 +373,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const sync = {
       chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
-      syncMirror: async () => undefined,
+      saveSnapshot: async () => undefined,
     };
     await apply.applyPreset(space.id, TARGET_PRESET, sync);
     const first = await services.spaces.find(space.id);
@@ -411,7 +411,7 @@ describe("TablePresetApplyService（应用预设）", () => {
   });
 
   it("重建中途失败：原结构、记录与任务保留，来源未更新（AC-13）", async () => {
-    const { db, services, space, taskRepository, apply } = await setup();
+    const { services, space, taskRepository, apply } = await setup();
     const characters = (await services.tableRepository.list(space.id)).find(
       (table) => table.key === "characters",
     )!;
@@ -434,44 +434,43 @@ describe("TablePresetApplyService（应用预设）", () => {
       updatedAt: NOW,
     });
     const before = await services.spaces.find(space.id);
-    // 让新结构与另一空间的表格 ID 相撞：事务写表时触发约束错误
-    const collision = (await services.tables.list(space.id)).length;
-    const conflictingId = "applied-table-1" as MemoryTableId;
-    await db.memoryTables.add({
-      ...(await db.memoryTables.toArray())[0]!,
-      id: conflictingId,
-      memorySpaceId: "space-other" as MemorySpaceId,
-      key: "clash" as never,
-    });
-    expect(collision).toBe(8);
+    // 注入重复字段 Key，验证 SQLite 导入失败后原快照仍完整可读。
+    const client = services.memoryStore.client;
+    const importSpace = client.importSpace.bind(client);
+    vi.spyOn(client, "importSpace").mockImplementationOnce((unit) =>
+      importSpace({
+        ...unit,
+        fields: [...unit.fields, { ...unit.fields[0]!, id: "duplicate-field" as MemoryFieldId }],
+      }),
+    );
 
     await expect(
       apply.applyPreset(space.id, TARGET_PRESET, {
         chatIdentity: "char:3:story",
         refreshMacros: async () => undefined,
-        syncMirror: async () => undefined,
+        saveSnapshot: async () => undefined,
       }),
     ).rejects.toThrowError();
 
     // 原持久化内容保留（结构 / 记录 / 任务 / 来源）
     expect(await services.tables.list(space.id)).toHaveLength(8);
-    expect(await db.memoryRecords.where("memorySpaceId").equals(space.id).count()).toBe(1);
+    expect((await services.memoryStore.snapshot(space.id))!.records.length).toBe(1);
     expect(await taskRepository.find("run-3")).toBeDefined();
     expect(await services.spaces.find(space.id)).toEqual(before);
   });
 
   it("空间不存在：应用抛错、不产生任何写入", async () => {
-    const { db, apply } = await setup();
+    const { services, apply } = await setup();
     const missing = "missing-space" as MemorySpaceId;
 
     await expect(
       apply.applyPreset(missing, TARGET_PRESET, {
         chatIdentity: "char:3:story",
         refreshMacros: async () => undefined,
-        syncMirror: async () => undefined,
+        saveSnapshot: async () => undefined,
       }),
     ).rejects.toThrowError(/记忆空间不存在/);
-    expect(await db.memoryTables.where("memorySpaceId").equals(missing).count()).toBe(0);
+    expect((await services.memoryStore.snapshot(missing))?.tables.length ?? 0).toBe(0);
   });
 
   it("重建后同步失败：明确回报同步失败，空间保持已重建状态（AC-15）", async () => {
@@ -482,7 +481,7 @@ describe("TablePresetApplyService（应用预设）", () => {
       refreshMacros: async () => {
         throw new Error("宏炸了");
       },
-      syncMirror: async () => {
+      saveSnapshot: async () => {
         throw new Error("镜像炸了");
       },
     });
@@ -500,12 +499,12 @@ describe("TablePresetApplyService（应用预设）", () => {
 
   it("对话已切换：不清理新对话的对话级宏，并回报（AC-14）", async () => {
     const db = createTestDatabase();
-    const services = createServices(db);
+    const services = await createServices(db);
     const space = await services.spaces.create("会话");
-    await installDefaultPreset(db, space.id);
+    await installDefaultPreset(services.memoryStore, space.id);
     let identity = "char:3:story";
     const clearChatScopeMacros = vi.fn();
-    const rebuild = new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db));
+    const rebuild = services.memoryStore.structureRebuild();
     const apply = new TablePresetApplyService({
       validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
@@ -531,7 +530,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
       chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
-      syncMirror: async () => undefined,
+      saveSnapshot: async () => undefined,
     });
 
     expect(outcome.kind).toBe("applied-with-sync-issue");
@@ -547,14 +546,14 @@ describe("TablePresetApplyService（应用预设）", () => {
 
   it("对话未切换：清除本次操作所属对话的对话级宏", async () => {
     const db = createTestDatabase();
-    const services = createServices(db);
+    const services = await createServices(db);
     const space = await services.spaces.create("会话");
-    await installDefaultPreset(db, space.id);
+    await installDefaultPreset(services.memoryStore, space.id);
     const clearChatScopeMacros = vi.fn();
     const apply = new TablePresetApplyService({
       validateStructure: async (structure) => structure,
       cancelActiveTask: async () => undefined,
-      rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
+      rebuild: services.memoryStore.structureRebuild(),
       defaultPreset: () => SYSTEM_TABLE_PRESET,
       currentChatIdentity: () => "char:3:story",
       clearChatScopeMacros,
@@ -569,7 +568,7 @@ describe("TablePresetApplyService（应用预设）", () => {
     const outcome = await apply.applyPreset(space.id, TARGET_PRESET, {
       chatIdentity: "char:3:story",
       refreshMacros: async () => undefined,
-      syncMirror: async () => undefined,
+      saveSnapshot: async () => undefined,
     });
 
     expect(outcome).toEqual({ kind: "applied" });
@@ -578,18 +577,18 @@ describe("TablePresetApplyService（应用预设）", () => {
 });
 
 it("新预设保留共用规则与纪要归属引用，另存可往返，已有其他空间保持原样", async () => {
-  const { db, services, space, apply } = await setup();
+  const { services, space, apply } = await setup();
   const oldTables = await services.tables.list(space.id);
   const fresh = await services.spaces.create("新预设空间");
   await apply.applyPreset(fresh.id, STORY_MEMORY_PRESET, {
     chatIdentity: "char:3:story",
     refreshMacros: async () => undefined,
-    syncMirror: async () => undefined,
+    saveSnapshot: async () => undefined,
   });
   const stored = (await services.spaces.find(fresh.id))!;
   expect(stored.prompt).toBe(STORY_MEMORY_PRESET.prompt);
   const tables = await services.tables.list(fresh.id);
-  const fields = await db.memoryFields.where("memorySpaceId").equals(fresh.id).toArray();
+  const fields = (await services.memoryStore.snapshot(fresh.id))!.fields;
   expect(tables).toHaveLength(8);
   expect(fields).toHaveLength(44);
   const chronicle = tables.find((table) => table.key === "chronicle")!;

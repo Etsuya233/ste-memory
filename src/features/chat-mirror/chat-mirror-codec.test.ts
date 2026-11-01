@@ -148,20 +148,6 @@ describe("createChatMirrorFile（组装信封）", () => {
     expect(file.data).toEqual(sampleUnit());
   });
 
-  it("includeHistory=false：只裁掉 history，其余照旧（设置项「镜像包含修订历史」关闭）", () => {
-    const file = createChatMirrorFile(
-      sampleUnit(),
-      "space-1",
-      "2026-07-28T02:00:00.000Z",
-      "0.1.0",
-      false,
-    );
-    expect(file.data.history).toEqual([]);
-    expect(file.data.records).toEqual(sampleUnit().records);
-    expect(file.data.tables).toEqual(sampleUnit().tables);
-    expect(file.data.evidence).toEqual(sampleUnit().evidence);
-  });
-
   it("镜像不带任务与楼层进度，对话宏跟随空间保存", () => {
     const withRuntimeRows: MemorySpaceBackup = {
       ...sampleUnit(),

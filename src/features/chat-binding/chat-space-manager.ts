@@ -1,37 +1,10 @@
 import type { BackupIdFactory, MemorySpaceBackup } from "../backup/index.ts";
+import type { MemorySpace, MemorySpaceId } from "../memory/index.ts";
+import { cloneMemorySnapshot } from "../memory-snapshot/snapshot-clone.ts";
 import type {
-  MemoryEvidenceId,
-  MemoryFieldId,
-  MemoryRecordHistoryId,
-  MemoryRecordId,
-  MemorySpace,
-  MemorySpaceId,
-  MemorySpaceService,
-  MemoryTableId,
-} from "../memory/index.ts";
-
-/**
- * 对话 → 记忆空间的上下文管理器（插件的纯逻辑层 seam，spec 测试决策）。
- * 不依赖 ST getContext() 与浏览器 IndexedDB：宿主侧（StChatAdapter / Dexie
- * repository）以端口注入，测试用 fake 实现。
- *
- * 职责：
- * - 首次打开对话：自动创建记忆空间 + 按当时默认表格预设初始化结构（端口注入，
- *   实现见 features/table-presets），并把绑定指针写入 chatMetadata
- *   （写绑定在最后——「绑定存在 = 空间与结构已就绪」是不变量）；
- * - 再次打开 / 切对话（CHAT_CHANGED）：按绑定指针激活对应空间，不重复创建；
- * - 临时/未保存对话（chatId 无值）：跳过绑定、不建空间、不报错，状态
- *   unsaved-chat 供面板提示「当前对话未保存，暂不支持记忆」；
- * - 绑定存在但空间不在本地库（新设备 / 本地库被清）：保持绑定、不重建——
- *   对话文件镜像恢复后自动恢复（spec「空库期间显示同步中状态而非报错」）。
- *
- * 不变量：
- * - 绑定存在 ⇔ 该对话的空间与结构已就绪（创建中途失败回滚空间并抛错，下次
- *   打开重试；同步期间切走则回滚，绝不把旧对话的绑定写进新对话的 chatMetadata）；
- * - 空间显示名创建时定死，对话重命名不触发改名（绑定靠指针，名字只是显示，
- *   跨角色同名对话文件互不冲突）。
- */
-
+  ChatFileTarget,
+  ChatSnapshotPersistence,
+} from "../chat-mirror/chat-snapshot-persistence.ts";
 export interface ChatSnapshot {
   /** 对话文件名（无 .jsonl）；临时/未保存对话为 undefined */
   readonly chatId: string | undefined;
@@ -71,86 +44,48 @@ export type ChatBindingStoreRead =
 /** chatMetadata 读写端口（宿主 = StChatAdapter.bindingStore） */
 export interface ChatBindingStore {
   read(): ChatBindingStoreRead;
-  write(binding: ChatSpaceBinding): void;
-}
-
-/** 空间结构初始化端口（宿主 = 表格预设应用服务：复制默认预设 + 记录初始化来源） */
-export interface SpaceStructureInstallerPort {
-  installDefaultStructure(memorySpaceId: MemorySpaceId): Promise<void>;
 }
 
 export interface ChatSpaceManagerPorts {
   readonly getChat: () => ChatSnapshot;
-  readonly bindingStore: ChatBindingStore;
-  readonly spaces: MemorySpaceService;
-  readonly installer: SpaceStructureInstallerPort;
-  /** 镜像恢复端口（可选；宿主 = ChatMetadataMirrorSync.restoreFromMirror，ticket 16） */
-  readonly mirrorRestore?: { restore(binding: ChatSpaceBinding): Promise<boolean> };
-  /** Load the selected source before resolving the bound space, including existing local spaces. */
-  readonly prepareSpace?: (
+  readonly captureTarget: () => ChatFileTarget | undefined;
+  readonly bindingStore: Pick<ChatBindingStore, "read">;
+  readonly persistence: ChatSnapshotPersistence;
+  readonly createSnapshot: (name: string) => Promise<MemorySpaceBackup>;
+  readonly validateSnapshot: (unit: MemorySpaceBackup) => Promise<void>;
+  readonly activateSnapshot: (
+    target: ChatFileTarget,
     binding: ChatSpaceBinding,
-  ) => Promise<boolean | { readonly restored: boolean; readonly space: MemorySpace }>;
-  readonly branchSource?: (spaceId: MemorySpaceId) => MemorySpaceBackup | undefined;
-  readonly onReady?: (binding: ChatSpaceBinding) => Promise<void>;
-  /** 可选日志（宿主 = ST console）；消息不带前缀，由宿主包装 */
-  readonly log?: { info(message: string): void };
-  /** Dexie 备份仓库（分支对话分离：cloneSpace / cloneSpaceFromUnit 克隆空间） */
-  readonly backup?: {
-    cloneSpace(sourceSpaceId: MemorySpaceId, createId: BackupIdFactory): Promise<MemorySpaceId>;
-    cloneSpaceFromUnit(unit: MemorySpaceBackup, createId: BackupIdFactory): Promise<MemorySpaceId>;
-  };
-  /** ID 工厂（分支对话分离：cloneSpace 需要为新实体生成 ID） */
-  readonly createId?: (prefix: string) => string;
+    unit: MemorySpaceBackup,
+  ) => Promise<void>;
+  readonly unloadSnapshot: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
+  readonly stopSpaceWrites: (id: MemorySpaceId) => Promise<void>;
+  readonly retireSpace: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
+  readonly findSpace: (id: MemorySpaceId) => Promise<MemorySpace | undefined>;
+  readonly createIds: BackupIdFactory;
+  readonly now: () => string;
 }
-
-export const BRANCH_CLONE_MISSING_PORTS = "克隆空间需要 backup 端口和 createId 工厂";
-
-/** The imported space already exists; retrying the import would create another copy. */
-export class ImportedSpaceSyncError extends Error {
-  readonly spaceId: MemorySpaceId;
-  readonly bound: boolean;
-  constructor(spaceId: MemorySpaceId, bound: boolean, cause: unknown) {
-    super(
-      `导入空间已创建${bound ? "并绑定" : "，尚未绑定"}，后续同步失败：${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause },
-    );
-    this.name = "ImportedSpaceSyncError";
-    this.spaceId = spaceId;
-    this.bound = bound;
-  }
-}
-
 export type SpaceContextStatus =
   | {
       readonly kind: "active";
       readonly binding: ChatSpaceBinding;
       readonly space: MemorySpace;
-      /** 本次同步是否新建了空间（首次打开自动创建） */
       readonly created: boolean;
-      /** 本次同步是否从对话文件镜像恢复（ticket 16；面板可区分「从文件镜像恢复」） */
       readonly restored: boolean;
     }
   | {
       readonly kind: "branch-detected";
       readonly binding: ChatSpaceBinding;
       readonly space: MemorySpace;
-      /** 原始绑定所归属的 chatIdentity */
       readonly originalChatIdentity: string;
+      readonly source: MemorySpaceBackup;
     }
-  | { readonly kind: "unsaved-chat"; readonly humanMsg: string }
   | {
-      readonly kind: "space-missing";
-      readonly binding: ChatSpaceBinding;
+      readonly kind: "unsaved-chat" | "binding-unrecognized" | "load-error";
       readonly humanMsg: string;
-    }
-  | { readonly kind: "binding-unrecognized"; readonly humanMsg: string }
-  | { readonly kind: "load-error"; readonly humanMsg: string };
-
+    };
 export const UNSAVED_CHAT_MESSAGE = "当前对话未保存，暂不支持记忆";
-export const SPACE_MISSING_MESSAGE =
-  "记忆空间数据未就绪（本地库中暂无该空间，对话文件镜像恢复后自动恢复）";
-export const BINDING_UNRECOGNIZED_MESSAGE =
-  "记忆空间绑定无法识别（可能来自更新版本的插件），已原样保留未做改动";
+export const BINDING_UNRECOGNIZED_MESSAGE = "记忆空间绑定无法识别，已原样保留未做改动";
 
 /** 空间显示名：群聊 = 「群聊 - 对话文件名」；单人 = 「角色名 - 对话文件名」（spec 决策 3）。
  * 名字只是显示，创建后不随对话重命名变化。Memory 的 memorySpaceName 上限 120 字符按
@@ -173,312 +108,215 @@ export function chatIdentityKey(chat: ChatSnapshot): string | undefined {
     : `char:${String(chat.characterId)}:${chat.chatId}`;
 }
 
+interface ChatSelection {
+  readonly chat: ChatSnapshot;
+  readonly target: ChatFileTarget;
+}
+
+/** 当前聊天只激活一个空间；候选与待保存状态由persistence持有。 */
 export class ChatSpaceManager {
-  readonly #ports: ChatSpaceManagerPorts;
   #status: SpaceContextStatus | undefined;
+  #selection: ChatSelection | undefined;
+  #candidate: object | undefined;
   readonly #listeners = new Set<() => void>();
-  #syncQueue: Promise<unknown> = Promise.resolve();
-
+  private readonly ports: ChatSpaceManagerPorts;
   constructor(ports: ChatSpaceManagerPorts) {
-    this.#ports = ports;
+    this.ports = ports;
   }
-
-  /** 当前空间上下文；首次同步前为 undefined */
   getStatus(): SpaceContextStatus | undefined {
     return this.#status;
   }
-
-  /** Refresh committed space metadata without reimporting a possibly older chat file. */
-  async refreshSpace(id: MemorySpaceId): Promise<void> {
-    const status = this.#status;
-    if (status?.kind !== "active" || status.space.id !== id) return;
-    const space = await this.#ports.spaces.find(id);
-    if (!space) throw new Error("当前记忆空间已被删除");
-    if (this.#status === status) this.#publish({ ...status, space });
-  }
-
-  /** Detach the old space synchronously before asynchronous teardown/loading begins. */
-  clearCurrent(): void {
-    this.#status = undefined;
-    for (const listener of this.#listeners) listener();
-  }
-
-  reportLoadError(error: unknown): void {
-    this.#publish({
-      kind: "load-error",
-      humanMsg: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  /** 订阅空间上下文变化（面板用）；返回退订函数 */
   onStatusChange(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
     };
   }
-
-  /**
-   * 把当前对话同步为空间上下文（启动与 CHAT_CHANGED 调用）。幂等；并发调用
-   * 串行执行，每次都基于最新快照，最终状态收敛到当前对话。
-   */
-  syncToCurrentChat(): Promise<SpaceContextStatus> {
-    const run = this.#syncQueue.then(() => this.#syncCurrentChat());
-    this.#syncQueue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+  clearCurrent(): void {
+    this.#selection = undefined;
+    this.#status = undefined;
+    for (const listener of this.#listeners) listener();
   }
-
-  async #syncCurrentChat(): Promise<SpaceContextStatus> {
-    const chat = this.#ports.getChat();
-
-    // 临时/未保存对话：跳过绑定，面板提示，不报错
-    if (chat.chatId === undefined) {
-      return this.#publish({ kind: "unsaved-chat", humanMsg: UNSAVED_CHAT_MESSAGE });
-    }
-
-    const read = this.#ports.bindingStore.read();
-    if (read.kind === "unrecognized") {
-      // 绑定值存在但无法识别：原样保留（不新建覆盖），状态给面板提示
-      return this.#publish({
-        kind: "binding-unrecognized",
-        humanMsg: BINDING_UNRECOGNIZED_MESSAGE,
-      });
-    }
-    if (read.kind === "bound") {
-      let binding: ChatSpaceBinding = read.binding;
-
-      // 集中式 v1 → v2 迁移：v1 绑定就地升级，补写当前 chatIdentity
-      if (read.binding.version === 1) {
-        const currentIdentity = chatIdentityKey(chat);
-        if (currentIdentity !== undefined) {
-          const upgraded: ChatSpaceBindingV2 = {
-            version: 2,
-            spaceId: read.binding.spaceId,
-            chatIdentity: currentIdentity,
-          };
-          this.#ports.bindingStore.write(upgraded);
-          binding = upgraded;
-        }
-      }
-
-      let restored = false;
-      const prepared = await this.#ports.prepareSpace?.(binding);
-      if (prepared !== undefined)
-        restored = typeof prepared === "boolean" ? prepared : prepared.restored;
-      let space =
-        typeof prepared === "object"
-          ? prepared.space
-          : await this.#ports.spaces.find(binding.spaceId);
-      if (!space && this.#ports.mirrorRestore) {
-        // 身份不同也先恢复，复制/分支对话同样需要镜像提供可克隆的源空间。
-        restored = await this.#ports.mirrorRestore.restore(binding);
-        if (restored) {
-          space = await this.#ports.spaces.find(binding.spaceId);
-        }
-      }
-      if (!this.#isCurrentChat(chat)) {
-        // 恢复期间切走：不改新对话绑定，也不发布旧对话状态。
-        return deriveSpaceStatus(binding, space);
-      }
-      const currentIdentity = chatIdentityKey(chat);
-      if (space && binding.version === 2 && currentIdentity !== undefined) {
-        if (binding.chatIdentity !== currentIdentity) {
-          // 单聊角色索引只在本机有效。首次恢复且仅索引改变时接续原对话；
-          // 文件名改变或本地已有空间时仍保留分支确认，避免静默共享记忆。
-          const importedSingleChat =
-            restored &&
-            chat.groupId == null &&
-            /^char:[^:]+:/.test(binding.chatIdentity) &&
-            binding.chatIdentity.replace(/^char:[^:]+:/, "") === chat.chatId;
-          if (!importedSingleChat) {
-            return this.#publish({
-              kind: "branch-detected",
-              binding,
-              space,
-              originalChatIdentity: binding.chatIdentity,
-            });
-          }
-          binding = { ...binding, chatIdentity: currentIdentity };
-          this.#ports.bindingStore.write(binding);
-        }
-      }
-      const status: SpaceContextStatus = space
-        ? { kind: "active", binding, space, created: false, restored }
-        : deriveSpaceStatus(binding, space);
-      if (space) await this.#ports.onReady?.(binding);
-      if (!this.#isCurrentChat(chat)) return status;
-      return this.#publish(status);
-    }
-
-    // 首次打开：自动创建空间 + 按当时默认预设初始化结构 + 最后写绑定
-    const space = await this.#ports.spaces.create(buildChatSpaceName(chat));
-    try {
-      await this.#ports.installer.installDefaultStructure(space.id);
-    } catch (error) {
-      // 安装失败：回收空间、不写绑定，保持「绑定存在 = 就绪」不变量，下次打开重试
-      await this.#ports.spaces.delete(space.id);
-      throw error;
-    }
-    const identity = chatIdentityKey(chat) ?? "";
-    const createdBinding: ChatSpaceBindingV2 = {
-      version: 2,
-      spaceId: space.id,
-      chatIdentity: identity,
-    };
-    if (!this.#isCurrentChat(chat)) {
-      // 同步期间切走：不能把旧对话的绑定写进新对话的 chatMetadata，也不留孤儿空间
-      await this.#ports.spaces.delete(space.id);
-      return { kind: "active", binding: createdBinding, space, created: true, restored: false };
-    }
-    this.#ports.bindingStore.write(createdBinding);
-    await this.#ports.onReady?.(createdBinding);
-    if (!this.#isCurrentChat(chat)) return deriveSpaceStatus(createdBinding, space);
-    this.#ports.log?.info(`已为对话「${chat.chatId}」创建记忆空间「${space.name}」（${space.id}）`);
-    return this.#publish({
-      kind: "active",
-      binding: createdBinding,
-      space,
-      created: true,
-      restored: false,
+  reportLoadError(error: unknown): void {
+    this.publish({
+      kind: "load-error",
+      humanMsg: error instanceof Error ? error.message : String(error),
     });
   }
-
-  #isCurrentChat(chat: ChatSnapshot): boolean {
-    return chatIdentityKey(this.#ports.getChat()) === chatIdentityKey(chat);
+  async refreshSpace(id: MemorySpaceId): Promise<void> {
+    const status = this.#status;
+    if (status?.kind !== "active" || status.space.id !== id) return;
+    const space = await this.ports.findSpace(id);
+    if (!space) throw new Error("当前空间尚未加载");
+    if (this.#status === status) this.publish({ ...status, space });
   }
-
-  /**
-   * 处理分支对话的用户选择：创建空空间或克隆原空间。
-   * 操作完成后更新绑定并收敛到 active 状态。
-   */
+  async syncToCurrentChat(): Promise<SpaceContextStatus> {
+    const chat = this.ports.getChat();
+    const target = this.ports.captureTarget();
+    if (!target) return this.publish({ kind: "unsaved-chat", humanMsg: UNSAVED_CHAT_MESSAGE });
+    const selection = { chat, target };
+    this.#selection = selection;
+    if (this.ports.persistence.hasSavedReplacement(target.identity)) {
+      await this.ports.persistence.retry(target.identity);
+      return this.#status!;
+    }
+    const pending = this.ports.persistence.current(target.identity);
+    const read = this.ports.bindingStore.read();
+    if (read.kind === "unrecognized")
+      return this.publish({ kind: "binding-unrecognized", humanMsg: BINDING_UNRECOGNIZED_MESSAGE });
+    if (pending && this.ports.persistence.hasPendingReplacement(target.identity)) {
+      this.ports.persistence.remember(target, pending.snapshot, pending.binding);
+      await this.activate(selection, pending.binding, pending.snapshot, false, false);
+      return this.#status!;
+    }
+    if (read.kind === "none") {
+      if (this.ports.persistence.hasPendingReplacement(target.identity))
+        throw new Error("新空间尚未保存，请重试保存候选空间");
+      const orphan = await this.ports.persistence.load(target);
+      if (this.#selection !== selection) throw new Error("聊天已切换，初始化操作已过期");
+      if (orphan) throw new Error("聊天文件已有记忆快照但缺少空间绑定，已停止初始化");
+      return this.saveCandidate(
+        selection,
+        () => this.ports.createSnapshot(buildChatSpaceName(chat)),
+        true,
+      );
+    }
+    const binding = pending?.binding ?? read.binding;
+    const unit = await this.ports.persistence.load(target, binding.spaceId);
+    if (this.#selection !== selection) return { kind: "load-error", humanMsg: "聊天已切换" };
+    if (!unit) throw new Error("当前聊天文件没有记忆快照，无法加载已绑定空间");
+    const identity = target.identity;
+    const sameImportedFile =
+      target.kind === "character" &&
+      binding.version === 2 &&
+      binding.chatIdentity.replace(/^char:[^:]+:/, "") === target.chatId;
+    if (binding.version === 2 && binding.chatIdentity !== identity && !sameImportedFile)
+      return this.publish({
+        kind: "branch-detected",
+        binding,
+        space: unit.space,
+        originalChatIdentity: binding.chatIdentity,
+        source: unit,
+      });
+    if (binding.version === 1 || binding.chatIdentity !== identity)
+      return this.saveCandidate(selection, () => unit, false);
+    this.ports.persistence.remember(target, unit, binding);
+    await this.activate(selection, binding, unit, false, true);
+    return this.#status!;
+  }
   async resolveBranch(
     option:
       | { readonly action: "create" }
       | { readonly action: "clone"; readonly sourceSpaceId: MemorySpaceId },
   ): Promise<SpaceContextStatus> {
-    const chat = this.#ports.getChat();
-    const currentIdentity = chatIdentityKey(chat) ?? "";
-    const newSpaceName = buildChatSpaceName(chat);
+    const status = this.#status;
+    const selection = this.requireSelection();
+    if (status?.kind !== "branch-detected") throw new Error("当前聊天没有待处理的分支");
+    return this.saveCandidate(
+      selection,
+      () =>
+        option.action === "create"
+          ? this.ports.createSnapshot(buildChatSpaceName(selection.chat))
+          : cloneMemorySnapshot(
+              status.source,
+              this.ports.createIds,
+              buildChatSpaceName(selection.chat),
+              this.ports.now(),
+            ),
+      true,
+    );
+  }
+  async importSpace(unit: MemorySpaceBackup): Promise<SpaceContextStatus> {
+    const selection = this.requireSelection();
+    return this.saveCandidate(
+      selection,
+      () =>
+        cloneMemorySnapshot(
+          unit,
+          this.ports.createIds,
+          buildChatSpaceName(selection.chat),
+          this.ports.now(),
+        ),
+      false,
+    );
+  }
 
-    let newSpaceId: MemorySpaceId;
-    if (option.action === "clone") {
-      if (!this.#ports.backup || !this.#ports.createId) {
-        throw new Error(BRANCH_CLONE_MISSING_PORTS);
-      }
-      // cloneSpace 内部创建空间行 + 克隆六张表数据，返回新空间 ID
-      const id = this.#ports.createId!;
-      const ids: BackupIdFactory = {
-        space: () => id("space") as MemorySpaceId,
-        table: () => id("table") as MemoryTableId,
-        field: () => id("field") as MemoryFieldId,
-        record: () => id("record") as MemoryRecordId,
-        history: () => id("record-history") as MemoryRecordHistoryId,
-        task: () => id("task"),
-        group: () => id("vector-group"),
-        evidence: () => id("evidence") as MemoryEvidenceId,
-      };
-      const source = this.#ports.branchSource?.(option.sourceSpaceId);
-      newSpaceId = source
-        ? await this.#ports.backup.cloneSpaceFromUnit(source, ids)
-        : await this.#ports.backup.cloneSpace(option.sourceSpaceId, ids);
-      // 克隆的空间继承源空间的名字，重命名为当前对话的命名规则
-      await this.#ports.spaces.rename(newSpaceId, newSpaceName);
-    } else {
-      const space = await this.#ports.spaces.create(newSpaceName);
+  private requireSelection(): ChatSelection {
+    const selection = this.#selection;
+    if (!selection || chatIdentityKey(this.ports.getChat()) !== selection.target.identity)
+      throw new Error("聊天已切换，请回到原聊天后操作");
+    return selection;
+  }
+  private async saveCandidate(
+    selection: ChatSelection,
+    build: () => MemorySpaceBackup | Promise<MemorySpaceBackup>,
+    created: boolean,
+  ): Promise<SpaceContextStatus> {
+    const request = {
+      selection,
+      oldId: this.#status?.kind === "active" ? this.#status.space.id : undefined,
+    };
+    this.#candidate = request;
+    const assertCurrent = () => {
+      if (this.#selection !== selection || this.#candidate !== request)
+        throw new Error("候选操作已过期，请在当前聊天重新确认");
+    };
+    assertCurrent();
+    const unit = await build();
+    assertCurrent();
+    await this.ports.validateSnapshot(unit);
+    assertCurrent();
+    const oldId = request.oldId;
+    if (oldId) {
+      await this.ports.stopSpaceWrites(oldId);
+      assertCurrent();
+    }
+    const binding: ChatSpaceBindingV2 = {
+      version: 2,
+      spaceId: unit.space.id,
+      chatIdentity: selection.target.identity,
+    };
+    const status: SpaceContextStatus = {
+      kind: "active",
+      binding,
+      space: unit.space,
+      created,
+      restored: false,
+    };
+    await this.ports.persistence.replace(selection.target, unit, binding, async () => {
       try {
-        await this.#ports.installer.installDefaultStructure(space.id);
+        if (oldId && oldId !== unit.space.id) await this.ports.retireSpace(oldId, selection.target);
+        // 文件保存可以跨聊天完成，只有返回同一文件时才重新装载SQLite和发布context。
+        if (chatIdentityKey(this.ports.getChat()) !== selection.target.identity) return;
+        const current = this.#selection;
+        if (current?.target.identity === selection.target.identity)
+          await this.activate(current, binding, unit, created, false);
       } catch (error) {
-        await this.#ports.spaces.delete(space.id);
+        if (chatIdentityKey(this.ports.getChat()) === selection.target.identity)
+          this.reportLoadError(error);
         throw error;
       }
-      newSpaceId = space.id;
-    }
-
-    // 写入新绑定
-    const newBinding: ChatSpaceBindingV2 = {
-      version: 2,
-      spaceId: newSpaceId,
-      chatIdentity: currentIdentity,
-    };
-    this.#ports.bindingStore.write(newBinding);
-    this.#ports.log?.info(
-      `分支对话「${chat.chatId}」已${option.action === "clone" ? "克隆" : "创建"}记忆空间「${newSpaceName}」（${newSpaceId}）`,
-    );
-
-    // 重新同步收敛到 active
-    return this.syncToCurrentChat();
-  }
-
-  /**
-   * 单空间导入（issue 26）：把文件反序列化的空间单元克隆为全新 ID 的空间，
-   * 重命名为当前对话的命名规则，把当前对话绑定指向新空间（原空间保留，ADR 0012），
-   * 然后收敛到 active 状态。用于「spaceId 不匹配」与「无绑定」两种导入路径——
-   * 区别仅在于导入前是否已有绑定，克隆 + 重绑定逻辑完全一样。
-   */
-  async importSpace(unit: MemorySpaceBackup): Promise<SpaceContextStatus> {
-    const chat = this.#ports.getChat();
-    const currentIdentity = chatIdentityKey(chat) ?? "";
-    const newSpaceName = buildChatSpaceName(chat);
-    if (!this.#ports.backup || !this.#ports.createId) {
-      throw new Error(BRANCH_CLONE_MISSING_PORTS);
-    }
-    // cloneSpaceFromUnit 内部创建空间行 + 克隆六张表数据（全新 ID、外键重映射）
-    const id = this.#ports.createId;
-    const newSpaceId = await this.#ports.backup.cloneSpaceFromUnit(unit, {
-      space: () => id("space") as MemorySpaceId,
-      table: () => id("table") as MemoryTableId,
-      field: () => id("field") as MemoryFieldId,
-      record: () => id("record") as MemoryRecordId,
-      history: () => id("record-history") as MemoryRecordHistoryId,
-      evidence: () => id("evidence") as MemoryEvidenceId,
-      task: () => id("task"),
-      group: () => id("vector-group"),
     });
-    let bound = false;
-    try {
-      if (chatIdentityKey(this.#ports.getChat()) !== currentIdentity)
-        throw new Error("当前对话已切换，未修改新对话的绑定");
-      // 克隆的空间继承文件中的空间名，重命名为当前对话的命名规则（user story 19）
-      await this.#ports.spaces.rename(newSpaceId, newSpaceName);
-      if (chatIdentityKey(this.#ports.getChat()) !== currentIdentity)
-        throw new Error("当前对话已切换，未修改新对话的绑定");
-
-      // 写入新绑定（覆盖原绑定；原空间数据保留，符合 ADR 0012「保留原空间」）
-      const newBinding: ChatSpaceBindingV2 = {
-        version: 2,
-        spaceId: newSpaceId,
-        chatIdentity: currentIdentity,
-      };
-      this.#ports.bindingStore.write(newBinding);
-      bound = true;
-      this.#ports.log?.info(
-        `已导入记忆空间「${newSpaceName}」（${newSpaceId}）并绑定到当前对话「${chat.chatId}」`,
-      );
-
-      // 重新同步收敛到 active
-      return await this.syncToCurrentChat();
-    } catch (cause) {
-      throw new ImportedSpaceSyncError(newSpaceId, bound, cause);
-    }
+    return status;
   }
-
-  #publish(status: SpaceContextStatus): SpaceContextStatus {
+  private async activate(
+    selection: ChatSelection,
+    binding: ChatSpaceBinding,
+    unit: MemorySpaceBackup,
+    created: boolean,
+    restored: boolean,
+  ): Promise<void> {
+    if (this.#selection !== selection) return;
+    await this.ports.activateSnapshot(selection.target, binding, unit);
+    if (this.#selection !== selection) {
+      await this.ports.unloadSnapshot(unit.space.id, selection.target);
+      return;
+    }
+    this.publish({ kind: "active", binding, space: unit.space, created, restored });
+  }
+  private publish(status: SpaceContextStatus): SpaceContextStatus {
     this.#status = status;
     for (const listener of this.#listeners) listener();
     return status;
   }
-}
-
-function deriveSpaceStatus(
-  binding: ChatSpaceBinding,
-  space: MemorySpace | undefined,
-): SpaceContextStatus {
-  if (!space) {
-    // 绑定在、空间不在本地库：不重建（对话文件镜像恢复会恢复），保持绑定
-    return { kind: "space-missing", binding, humanMsg: SPACE_MISSING_MESSAGE };
-  }
-  return { kind: "active", binding, space, created: false, restored: false };
 }

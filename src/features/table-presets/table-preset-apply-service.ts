@@ -45,7 +45,7 @@ export interface TablePresetSyncActions {
   /** 用户打开确认框时固定的对话身份，不能在执行时重新捕获。 */
   readonly chatIdentity: string;
   readonly refreshMacros: () => Promise<void>;
-  readonly syncMirror: () => Promise<void>;
+  readonly saveSnapshot: () => Promise<void>;
 }
 
 export type ApplyTablePresetOutcome =
@@ -140,7 +140,7 @@ export class TablePresetApplyService {
     }
     try {
       this.assertCurrentChat(chatIdentity);
-      await sync.syncMirror();
+      await sync.saveSnapshot();
     } catch (error) {
       issues.push(`记忆镜像同步失败：${messageOf(error)}`);
     }

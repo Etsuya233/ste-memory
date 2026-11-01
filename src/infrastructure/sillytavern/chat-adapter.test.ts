@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { createChatMirrorFile } from "../../features/chat-mirror/index.ts";
-import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import type { MemorySpaceId } from "../../features/memory/index.ts";
 import type { ChatSpaceBinding } from "../../features/chat-binding/chat-space-manager.ts";
 import {
   CHAT_METADATA_BINDING_KEY,
   CHAT_METADATA_CLEANING_RULE_KEY,
   CHAT_METADATA_CHAT_SCOPE_MACROS_KEY,
-  CHAT_METADATA_MIRROR_KEY,
   StChatAdapter,
   type StContext,
   type StEventBridge,
@@ -106,24 +103,13 @@ describe("StChatAdapter.getChatSnapshot（对话快照）", () => {
 });
 
 describe("StChatAdapter.bindingStore（chatMetadata 绑定读写）", () => {
-  it("写入后读回同值（bound），且写入即触发 saveMetadataDebounced", () => {
+  it("绑定仅读取，metadata不通过独立绑定保存修改", () => {
     const saveMetadataDebounced = vi.fn();
     const { context, adapter } = stableAdapter({ saveMetadataDebounced });
-
     expect(adapter.bindingStore.read()).toEqual({ kind: "none" });
-    adapter.bindingStore.write(BINDING);
-
-    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toEqual(BINDING);
+    context.chatMetadata[CHAT_METADATA_BINDING_KEY] = BINDING;
     expect(adapter.bindingStore.read()).toEqual({ kind: "bound", binding: BINDING });
-    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
-  });
-
-  it("无 chatMetadata / 无 saveMetadataDebounced 时不报错", () => {
-    const { adapter } = stableAdapter({ chatMetadata: undefined });
-    expect(() => {
-      adapter.bindingStore.write(BINDING);
-      adapter.bindingStore.read();
-    }).not.toThrow();
+    expect(saveMetadataDebounced).not.toHaveBeenCalled();
   });
 
   it("损坏的绑定值（version 不符 / spaceId 非字符串）= unrecognized，而非 none", () => {
@@ -136,72 +122,6 @@ describe("StChatAdapter.bindingStore（chatMetadata 绑定读写）", () => {
 
     context.chatMetadata[CHAT_METADATA_BINDING_KEY] = "not-an-object";
     expect(adapter.bindingStore.read()).toEqual({ kind: "unrecognized" });
-  });
-});
-
-describe("StChatAdapter.mirrorStore（chatMetadata 镜像读写，ticket 16）", () => {
-  it("读返回原始值（无 = undefined）；写入即触发 saveMetadataDebounced 且键独立于绑定键", () => {
-    const saveMetadataDebounced = vi.fn();
-    const { context, adapter } = stableAdapter({ saveMetadataDebounced });
-    const mirror = createChatMirrorFile(
-      {
-        schemaVersion: 1 as const,
-        space: {
-          macros: [],
-          id: "space-1" as MemorySpaceId,
-          initializationSource: null,
-          name: "爱丽丝 - story",
-          createdAt: "2026-08-10T00:00:00.000Z",
-          updatedAt: "2026-08-10T01:00:00.000Z",
-        },
-        tables: [],
-        fields: [],
-        records: [],
-        history: [],
-        evidence: [],
-      } as MemorySpaceBackup,
-      "space-1",
-      "2026-08-10T01:00:00.000Z",
-      "0.1.0",
-    );
-
-    expect(adapter.mirrorStore.read()).toBeUndefined();
-    adapter.mirrorStore.write(mirror);
-
-    expect(context.chatMetadata[CHAT_METADATA_MIRROR_KEY]).toBe(mirror);
-    expect(context.chatMetadata[CHAT_METADATA_BINDING_KEY]).toBeUndefined(); // 键独立
-    expect(adapter.mirrorStore.read()).toBe(mirror);
-    expect(saveMetadataDebounced).toHaveBeenCalledTimes(1);
-  });
-
-  it("无 chatMetadata / 无 saveMetadataDebounced 时不报错", () => {
-    const { adapter } = stableAdapter({ chatMetadata: undefined });
-    expect(() => {
-      adapter.mirrorStore.write(
-        createChatMirrorFile(
-          {
-            schemaVersion: 1 as const,
-            space: {
-              macros: [],
-              id: "space-1" as MemorySpaceId,
-              name: "爱丽丝 - story",
-              initializationSource: null,
-              createdAt: "2026-08-10T00:00:00.000Z",
-              updatedAt: "2026-08-10T01:00:00.000Z",
-            },
-            tables: [],
-            fields: [],
-            records: [],
-            history: [],
-            evidence: [],
-          } as MemorySpaceBackup,
-          "space-1",
-          "2026-08-10T01:00:00.000Z",
-          "0.1.0",
-        ),
-      );
-      adapter.mirrorStore.read();
-    }).not.toThrow();
   });
 });
 

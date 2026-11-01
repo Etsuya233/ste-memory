@@ -61,8 +61,6 @@ export type {
   MemoryRecordMutation,
   MemoryRecordRepository,
 } from "./ports/memory-record-repository.ts";
-export type { MemoryChangeFingerprint, MemoryChangeSource } from "./ports/change-source.ts";
-export { memoryChangesEqual } from "./ports/change-source.ts";
 export {
   MEMORY_PROPOSAL_TEMP_ID_PREFIX,
   isProposalTempId,

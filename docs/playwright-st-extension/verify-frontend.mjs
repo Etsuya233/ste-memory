@@ -240,12 +240,14 @@ try {
   await name.fill("只创建一次");
   await page.evaluate(() => window.frontendPreview.failNextPersistence());
   await action("save-record").click();
-  await page.getByText("记录已提交，写回尚未完成", { exact: true }).waitFor();
+  await page.getByText("已提交、未保存：preview file failure", { exact: false }).waitFor();
   check("committed write failure ends editing", (await action("save-record").count()) === 0);
-  await action("retry-persistence").click();
-  await page.getByText("记录已提交，写回尚未完成", { exact: true }).waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "重试保存", exact: true }).click();
+  await page
+    .getByText("已提交、未保存：preview file failure", { exact: false })
+    .waitFor({ state: "hidden" });
   check(
-    "persistence retry does not create duplicates",
+    "top-level persistence retry clears file warnings and does not create duplicates",
     (await snapshot()).filter((r) => r.displayText === "只创建一次").length === 1,
   );
   await action("back-to-records").click();

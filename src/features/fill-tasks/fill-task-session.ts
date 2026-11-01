@@ -14,7 +14,8 @@ export interface FillTaskSession {
   /** 每次调用在当前批次事务内的 SAVEPOINT 中执行，不发布正式数据。 */
   readonly recordWriter: Pick<MemoryRecordService, "commitProposal">;
   /** 提交当前批次、发布读取快照，并调用持久化保存。 */
-  commitAndSave(): Promise<void>;
+  // saved 在文件成功后收口台账；文件成功而收口失败时，保存重试仅再次调用 saved。
+  commitAndSave(saved: () => Promise<void>): Promise<void>;
   rollback(): Promise<void>;
   /** 保存或回滚结束后释放空间写入许可。 */
   release(): Promise<void>;

@@ -16,7 +16,6 @@ function harness() {
     syncToCurrentChat: async () => {},
     refreshMemoryMacros: async () => {},
     refreshAgentMacros: async () => {},
-    refreshMirror: async () => {},
     refreshVectorIndex,
     writeChatScopeMacros: () => {},
     validateMacros: async (macros) => macros,

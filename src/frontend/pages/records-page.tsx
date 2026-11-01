@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import type { MemoryRecordId, MemoryTableId } from "../../features/memory/index.ts";
 import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
-import type { ChatMirrorStatus } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
 import type {
   StChatMessage,
   FloorJumpResult,
@@ -54,12 +53,10 @@ export interface RecordsPageProps {
   registerLeaveGuard?: RegisterLeaveGuard;
   workspace: RecordsWorkspace;
   status: SpaceContextStatus | undefined;
-  mirror: ChatMirrorStatus;
   onClose: () => void;
   onToggleTone: () => void;
   onRetryContext: () => Promise<unknown>;
   onResolveBranch: (action: "create" | "clone") => Promise<unknown>;
-  onRetrySave: () => Promise<unknown>;
   getMessageAt: (floor: number) => StChatMessage | undefined;
   onJumpFloor: (floor: number) => FloorJumpResult;
 }
@@ -218,31 +215,6 @@ export function RecordsPage(props: RecordsPageProps) {
           ) : null
         }
       />
-
-      {props.mirror.kind !== "idle" ? (
-        <div
-          className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:text-muted-foreground"
-          aria-live="polite"
-        >
-          {props.mirror.kind === "saving" ? (
-            "正在写入对话文件…"
-          ) : props.mirror.kind === "failed" ? (
-            <span className="ste:text-destructive">
-              对话文件尚未保存：{props.mirror.error}{" "}
-              <Button
-                variant="link"
-                size="xs"
-                disabled={hostBusy || !state.context}
-                onClick={() => void runHost(() => workspace.retryPersistence(props.onRetrySave))}
-              >
-                重试写回
-              </Button>
-            </span>
-          ) : (
-            "本地记忆 · 对话文件同步已关闭"
-          )}
-        </div>
-      ) : null}
 
       {hostError ? (
         <Alert variant="destructive" className="ste:shrink-0">
@@ -516,7 +488,6 @@ export function RecordsPage(props: RecordsPageProps) {
               runHost={runHost}
               getMessageAt={props.getMessageAt}
               onJumpFloor={props.onJumpFloor}
-              onRetrySave={() => runHost(() => workspace.retryPersistence(props.onRetrySave))}
             />
           ) : null}
           {!showingDetail ? (

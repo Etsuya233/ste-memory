@@ -16,12 +16,11 @@ import { TablePresetApplyService } from "../../features/table-presets/table-pres
 import { SYSTEM_TABLE_PRESET } from "../../features/table-presets/system-preset.ts";
 import { afterEach } from "vitest";
 import { SteMemoryDatabase } from "./database.ts";
-import { DexieSpaceStructureRebuild } from "./space/space-structure-rebuild-repository.ts";
+import { SqliteMemoryStore } from "../memory-runtime/sqlite-memory-store.ts";
+import type { SqliteRepositories } from "../memory-runtime/sqlite-memory-store.ts";
+import { createInProcessSqliteMemoryClient } from "../sqlite/node-client.ts";
+import type { SqliteMemoryClient } from "../sqlite/types.ts";
 import { SteMemoryLogDatabase } from "./logs/log-database.ts";
-import { DexieMemoryFieldRepository } from "./memory/memory-field-repository.ts";
-import { DexieMemoryRecordRepository } from "./memory/memory-record-repository.ts";
-import { DexieMemorySpaceRepository } from "./memory/memory-space-repository.ts";
-import { DexieMemoryTableRepository } from "./memory/memory-table-repository.ts";
 
 /** 测试固定时钟（与既有 Memory / ST 适配器测试一致的语义） */
 export const NOW = "2026-07-28T00:00:00.000Z";
@@ -29,6 +28,7 @@ export const NOW = "2026-07-28T00:00:00.000Z";
 let sequence = 0;
 const databases: SteMemoryDatabase[] = [];
 const logDatabases: SteMemoryLogDatabase[] = [];
+const memoryClients: SqliteMemoryClient[] = [];
 
 /** 建一个互不冲突的测试库；afterEach 统一删除 */
 export function createTestDatabase(name?: string): SteMemoryDatabase {
@@ -45,6 +45,8 @@ export function createTestLogDatabase(name?: string): SteMemoryLogDatabase {
 }
 
 afterEach(async () => {
+  // 每个装配持有独立 SQLite 内存库，测试结束后先释放运行库，再清辅助库。
+  await Promise.all(memoryClients.splice(0).map((client) => client.close()));
   const pending = databases.splice(0);
   const pendingLogs = logDatabases.splice(0);
   await Promise.all([...pending.map((db) => db.delete()), ...pendingLogs.map((db) => db.delete())]);
@@ -58,14 +60,14 @@ let presetIdSequence = 0;
  * 实体 ID 用独立前缀，避免与 Memory 服务各自的 ID 序列相撞。
  */
 export async function installDefaultPreset(
-  db: SteMemoryDatabase,
+  memoryStore: SqliteMemoryStore,
   memorySpaceId: MemorySpaceId,
   now: () => string = () => NOW,
 ): Promise<void> {
   const apply = new TablePresetApplyService({
     validateStructure: async (structure) => structure,
     cancelActiveTask: async () => undefined,
-    rebuild: new DexieSpaceStructureRebuild(db, new DexieMemorySpaceRepository(db)),
+    rebuild: memoryStore.structureRebuild(),
     defaultPreset: () => SYSTEM_TABLE_PRESET,
     currentChatIdentity: () => undefined,
     clearChatScopeMacros: () => undefined,
@@ -80,27 +82,38 @@ export async function installDefaultPreset(
 }
 
 export interface TestServices {
-  /** 测试库（表格预设安装/原子重建等整库操作用） */
+  /** 仅保存任务、台账、向量和会话的辅助测试库。 */
   db: SteMemoryDatabase;
+  memoryStore: SqliteMemoryStore;
   spaces: MemorySpaceService;
   tables: MemoryTableService;
   fields: MemoryFieldService;
   records: MemoryRecordService;
-  spaceRepository: DexieMemorySpaceRepository;
-  tableRepository: DexieMemoryTableRepository;
-  fieldRepository: DexieMemoryFieldRepository;
-  recordRepository: DexieMemoryRecordRepository;
+  spaceRepository: SqliteRepositories["spaces"];
+  tableRepository: SqliteRepositories["tables"];
+  fieldRepository: SqliteRepositories["fields"];
+  recordRepository: SqliteRepositories["records"];
 }
 
-/**
- * 把 Dexie 四个 repository 与 Memory 服务接成一套（id 自增、时钟可注入），
- * 供 integration / 存储层测试装配临时库与仓库。
- */
-export function createServices(db: SteMemoryDatabase, now: () => string = () => NOW): TestServices {
-  const spaceRepository = new DexieMemorySpaceRepository(db);
-  const tableRepository = new DexieMemoryTableRepository(db);
-  const fieldRepository = new DexieMemoryFieldRepository(db);
-  const recordRepository = new DexieMemoryRecordRepository(db);
+/** 真实 SQLite 负责空间读写；辅助 Dexie 与空间运行库分别管理生命周期。 */
+export async function createServices(
+  db: SteMemoryDatabase = createTestDatabase(),
+  now: () => string = () => NOW,
+): Promise<TestServices> {
+  const client = await createInProcessSqliteMemoryClient();
+  memoryClients.push(client);
+  const memoryStore = new SqliteMemoryStore(client, {
+    saveSnapshot: async (_snapshot, saved) => {
+      await saved?.();
+    },
+    assertCanEdit: () => {},
+    reportRefreshError: console.error,
+  });
+  const repositories = memoryStore.repositories();
+  const spaceRepository = repositories.spaces;
+  const tableRepository = repositories.tables;
+  const fieldRepository = repositories.fields;
+  const recordRepository = repositories.records;
   let spaceSeq = 0;
   let tableSeq = 0;
   let fieldSeq = 0;
@@ -110,6 +123,7 @@ export function createServices(db: SteMemoryDatabase, now: () => string = () => 
   let evidenceSeq = 0;
   return {
     db,
+    memoryStore,
     spaces: new MemorySpaceService(
       spaceRepository,
       () => `space-${++spaceSeq}` as MemorySpaceId,

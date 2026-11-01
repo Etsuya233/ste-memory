@@ -1,6 +1,7 @@
+import { snapshotSaveSummary } from "../../models/shell/space-info.ts";
 import { useEffect, useState } from "react";
 import { ChevronRight, Settings } from "lucide-react";
-import type { ChatMirrorStatus } from "../../../features/chat-mirror/chat-metadata-mirror-sync.ts";
+import type { ChatSnapshotSaveStatus } from "../../../features/chat-mirror/chat-snapshot-persistence.ts";
 import { AutoFillSettingsPage } from "./auto-fill-settings-page.tsx";
 import { ConnectionsPage } from "./connections-page.tsx";
 import { EmbeddingSettingsPage } from "./embedding-settings-page.tsx";
@@ -41,7 +42,7 @@ import { usePageLeave, type RegisterLeaveGuard } from "../../components/confirma
 import { usePageScroll } from "../../components/use-page-scroll.ts";
 import {
   saveFillTimeout,
-  setSettingToggle,
+  setPluginEnabled,
   type SettingsSaveResult,
   type SettingsServices,
 } from "./settings-actions.ts";
@@ -74,7 +75,7 @@ type SettingsPageProps = {
   services: SettingsServices;
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
-  mirror: ChatMirrorStatus;
+  persistence: ChatSnapshotSaveStatus;
   cleaning: CleaningServices;
   macros: MacroServices;
   presets: PresetSettingsServices;
@@ -233,7 +234,7 @@ function SettingsOverview({
   services,
   controls,
   registerLeaveGuard,
-  mirror,
+  persistence,
   context,
   onOpen,
 }: SettingsPageProps & { onOpen: (section: SettingsSection) => void }) {
@@ -300,17 +301,7 @@ function SettingsOverview({
         className="ste:shrink-0 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-muted-foreground"
         aria-live="polite"
       >
-        {mirror.kind === "failed" ? (
-          <span className="ste:text-destructive">对话文件同步失败：{mirror.error}</span>
-        ) : mirror.kind === "saving" ? (
-          "正在写入对话文件…"
-        ) : mirror.kind === "disabled" ? (
-          "对话文件同步已暂停"
-        ) : mirror.lastWrittenAt ? (
-          `最近写入：${new Date(mirror.lastWrittenAt).toLocaleString()}`
-        ) : (
-          "尚未写入对话文件"
-        )}
+        {persistence.kind === "saved" ? snapshotSaveSummary(persistence) : "记忆随当前对话文件保存"}
       </div>
       <PageContent ref={scroll.ref} onScroll={scroll.onScroll} className="ste:space-y-4">
         {notice ? (
@@ -350,21 +341,10 @@ function SettingsOverview({
             </Field>
             <SwitchField
               label="启用记忆插件"
-              description="关闭后暂停同步和记忆宏；仍可在这里重新开启。"
+              description="关闭后暂停记忆业务和宏；已提交的内容继续保存到对话文件。"
               checked={settings.enabled}
               disabled={busy}
-              onCheckedChange={(value) =>
-                void save(() => setSettingToggle(services, "enabled", value))
-              }
-            />
-            <SwitchField
-              label="同步到对话文件"
-              description={`随对话文件保存记忆快照${settings.mirror.includeHistory ? "与修订历史" : ""}。插件关闭时暂停同步。`}
-              checked={settings.mirror.enabled}
-              disabled={busy}
-              onCheckedChange={(value) =>
-                void save(() => setSettingToggle(services, "mirror", value))
-              }
+              onCheckedChange={(value) => void save(() => setPluginEnabled(services, value))}
             />
             <form
               className="ste:space-y-3"

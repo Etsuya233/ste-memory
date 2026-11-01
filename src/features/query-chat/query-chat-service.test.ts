@@ -54,10 +54,10 @@ async function createHarness(
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-query-chat-${++harnessSeq}-`);
-  const services = createServices(db, () => NOW);
+  const services = await createServices(db, () => NOW);
   const { spaces, tables, fields } = services;
   const space = await spaces.create("会话");
-  await installDefaultPreset(db, space.id);
+  await installDefaultPreset(services.memoryStore, space.id);
   const spaceId = space.id;
 
   const reader: MemorySpaceReader = {
@@ -337,7 +337,7 @@ describe("记忆助手会话", () => {
     const token = h.store.get(session.id).previewId!;
     await h.service.confirm(session.id, token);
     await expect(another.confirm(session.id, token)).rejects.toThrow("提案已变化");
-    expect(await h.db.memoryRecords.toArray()).toHaveLength(1);
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
   });
   it("工具完成后取消仍保存提案与工具历史，刷新后可继续确认", async () => {
     const draft = draftScript();

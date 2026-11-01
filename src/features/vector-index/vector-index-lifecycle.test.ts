@@ -165,7 +165,7 @@ describe("向量任务生命周期与调度", () => {
     "目标检查期间 %s 不会复活排队任务",
     async (action) => {
       const ctx = fixture();
-      const blocker = ctx.add(background, "blocker");
+      const blocker = ctx.add(current, "blocker");
       const item = ctx.add(current, "target");
       const service = ctx.service();
       await service.submit(blocker.scope, { source: "manual" });
@@ -200,6 +200,28 @@ describe("向量任务生命周期与调度", () => {
       );
     },
   );
+
+  it("离开聊天只中断running请求，保留queued，迟到结果不写向量", async () => {
+    const ctx = fixture();
+    const first = ctx.add(current, "running");
+    const second = ctx.add(current, "queued");
+    const service = ctx.service();
+    await service.submit(first.scope, { source: "manual" });
+    await flush();
+    await service.submit(second.scope, { source: "manual" });
+    ctx.setCurrent(background);
+    await service.pauseSpace(current);
+    expect([...ctx.tasks.values()].find((task) => task.recordId === first.record.id)!.status).toBe(
+      "interrupted",
+    );
+    expect([...ctx.tasks.values()].find((task) => task.recordId === second.record.id)!.status).toBe(
+      "queued",
+    );
+    ctx.requests[0]!.resolve([1, 2]);
+    await flush();
+    expect(ctx.vectors.size).toBe(0);
+    expect(ctx.requests).toHaveLength(1);
+  });
 
   it("失败的强制重算重试保留 force，旧缓存不会跳过请求", async () => {
     const ctx = fixture();
@@ -282,9 +304,9 @@ describe("向量任务生命周期与调度", () => {
       "independent",
     );
   });
-  it("手动任务跨空间优先，同来源优先当前空间，执行完当前请求后重新排序", async () => {
+  it("只执行当前聊天队列，手动任务优先，切回其他聊天后继续其排队任务", async () => {
     const ctx = fixture();
-    const blocker = ctx.add(background, "blocker");
+    const blocker = ctx.add(current, "blocker");
     const backgroundAuto = ctx.add(background, "background-auto");
     const currentAuto = ctx.add(current, "current-auto");
     const backgroundManual = ctx.add(background, "background-manual", "manual");
@@ -297,16 +319,25 @@ describe("向量任务生命周期与调度", () => {
     await service.submit(currentAuto.scope, { source: "automatic" });
     await service.submit(backgroundManual.scope, { source: "manual" });
     await service.submit(currentManual.scope, { source: "manual" });
-    for (const expected of [
-      "内容：current-manual",
-      "内容：background-manual",
-      "内容：current-auto",
-      "内容：background-auto",
-    ]) {
+    for (const expected of ["内容：current-manual", "内容：current-auto"]) {
       ctx.requests.at(-1)!.resolve([1, 2]);
       await flush();
       expect(ctx.requests.at(-1)?.input).toBe(expected);
     }
+    ctx.requests.at(-1)!.resolve([1, 2]);
+    await flush();
+    expect(
+      [...ctx.tasks.values()]
+        .filter((task) => task.memorySpaceId === background)
+        .every((task) => task.status === "queued"),
+    ).toBe(true);
+    ctx.setCurrent(background);
+    await service.reconcile({ memorySpaceId: background });
+    await flush();
+    expect(ctx.requests.at(-1)!.input).toBe("内容：background-manual");
+    ctx.requests.at(-1)!.resolve([1, 2]);
+    await flush();
+    expect(ctx.requests.at(-1)!.input).toBe("内容：background-auto");
     ctx.requests.at(-1)!.resolve([1, 2]);
     await flush();
     expect([...ctx.tasks.values()].every((task) => task.status === "succeeded")).toBe(true);
@@ -337,7 +368,7 @@ describe("向量任务生命周期与调度", () => {
 
   it("排队目标变化作废旧项，无关字段变化不触发重算", async () => {
     const ctx = fixture();
-    const blocker = ctx.add(background, "blocker");
+    const blocker = ctx.add(current, "blocker");
     const item = ctx.add(current, "target");
     const service = ctx.service();
     await service.submit(blocker.scope, { source: "manual" });

@@ -167,10 +167,8 @@ describe("runtime 向量索引接线", () => {
       expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(1);
     });
     expect(inputs).toEqual(["内容：手动内容"]);
-    const unit = (await runtime.backup.loadSnapshot()).spaces.find(
-      (item) => item.space.id === spaceId,
-    )!;
-    await runtime.backup.restoreSpace(unit);
+    const unit = await runtime.backup.exportCurrentSpace();
+    await runtime.manager.importSpace(unit);
     await waitFor(async () => {
       expect(await db.recordVectors.where("memorySpaceId").equals(spaceId).count()).toBe(0);
       expect(await db.vectorTasks.where("memorySpaceId").equals(spaceId).count()).toBe(0);
@@ -215,7 +213,7 @@ describe("runtime 向量索引接线", () => {
 });
 
 describe("runtime 向量检索接线", () => {
-  it("真实Dexie变更让查询过期，纯向量替换保留结果，切同空间chat代次丢弃迟到响应", async () => {
+  it("SQLite提交使查询过期，纯向量替换保留结果，切聊返回后丢弃迟到响应", async () => {
     let resolveQuery: ((value: readonly number[]) => void) | undefined;
     const ctx = await setup({
       getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
@@ -262,14 +260,11 @@ describe("runtime 向量检索接线", () => {
     await waitFor(async () => {
       expect(resolveQuery).toBeTypeOf("function");
     });
-    Object.assign(ctx.context, { chatId: "same-space-other-chat" });
-    runtime.adapter.bindingStore.write({ version: 1, spaceId });
-    ctx.handlers.get("chat_changed")!();
-    await runtime.manager.syncToCurrentChat();
-    Object.assign(ctx.context, { chatId: "vector-chat" });
-    runtime.adapter.bindingStore.write({ version: 1, spaceId });
-    ctx.handlers.get("chat_changed")!();
-    await runtime.manager.syncToCurrentChat();
+    const metadata = structuredClone(ctx.context.chatMetadata);
+    Object.assign(ctx.context, { chatId: "other-chat", chatMetadata: {} });
+    await ctx.handlers.get("chat_changed")!();
+    Object.assign(ctx.context, { chatId: "vector-chat", chatMetadata: metadata });
+    await ctx.handlers.get("chat_changed")!();
     resolveQuery!([1, 0]);
     await pending;
     expect(runtime.retrieval.getState()).toMatchObject({ status: "idle", result: null });

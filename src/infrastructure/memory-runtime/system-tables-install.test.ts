@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { createServices, createTestDatabase, installDefaultPreset } from "../test-support.ts";
+import {
+  createServices,
+  createTestDatabase,
+  installDefaultPreset,
+} from "../indexeddb/test-support.ts";
 
 describe("系统自带预设初始化（Dexie）", () => {
   it("按系统默认预设创建八张表，含字段、引用目标与显示策略", async () => {
-    const services = createServices(createTestDatabase());
+    const services = await createServices(createTestDatabase());
     const { spaces, tableRepository, fieldRepository } = services;
     const space = await spaces.create("会话");
 
-    await installDefaultPreset(services.db, space.id);
+    await installDefaultPreset(services.memoryStore, space.id);
 
     const installed = await tableRepository.list(space.id);
     expect(installed).toHaveLength(8);
@@ -78,13 +82,13 @@ describe("系统自带预设初始化（Dexie）", () => {
   });
 
   it("每个空间的实例互相隔离（同 Key 不同 ID、引用不跨空间）", async () => {
-    const services = createServices(createTestDatabase());
+    const services = await createServices(createTestDatabase());
     const { spaces, tableRepository, fieldRepository } = services;
     const spaceA = await spaces.create("会话 A");
     const spaceB = await spaces.create("会话 B");
 
-    await installDefaultPreset(services.db, spaceA.id);
-    await installDefaultPreset(services.db, spaceB.id);
+    await installDefaultPreset(services.memoryStore, spaceA.id);
+    await installDefaultPreset(services.memoryStore, spaceB.id);
 
     const tablesA = await tableRepository.list(spaceA.id);
     const tablesB = await tableRepository.list(spaceB.id);

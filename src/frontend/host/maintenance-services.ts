@@ -1,25 +1,17 @@
+import { ChatSnapshotReplacementSaveError } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 import type { SteMemoryRuntime } from "../../runtime.ts";
 import { RecordsClearCleanupError } from "../../features/space-maintenance/space-maintenance-service.ts";
+import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
+import { spaceExportFilename } from "../../features/backup/space-transfer.ts";
 import {
-  chatIdentityKey,
-  ImportedSpaceSyncError,
-} from "../../features/chat-binding/chat-space-manager.ts";
-import { planSpaceImport, executeSpaceImport } from "../../features/chat-binding/space-import.ts";
-import {
-  planFullBackupImport,
-  executeFullBackupImport,
-  buildSpaceExportUnit,
-  backupFilename,
-  spaceExportFilename,
-} from "../../features/backup/space-transfer.ts";
-import { createBackupFile, serializeBackupFile } from "../../features/backup/backup-codec.ts";
+  createBackupFile,
+  parseBackupFile,
+  serializeBackupFile,
+} from "../../features/backup/backup-codec.ts";
 import { MemoryCommitPersistenceError, type MemorySpaceId } from "../../features/memory/index.ts";
 import { downloadTextFile } from "../../infrastructure/browser/download.ts";
 import type { RecordsContext } from "../pages/records-workspace.ts";
-import type {
-  MaintenanceServices,
-  MaintenanceOutcome,
-} from "../pages/maintenance/maintenance-page.tsx";
+import type { MaintenanceServices } from "../pages/maintenance/maintenance-page.tsx";
 
 export function createMaintenanceServices(
   runtime: SteMemoryRuntime,
@@ -33,174 +25,76 @@ export function createMaintenanceServices(
       ? { chatKey, spaceId: status.space.id, title: status.space.name }
       : null;
   };
-  function assertChat(chatKey: string | undefined, spaceId?: MemorySpaceId) {
-    if (
-      !runtime.settings.read().enabled ||
-      !chatKey ||
-      chatIdentityKey(runtime.adapter.getChatSnapshot()) !== chatKey
-    )
-      throw new Error("当前对话已切换或插件已停用，请重新预览操作");
-    if (spaceId && currentContext()?.spaceId !== spaceId)
-      throw new Error("当前记忆空间已变化，请重新预览操作");
+  function assertTarget(target: RecordsContext) {
+    const current = currentContext();
+    if (current?.chatKey !== target.chatKey || current.spaceId !== target.spaceId)
+      throw new Error("当前对话已切换或记忆空间已变化，请重新预览操作");
   }
-  async function synchronize(): Promise<void> {
-    await runtime.manager.syncToCurrentChat();
-    await Promise.all([runtime.macro.kick(), runtime.mirror.kick(), onChanged()]);
+  async function refresh(): Promise<void> {
+    await Promise.all([runtime.macro.kick(), onChanged()]);
   }
   return {
     currentContext,
-    canImportCurrent: () =>
-      runtime.settings.read().enabled && !!chatIdentityKey(runtime.adapter.getChatSnapshot()),
-    exportBackup: async (scope, includeHistory) => {
-      const context = currentContext();
-      if (scope === "current" && !context) throw new Error("请先打开有记忆空间的对话");
-      const macros = scope === "current" ? runtime.cleaning.readChatScopeMacros() : undefined;
-      const snapshot = await runtime.backup.loadSnapshot();
-      let spaces = snapshot.spaces;
-      if (scope === "current") {
-        assertChat(context!.chatKey, context!.spaceId);
-        const unit = buildSpaceExportUnit(snapshot, context!.spaceId, includeHistory, macros);
-        if (!unit) throw new Error("目标空间已不存在，无法导出");
-        spaces = [unit];
-      } else if (!includeHistory) spaces = spaces.map((unit) => ({ ...unit, history: [] }));
-      const file = createBackupFile({ spaces }, runtime.version, new Date().toISOString());
-      downloadTextFile(
-        serializeBackupFile(file),
-        scope === "all" ? backupFilename(file.exportedAt) : spaceExportFilename(file.exportedAt),
-      );
+    exportBackup: async () => {
+      const target = currentContext();
+      if (!target) throw new Error("请先打开有记忆空间的对话");
+      const unit = await runtime.backup.exportCurrentSpace();
+      assertTarget(target);
+      const file = createBackupFile({ spaces: [unit] }, runtime.version, new Date().toISOString());
+      downloadTextFile(serializeBackupFile(file), spaceExportFilename(file.exportedAt));
       return true;
     },
-    previewImport: async (text, scope) => {
-      const context = currentContext();
-      const chatKey = chatIdentityKey(runtime.adapter.getChatSnapshot());
-      assertChat(chatKey, context?.spaceId);
-      const readBindingId = () => {
-        const status = runtime.manager.getStatus();
-        return status?.kind === "active"
-          ? status.space.id
-          : status?.kind === "space-missing" || status?.kind === "branch-detected"
-            ? status.binding.spaceId
-            : null;
-      };
-      const bindingId = readBindingId();
-      const assertImportTarget = () => {
-        assertChat(chatKey);
-        if (readBindingId() !== bindingId)
-          throw new Error("当前对话的空间绑定已变化，请重新预览导入文件");
-      };
-      const full = scope === "all" ? planFullBackupImport(text) : null;
-      const single =
-        scope === "current" ? planSpaceImport(text, runtime.manager.getStatus()) : null;
-      if (full?.kind === "error") throw new Error(full.message);
-      if (single?.kind === "error") throw new Error(single.message);
-      const units =
-        full?.kind === "ready"
-          ? full.data.spaces
-          : single?.kind === "ready"
-            ? [single.action.unit]
-            : [];
+    previewImport: async (text) => {
+      const target = currentContext();
+      if (!target) throw new Error("请先打开有记忆空间的对话");
+      const file = parseBackupFile(text);
+      if (file.data.spaces.length !== 1) throw new Error("导入文件必须只包含一个记忆空间");
+      const unit = file.data.spaces[0]!;
       let applied = false;
       return {
-        scope,
-        spaceCount: units.length,
-        recordCount: units.reduce((total, unit) => total + unit.records.length, 0),
-        summary: units
-          .map(
-            (unit) =>
-              `${unit.space.name}：${unit.tables.length} 张表，${unit.records.length} 条记录`,
-          )
-          .join("\n"),
-        confirmMessage: full?.kind === "ready" ? full.confirmMessage : single!.confirmMessage,
+        recordCount: unit.records.length,
+        summary: `${unit.space.name}：${unit.tables.length} 张表，${unit.records.length} 条记录`,
+        confirmMessage: `将以「${unit.space.name}」替换当前对话「${target.title}」的记忆空间。`,
         apply: async () => {
-          if (applied) throw new Error("此导入已提交，请重新加载数据，勿重复导入");
-          assertImportTarget();
-          const affected =
-            scope === "all"
-              ? (await runtime.backup.loadSnapshot()).spaces.map((unit) => unit.space.id)
-              : context
-                ? [context.spaceId]
-                : [];
-          for (const id of new Set([...affected, ...units.map((unit) => unit.space.id)])) {
-            await runtime.presetApply.stopSpaceWrites(id);
-            await clearHistory(id);
-          }
-          assertImportTarget();
-          const normalize = async (
-            unit: Parameters<SteMemoryRuntime["normalizeImportedSpace"]>[0],
-          ) => {
-            const normalized = await runtime.normalizeImportedSpace(unit);
-            assertImportTarget();
-            return normalized;
-          };
+          if (applied) throw new Error("此导入预览已使用，请重新加载数据，勿重复导入");
+          assertTarget(target);
+          await runtime.presetApply.stopSpaceWrites(target.spaceId);
+          assertTarget(target);
+          const normalized = await runtime.normalizeImportedSpace(unit);
+          assertTarget(target);
+          // 候选空间先保存到原对话文件；失败时由 persistence 保留候选并提供保存重试。
           try {
-            if (full?.kind === "ready")
-              await executeFullBackupImport(full, {
-                normalizeImportedSpace: normalize,
-                backup: {
-                  restoreSnapshot: async (snapshot) => {
-                    assertImportTarget();
-                    await runtime.backup.restoreSnapshot(snapshot);
-                    applied = true;
-                  },
-                },
-                syncToCurrentChat: async () => {},
-                kickMacros: () => {},
-                onDataChanged: () => {},
-              });
-            else if (single?.kind === "ready")
-              await executeSpaceImport(single, {
-                normalizeImportedSpace: normalize,
-                backup: {
-                  restoreSpace: async (unit) => {
-                    assertImportTarget();
-                    await runtime.backup.restoreSpace(unit);
-                    applied = true;
-                  },
-                },
-                manager: {
-                  syncToCurrentChat: async () => undefined,
-                  importSpace: async (unit) => {
-                    assertImportTarget();
-                    const result = await runtime.manager.importSpace(unit);
-                    applied = true;
-                    return result;
-                  },
-                },
-                kickMacros: () => {},
-                kickMirror: () => {},
-                onDataChanged: () => {},
-              });
-            await synchronize();
-            return { kind: "done", message: `已导入 ${units.length} 个记忆空间。` };
+            await runtime.manager.importSpace(normalized);
           } catch (cause) {
-            if (
-              cause instanceof MemoryCommitPersistenceError ||
-              cause instanceof ImportedSpaceSyncError
-            )
-              applied = true;
-            if (!applied) throw cause;
+            if (!(cause instanceof ChatSnapshotReplacementSaveError)) throw cause;
+            applied = true;
+            return { kind: "replacement-not-saved", message: cause.humanMsg };
+          }
+          applied = true;
+          try {
+            await clearHistory(target.spaceId);
+            await refresh();
+            return { kind: "done", message: "当前对话的记忆空间已替换。" };
+          } catch (cause) {
             return {
               kind: "applied-with-sync-issue",
-              message: `导入数据已提交，后续同步未完成：${cause instanceof Error ? cause.message : String(cause)}`,
+              message: `导入已保存，后续刷新未完成：${cause instanceof Error ? cause.message : String(cause)}`,
             };
           }
         },
       };
     },
     clearRecords: async (target) => {
-      assertChat(target.chatKey, target.spaceId);
+      assertTarget(target);
       let applied = false;
       try {
         await clearHistory(target.spaceId);
         if (
-          !(await runtime.spaceMaintenance.clearRecords(target.spaceId, () => {
-            assertChat(target.chatKey, target.spaceId);
-          }))
+          !(await runtime.spaceMaintenance.clearRecords(target.spaceId, () => assertTarget(target)))
         )
           throw new Error("目标空间已不存在");
         applied = true;
-        await clearHistory(target.spaceId);
-        await synchronize();
+        await refresh();
         return { kind: "done", message: `已清除「${target.title}」的记录、历史与证据。` };
       } catch (cause) {
         if (
@@ -209,11 +103,10 @@ export function createMaintenanceServices(
         )
           applied = true;
         if (!applied) throw cause;
-        const outcome: MaintenanceOutcome = {
+        return {
           kind: "applied-with-sync-issue",
-          message: `记录已清除，后续同步未完成：${cause instanceof Error ? cause.message : String(cause)}`,
+          message: `记录清除已提交，后续保存或刷新未完成：${cause instanceof Error ? cause.message : String(cause)}`,
         };
-        return outcome;
       }
     },
   };

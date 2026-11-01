@@ -1,9 +1,9 @@
-import type { MemoryFieldKey, MemoryTableId } from "../../../features/memory/index.ts";
+import type { MemoryFieldKey, MemoryTableId } from "../../features/memory/index.ts";
 import { describe, expect, it } from "vitest";
-import { createServices, createTestDatabase } from "../test-support.ts";
+import { createServices, createTestDatabase } from "../indexeddb/test-support.ts";
 
 async function setupFieldTest() {
-  const services = createServices(createTestDatabase());
+  const services = await createServices(createTestDatabase());
   const space = await services.spaces.create("会话");
   const table = await services.tables.create(space.id, {
     key: "clues",
@@ -16,7 +16,7 @@ async function setupFieldTest() {
   return { ...services, spaceId: space.id, tableId };
 }
 
-describe("Dexie memory field repository", () => {
+describe("SQLite memory field services", () => {
   it("creates, finds, updates and deletes a field with full configuration", async () => {
     const { fields, fieldRepository, spaceId, tableId } = await setupFieldTest();
 
@@ -75,7 +75,7 @@ describe("Dexie memory field repository", () => {
   });
 
   it("isolates fields by memory space and table (跨空间/跨表互不可见)", async () => {
-    const services = createServices(createTestDatabase());
+    const services = await createServices(createTestDatabase());
     const spaceA = await services.spaces.create("空间 A");
     const spaceB = await services.spaces.create("空间 B");
     const tableA = await services.tables.create(spaceA.id, {

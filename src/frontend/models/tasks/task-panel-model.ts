@@ -174,6 +174,17 @@ export function validateFloorRange(
 /** 任务状态 → 文案：running 带进度；failed 带可读失败原因；succeeded/interrupted 终态短语。
  *  初始化任务（kind=init）无楼层：running 显示初始化文案，不显示楼层进度。 */
 export function taskStatusViewModel(task: FillTaskView): TaskStatusViewModel {
+  // marker 在提交前建立；运行中沿用保存阶段，刷新中断后不能据此断言已经提交。
+  if (task.pendingSave && task.status === "failed")
+    return {
+      label: "等待保存",
+      detail: "本批修改已提交，等待保存完成。请使用工作台顶部的保存重试。",
+    };
+  if (task.pendingSave && task.status === "interrupted")
+    return {
+      label: "保存待核对",
+      detail: "上次批次保存未确认，请先核对对话记忆。可取消队列后主动重新提交，取消不会自动重放。",
+    };
   switch (task.status) {
     case "queued":
       return { label: "等待中", detail: "按提交顺序等待执行" };
@@ -326,7 +337,7 @@ function toHistoryItem(task: FillTaskView): TaskHistoryItemViewModel {
     timeText: formatDisplayTime(task.createdAt),
     progressText: taskProgressText(task),
     errorMessage: task.errorMessage,
-    retryable: task.status === "failed" || task.status === "interrupted",
+    retryable: !task.pendingSave && (task.status === "failed" || task.status === "interrupted"),
   };
 }
 

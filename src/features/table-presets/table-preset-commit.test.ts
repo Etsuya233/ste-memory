@@ -35,7 +35,7 @@ describe("preset rebuild commit boundary", () => {
       await service.applyPreset("s" as MemorySpaceId, SYSTEM_TABLE_PRESET, {
         chatIdentity: "a",
         refreshMacros: refresh,
-        syncMirror: mirror,
+        saveSnapshot: mirror,
       }),
     ).toMatchObject({
       kind: "applied-with-sync-issue",

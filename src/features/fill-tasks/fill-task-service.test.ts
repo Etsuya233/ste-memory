@@ -1,3 +1,4 @@
+import { ChatSnapshotPersistence } from "../chat-mirror/chat-snapshot-persistence.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import {
@@ -6,6 +7,7 @@ import {
   SUBMIT_PROPOSAL_TOOL_NAME,
 } from "../agent/index.ts";
 import {
+  MemoryCommitPersistenceError,
   MemoryRecordService,
   MemoryRecordQueryService,
   type MemoryEvidenceId,
@@ -189,6 +191,8 @@ interface Harness {
   readonly tasks: DexieFillTaskRepository;
   readonly ledger: DexieFloorLedgerRepository;
   readonly logs: LogRepository;
+  readonly persistence: ChatSnapshotPersistence;
+  readonly retrySave: () => Promise<void>;
 }
 
 let harnessSeq = 0;
@@ -212,10 +216,10 @@ async function createHarness(
   } = {},
 ): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-${++harnessSeq}-`);
-  const services = createServices(db, () => NOW);
+  const services = await createServices(db, () => NOW);
   const { spaces, tables, fields } = services;
   const space = await spaces.create("会话");
-  await installDefaultPreset(db, space.id);
+  await installDefaultPreset(services.memoryStore, space.id);
   const spaceId = space.id;
 
   const tasks = new DexieFillTaskRepository(db, () => NOW);
@@ -242,96 +246,98 @@ async function createHarness(
         services.recordRepository,
       ).query(memorySpaceId, input),
   };
-  const ports = {
-    tables: services.tableRepository,
-    fields: services.fieldRepository,
-    records: services.recordRepository,
-  };
   let recordSeq = 0;
   let historySeq = 0;
   let revisionSeq = 0;
   let evidenceSeq = 0;
   let runSeq = 0;
+  const target = {
+    kind: "character" as const,
+    identity: "character:story",
+    chatId: "story",
+    avatarUrl: "character.png",
+  };
+  const binding = { version: 2 as const, spaceId, chatIdentity: target.identity };
+  const persistence = new ChatSnapshotPersistence(
+    {
+      read: async () => undefined,
+      write: async () => {
+        await options.onSave?.();
+        if (options.saveError) throw new Error("聊天文件保存失败");
+      },
+      publish: () => {},
+    },
+    () => "test",
+  );
+  services.memoryStore.saveSnapshot = (unit, saved) =>
+    persistence.saveCommitted(target, binding, unit, saved);
   const service = new FillTaskService({
     tasks,
     ledger,
     source,
-    beginTask: async () => {
-      const staged = createTestDatabase(`ste-fill-staged-${++harnessSeq}-`);
-      const stagedServices = createServices(staged, () => NOW);
-      for (const name of [
-        "memoryTables",
-        "memoryFields",
-        "memoryRecords",
-        "memoryRecordHistory",
-        "memoryEvidence",
-      ] as const) {
-        await staged.table(name).bulkPut(await db.table(name).toArray());
-      }
+    beginTask: async (task, signal) => {
+      signal.throwIfAborted();
+      const memoryStore = services.memoryStore;
+      const token = await memoryStore.begin(task.memorySpaceId);
+      const baseline = await memoryStore.client.exportSpace(task.memorySpaceId, "write");
+      const taskRepositories = memoryStore.repositories("write", token);
       const writer = new MemoryRecordService(
-        stagedServices.tableRepository,
-        stagedServices.fieldRepository,
-        stagedServices.recordRepository,
+        taskRepositories.tables,
+        taskRepositories.fields,
+        taskRepositories.records,
         () => `record-${++recordSeq}` as MemoryRecordId,
         () => `history-${++historySeq}` as MemoryRecordHistoryId,
         () => `revision-${++revisionSeq}` as MemoryRevisionId,
         () => NOW,
+        taskRepositories.records,
+        () => `evidence-${++evidenceSeq}` as MemoryEvidenceId,
       );
+      let ended = false;
+      // 一个批次独占写视图；普通reader始终读取最新已提交快照。
       return {
         reader: {
           ...reader,
           queryRecords: (spaceId, input) =>
             new MemoryRecordQueryService(
-              stagedServices.tableRepository,
-              stagedServices.fieldRepository,
-              stagedServices.recordRepository,
+              taskRepositories.tables,
+              taskRepositories.fields,
+              taskRepositories.records,
             ).query(spaceId, input),
         },
-        ports: { ...ports, records: stagedServices.recordRepository },
-        evidence: stagedServices.recordRepository,
-        recordWriter: writer,
-        commitAndSave: async () => {
-          const names = ["memoryRecords", "memoryRecordHistory", "memoryEvidence"] as const;
-          const snapshots = await Promise.all(names.map((name) => staged.table(name).toArray()));
-          await db.transaction(
-            "rw",
-            [db.memoryRecords, db.memoryRecordHistory, db.memoryEvidence],
-            async () => {
-              for (let i = 0; i < names.length; i++) {
-                await db.table(names[i]!).clear();
-                await db.table(names[i]!).bulkPut(snapshots[i]!);
-              }
-            },
-          );
-          await options.onSave?.();
-          if (options.saveError) throw new Error("聊天文件保存失败");
+        ports: {
+          tables: taskRepositories.tables,
+          fields: taskRepositories.fields,
+          records: taskRepositories.records,
         },
-        rollback: async () => {},
+        evidence: taskRepositories.records,
+        recordWriter: writer,
+        commitAndSave: async (saved) => {
+          signal.throwIfAborted();
+          await memoryStore.consolidateTask(
+            baseline,
+            token,
+            `revision-${++revisionSeq}` as MemoryRevisionId,
+            NOW,
+          );
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, true, saved);
+        },
+        rollback: async () => {
+          if (ended) return;
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, false);
+        },
         release: async () => {
-          await staged.delete();
+          if (ended) return;
+          ended = true;
+          await memoryStore.finish(task.memorySpaceId, token, false);
         },
       };
     },
     runInTransaction: (work) =>
-      // 事务作用域函数必须声明为 async：非 async 包装（() => work()）不会触发
-      // Dexie 的 expected-awaits 追踪，事务会在承诺链完成前提交（PrematureCommit）。
-      // 表集合 = 批次提交读写全集（表格/字段读取 + 记录/历史/证据/台账写入）。
-      db.transaction(
-        "rw",
-        [
-          db.memoryTables,
-          db.memoryFields,
-          db.memoryRecords,
-          db.memoryRecordHistory,
-          db.memoryEvidence,
-          db.floorFillLedger,
-          // 提交事务复检任务行（running 才写入）：任务表必须在事务作用域内
-          db.memoryFillTasks,
-        ],
-        async () => {
-          await work();
-        },
-      ),
+      db.transaction("rw", [db.floorFillLedger, db.memoryFillTasks], async () => {
+        await work();
+      }),
     createLlm: () => {
       if (options.createLlmThrows) throw new Error("Chat Completion 源未知：请在 ST 中配置可用源");
       return { streamFn: options.streamFn ?? scriptedFillAgent(), model: fakeModel() };
@@ -345,7 +351,17 @@ async function createHarness(
     logError: options.logError,
     onAutomaticSuccess: options.onAutomaticSuccess,
   });
-  return { service, db, services, spaceId, tasks, ledger, logs };
+  return {
+    service,
+    db,
+    services,
+    spaceId,
+    tasks,
+    ledger,
+    logs,
+    persistence,
+    retrySave: () => persistence.retry(target.identity),
+  };
 }
 
 /** 轮询任务行直到终态（超时抛错）。 */
@@ -422,9 +438,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // 旧任务没有落下任何记录/历史/证据/台账，也没有复活任务行
-    expect(await db.memoryRecords.count()).toBe(0);
-    expect(await db.memoryRecordHistory.count()).toBe(0);
-    expect(await db.memoryEvidence.count()).toBe(0);
+    expect((await harness.services.memoryStore.snapshot(spaceId))!.records.length).toBe(0);
+    expect((await harness.services.memoryStore.snapshot(spaceId))!.history.length).toBe(0);
+    expect((await harness.services.memoryStore.snapshot(spaceId))!.evidence.length).toBe(0);
     expect(await db.floorFillLedger.count()).toBe(0);
     expect(await db.memoryFillTasks.count()).toBe(0);
     expect(await service.activeTask(spaceId)).toBeUndefined();
@@ -463,7 +479,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       expect(record.source).toEqual({ type: "source", sourceTime: null, sourceLocation: null });
     }
     // 证据 6 条（整批 reference，source_type sync_floor）
-    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    const evidenceRows = (await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence;
     expect(evidenceRows).toHaveLength(6);
     expect(evidenceRows.every((row) => row.storage_mode === "reference")).toBe(true);
     expect(evidenceRows.map((row) => row.source_id).sort()).toEqual([0, 1, 2, 3, 4, 5]);
@@ -482,7 +498,7 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
   });
 
   it("台账标记失败：保留已经保存的完整记忆，楼层保持原状态", async () => {
-    // 台账写入抛错（同事务内第二步失败）：整批回滚，记录/历史/证据都不落库
+    // 文件已保存而台账收口抛错：台账与任务收口事务回滚，已提交记忆保留。
     const harness = await createHarness({
       streamFn: scriptedFillAgent(),
       failLedgerMarkProcessed: true,
@@ -494,13 +510,12 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
     expect(terminal.status).toBe("failed");
     expect(terminal.errorMessage).toContain("台账写入失败");
 
-    // 记录/历史/证据与台账同事务：提交被回滚，数据一行不留
+    // SQLite记忆已经提交；台账失败保留保存凭据，保存重试只补收口。
     const characters = (await services.tableRepository.findByKey(spaceId, "characters" as never))!;
     expect(await services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
-    expect(await harness.db.memoryRecordHistory.count()).toBe(0);
-    expect(await harness.db.memoryEvidence.count()).toBe(2);
-    // 台账「processed」标记随事务回滚（同批不产生半批状态）；失败收口在事务之外
-    // 单独把出错块标记 error，其余楼层保持 untracked（与块失败语义一致）
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.history.length).toBe(0);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence.length).toBe(2);
+    // 台账收口事务失败，不提前标 processed，也不将已保存批次标为 error。
     expect(await floorStatuses(harness)).toEqual([
       "untracked",
       "untracked",
@@ -577,7 +592,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       "characters" as never,
     ))!;
     expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(0);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      0,
+    );
     // 只跑了一块（首次 Agent 调用失败即停止）
     expect(streamFn.calls.count).toBe(1);
   });
@@ -627,7 +644,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       "characters" as never,
     ))!;
     expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(2);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      2,
+    );
   });
 
   it("对话切换：块开始前检测到 chatId 变化，任务 interrupted，楼层不标记", async () => {
@@ -761,7 +780,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       "characters" as never,
     ))!;
     expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(1);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(2);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      2,
+    );
   });
 
   it("取消已终态任务抛状态错误；任务不存在抛 NotFound", async () => {
@@ -861,7 +882,9 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       "characters" as never,
     ))!;
     expect(await harness.services.recordRepository.list(spaceId, characters.id)).toHaveLength(2);
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(2);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      2,
+    );
   });
 
   it("最近任务列表：createdAt 倒序、视图带进度计数", async () => {
@@ -1731,7 +1754,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
     expect((await waitForTerminal(harness, view.runId)).status).toBe("succeeded");
     expect(cancelError).toBeInstanceOf(FillTaskStateError);
-    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(1);
   });
 
   it("保存失败保留已经提交的记忆，台账保持原样", async () => {
@@ -1741,7 +1764,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
       status: "failed",
       errorMessage: "聊天文件保存失败",
     });
-    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(1);
     expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(0);
   });
 
@@ -1765,7 +1788,7 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     await harness.ledger.markProcessed(harness.spaceId, [0]);
     const view = await harness.service.submit({ memorySpaceId: harness.spaceId, from: 0, to: 1 });
     expect((await waitForTerminal(harness, view.runId)).errorMessage).toContain("输入消息已变化");
-    expect(await harness.db.memoryRecords.count()).toBe(0);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(0);
     expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(0);
   });
 
@@ -1824,12 +1847,12 @@ describe("FillTaskService 填表生命周期行流（issue 02 / ADR 0016）", ()
     });
     await vi.waitFor(() => expect(streamFn.calls.count).toBe(5));
     expect(id).toBe("record-1");
-    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(1);
     expect(await harness.ledger.processedCount(harness.spaceId, 0, 1)).toBe(1);
     streamFn.gate.open();
     expect((await waitForTerminal(harness, view.runId)).status).toBe("succeeded");
     expect(observed).toEqual([0, 1]);
-    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(1);
   });
 });
 
@@ -2083,7 +2106,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     const records = await harness.services.recordRepository.list(spaceId, characters.id);
     expect(records).toHaveLength(1);
     expect(records[0]!.revisionSource).toBe("agent");
-    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    const evidenceRows = (await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence;
     expect(evidenceRows).toHaveLength(1);
     expect(evidenceRows[0]).toMatchObject({
       storage_mode: "snapshot",
@@ -2113,7 +2136,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     const second = await service.submitInit({ memorySpaceId: spaceId, text: "第二版设定" });
     await waitForTerminal(harness, second.runId);
 
-    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    const evidenceRows = (await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence;
     expect(evidenceRows).toHaveLength(2);
     expect(
       evidenceRows.map((row) => [
@@ -2178,7 +2201,7 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     expect(prompt).toContain("设定 **带标记** 原文");
     expect(prompt).not.toContain("设定  原文");
     // 证据存原文
-    const evidenceRows = await harness.db.memoryEvidence.toArray();
+    const evidenceRows = (await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence;
     expect(evidenceRows[0]).toMatchObject({ content: "设定 **带标记** 原文" });
   });
 
@@ -2263,7 +2286,9 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     const terminal = await waitForTerminal(harness, view.runId);
     expect(terminal.status).toBe("succeeded");
     // 空提案不落数据（与楼层空提案语义一致：证据随批次提交保存）
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      0,
+    );
   });
 
   it("初始化与楼层任务共用队列，按提交顺序逐项运行", async () => {
@@ -2323,7 +2348,9 @@ describe("FillTaskService（初始化填表，spec init-fill）", () => {
     streamFn.gate.open();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(await harness.tasks.find(view.runId)).toMatchObject({ status: "interrupted" });
-    expect(await harness.db.memoryEvidence.toArray()).toHaveLength(0);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.evidence).toHaveLength(
+      0,
+    );
     const characters = (await harness.services.tableRepository.findByKey(
       spaceId,
       "characters" as never,
@@ -2488,7 +2515,7 @@ describe("填表 API 请求重试", () => {
     expect((await waitForTerminal(harness, task.runId)).status).toBe("succeeded");
     expect(calls).toBe(4);
     expect(contexts[2]).toEqual(contexts[1]);
-    expect(await harness.db.memoryRecords.count()).toBe(1);
+    expect((await harness.services.memoryStore.snapshot(harness.spaceId))!.records.length).toBe(1);
     const logs = await harness.logs.byKey(task.runId, 100);
     expect(
       logs.filter((log) => log.type === "fill-agent" && JSON.parse(log.text).kind === "context"),
@@ -2625,13 +2652,19 @@ describe("统一填表队列", () => {
     const h = await createHarness({ streamFn, onSave });
     const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 3, blockSize: 2 });
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const stopping = h.service.cancel(h.spaceId, task.runId, "chat-changed");
-    await vi.waitFor(() =>
-      expect(h.service.activeTask(h.spaceId)).resolves.toMatchObject({ phase: "saving" }),
-    );
-    finishSave();
-    expect(await stopping).toMatchObject({
-      status: "interrupted",
+    let returned = false;
+    const stopping = h.service.cancel(h.spaceId, task.runId, "chat-changed").then((view) => {
+      expect(view).toMatchObject({ status: "running", phase: "saving" });
+      returned = true;
+    });
+    try {
+      await vi.waitFor(() => expect(returned).toBe(true));
+    } finally {
+      finishSave();
+      await stopping;
+    }
+    expect(await waitForTerminal(h, task.runId)).toMatchObject({ status: "interrupted" });
+    expect(await h.tasks.find(task.runId)).toMatchObject({
       interruptionReason: "chat-changed",
       blocksQueue: true,
     });
@@ -2807,7 +2840,7 @@ describe("自动填表成功后续动作", () => {
     expect(onAutomaticSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it("保存失败不触发隐藏，原任务重试成功后触发", async () => {
+  it("保存失败不触发隐藏，原文件重试保存成功后收口并触发", async () => {
     let fail = true;
     const onAutomaticSuccess = vi.fn(async () => {});
     const h = await createHarness({
@@ -2826,8 +2859,9 @@ describe("自动填表成功后续动作", () => {
     expect((await waitForTerminal(h, task.runId)).status).toBe("failed");
     expect(onAutomaticSuccess).not.toHaveBeenCalled();
     fail = false;
-    const retried = await h.service.retry(h.spaceId, task.runId);
-    await waitForTerminal(h, retried.runId);
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(FillTaskStateError);
+    await h.retrySave();
+    expect(await h.tasks.find(task.runId)).toMatchObject({ status: "succeeded" });
     await vi.waitFor(() => expect(onAutomaticSuccess).toHaveBeenCalledTimes(1));
   });
 
@@ -2871,5 +2905,333 @@ describe("自动填表成功后续动作", () => {
     await cancelled;
     expect((await waitForTerminal(h, task.runId)).status).toBe("interrupted");
     expect(onAutomaticSuccess).not.toHaveBeenCalled();
+  });
+});
+
+describe("填表已提交批次的保存收口", () => {
+  it("填表保存A在途被普通编辑B替代时，等待最新B保存结果才收口且不重跑Agent", async () => {
+    let finishA!: () => void;
+    let finishB!: () => void;
+    const savingA = new Promise<void>((done) => {
+      finishA = done;
+    });
+    const savingB = new Promise<void>((done) => {
+      finishB = done;
+    });
+    let writes = 0;
+    const onSave = vi.fn(async () => {
+      writes += 1;
+      if (writes === 1) await savingA;
+      if (writes === 2) {
+        await savingB;
+        throw new Error("最新编辑B保存失败");
+      }
+    });
+    const onAutomaticSuccess = vi.fn(async () => {});
+    const stream = scriptedFillAgent();
+    const h = await createHarness({ streamFn: stream, onSave, onAutomaticSuccess });
+    const saves = vi.spyOn(h.persistence, "saveCommitted");
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    let editing: Promise<unknown> | undefined;
+    try {
+      await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const calls = stream.calls.count;
+      // B由真实SQLite普通编辑产生，文件A仍在途；两次调用共用最新保存结果。
+      editing = h.services.spaces.rename(h.spaceId, "普通编辑B").catch((error: unknown) => error);
+      await vi.waitFor(() => expect(saves).toHaveBeenCalledTimes(2));
+      expect(saves.mock.calls[1]![2].space.name).toBe("普通编辑B");
+      finishA();
+      await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+      expect(await h.tasks.find(task.runId)).toMatchObject({
+        status: "running",
+        pendingSave: { from: 0, to: 1 },
+      });
+      expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(0);
+      expect(onAutomaticSuccess).not.toHaveBeenCalled();
+      finishB();
+      expect(await editing).toBeInstanceOf(MemoryCommitPersistenceError);
+      expect((await waitForTerminal(h, task.runId)).status).toBe("failed");
+      expect(await h.tasks.find(task.runId)).toMatchObject({
+        blocksQueue: true,
+        pendingSave: { from: 0, to: 1, floors: [0, 1], nextFrom: null },
+      });
+      expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(0);
+      expect(onAutomaticSuccess).not.toHaveBeenCalled();
+      await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(
+        FillTaskStateError,
+      );
+      await h.retrySave();
+      expect(await h.tasks.find(task.runId)).toMatchObject({ status: "succeeded" });
+      expect((await h.tasks.find(task.runId))!.pendingSave).toBeUndefined();
+      expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(2);
+      expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
+      expect(stream.calls.count).toBe(calls);
+      expect(onSave).toHaveBeenCalledTimes(3);
+      expect(onAutomaticSuccess).toHaveBeenCalledTimes(1);
+    } finally {
+      finishA();
+      finishB();
+      await editing;
+    }
+  });
+
+  it.each(["saved", "failed"] as const)(
+    "文件请求未结束时切聊天立即返回，随后%s仍只收口原批次",
+    async (outcome) => {
+      let finishSave!: () => void;
+      const saving = new Promise<void>((done) => {
+        finishSave = done;
+      });
+      let chatId = "story";
+      const stream = emptyProposalAgent();
+      const onAutomaticSuccess = vi.fn(async () => {});
+      const onSave = vi.fn(async () => {
+        await saving;
+        if (outcome === "failed") throw new Error("原聊天保存失败");
+      });
+      const h = await createHarness({
+        streamFn: stream,
+        onSave,
+        onAutomaticSuccess,
+        source: {
+          chatId: () => chatId,
+          chatMessageCount: () => CHAT_LENGTH,
+          messagesInRange: defaultMessagesInRange,
+        },
+      });
+      const task = await h.service.submit({
+        memorySpaceId: h.spaceId,
+        from: 0,
+        to: 3,
+        blockSize: 2,
+        automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+      });
+      await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      chatId = "another-chat";
+      let returned = false;
+      const switching = h.service.interruptForChatChange().then(() => {
+        returned = true;
+      });
+      try {
+        // 文件门闩保持关闭，确认聊天切换的完成与文件请求独立。
+        await vi.waitFor(() => expect(returned).toBe(true));
+        expect(await h.service.activeTask(h.spaceId)).toMatchObject({
+          runId: task.runId,
+          phase: "saving",
+        });
+      } finally {
+        finishSave();
+        await switching;
+      }
+      expect((await waitForTerminal(h, task.runId)).status).toBe(
+        outcome === "saved" ? "interrupted" : "failed",
+      );
+      const settled = (await h.tasks.find(task.runId))!;
+      expect(settled.memorySpaceId).toBe(h.spaceId);
+      expect(settled.blocksQueue).toBe(true);
+      expect(await h.ledger.processedCount(h.spaceId, 0, 3)).toBe(outcome === "saved" ? 2 : 0);
+      expect(settled.pendingSave).toEqual(
+        outcome === "saved" ? undefined : { from: 0, to: 1, floors: [0, 1], nextFrom: 2 },
+      );
+      expect(stream.calls.count).toBe(1);
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(onAutomaticSuccess).not.toHaveBeenCalled();
+    },
+  );
+
+  it("文件失败后禁止业务重试，重试保存只收口原批次且不调用 Agent", async () => {
+    let failed = true;
+    const stream = scriptedFillAgent();
+    const h = await createHarness({
+      streamFn: stream,
+      onSave: async () => {
+        if (failed) throw new Error("文件离线");
+      },
+    });
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    await waitForTerminal(h, task.runId);
+    const calls = stream.calls.count;
+    expect(await h.tasks.find(task.runId)).toMatchObject({
+      status: "failed",
+      blocksQueue: true,
+      pendingSave: { from: 0, to: 1, floors: [0, 1], nextFrom: null },
+    });
+    expect(await h.ledger.statuses(h.spaceId, 0, 1)).toEqual([
+      { floor: 0, status: "untracked" },
+      { floor: 1, status: "untracked" },
+    ]);
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(FillTaskStateError);
+    failed = false;
+    await h.retrySave();
+    expect(await h.tasks.find(task.runId)).toMatchObject({
+      status: "succeeded",
+      blocksQueue: false,
+      nextFrom: null,
+    });
+    expect((await h.tasks.find(task.runId))!.pendingSave).toBeUndefined();
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(2);
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
+    expect(stream.calls.count).toBe(calls);
+  });
+
+  it("初始化文件重试收口原任务，不重放初始化 Agent 或生成第二条记录", async () => {
+    let failed = true;
+    const stream = scriptedFillAgent();
+    const h = await createHarness({
+      streamFn: stream,
+      onSave: async () => {
+        if (failed) throw new Error("文件离线");
+      },
+    });
+    const task = await h.service.submitInit({ memorySpaceId: h.spaceId, text: "初始设定" });
+    await waitForTerminal(h, task.runId);
+    const calls = stream.calls.count;
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(FillTaskStateError);
+    failed = false;
+    await h.retrySave();
+    expect(await h.tasks.find(task.runId)).toMatchObject({ status: "succeeded" });
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
+    expect(await h.db.floorFillLedger.count()).toBe(0);
+    expect(stream.calls.count).toBe(calls);
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(FillTaskStateError);
+  });
+
+  it("多批任务保存重试后中断待继续，手动继续从 nextFrom 开始", async () => {
+    let failed = true;
+    const stream = scriptedFillAgent();
+    const h = await createHarness({
+      streamFn: stream,
+      onSave: async () => {
+        if (failed) throw new Error("文件离线");
+      },
+    });
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 5, blockSize: 2 });
+    await waitForTerminal(h, task.runId);
+    const calls = stream.calls.count;
+    failed = false;
+    await h.retrySave();
+    expect(await h.tasks.find(task.runId)).toMatchObject({
+      status: "interrupted",
+      blocksQueue: true,
+      nextFrom: 2,
+    });
+    expect(stream.calls.count).toBe(calls);
+    const continued = await h.service.retry(h.spaceId, task.runId);
+    expect(continued).toMatchObject({ from: 2, to: 5 });
+    expect((await waitForTerminal(h, continued.runId)).status).toBe("succeeded");
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(3);
+    expect(await h.ledger.processedCount(h.spaceId, 0, 5)).toBe(6);
+  });
+
+  it("文件已写而台账收口失败时原子保留凭据，重试仅收口且可重复通知", async () => {
+    const onSave = vi.fn(async () => {});
+    const stream = scriptedFillAgent();
+    const h = await createHarness({ streamFn: stream, onSave });
+    const markProcessed = vi.spyOn(h.ledger, "markProcessed");
+    vi.spyOn(h.tasks, "completeBatchSave").mockRejectedValueOnce(new Error("任务收口离线"));
+    const saveSnapshot = h.services.memoryStore.saveSnapshot;
+    let acknowledge: (() => Promise<void>) | undefined;
+    vi.spyOn(h.services.memoryStore, "saveSnapshot").mockImplementation((unit, saved) => {
+      acknowledge = saved;
+      return saveSnapshot(unit, saved);
+    });
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    await waitForTerminal(h, task.runId);
+    const calls = stream.calls.count;
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect((await h.tasks.find(task.runId))!.pendingSave).toBeDefined();
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(0);
+    await h.retrySave();
+    await acknowledge!();
+    await h.retrySave();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(markProcessed).toHaveBeenCalledTimes(2);
+    expect(await h.tasks.find(task.runId)).toMatchObject({ status: "succeeded" });
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(2);
+    expect(stream.calls.count).toBe(calls);
+  });
+
+  it("文件失败后切换聊天立即结束执行，迟到保存只收口原任务且不隐藏新聊天", async () => {
+    let failed = true;
+    let chatId = "story";
+    const onAutomaticSuccess = vi.fn(async () => {});
+    const h = await createHarness({
+      source: {
+        chatId: () => chatId,
+        chatMessageCount: () => CHAT_LENGTH,
+        messagesInRange: defaultMessagesInRange,
+      },
+      streamFn: emptyProposalAgent(),
+      onAutomaticSuccess,
+      onSave: async () => {
+        if (failed) throw new Error("文件离线");
+      },
+    });
+    const task = await h.service.submit({
+      memorySpaceId: h.spaceId,
+      from: 0,
+      to: 1,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    await waitForTerminal(h, task.runId);
+    chatId = "another-chat";
+    await h.service.interruptForChatChange();
+    failed = false;
+    await h.retrySave();
+    expect(await h.tasks.find(task.runId)).toMatchObject({ status: "succeeded" });
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(2);
+    expect(onAutomaticSuccess).not.toHaveBeenCalled();
+  });
+
+  it("空间清理或取消后迟到保存通知不会复活原台账", async () => {
+    let failed = true;
+    const h = await createHarness({
+      streamFn: emptyProposalAgent(),
+      onSave: async () => {
+        if (failed) throw new Error("文件离线");
+      },
+    });
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    await waitForTerminal(h, task.runId);
+    await h.service.cancelAll(h.spaceId);
+    failed = false;
+    await h.retrySave();
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(0);
+    expect(await h.tasks.find(task.runId)).toMatchObject({ blocksQueue: false, status: "failed" });
+    expect((await h.tasks.find(task.runId))!.pendingSave).toBeUndefined();
+  });
+
+  it("刷新保留保存未确认凭据并禁止重放，不从辅助任务行推定文件成功", async () => {
+    const h = await createHarness({ streamFn: emptyProposalAgent(), saveError: true });
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    await waitForTerminal(h, task.runId);
+    await h.service.markInterruptedOnStartup();
+    expect(await h.tasks.find(task.runId)).toMatchObject({
+      status: "interrupted",
+      blocksQueue: true,
+      errorMessage: expect.stringContaining("保存结果未确认"),
+      pendingSave: { from: 0, to: 1 },
+    });
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toBeInstanceOf(FillTaskStateError);
+    expect(await h.ledger.processedCount(h.spaceId, 0, 1)).toBe(0);
+    await h.service.cancel(h.spaceId, task.runId);
+    expect(await h.service.pendingTasks(h.spaceId)).toEqual([]);
+  });
+
+  it("SQLite提交失败撤销保存凭据，保留普通业务重试", async () => {
+    const h = await createHarness({ streamFn: emptyProposalAgent() });
+    vi.spyOn(h.services.memoryStore.client, "commit").mockRejectedValueOnce(
+      new Error("SQLite拒绝提交"),
+    );
+    const task = await h.service.submit({ memorySpaceId: h.spaceId, from: 0, to: 1 });
+    expect((await waitForTerminal(h, task.runId)).status).toBe("failed");
+    expect((await h.tasks.find(task.runId))!.pendingSave).toBeUndefined();
+    const retried = await h.service.retry(h.spaceId, task.runId);
+    expect((await waitForTerminal(h, retried.runId)).status).toBe("succeeded");
   });
 });

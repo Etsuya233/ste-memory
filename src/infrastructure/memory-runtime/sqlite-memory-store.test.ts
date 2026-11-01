@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTestDatabase } from "../indexeddb/test-support.ts";
 import { createInProcessSqliteMemoryClient } from "../sqlite/node-client.ts";
 import { SqliteMemoryStore, type SqliteRepositories } from "./sqlite-memory-store.ts";
 import type { SqliteMemoryClient } from "../sqlite/types.ts";
@@ -14,8 +13,6 @@ import {
   type MemoryRecordHistoryId,
   type MemoryRevisionId,
 } from "../../features/memory/index.ts";
-import { VectorIndexChangeSync } from "../indexeddb/vector-index-change-sync.ts";
-import type { VectorIndexService } from "../../features/vector-index/index.ts";
 
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(): MemorySpaceBackup {
@@ -86,10 +83,9 @@ function row(id: string, name: string): MemoryRecord {
   } as unknown as MemoryRecord;
 }
 
-describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
+describe("SqliteMemoryStore with real SQLite committed snapshots", () => {
   let client: SqliteMemoryClient;
   let store: SqliteMemoryStore;
-  let db: ReturnType<typeof createTestDatabase>;
   let unit: MemorySpaceBackup;
   let sequence: number;
   const id = () => unit.space.id;
@@ -107,8 +103,13 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
   }
   beforeEach(async () => {
     client = await createInProcessSqliteMemoryClient();
-    db = createTestDatabase();
-    store = new SqliteMemoryStore(client, db);
+    store = new SqliteMemoryStore(client, {
+      saveSnapshot: async (_snapshot, saved) => {
+        await saved?.();
+      },
+      assertCanEdit: () => {},
+      reportRefreshError: console.error,
+    });
     unit = fixture();
     sequence = 0;
     await store.replace(unit);
@@ -120,7 +121,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
 
   it("keeps the first batch committed when the next batch rolls back", async () => {
     const save = vi.fn(async () => {});
-    store.onCommitted = save;
+    store.saveSnapshot = save;
     const first = await store.begin(id());
     const created = (await writer(store.repositories("write", first)).create(id(), tableId(), {
       payload: { name: "第一批" },
@@ -142,7 +143,6 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
     await store.finish(id(), next, false);
     expect(await store.repositories().records.list(id(), tableId())).toEqual([created]);
-    expect(await db.memoryRecords.toArray()).toEqual([created]);
     expect(save).toHaveBeenCalledTimes(1);
     const third = await store.begin(id());
     await store.finish(id(), third, false);
@@ -156,7 +156,6 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     const created = (await records.create(id(), tableId(), { payload: { name: "林" } }))!;
     expect(await task.records.find(id(), tableId(), created.id)).toEqual(created);
     expect(await committed.records.list(id(), tableId())).toEqual([]);
-    expect(await db.memoryRecords.count()).toBe(0);
     const updated = (await records.update(id(), tableId(), created.id, {
       expectedRevisionId: created.revisionId,
       revisionSource: "agent",
@@ -167,12 +166,12 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     const save = vi.fn(async (snapshot: MemorySpaceBackup) => {
       expect(snapshot.records[0]!.payload).toEqual({ name: "林更新" });
       expect(await committed.records.find(id(), tableId(), created.id)).toEqual(updated);
-      await expect(store.begin(id())).rejects.toThrow("正在填写或保存");
+      const next = await store.begin(id());
+      await store.finish(id(), next, false);
     });
-    store.onCommitted = save;
+    store.saveSnapshot = save;
     await store.finish(id(), token, true);
     expect(save).toHaveBeenCalledOnce();
-    expect(await db.memoryRecords.get(created.id)).toEqual(updated);
     expect(await committed.records.list(id(), tableId())).toEqual([updated]);
   });
 
@@ -203,9 +202,6 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     await store.finish(id(), token, false);
     expect(await store.snapshot(id())).toEqual(before);
     expect(await store.repositories().records.list(id(), tableId())).toEqual([original]);
-    expect(await db.memoryRecords.toArray()).toEqual([original]);
-    expect(await db.memoryRecordHistory.count()).toBe(0);
-    expect(await db.memoryEvidence.count()).toBe(0);
   });
 
   it("one failed tool savepoint rolls back its writes while the task can continue", async () => {
@@ -249,32 +245,21 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await store.repositories().records.findEvidence(id(), "sync_floor", 1)).toEqual(
       evidence,
     );
-    expect(await db.memoryEvidence.count()).toBe(1);
-    expect(await db.memoryRecords.count()).toBe(1);
   });
 
   it("save callback failure preserves committed data and releases the writer", async () => {
     const token = await store.begin(id());
     await store.repositories("write", token).records.create(row("saved", "已提交"), []);
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       throw new Error("聊天文件保存失败");
     };
     await expect(store.finish(id(), token, true)).rejects.toThrow("聊天文件保存失败");
     expect((await store.snapshot(id()))!.records).toEqual([row("saved", "已提交")]);
-    expect(await db.memoryRecords.count()).toBe(1);
-    store.onCommitted = async () => {};
+    store.saveSnapshot = async () => {};
     await store.repositories().records.create(row("next", "下一次"), []);
     expect(await store.repositories().records.list(id(), tableId())).toHaveLength(2);
   });
 
-  it("a reader notified after discarding runtime databases can reload the cached space", async () => {
-    let read: Promise<MemorySpaceBackup | undefined> | undefined;
-    store.onPublished = () => {
-      read ??= store.snapshot("space");
-    };
-    await store.discardLoaded();
-    expect((await read)?.space.id).toBe("space");
-  });
   it("public SQL views follow short edits and the shared manual/automatic fill commit publication", async () => {
     const schema = await client.describeDatabase("space");
     const binding = {
@@ -293,7 +278,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
       ],
     });
     const published = vi.fn();
-    store.onPublished = published;
+    store.subscribe(published);
     await store.repositories().records.create(row("a", "手动编辑"), []);
     expect(
       (await client.queryDatabase({ ...binding, sql: "SELECT * FROM phone_people" })).rows,
@@ -314,20 +299,8 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     ]);
     expect((await client.describeDatabase("space")).schemaKey).toBe(schema.schemaKey);
   });
-  it("notifies readers of committed content even when snapshot caching fails", async () => {
-    const published = vi.fn();
-    store.onPublished = published;
-    vi.spyOn(store, "cache").mockRejectedValueOnce(new Error("缓存保存失败"));
-    await expect(store.repositories().records.create(row("saved", "已提交"), [])).rejects.toThrow(
-      "缓存保存失败",
-    );
-    expect(published).toHaveBeenCalledWith("space");
-    expect((await client.readSnapshot("space")).records.map((record) => record.id)).toEqual([
-      "saved",
-    ]);
-  });
   it("ordinary short writes preserve committed state when saving fails", async () => {
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       throw new Error("保存失败");
     };
     await expect(store.repositories().records.create(row("saved", "已提交"), [])).rejects.toThrow(
@@ -341,7 +314,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
   });
 
   it("retries snapshot persistence without replaying a committed record write", async () => {
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       throw new Error("文件写回失败");
     };
     await expect(
@@ -349,7 +322,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     ).rejects.toThrow("文件写回失败");
     const before = (await store.snapshot(id()))!;
     const persist = vi.fn(async () => {});
-    store.onCommitted = persist;
+    store.saveSnapshot = persist;
     await store.write(id(), async () => undefined);
     const after = (await store.snapshot(id()))!;
     expect(after.records).toEqual(before.records);
@@ -362,7 +335,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
   it("record creation exposes its exact committed record when file persistence fails", async () => {
     const records = writer(store.repositories());
     const failure = new Error("对话文件不可写");
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       throw failure;
     };
     let caught: unknown;
@@ -379,8 +352,8 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect((await store.snapshot(id()))!.records).toEqual([saved.record]);
     expect(saved.record.payload).toEqual({ name: "已创建" });
     // Retrying persistence uses the committed snapshot and creates no second record.
-    store.onCommitted = async () => {};
-    await store.onCommitted((await store.snapshot(id()))!);
+    store.saveSnapshot = async () => {};
+    await store.saveSnapshot((await store.snapshot(id()))!);
     expect(await store.repositories().records.list(id(), tableId())).toHaveLength(1);
   });
 
@@ -389,7 +362,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     const records = writer(repositories);
     const original = (await records.create(id(), tableId(), { payload: { name: "修改前" } }))!;
     const find = vi.spyOn(repositories.records, "find");
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       // The host may unload this chat immediately after the writer is released.
       find.mockRejectedValue(new Error("原对话已卸载，禁止回查"));
       throw new Error("对话文件写回失败");
@@ -435,7 +408,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
         evidence,
       ),
     );
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       throw new Error("对话文件写回失败");
     };
     await expect(
@@ -481,48 +454,6 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
       "会话已结束",
     );
     await store.finish(id(), next, false);
-  });
-
-  it("snapshot cache preserves vectors and avoids delete hooks for surviving records", async () => {
-    const original = row("original", "原角色");
-    await store.repositories().records.create(original, []);
-    const vector = {
-      id: "vector",
-      memorySpaceId: id(),
-      tableId: tableId(),
-      recordId: original.id,
-      groupId: "group",
-      fingerprint: "fingerprint",
-      values: [1, 0],
-      model: "test",
-      version: "1",
-      updatedAt: stamp,
-    };
-    await db.recordVectors.add(vector);
-    const purge = vi.fn(async () => {});
-    const sync = new VectorIndexChangeSync(
-      db,
-      { purge } as unknown as VectorIndexService,
-      () => false,
-      (error) => {
-        throw error;
-      },
-    );
-    sync.start();
-    await store.cache((await store.snapshot(id()))!);
-    await sync.flush();
-    expect(purge).not.toHaveBeenCalled();
-    const token = await store.begin(id());
-    await writer(store.repositories("write", token)).update(id(), tableId(), original.id, {
-      expectedRevisionId: original.revisionId,
-      revisionSource: "agent",
-      patch: { name: "更新角色" },
-    });
-    await store.finish(id(), token, true);
-    await sync.flush();
-    expect(purge).not.toHaveBeenCalled();
-    expect(await db.recordVectors.get(vector.id)).toEqual(vector);
-    expect((await db.memoryRecords.get(original.id))!.payload).toEqual({ name: "更新角色" });
   });
 
   it("task revisions collapse repeated updates to one baseline history and preserve prior archives", async () => {
@@ -662,7 +593,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(snapshot.history).toEqual([]);
   });
 
-  it("whenIdle waits for a gated save callback before allowing session teardown", async () => {
+  it("SQL结束后可卸载，文件保存持有独立快照继续完成", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => {
       open = resolve;
@@ -671,26 +602,20 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     const saving = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       entered();
       await gate;
     };
     const pendingWrite = store.repositories().records.create(row("saved", "已提交"), []);
     await saving;
-    let idleCompleted = false;
-    const idle = store.whenIdle(id()).then(() => {
-      idleCompleted = true;
-    });
-    await Promise.resolve();
-    expect(idleCompleted).toBe(false);
+    await store.whenIdle(id());
     expect(await store.repositories().records.list(id(), tableId())).toEqual([
       row("saved", "已提交"),
     ]);
+    await store.unload(id());
+    expect(store.hasSpace(id())).toBe(false);
     open();
     await pendingWrite;
-    await idle;
-    expect(idleCompleted).toBe(true);
-    await store.unload(id());
   });
 
   it("persists macro writes in the committed snapshot and replaces macros with structure", async () => {
@@ -704,10 +629,9 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
       },
     ];
     const committed = vi.fn(async () => {});
-    store.onCommitted = committed;
+    store.saveSnapshot = committed;
     await store.repositories().spaces.setMacros(id(), macros, stamp);
     expect((await store.snapshot(id()))!.space.macros).toEqual(macros);
-    expect((await db.memorySpaces.get(id()))!.macros).toEqual(macros);
     expect(committed).toHaveBeenCalledWith(
       expect.objectContaining({ space: expect.objectContaining({ macros }) }),
     );
@@ -723,7 +647,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect((await store.snapshot(id()))!.space.macros).toEqual([]);
   });
 
-  it("structure rebuild retains the exclusive writer through its save callback", async () => {
+  it("结构重建提交后释放writer，旧文件回调完成不得释放后续writer", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => {
       open = resolve;
@@ -732,7 +656,7 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     const saving = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    store.onCommitted = async () => {
+    store.saveSnapshot = async () => {
       entered();
       await gate;
     };
@@ -743,46 +667,15 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
       initializationSource: { presetId: "preset", presetName: "测试预设", appliedAt: stamp },
     });
     await saving;
-    await expect(store.begin(id())).rejects.toThrow("正在填写或保存");
+    await store.whenIdle(id());
+    const next = await store.begin(id());
+    open();
+    expect(await rebuild).toBe(true);
     await expect(
       store.repositories().records.create(row("concurrent", "并发修改"), []),
     ).rejects.toThrow("正在填写或保存");
-    open();
-    expect(await rebuild).toBe(true);
-    const token = await store.begin(id());
-    await store.finish(id(), token, false);
+    await store.finish(id(), next, false);
   });
-
-  it.each(["cache", "cleanup", "onCommitted"] as const)(
-    "reports the committed rebuild without replaying it when %s fails",
-    async (stage) => {
-      await store.repositories().records.create(row("old", "重建前的记录"), []);
-      const failure = new Error(`${stage} unavailable`);
-      const imported = vi.spyOn(client, "importSpace");
-      if (stage === "cache") vi.spyOn(store, "cache").mockRejectedValueOnce(failure);
-      else if (stage === "onCommitted")
-        vi.spyOn(store, "onCommitted").mockRejectedValueOnce(failure);
-      else
-        vi.spyOn(db.memoryFillTasks, "where").mockImplementationOnce(() => {
-          throw failure;
-        });
-      const operation = store.structureRebuild().rebuild({
-        memorySpaceId: id(),
-        tables: unit.tables,
-        fields: unit.fields,
-        initializationSource: { presetId: "replacement", presetName: "新预设", appliedAt: stamp },
-      });
-      await expect(operation).rejects.toBeInstanceOf(MemoryCommitPersistenceError);
-      await expect(operation).rejects.toHaveProperty("cause", failure);
-      const snapshot = (await store.snapshot(id()))!;
-      expect(snapshot.records).toEqual([]);
-      expect(snapshot.space.initializationSource?.presetId).toBe("replacement");
-      expect(imported).toHaveBeenCalledOnce();
-      if (stage !== "cache") expect(await db.memoryRecords.toArray()).toEqual([]);
-      const token = await store.begin(id());
-      await store.finish(id(), token, false);
-    },
-  );
 
   it("retains an import transaction error when structure replacement does not commit", async () => {
     await store.repositories().records.create(row("old", "保留记录"), []);
@@ -800,12 +693,41 @@ describe("SqliteMemoryStore with real SQLite and IndexedDB snapshots", () => {
     expect(await store.snapshot(id())).toEqual(before);
   });
 
-  it("unload and reinitialization load the latest complete local snapshot", async () => {
-    await store.repositories().records.create(row("saved", "已保存"), []);
+  it("订阅同步抛错或异步刷新拒绝不影响文件保存，卸载不自动恢复", async () => {
+    const errors = vi.fn();
+    const independent = new SqliteMemoryStore(client, {
+      saveSnapshot: async (_snapshot, saved) => {
+        await saved?.();
+      },
+      assertCanEdit: () => {},
+      reportRefreshError: errors,
+    });
+    await independent.replace(unit);
+    independent.subscribe(() => {
+      throw new Error("macro");
+    });
+    independent.subscribe(async () => {
+      throw new Error("vector");
+    });
+    const save = vi.fn(async () => {});
+    independent.saveSnapshot = save;
+    await independent.repositories().records.create(row("event", "事件"), []);
+    expect(save).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledTimes(2);
+    await independent.unload(id());
+    expect(independent.hasSpace(id())).toBe(false);
+    expect(await independent.snapshot(id())).toBeUndefined();
+  });
+
+  it("候选待保存时拒绝旧空间编辑和新任务，生命周期卸载仍可执行", async () => {
+    store.assertCanEdit = () => {
+      throw new Error("请先保存候选");
+    };
+    await expect(store.begin(id())).rejects.toThrow("候选");
+    await expect(store.repositories().records.create(row("blocked", "阻止"), [])).rejects.toThrow(
+      "候选",
+    );
     await store.unload(id());
-    expect(await store.ensure(id())).toBe(true);
-    expect(await store.repositories().records.list(id(), tableId())).toEqual([
-      row("saved", "已保存"),
-    ]);
+    expect(store.hasSpace(id())).toBe(false);
   });
 });

@@ -1,3 +1,5 @@
+import { MemoryCommitPersistenceError } from "../../src/features/memory/index.ts";
+import type { ChatSnapshotSaveStatus } from "../../src/features/chat-mirror/chat-snapshot-persistence.ts";
 import { parseMemoryMacros } from "../../src/features/macros/macro-expression.ts";
 import { MemoryRecordQueryService } from "../../src/features/memory/index.ts";
 /** Deterministic UI fixture: no ST, database, model requests, or user data. */
@@ -187,8 +189,10 @@ let ready = true;
 let serial = 100;
 let failSave = false;
 let failPersistence = false;
+let publishSaveFailure: () => void;
 let delaySave = 0;
 let delaySchemaSave = 0;
+let failSchemaPersistence = false;
 const tableRepository: MemoryTableRepository = {
   list: async (spaceId) =>
     structuredClone(tables.filter((table) => table.memorySpaceId === spaceId)),
@@ -206,6 +210,11 @@ const tableRepository: MemoryTableRepository = {
     const index = tables.findIndex((item) => item.id === table.id);
     if (index < 0) return false;
     tables[index] = structuredClone(table);
+    if (failSchemaPersistence) {
+      failSchemaPersistence = false;
+      publishSaveFailure();
+      throw new MemoryCommitPersistenceError(new Error("preview file failure"));
+    }
     return true;
   },
   delete: async (spaceId, id) => {
@@ -303,12 +312,8 @@ const spaces: MemorySpace[] = Object.values(contexts).map((context) => ({
 }));
 const spaceRepository: MemorySpaceRepository = {
   find: async (id) => structuredClone(spaces.find((space) => space.id === id)),
-  list: async () => structuredClone(spaces),
   create: async (space) => {
     spaces.push(space);
-  },
-  delete: async () => {
-    throw new Error("预览不提供空间删除");
   },
   rename: async () => {
     throw new Error("预览不提供空间改名");
@@ -410,6 +415,7 @@ const workspace = new RecordsWorkspace({
       records = records.map((item) => (item.id === id ? updated : item));
       if (failPersistence) {
         failPersistence = false;
+        publishSaveFailure();
         throw new MemoryRecordSaveError(updated, new Error("记录已提交，但对话文件写回失败"));
       }
       return structuredClone(updated);
@@ -431,6 +437,7 @@ const workspace = new RecordsWorkspace({
       records.push(created);
       if (failPersistence) {
         failPersistence = false;
+        publishSaveFailure();
         throw new MemoryRecordSaveError(created, new Error("记录已提交，但对话文件写回失败"));
       }
       return structuredClone(created);
@@ -475,7 +482,6 @@ const tablesWorkspace = new TablesWorkspace({
   onChanged: async (context) => {
     if (workspace.getSnapshot().context?.chatKey === context.chatKey) await workspace.refresh();
   },
-  retryMemorySave: async () => {},
 });
 let settingsValue: PluginSettings = {
   ...structuredClone(DEFAULT_SETTINGS),
@@ -533,7 +539,6 @@ const settingsService = new SettingsService({
   syncToCurrentChat: async () => {},
   refreshMemoryMacros: async () => {},
   refreshAgentMacros: async () => {},
-  refreshMirror: async () => {},
   writeChatScopeMacros: (macros) => {
     chatMacros.set(contexts[current].chatKey, structuredClone(macros));
   },
@@ -971,6 +976,7 @@ const taskServices: TasksServices = {
       );
       if (index < 0) throw new Error("任务不存在");
       const task = { ...fillTasks[index]!, status: "interrupted" as const, blocksQueue: false };
+      delete task.pendingSave;
       fillTasks[index] = task;
       return structuredClone(task);
     },
@@ -1096,6 +1102,28 @@ function activeStatus(): SpaceContextStatus {
   } as SpaceContextStatus;
 }
 function Preview() {
+  const [persistenceByChat, setPersistenceByChat] = useState(
+    () =>
+      new Map<string, ChatSnapshotSaveStatus>(
+        Object.values(contexts).map((context) => [
+          context.chatKey,
+          { kind: "saved", identity: context.chatKey, lastWrittenAt: date, sizeBytes: 1000 },
+        ]),
+      ),
+  );
+  const persistence = persistenceByChat.get(contexts[current].chatKey)!;
+  publishSaveFailure = () => {
+    const identity = contexts[current].chatKey;
+    setPersistenceByChat((previous) =>
+      new Map(previous).set(identity, {
+        kind: "failed",
+        identity,
+        operation: "update",
+        error: "preview file failure",
+        humanMsg: "已提交、未保存：preview file failure",
+      }),
+    );
+  };
   const [status, setStatus] = useState<SpaceContextStatus | undefined>(activeStatus);
   const [tone, setTone] = useState<"light" | "dark">(
     location.search.includes("dark") ? "dark" : "light",
@@ -1233,6 +1261,23 @@ function Preview() {
       failNextSave: () => {
         failSave = true;
       },
+      failNextSchemaPersistence: () => {
+        failSchemaPersistence = true;
+      },
+      setPendingFillSave: async (status: "failed" | "interrupted") => {
+        const index = fillTasks.findIndex(
+          (task) => task.runId === `${contexts[current].spaceId}-failed-fill`,
+        );
+        fillTasks[index] = {
+          ...fillTasks[index]!,
+          status,
+          pendingSave: { from: 4, to: 7, floors: [4, 5, 6, 7], nextFrom: 8 },
+          nextFrom: 8,
+          blocksQueue: true,
+        };
+        await tasksWorkspace.refresh();
+      },
+      showSaveFailure: () => publishSaveFailure(),
       failNextPersistence: () => {
         failPersistence = true;
       },
@@ -1281,16 +1326,27 @@ function Preview() {
               tools={toolsFixture.tools}
               workspace={workspace}
               status={status}
-              mirror={
-                settingsValue.enabled && settingsValue.mirror.enabled
-                  ? { kind: "idle", lastWrittenAt: date, sizeBytes: 1000 }
-                  : { kind: "disabled" }
+              persistence={persistence}
+              hasPendingSnapshotWrites={() =>
+                [...persistenceByChat.values()].some(
+                  (state) => state.kind === "failed" || state.kind === "saving",
+                )
               }
               onClose={() => setOpen(false)}
               onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
               onRetryContext={() => switchChat(current)}
               onResolveBranch={() => switchChat(current)}
-              onRetrySave={async () => {}}
+              onRetrySave={async () => {
+                const identity = contexts[current].chatKey;
+                setPersistenceByChat((previous) =>
+                  new Map(previous).set(identity, {
+                    kind: "saved",
+                    identity,
+                    lastWrittenAt: date,
+                    sizeBytes: 1000,
+                  }),
+                );
+              }}
               getMessageAt={(floor) => ({
                 floor,
                 name: "爱丽丝",

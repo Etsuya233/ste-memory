@@ -8,7 +8,6 @@ export interface SettingsServices {
     SettingsService,
     | "read"
     | "setPluginEnabled"
-    | "setMirrorEnabled"
     | "save"
     | "setEmbeddingConnection"
     | "setRerankSettings"
@@ -26,20 +25,18 @@ export interface SettingsSaveResult {
 }
 
 /** Read back after follow-up failures: the service persists before refreshing runtime state. */
-export async function setSettingToggle(
+export async function setPluginEnabled(
   services: SettingsServices,
-  key: "enabled" | "mirror",
   value: boolean,
 ): Promise<SettingsSaveResult> {
   let error: string | undefined;
   try {
-    if (key === "enabled") await services.settings.setPluginEnabled(value);
-    else await services.settings.setMirrorEnabled(value);
+    await services.settings.setPluginEnabled(value);
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
   }
   const settings = services.settings.read();
-  const saved = (key === "enabled" ? settings.enabled : settings.mirror.enabled) === value;
+  const saved = settings.enabled === value;
   try {
     await services.onChanged();
   } catch (cause) {

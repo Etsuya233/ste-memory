@@ -7,5 +7,3 @@ export type {
 } from "./memory-record-repository.ts";
 export type { MemorySpaceRepository } from "./memory-space-repository.ts";
 export type { MemoryTableRepository } from "./memory-table-repository.ts";
-export { memoryChangesEqual } from "./change-source.ts";
-export type { MemoryChangeFingerprint, MemoryChangeSource } from "./change-source.ts";

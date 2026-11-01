@@ -1,3 +1,4 @@
+import type { SnapshotSaveOperation } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 import type {
   ChatFileTarget,
   ChatMirrorFile,
@@ -12,11 +13,11 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
   readonly #afterWrite: (
     target: ChatFileTarget,
     file: ChatMirrorFile,
-    binding?: ChatSpaceBinding,
+    binding: ChatSpaceBinding,
   ) => void;
 
   constructor(
-    afterWrite: (target: ChatFileTarget, file: ChatMirrorFile, binding?: ChatSpaceBinding) => void,
+    afterWrite: (target: ChatFileTarget, file: ChatMirrorFile, binding: ChatSpaceBinding) => void,
     request: typeof fetch = globalThis.fetch.bind(globalThis),
   ) {
     this.#afterWrite = afterWrite;
@@ -31,7 +32,8 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
   async write(
     target: ChatFileTarget,
     file: ChatMirrorFile,
-    binding?: ChatSpaceBinding,
+    binding: ChatSpaceBinding,
+    operation: SnapshotSaveOperation,
   ): Promise<void> {
     if (!decodeChatMirrorFile(file)) throw new Error("待保存的记忆快照无效");
     const chat = await this.#readChat(target);
@@ -43,22 +45,21 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
     }
     const existingBinding = metadata.steMemory;
     if (
-      binding === undefined &&
+      operation === "update" &&
       (!isObject(existingBinding) || existingBinding.spaceId !== file.spaceId)
     ) {
       throw new Error("目标对话的空间绑定已变化，已停止保存");
     }
     if (
-      binding !== undefined &&
-      (binding.spaceId !== file.spaceId ||
-        (binding.version === 2 && binding.chatIdentity !== target.identity))
+      binding.spaceId !== file.spaceId ||
+      (binding.version === 2 && binding.chatIdentity !== target.identity)
     ) {
       throw new Error("待保存的空间绑定与目标对话不一致");
     }
     header.chat_metadata = {
       ...metadata,
       steMemoryMirror: file,
-      ...(binding ? { steMemory: binding } : {}),
+      steMemory: binding,
     };
     const result = await this.#post(
       target.kind === "group" ? "/api/chats/group/save" : "/api/chats/save",
@@ -68,6 +69,9 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
       },
     );
     if (!isObject(result) || result.ok !== true) throw new Error("宿主未确认聊天文件保存成功");
+  }
+
+  publish(target: ChatFileTarget, file: ChatMirrorFile, binding: ChatSpaceBinding): void {
     this.#afterWrite(target, file, binding);
   }
 

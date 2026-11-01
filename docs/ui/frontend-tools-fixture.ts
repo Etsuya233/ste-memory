@@ -136,37 +136,42 @@ export function createToolsFixture(options: {
     },
     maintenance: {
       currentContext: options.current,
-      canImportCurrent: () => options.current() !== null,
-      exportBackup: async (scope, includeHistory) => {
+      exportBackup: async () => {
         const context = options.current();
-        if (scope === "current" && !context) throw new Error("请先打开对话");
-        let data = snapshot();
-        if (scope === "current")
-          data = { spaces: data.spaces.filter((unit) => unit.space.id === context!.spaceId) };
-        if (!includeHistory)
-          data = { spaces: data.spaces.map((unit) => ({ ...unit, history: [] })) };
+        if (!context) throw new Error("请先打开对话");
+        const data = {
+          spaces: snapshot().spaces.filter((unit) => unit.space.id === context.spaceId),
+        };
         downloadTextFile(
           serializeBackupFile(createBackupFile(data, "preview", new Date().toISOString())),
           "ste-memory-preview-backup.json",
         );
         return true;
       },
-      previewImport: async (text, scope) => {
+      previewImport: async (text) => {
         const file = parseBackupFile(text);
         const context = options.current();
         if (!context) throw new Error("请先打开对话");
-        const units =
-          scope === "all"
-            ? file.data.spaces
-            : file.data.spaces.filter((unit) => unit.space.id === context.spaceId);
-        if (!units.length) throw new Error("文件不含当前空间");
+        if (file.data.spaces.length !== 1) throw new Error("导入文件必须只包含一个记忆空间");
+        const source = file.data.spaces[0]!;
+        // 独立预览保持对话身份，导入的数据归属当前对话空间。
+        const units = [
+          {
+            ...source,
+            space: { ...source.space, id: context.spaceId },
+            tables: source.tables.map((table) => ({ ...table, memorySpaceId: context.spaceId })),
+            fields: source.fields.map((field) => ({ ...field, memorySpaceId: context.spaceId })),
+            records: source.records.map((record) => ({
+              ...record,
+              memorySpaceId: context.spaceId,
+            })),
+          },
+        ];
         let applied = false;
         return {
-          scope,
-          spaceCount: units.length,
           recordCount: units.reduce((n, u) => n + u.records.length, 0),
           summary: units.map((u) => u.space.name).join("、"),
-          confirmMessage: `恢复 ${units.length} 个空间并替换其记忆数据。`,
+          confirmMessage: `替换当前对话「${context.title}」的记忆空间。`,
           apply: async () => {
             if (applied) throw new Error("该预览已执行");
             options.assertContext(context);
@@ -189,7 +194,7 @@ export function createToolsFixture(options: {
             applied = true;
             for (const id of ids) await queryStore.clearSpaceHistory(id);
             await options.changed();
-            return { kind: "done", message: "预览备份已恢复。" };
+            return { kind: "done", message: "当前对话的记忆空间已替换。" };
           },
         };
       },

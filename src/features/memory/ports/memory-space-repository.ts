@@ -8,9 +8,7 @@ export interface MemorySpaceRepository {
     updatedAt: string,
   ): Promise<MemorySpace | undefined>;
   create(memorySpace: MemorySpace): Promise<void>;
-  delete(id: MemorySpaceId): Promise<boolean>;
   find(id: MemorySpaceId): Promise<MemorySpace | undefined>;
-  list(): Promise<MemorySpace[]>;
   rename(id: MemorySpaceId, name: string, updatedAt: string): Promise<MemorySpace | undefined>;
   /**
    * 清除空间记录：删除该空间全部记录派生数据（记忆记录、历史记录、字段证据与

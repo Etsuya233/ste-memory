@@ -27,8 +27,8 @@ export interface MemorySpaceBackup {
   readonly records: readonly MemoryRecord[];
   readonly history: readonly MemoryRecordHistory[];
   readonly evidence: readonly MemoryEvidence[];
-  /** 填表任务（缺省 = 不涉及：恢复保持目标原有任务） */
+  /** 旧备份的辅助任务集合，仅保留文件读取兼容；当前导出和空间替换不保存或恢复 */
   readonly fillTasks?: readonly FillTask[];
-  /** 楼层进度台账（缺省 = 不涉及） */
+  /** 旧备份的辅助台账集合，仅保留文件读取兼容；当前导出和空间替换不保存或恢复 */
   readonly floorLedger?: readonly MemorySpaceBackupLedgerEntry[];
 }

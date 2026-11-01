@@ -1,3 +1,5 @@
+import type { ChatSnapshotSaveStatus } from "../features/chat-mirror/chat-snapshot-persistence.ts";
+import { SnapshotSaveNotice } from "./components/snapshot-save-notice.tsx";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BookOpen, TableProperties, ListTodo, Settings, MessageCircle } from "lucide-react";
 import { Button } from "./primitives/button.tsx";
@@ -23,6 +25,9 @@ import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
 
 export interface WorkbenchProps extends RecordsPageProps {
+  persistence: ChatSnapshotSaveStatus;
+  onRetrySave: () => Promise<void>;
+  hasPendingSnapshotWrites: () => boolean;
   tables: TablesWorkspace;
   tasks: TasksWorkspace;
   autoFill: AutoFillServices;
@@ -59,6 +64,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
   useEffect(() => {
     const onUnload = (event: BeforeUnloadEvent) => {
       if (
+        props.hasPendingSnapshotWrites() ||
         props.workspace.hasUnsavedChanges() ||
         props.tables.hasUnsavedChanges() ||
         props.tasks.hasUnsavedChanges() ||
@@ -71,85 +77,94 @@ export function WorkbenchApp(props: WorkbenchProps) {
     };
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
-  }, [props.workspace, props.tables, props.tasks, props.tools.query.store]);
+  }, [
+    props.workspace,
+    props.tables,
+    props.tasks,
+    props.tools.query.store,
+    props.hasPendingSnapshotWrites,
+  ]);
   const controls = { onClose: () => navigate(props.onClose), onToggleTone: props.onToggleTone };
   const enabled = props.settings.settings.read().enabled;
   return (
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col ste:md:flex-row">
-      <div className="ste:min-h-0 ste:min-w-0 ste:flex-1">
-        {!enabled && page !== "settings" ? (
-          <div className="ste:flex ste:h-full ste:flex-col">
-            <PageHeader title="记忆工作台" {...controls} />
-            <PageEmpty
-              title="插件已停用"
-              description="在设置页重新开启后，可以继续查看和管理当前对话的记忆。"
+      <div className="ste:flex ste:min-h-0 ste:min-w-0 ste:flex-1 ste:flex-col">
+        <SnapshotSaveNotice status={props.persistence} onRetry={props.onRetrySave} />
+        <div className="ste:min-h-0 ste:flex-1">
+          {!enabled && page !== "settings" ? (
+            <div className="ste:flex ste:h-full ste:flex-col">
+              <PageHeader title="记忆工作台" {...controls} />
+              <PageEmpty
+                title="插件已停用"
+                description="在设置页重新开启后，可以继续查看和管理当前对话的记忆。"
+              />
+            </div>
+          ) : page === "records" ? (
+            <RecordsPage {...props} {...controls} registerLeaveGuard={registerLeaveGuard} />
+          ) : page === "tables" ? (
+            <TablesPage
+              workspace={props.tables}
+              controls={controls}
+              registerLeaveGuard={registerLeaveGuard}
             />
-          </div>
-        ) : page === "records" ? (
-          <RecordsPage {...props} {...controls} registerLeaveGuard={registerLeaveGuard} />
-        ) : page === "tables" ? (
-          <TablesPage
-            workspace={props.tables}
-            controls={controls}
-            registerLeaveGuard={registerLeaveGuard}
-          />
-        ) : page === "query" ? (
-          <QueryPage
-            {...props.tools.query}
-            context={context}
-            controls={controls}
-            registerLeaveGuard={registerLeaveGuard}
-          />
-        ) : page === "tasks" ? (
-          <TasksPage
-            workspace={props.tasks}
-            autoFill={props.autoFill}
-            settings={props.settings.settings}
-            onOpenLog={(key, summary) =>
-              navigate(() => {
-                setLogKey(key);
-                setLogSummary(summary ?? "");
-                setLogReturn("tasks");
-                setSettingsSection("logs");
-                setPage("settings");
-              })
-            }
-            controls={controls}
-            registerLeaveGuard={registerLeaveGuard}
-            active={props.active ?? true}
-          />
-        ) : (
-          <SettingsPage
-            services={props.settings}
-            controls={controls}
-            registerLeaveGuard={registerLeaveGuard}
-            mirror={props.mirror}
-            initialSection={settingsSection}
-            initialLogKey={logKey}
-            logTitle={logReturn === "tasks" ? "任务日志" : undefined}
-            logContext={logSummary}
-            logBackLabel={logReturn === "tasks" ? "返回任务" : undefined}
-            onLogBack={logReturn === "tasks" ? () => setPage("tasks") : undefined}
-            cleaning={props.cleaning}
-            macros={props.macros}
-            presets={props.presets}
-            context={context}
-            tools={props.tools}
-            search={props.search}
-            onSearchRecord={async (tableId, recordId) => {
-              if (!context) throw new Error("请先打开对话");
-              const epoch = props.search.service.getState().epoch;
-              props.search.assertContext(context);
-              await props.workspace.selectTable(tableId);
-              props.search.assertContext(context);
-              if (epoch !== props.search.service.getState().epoch) return;
-              await props.workspace.openRecord(recordId);
-              if (epoch === props.search.service.getState().epoch) setPage("records");
-            }}
-            onSearchIndex={() => navigate(() => setPage("tables"))}
-            active={props.active ?? true}
-          />
-        )}
+          ) : page === "query" ? (
+            <QueryPage
+              {...props.tools.query}
+              context={context}
+              controls={controls}
+              registerLeaveGuard={registerLeaveGuard}
+            />
+          ) : page === "tasks" ? (
+            <TasksPage
+              workspace={props.tasks}
+              autoFill={props.autoFill}
+              settings={props.settings.settings}
+              onOpenLog={(key, summary) =>
+                navigate(() => {
+                  setLogKey(key);
+                  setLogSummary(summary ?? "");
+                  setLogReturn("tasks");
+                  setSettingsSection("logs");
+                  setPage("settings");
+                })
+              }
+              controls={controls}
+              registerLeaveGuard={registerLeaveGuard}
+              active={props.active ?? true}
+            />
+          ) : (
+            <SettingsPage
+              services={props.settings}
+              controls={controls}
+              registerLeaveGuard={registerLeaveGuard}
+              persistence={props.persistence}
+              initialSection={settingsSection}
+              initialLogKey={logKey}
+              logTitle={logReturn === "tasks" ? "任务日志" : undefined}
+              logContext={logSummary}
+              logBackLabel={logReturn === "tasks" ? "返回任务" : undefined}
+              onLogBack={logReturn === "tasks" ? () => setPage("tasks") : undefined}
+              cleaning={props.cleaning}
+              macros={props.macros}
+              presets={props.presets}
+              context={context}
+              tools={props.tools}
+              search={props.search}
+              onSearchRecord={async (tableId, recordId) => {
+                if (!context) throw new Error("请先打开对话");
+                const epoch = props.search.service.getState().epoch;
+                props.search.assertContext(context);
+                await props.workspace.selectTable(tableId);
+                props.search.assertContext(context);
+                if (epoch !== props.search.service.getState().epoch) return;
+                await props.workspace.openRecord(recordId);
+                if (epoch === props.search.service.getState().epoch) setPage("records");
+              }}
+              onSearchIndex={() => navigate(() => setPage("tables"))}
+              active={props.active ?? true}
+            />
+          )}
+        </div>
       </div>
       <nav
         aria-label="工作台页面"

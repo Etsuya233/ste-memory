@@ -49,7 +49,6 @@ function setup() {
     },
     assertContext: vi.fn(),
     onChanged: vi.fn(),
-    retryMemorySave: vi.fn().mockResolvedValue(undefined),
   };
   return { services, workspace: new TablesWorkspace(services) };
 }
@@ -240,11 +239,10 @@ describe("TablesWorkspace", () => {
     );
     await workspace.save();
     expect(workspace.getSnapshot().editor).toBeNull();
-    expect(workspace.getSnapshot().persistenceError).toBe("文件保存失败");
-    await workspace.retryPersistence();
+    expect(workspace.getSnapshot()).not.toHaveProperty("persistenceError");
+    expect(workspace.getSnapshot().notice).toBe("修改已提交");
     await workspace.save();
     expect(services.tables.create).toHaveBeenCalledTimes(1);
-    expect(services.retryMemorySave).toHaveBeenCalledTimes(1);
   });
   it("ignores old A reads after an A to B to A switch", async () => {
     const { services, workspace } = setup();

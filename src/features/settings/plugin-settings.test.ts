@@ -35,13 +35,10 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     expect(merged.macroName).toBe("{{m}}");
   });
 
-  it("镜像设置缺失/部分缺失：补默认值（旧数据向前兼容）", () => {
-    const merged = mergeSettings({ enabled: true });
-    expect(merged.mirror).toEqual(DEFAULT_SETTINGS.mirror);
-    const partial = mergeSettings({ mirror: { includeHistory: false } });
-    expect(partial.mirror.includeHistory).toBe(false);
-    expect(partial.mirror.enabled).toBe(true);
-    expect(mergeSettings({ mirror: "oops" }).mirror).toEqual(DEFAULT_SETTINGS.mirror);
+  it("旧镜像开关在读取后丢弃，空间始终完整保存", () => {
+    expect(mergeSettings({ mirror: { enabled: false, includeHistory: false } })).not.toHaveProperty(
+      "mirror",
+    );
   });
 
   it("类型不符的键：回退默认值（损坏数据不崩）", () => {
@@ -167,7 +164,6 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       enabled: false,
       macroName: "{{ctx}}",
       macroLimit: 4000,
-      mirror: { enabled: false, includeHistory: false },
       agentPresets: {
         presets: [
           {

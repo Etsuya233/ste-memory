@@ -1,25 +1,20 @@
-import { createServices, createTestDatabase, installDefaultPreset, NOW } from "../test-support.ts";
+import {
+  createServices,
+  createTestDatabase,
+  installDefaultPreset,
+  NOW,
+} from "../indexeddb/test-support.ts";
 import type {
-  MemoryField,
-  MemoryFieldId,
   MemoryRecordHistoryId,
-  MemoryRecordId,
   MemoryRecordMutation,
   MemoryRevisionId,
-  MemorySpace,
-  MemorySpaceId,
-  MemoryTable,
-  MemoryTableId,
-} from "../../../features/memory/index.ts";
-import { Dexie, type Table } from "dexie";
+} from "../../features/memory/index.ts";
 import { describe, expect, it } from "vitest";
-import { SteMemoryDatabase } from "../database.ts";
-import { DexieMemoryRecordRepository } from "./memory-record-repository.ts";
 
 async function setup() {
-  const services = createServices(createTestDatabase());
+  const services = await createServices(createTestDatabase());
   const space = await services.spaces.create("会话");
-  await installDefaultPreset(services.db, space.id);
+  await installDefaultPreset(services.memoryStore, space.id);
   const table = (await services.tableRepository.list(space.id)).find(
     (item) => item.key === "characters",
   )!;
@@ -29,23 +24,7 @@ async function setup() {
   return { ...services, space, table, fields, name, identity };
 }
 
-/** ticket 03 时代的 v1 schema，用于验证 v1 → v2 升级路径。 */
-class SteMemoryDatabaseV1 extends Dexie {
-  memorySpaces!: Table<MemorySpace, MemorySpaceId>;
-  memoryTables!: Table<MemoryTable, MemoryTableId>;
-  memoryFields!: Table<MemoryField, MemoryFieldId>;
-
-  constructor(name: string) {
-    super(name);
-    this.version(1).stores({
-      memorySpaces: "id",
-      memoryTables: "id, &[memorySpaceId+key], memorySpaceId",
-      memoryFields: "id, &[memorySpaceId+tableId+key], [memorySpaceId+tableId]",
-    });
-  }
-}
-
-describe("Dexie memory record repository", () => {
+describe("SQLite memory record services", () => {
   it("creates records with manual or explicit source information", async () => {
     const { records, recordRepository, space, table, name, identity } = await setup();
 
@@ -432,11 +411,11 @@ describe("Dexie memory record repository", () => {
   });
 
   it("isolates records by memory space and table (跨空间/跨表互不可见)", async () => {
-    const services = createServices(createTestDatabase());
+    const services = await createServices(createTestDatabase());
     const spaceA = await services.spaces.create("空间 A");
     const spaceB = await services.spaces.create("空间 B");
-    await installDefaultPreset(services.db, spaceA.id);
-    await installDefaultPreset(services.db, spaceB.id);
+    await installDefaultPreset(services.memoryStore, spaceA.id);
+    await installDefaultPreset(services.memoryStore, spaceB.id);
     const tableA = (await services.tableRepository.list(spaceA.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -458,50 +437,14 @@ describe("Dexie memory record repository", () => {
     ).toBeUndefined();
   });
 
-  it("cascades records, history and evidence on table/space deletion (ON DELETE CASCADE 同语义)", async () => {
-    const { records, recordRepository, space, table, name, tableRepository, spaceRepository } =
-      await setup();
-    const created = await records.create(space.id, table.id, {
-      payload: { [name.id]: "林夏" },
-      fieldEvidence: {
-        [name.id]: [
-          {
-            source_type: "sillytavern_jsonl",
-            source_id: 7,
-            content: "林夏自称调查员。",
-            storage_mode: "snapshot",
-          },
-        ],
-      },
-    });
-    await records.update(space.id, table.id, created!.id, {
-      expectedRevisionId: created!.revisionId,
-      patch: { [name.id]: "林夏（修订）" },
-      revisionSource: "user",
-    });
-
-    // 删表格：记录与修订历史清空；证据只挂在空间上，不随表删
-    await tableRepository.delete(space.id, table.id);
-    expect(await recordRepository.find(space.id, table.id, created!.id)).toBeUndefined();
-    expect(
-      await recordRepository.listHistory({ memorySpaceId: space.id, recordId: created!.id }),
-    ).toEqual([]);
-    expect(await recordRepository.findEvidence(space.id, "sillytavern_jsonl", 7)).toBeDefined();
-
-    // 删空间：证据一并清空，空间级历史清空
-    await spaceRepository.delete(space.id);
-    expect(await recordRepository.findEvidence(space.id, "sillytavern_jsonl", 7)).toBeUndefined();
-    expect(await recordRepository.listHistory({ memorySpaceId: space.id })).toEqual([]);
-  });
-
   it("orders history by archivedAt descending (最新修订在前)", async () => {
     // 递增时钟：每次 now() 推进一分钟，让修订时间可区分
     let tick = 0;
-    const services = createServices(createTestDatabase(), () =>
+    const services = await createServices(createTestDatabase(), () =>
       new Date(Date.parse(NOW) + ++tick * 60_000).toISOString(),
     );
     const space = await services.spaces.create("会话");
-    await installDefaultPreset(services.db, space.id);
+    await installDefaultPreset(services.memoryStore, space.id);
     const table = (await services.tableRepository.list(space.id)).find(
       (item) => item.key === "characters",
     )!;
@@ -526,118 +469,5 @@ describe("Dexie memory record repository", () => {
     expect(histories.map((entry) => entry.displayText)).toEqual(["林夏（第一次修订）", "林夏"]);
     expect(histories[0]!.revisionId).toBe(second!.revisionId);
     expect(histories[1]!.revisionId).toBe(first!.revisionId);
-  });
-
-  it("upgrades an existing v1 database to the current schema without data loss (schema 升级路径)", async () => {
-    const name = "ste-memory-test-upgrade";
-    const v1 = new SteMemoryDatabaseV1(name);
-    await v1.open();
-    // v1 时代的行形状：空间没有初始化来源字段，表格带已废弃的身份字段、没有显式顺序
-    const legacySpaces = v1.memorySpaces as unknown as Table<
-      Record<string, unknown>,
-      MemorySpaceId
-    >;
-    await legacySpaces.add({
-      id: "space-1" as MemorySpaceId,
-      name: "会话",
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    await v1.memoryTables.bulkAdd([
-      {
-        id: "table-a" as MemoryTableId,
-        memorySpaceId: "space-1" as MemorySpaceId,
-        key: "characters" as MemoryTable["key"],
-        name: "人物",
-        description: "",
-        prompt: "",
-        enabled: true,
-        displayStrategy: null,
-        createdAt: NOW,
-        updatedAt: NOW,
-        kind: "system",
-      } as unknown as MemoryTable,
-      {
-        id: "table-b" as MemoryTableId,
-        memorySpaceId: "space-1" as MemorySpaceId,
-        key: "clues" as MemoryTable["key"],
-        name: "线索",
-        description: "",
-        prompt: "",
-        enabled: true,
-        displayStrategy: null,
-        createdAt: "2026-07-29T00:00:00.000Z",
-        updatedAt: NOW,
-        kind: "custom",
-      } as unknown as MemoryTable,
-    ]);
-    v1.close();
-
-    const upgraded = new SteMemoryDatabase(name);
-    try {
-      // v1 数据在升级后仍在；空间补齐初始化来源，表格按创建顺序补显式顺序并清掉身份字段
-      const space = await upgraded.memorySpaces.get("space-1" as MemorySpaceId);
-      expect(space?.name).toBe("会话");
-      expect(space?.initializationSource).toBeNull();
-      const tables = await upgraded.memoryTables.toArray();
-      expect(tables.map((table) => [table.key, table.position])).toEqual([
-        ["characters", 0],
-        ["clues", 1],
-      ]);
-      expect(tables.some((table) => "kind" in table)).toBe(false);
-      // v2 新增的表可用
-      await upgraded.memoryRecords.add({
-        id: "record-1" as MemoryRecordId,
-        memorySpaceId: "space-1" as MemorySpaceId,
-        tableId: "table-1" as MemoryTableId,
-        payload: {},
-        fieldEvidence: {},
-        displayText: "林夏",
-        source: { type: "manual" },
-        revisionId: "revision-1" as MemoryRevisionId,
-        revisionSource: "user",
-        createdAt: NOW,
-        updatedAt: NOW,
-      });
-      expect(await upgraded.memoryRecords.count()).toBe(1);
-    } finally {
-      await upgraded.delete();
-    }
-  });
-
-  it("persists records and history across a database reopen (页面刷新语义)", async () => {
-    const name = "ste-memory-test-records-reopen";
-    const first = new SteMemoryDatabase(name);
-    const services = createServices(first);
-    const space = await services.spaces.create("会话");
-    await installDefaultPreset(services.db, space.id);
-    const table = (await services.tableRepository.list(space.id)).find(
-      (item) => item.key === "characters",
-    )!;
-    const fields = await services.fieldRepository.list(space.id, table.id);
-    const nameField = fields.find((field) => field.name === "名称")!;
-    const created = await services.records.create(space.id, table.id, {
-      payload: { [nameField.id]: "林夏" },
-    });
-    await services.records.update(space.id, table.id, created!.id, {
-      expectedRevisionId: created!.revisionId,
-      patch: { [nameField.id]: "林夏（修订）" },
-      revisionSource: "user",
-    });
-    first.close();
-
-    const second = new SteMemoryDatabase(name);
-    try {
-      const reopened = new DexieMemoryRecordRepository(second);
-      // v2 schema 升级后记录与修订历史都还在
-      expect((await reopened.find(space.id, table.id, created!.id))?.displayText).toBe(
-        "林夏（修订）",
-      );
-      expect(
-        await reopened.listHistory({ memorySpaceId: space.id, recordId: created!.id }),
-      ).toEqual([expect.objectContaining({ recordId: created!.id, displayText: "林夏" })]);
-    } finally {
-      await second.delete();
-    }
   });
 });

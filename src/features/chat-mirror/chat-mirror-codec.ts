@@ -26,14 +26,13 @@ const mirrorEnvelopeSchema = Type.Object({
   data: Type.Unknown(),
 });
 
-/** 组装对话文件镜像（unit 即 data，无深拷贝；includeHistory=false 裁剪 history）。
+/** 组装对话文件镜像（完整空间内容，无历史裁剪）。
  *  镜像包含空间内的对话宏；任务和楼层进度使用各自的持久化路径，镜像不带它们。 */
 export function createChatMirrorFile(
   unit: MemorySpaceBackup,
   spaceId: string,
   updatedAt: string,
   appVersion: string,
-  includeHistory = true,
 ): ChatMirrorFile {
   assertSnapshotStructure(memorySpaceSnapshotSchema, unit);
   validateSnapshotIntegrity(unit, createSnapshotSeenIds());
@@ -45,7 +44,7 @@ export function createChatMirrorFile(
     spaceId,
     updatedAt,
     appVersion,
-    data: includeHistory ? content : { ...content, history: [] },
+    data: content,
   };
 }
 

@@ -12,7 +12,6 @@ interface SettingsDependencies {
   readonly syncToCurrentChat: () => Promise<unknown>;
   readonly refreshMemoryMacros: () => Promise<void>;
   readonly refreshAgentMacros: () => Promise<void>;
-  readonly refreshMirror: () => Promise<void>;
   readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void> | void;
   readonly refreshVectorIndex: () => Promise<void>;
   readonly refreshAutoFill?: () => void;
@@ -42,22 +41,15 @@ export class SettingsService {
 
   async setPluginEnabled(enabled: boolean): Promise<void> {
     this.save({ ...this.read(), enabled });
-    // 设置先保存，各服务随后读取同一份新值；停用也立即注销宏并停止镜像。
+    // 设置先保存，各服务随后读取同一份新值；停用时注销宏并停止业务，已提交快照继续保存。
     const changes: Promise<unknown>[] = [];
     if (enabled) changes.push(this.dependencies.syncToCurrentChat());
     changes.push(
       this.dependencies.refreshMemoryMacros(),
       this.dependencies.refreshAgentMacros(),
-      this.dependencies.refreshMirror(),
       this.dependencies.refreshVectorIndex(),
     );
     await Promise.all(changes);
-  }
-
-  async setMirrorEnabled(enabled: boolean): Promise<void> {
-    const settings = this.read();
-    this.save({ ...settings, mirror: { ...settings.mirror, enabled } });
-    await this.dependencies.refreshMirror();
   }
 
   async setEmbeddingConnection(connection: EmbeddingConnection | undefined): Promise<void> {
@@ -68,12 +60,6 @@ export class SettingsService {
   async setRerankSettings(rerank: RerankSettings): Promise<void> {
     this.save({ ...this.read(), rerank: parseRerankSettings(rerank) });
     await this.dependencies.refreshMemoryMacros();
-  }
-
-  async setMirrorHistoryIncluded(includeHistory: boolean): Promise<void> {
-    const settings = this.read();
-    this.save({ ...settings, mirror: { ...settings.mirror, includeHistory } });
-    await this.dependencies.refreshMirror();
   }
 
   async setMacroName(macroName: string): Promise<void> {

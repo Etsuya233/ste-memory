@@ -1,61 +1,38 @@
 import { migrateMemorySpaceSnapshot } from "../../features/memory-snapshot/snapshot-migration.ts";
-import type { MemoryBackupSnapshot } from "../../features/backup/backup-port.ts";
 import type { MemorySpaceBackup } from "../../features/backup/backup-file.ts";
-import { MemoryCommitPersistenceError } from "../../features/memory/index.ts";
-import type { SteMemoryDatabase } from "../indexeddb/database.ts";
-import { DexieMemoryBackupRepository } from "../indexeddb/backup/memory-backup-repository.ts";
+import type { MemoryBackupRepository } from "../../features/backup/backup-port.ts";
 import type { SqliteMemoryClient } from "../sqlite/types.ts";
 import type { SqliteMemoryStore } from "./sqlite-memory-store.ts";
 
-/** Explicit restore invalidates live databases; ordinary snapshot caching does not purge vectors. */
-export class SqliteMemoryBackupRepository extends DexieMemoryBackupRepository {
+/** 当前空间导出与候选SQLite约束校验；无本地空间目录和第二份持久化内容。 */
+export class SqliteMemoryBackupRepository implements MemoryBackupRepository {
   private readonly memory: SqliteMemoryStore;
+  private readonly currentSpaceId: () => string | undefined;
   private readonly createClient: () => SqliteMemoryClient | Promise<SqliteMemoryClient>;
   constructor(
-    db: SteMemoryDatabase,
     memory: SqliteMemoryStore,
+    currentSpaceId: () => string | undefined,
     createClient: () => SqliteMemoryClient | Promise<SqliteMemoryClient>,
   ) {
-    super(db);
     this.memory = memory;
+    this.currentSpaceId = currentSpaceId;
     this.createClient = createClient;
   }
 
-  private async validate(units: readonly MemorySpaceBackup[]): Promise<void> {
-    for (const unit of units)
-      migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
-    const validator = await this.createClient();
+  async exportCurrentSpace(): Promise<MemorySpaceBackup> {
+    const id = this.currentSpaceId();
+    if (!id) throw new Error("当前聊天的记忆空间尚未就绪");
+    const snapshot = await this.memory.snapshot(id);
+    if (!snapshot) throw new Error("当前聊天的记忆空间尚未加载");
+    return snapshot;
+  }
+  async validateSnapshot(unit: MemorySpaceBackup): Promise<void> {
+    migrateMemorySpaceSnapshot({ version: unit.schemaVersion, snapshot: unit });
+    const client = await this.createClient();
     try {
-      for (const unit of units) await validator.importSpace(unit);
+      await client.importSpace(unit);
     } finally {
-      await validator.close();
+      await client.close();
     }
-  }
-
-  override async restoreSpace(unit: MemorySpaceBackup): Promise<void> {
-    await this.memory.exclusive(unit.space.id, async (token) => {
-      await this.validate([unit]);
-      await super.restoreSpace(unit);
-      try {
-        await this.memory.unload(unit.space.id, token);
-        await this.memory.ensure(unit.space.id);
-        await this.memory.onCommitted(unit);
-      } catch (cause) {
-        throw new MemoryCommitPersistenceError(cause);
-      }
-    });
-  }
-
-  override async restoreSnapshot(snapshot: MemoryBackupSnapshot): Promise<void> {
-    await this.memory.exclusiveAll(async (token) => {
-      await this.validate(snapshot.spaces);
-      await super.restoreSnapshot(snapshot);
-      try {
-        await this.memory.discardLoaded(token);
-        for (const unit of snapshot.spaces) await this.memory.onCommitted(unit);
-      } catch (cause) {
-        throw new MemoryCommitPersistenceError(cause);
-      }
-    });
   }
 }

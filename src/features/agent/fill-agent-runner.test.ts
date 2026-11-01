@@ -1,5 +1,5 @@
 /**
- * FillAgentRunner 组装模块单测（spec Seam 2）：fixture digest（Dexie 系统表
+ * FillAgentRunner 组装模块单测（spec Seam 2）：fixture digest（SQLite 系统表
  * 安装 + buildMemorySpaceTableDigest）+ scriptedStreamFn 驱动真实 Agent 循环。
  * 只测外部行为：守卫、system 合并/前缀顺序、run 结果形状、submit_proposal
  * 冻结提案；digest 构建/State/工具工厂各自的行为由 Memory 契约测试锁定。
@@ -66,13 +66,13 @@ interface Harness {
 
 let harnessSeq = 0;
 
-/** 装配测试记忆空间：Dexie 库 + 系统表安装 + reader/ports + 真实 digest。 */
+/** 装配测试记忆空间：SQLite 运行库 + 系统表安装 + reader/ports + 真实 digest。 */
 async function createHarness(): Promise<Harness> {
   const db = createTestDatabase(`ste-fill-agent-${++harnessSeq}-`);
-  const services = createServices(db, () => NOW);
+  const services = await createServices(db, () => NOW);
   const { spaces, tables, fields } = services;
   const space = await spaces.create("会话");
-  await installDefaultPreset(db, space.id);
+  await installDefaultPreset(services.memoryStore, space.id);
   const spaceId = space.id;
   const reader: MemorySpaceReader = {
     getSpace: async () => undefined,

@@ -26,10 +26,13 @@ export function createRuntimeTestPorts(getContext: () => unknown) {
       }
       return structuredClone(files.get(target.identity));
     },
-    async write(target, file, binding?: ChatSpaceBinding) {
+    async write(target, file, _binding: ChatSpaceBinding) {
       const captured = structuredClone(file);
       files.set(target.identity, captured);
       writes.push({ target: { ...target }, file: captured });
+    },
+    publish(target, file, binding) {
+      const captured = structuredClone(file);
       if (chatIdentityKey(adapter.getChatSnapshot()) !== target.identity) return;
       const metadata = context().chatMetadata!;
       metadata[CHAT_METADATA_MIRROR_KEY] = captured;

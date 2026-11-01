@@ -27,10 +27,6 @@ export class MemorySpaceService {
     return memorySpace;
   }
 
-  async delete(id: MemorySpaceId): Promise<boolean> {
-    return this.repository.delete(id);
-  }
-
   /** 清除空间记录：删除该空间全部记录派生数据，保留表格结构。 */
   async clearRecords(id: MemorySpaceId): Promise<boolean> {
     return this.repository.clearRecords(id);
@@ -43,10 +39,6 @@ export class MemorySpaceService {
 
   async find(id: MemorySpaceId): Promise<MemorySpace | undefined> {
     return this.repository.find(id);
-  }
-
-  async list(): Promise<MemorySpace[]> {
-    return this.repository.list();
   }
 
   async setMacros(

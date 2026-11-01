@@ -333,7 +333,7 @@ describe("RecordsWorkspace", () => {
     });
     expect(workspace.getSnapshot().order.fieldId).toBe(fieldId);
   });
-  it("ends creation after a committed write error and retries persistence without creating again", async () => {
+  it("ends creation after a committed write error without copying file save state", async () => {
     const { workspace, records } = setup();
     await workspace.setContext(contextA);
     workspace.startCreate();
@@ -348,13 +348,11 @@ describe("RecordsWorkspace", () => {
       editor: null,
       saving: false,
       detail: committed,
-      persistenceError: "文件写回失败",
+      notice: "记录修改已提交",
     });
-    const retry = vi.fn(async () => {});
-    await workspace.retryPersistence(retry);
-    expect(retry).toHaveBeenCalledTimes(1);
+    await expect(workspace.save()).rejects.toThrow("没有可保存的记录草稿");
     expect(records.create).toHaveBeenCalledTimes(1);
-    expect(workspace.getSnapshot().persistenceError).toBeNull();
+    expect(workspace.getSnapshot()).not.toHaveProperty("persistenceError");
   });
   it("starts with a list and keeps detail and draft while querying another page", async () => {
     const { workspace } = setup();
@@ -521,7 +519,7 @@ describe("RecordsWorkspace", () => {
     await workspace.save();
     expect(workspace.getSnapshot()).toMatchObject({
       editor: null,
-      saveWarning: "记录已保存，后续刷新失败：宏刷新失败",
+      saveWarning: "记录修改已提交，后续刷新失败：宏刷新失败",
     });
   });
 

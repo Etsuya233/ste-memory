@@ -60,7 +60,6 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
         await runtime.macro.kick();
       }
     },
-    retryMemorySave: () => runtime.retryMemorySave(),
   });
   const tasks = new TasksWorkspace({
     tasks: runtime.tasks,
@@ -116,9 +115,9 @@ function StFrontend({
     (listener) => runtime.manager.onStatusChange(listener),
     () => runtime.manager.getStatus(),
   );
-  const mirror = useSyncExternalStore(
-    (listener) => runtime.mirror.onStatusChange(listener),
-    () => runtime.mirror.getStatus(),
+  const persistence = useSyncExternalStore(
+    (listener) => runtime.persistence.onStatusChange(listener),
+    () => runtime.persistence.getStatus(chatIdentityKey(runtime.adapter.getChatSnapshot())),
   );
   const [, refreshSettings] = useState(0);
   const synchronize = useCallback(() => {
@@ -252,7 +251,8 @@ function StFrontend({
           settings={settings}
           active={open}
           status={status}
-          mirror={mirror}
+          persistence={persistence}
+          hasPendingSnapshotWrites={() => runtime.persistence.hasPendingWrites()}
           onClose={() => setOpen(false)}
           onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
           onRetryContext={() => runtime.manager.syncToCurrentChat()}

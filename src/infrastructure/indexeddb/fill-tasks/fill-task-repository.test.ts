@@ -1,15 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type {
-  MemoryRecord,
-  MemoryRecordId,
-  MemoryTableId,
-} from "../../../features/memory/index.ts";
 // fake-indexeddb 必须先于 dexie 模块求值（test-support 第一行 import "fake-indexeddb/auto"）
 import { createTestDatabase } from "../test-support.ts";
-import { Dexie } from "dexie";
 import { DexieFillTaskRepository, DexieFloorLedgerRepository } from "./fill-task-repository.ts";
-import { DexieMemorySpaceRepository } from "../memory/memory-space-repository.ts";
-import { SteMemoryDatabase } from "../database.ts";
 import {
   isFillTaskTerminal,
   type FillTask,
@@ -20,27 +12,6 @@ import type { MemorySpaceId } from "../../../features/memory/index.ts";
 const SPACE_A = "space-a" as MemorySpaceId;
 const SPACE_B = "space-b" as MemorySpaceId;
 const NOW = "2026-07-28T00:00:00.000Z";
-
-/** ticket 13 之前的 v2 schema，用于验证 v2 → v3 升级路径（新增任务表与楼层台账表）。 */
-class SteMemoryDatabaseV2 extends Dexie {
-  memorySpaces!: SteMemoryDatabase["memorySpaces"];
-  memoryRecords!: SteMemoryDatabase["memoryRecords"];
-
-  constructor(name: string) {
-    super(name);
-    this.version(1).stores({
-      memorySpaces: "id",
-      memoryTables: "id, &[memorySpaceId+key], memorySpaceId",
-      memoryFields: "id, &[memorySpaceId+tableId+key], [memorySpaceId+tableId]",
-    });
-    this.version(2).stores({
-      memoryRecords: "id, [memorySpaceId+tableId], memorySpaceId",
-      memoryRecordHistory:
-        "id, [memorySpaceId+tableId+recordId], [memorySpaceId+recordId], memorySpaceId",
-      memoryEvidence: "id, &[memorySpaceId+source_type+source_id], memorySpaceId",
-    });
-  }
-}
 
 function task(overrides: Partial<FillTask> = {}): FillTask {
   return {
@@ -310,7 +281,7 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     expect(await tasks.listRecent(SPACE_B, 10)).toEqual([]);
   });
 
-  it("空间删除级联清理任务行与楼层台账（与表格/记录同语义）", async () => {
+  it("按空间清理任务行与楼层台账，其他空间保留", async () => {
     const db = createTestDatabase();
     const tasks = new DexieFillTaskRepository(db, () => NOW);
     const ledger = new DexieFloorLedgerRepository(db);
@@ -320,23 +291,8 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
     await ledger.markProcessed(SPACE_A, [0, 1]);
     await ledger.markError(SPACE_B, [2]);
 
-    const spaces = new DexieMemorySpaceRepository(db);
-    await spaces.create({
-      id: SPACE_A,
-      name: "会话",
-      initializationSource: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    await spaces.create({
-      id: SPACE_B,
-      name: "其他",
-      initializationSource: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-
-    expect(await spaces.delete(SPACE_A)).toBe(true);
+    await tasks.clear(SPACE_A);
+    await ledger.clear(SPACE_A);
     // 空间 A 的任务与台账行被清掉；空间 B 不受影响
     expect(await tasks.find("run-1")).toBeUndefined();
     expect(await tasks.find("run-2")).toMatchObject({ status: "running" });
@@ -345,81 +301,5 @@ describe("DexieFillTaskRepository（任务行与状态机，ticket 13）", () =>
       { floor: 1, status: "untracked" },
     ]);
     expect(await ledger.statuses(SPACE_B, 2, 2)).toEqual([{ floor: 2, status: "error" }]);
-  });
-
-  it("upgrades an existing v2 database to v3 without data loss（任务表/台账表新增，旧数据保留）", async () => {
-    const name = "ste-memory-test-fill-upgrade";
-    const v2 = new SteMemoryDatabaseV2(name);
-    await v2.open();
-    await v2.memorySpaces.add({
-      id: SPACE_A,
-      name: "会话",
-      initializationSource: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    // 旧记录仍须有所属表；统一快照迁移会完整校验旧库的领域归属。
-    await v2.table("memoryTables").add({
-      id: "table-1",
-      memorySpaceId: SPACE_A,
-      key: "old",
-      name: "旧表",
-      description: "",
-      prompt: "",
-      enabled: true,
-      displayStrategy: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    const record: MemoryRecord = {
-      id: "record-1" as MemoryRecordId,
-      memorySpaceId: SPACE_A,
-      tableId: "table-1" as MemoryTableId,
-      payload: {},
-      fieldEvidence: {},
-      displayText: "旧记录",
-      source: { type: "manual" },
-      revisionId: "revision-1" as MemoryRecord["revisionId"],
-      revisionSource: "user",
-      createdAt: NOW,
-      updatedAt: NOW,
-    };
-    await v2.memoryRecords.add(record);
-    v2.close();
-
-    const upgraded = new SteMemoryDatabase(name);
-    try {
-      // v2 数据在升级后仍在
-      expect((await upgraded.memorySpaces.get(SPACE_A))?.name).toBe("会话");
-      expect((await upgraded.memoryRecords.get("record-1" as MemoryRecordId))?.displayText).toBe(
-        "旧记录",
-      );
-      // v3 新增的表可用：任务行 + 楼层台账
-      await upgraded.memoryFillTasks.add({
-        runId: "run-upgraded",
-        memorySpaceId: SPACE_A,
-        from: 0,
-        to: 1,
-        kind: "floor",
-        initText: null,
-        blockSize: 20,
-        chatId: null,
-        status: "succeeded",
-        errorMessage: null,
-        createdAt: NOW,
-        updatedAt: NOW,
-      });
-      await upgraded.floorFillLedger.add({
-        id: `${SPACE_A}:0`,
-        memorySpaceId: SPACE_A,
-        floor: 0,
-        status: "processed",
-        updatedAt: NOW,
-      });
-      expect(await upgraded.memoryFillTasks.count()).toBe(1);
-      expect(await upgraded.floorFillLedger.count()).toBe(1);
-    } finally {
-      await upgraded.delete();
-    }
   });
 });

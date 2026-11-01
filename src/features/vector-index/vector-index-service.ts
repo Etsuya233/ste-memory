@@ -210,9 +210,24 @@ export class VectorIndexService {
   }
 
   async reconcile(scope: VectorScope): Promise<VectorSubmissionResult> {
-    if (!this.readEnabled()) return emptyResult();
+    if (!this.readEnabled() || scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
     const tasks = await this.repository.listTasks();
-    for (const task of tasks.filter(
+    const missingRecords = new Map<string, VectorScope>();
+    for (const task of tasks.filter((item) => this.inScope(item, scope))) {
+      const record = await this.records.find(task.memorySpaceId, task.tableId, task.recordId);
+      if (scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
+      if (!record)
+        missingRecords.set(`${task.tableId}:${task.recordId}`, {
+          memorySpaceId: task.memorySpaceId,
+          tableId: task.tableId,
+          recordId: task.recordId,
+        });
+    }
+    for (const removed of missingRecords.values()) {
+      if (scope.memorySpaceId !== this.currentSpaceId()) return emptyResult();
+      await this.purge(removed);
+    }
+    for (const task of (await this.repository.listTasks()).filter(
       (task) => active.has(task.status) && this.inScope(task, scope),
     )) {
       const table = await this.tables.find(task.memorySpaceId, task.tableId);
@@ -577,6 +592,15 @@ export class VectorIndexService {
       });
     }
   }
+  /** 离开聊天只中断已发出的请求，保留queued任务供原聊天重新激活。 */
+  async pauseSpace(spaceId: MemorySpaceId): Promise<void> {
+    for (const task of (await this.repository.listTasks()).filter(
+      (task) => task.memorySpaceId === spaceId && task.status === "running",
+    )) {
+      this.controllers.get(task.id)?.abort();
+      await this.finish(task, "interrupted", null);
+    }
+  }
   async stop(scope: VectorScope): Promise<void> {
     for (const task of (await this.repository.listTasks()).filter(
       (task) => active.has(task.status) && this.inScope(task, scope),
@@ -809,8 +833,10 @@ export class VectorIndexService {
       while (true) {
         if (!this.readEnabled()) break;
         const profile = this.embedding.getProfile();
+        const current = this.currentSpaceId();
+        // 未加载聊天没有可查询的在线内容，保留其队列，等该聊天再次激活。
         const queued = (await this.repository.listTasks()).filter(
-          (task) => task.status === "queued",
+          (task) => task.status === "queued" && task.memorySpaceId === current,
         );
         if (!profile || this.capacityBlocked || this.blocked.has(profile.version)) {
           const reason = !profile
@@ -825,7 +851,6 @@ export class VectorIndexService {
           });
           break;
         }
-        const current = this.currentSpaceId();
         queued.sort(
           (a, b) =>
             Number(b.source === "manual") - Number(a.source === "manual") ||
@@ -839,14 +864,22 @@ export class VectorIndexService {
             !queued.some((other) => other.id === candidate.predecessorId),
         );
         if (!candidate) break;
-        if (!(await this.matches(candidate))) {
+        if (candidate.memorySpaceId !== this.currentSpaceId()) continue;
+        const matches = await this.matches(candidate);
+        if (candidate.memorySpaceId !== this.currentSpaceId()) continue;
+        if (!matches) {
           await this.finish(candidate, "obsolete", null);
           continue;
         }
         const controller = new AbortController();
         const task = await this.changeTasks(async () => {
           const currentTask = await this.repository.getTask(candidate.id);
-          if (currentTask?.status !== "queued" || !this.readEnabled()) return null;
+          if (
+            currentTask?.status !== "queued" ||
+            !this.readEnabled() ||
+            currentTask.memorySpaceId !== this.currentSpaceId()
+          )
+            return null;
           if (currentTask.error) return currentTask;
           this.controllers.set(currentTask.id, controller);
           const running: VectorTask = {
@@ -859,6 +892,10 @@ export class VectorIndexService {
           return running;
         });
         if (!task) continue;
+        if (task.memorySpaceId !== this.currentSpaceId()) {
+          await this.finish(task, "interrupted", null);
+          continue;
+        }
         if (task.error) {
           await this.finish(task, "failed", task.error);
           await this.repository.saveSuppression({
@@ -877,7 +914,10 @@ export class VectorIndexService {
           await this.changeTasks(async () => {
             const currentTask = await this.repository.getTask(task.id);
             if (!currentTask || currentTask.status !== "running") return;
-            if (!(await this.matches(task))) {
+            if (task.memorySpaceId !== this.currentSpaceId()) return;
+            const matches = await this.matches(task);
+            if (task.memorySpaceId !== this.currentSpaceId()) return;
+            if (!matches) {
               await this.finishTask(task, "obsolete", null);
               return;
             }

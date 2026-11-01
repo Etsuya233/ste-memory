@@ -20,7 +20,6 @@ function harness() {
     syncToCurrentChat: vi.fn(refresh),
     refreshMemoryMacros: vi.fn(refresh),
     refreshAgentMacros: vi.fn(refresh),
-    refreshMirror: vi.fn(refresh),
     writeChatScopeMacros: vi.fn(),
     validateMacros: vi.fn(async (macros: readonly MemoryMacro[]) => macros),
     getChatScopeMacros: (): readonly MemoryMacro[] => [],
@@ -145,34 +144,23 @@ describe("SettingsService", () => {
     ).rejects.toThrow("超时");
     expect(service.read().embeddingConnection).toEqual(connection);
   });
-  it("启用先保存，再同步对话和刷新宏与镜像", async () => {
+  it("启用先保存，再同步对话和刷新宏", async () => {
     const { service, dependencies, observed } = harness();
     service.save({ ...service.read(), enabled: false });
     await service.setPluginEnabled(true);
     expect(dependencies.syncToCurrentChat).toHaveBeenCalledOnce();
     expect(dependencies.refreshMemoryMacros).toHaveBeenCalledOnce();
     expect(dependencies.refreshAgentMacros).toHaveBeenCalledOnce();
-    expect(dependencies.refreshMirror).toHaveBeenCalledOnce();
-    expect(observed).toHaveLength(4);
+    expect(observed).toHaveLength(3);
     expect(observed.every((settings) => settings.enabled)).toBe(true);
   });
 
-  it("停用不创建空间，两个宏和镜像立即读取停用状态", async () => {
+  it("停用不创建空间，两个宏立即读取停用状态", async () => {
     const { service, dependencies, observed } = harness();
     await service.setPluginEnabled(false);
     expect(dependencies.syncToCurrentChat).not.toHaveBeenCalled();
-    expect(observed).toHaveLength(3);
+    expect(observed).toHaveLength(2);
     expect(observed.every((settings) => !settings.enabled)).toBe(true);
-  });
-
-  it("镜像设置只刷新镜像，并保留镜像其他字段", async () => {
-    const { service, dependencies, observed } = harness();
-    await service.setMirrorEnabled(false);
-    await service.setMirrorHistoryIncluded(false);
-    expect(service.read().mirror).toEqual({ enabled: false, includeHistory: false });
-    expect(observed[0]!.mirror).toEqual({ enabled: false, includeHistory: true });
-    expect(dependencies.refreshMirror).toHaveBeenCalledTimes(2);
-    expect(dependencies.refreshMemoryMacros).not.toHaveBeenCalled();
   });
 
   it("连续修改宏设置读取最新值，保留其他设置", async () => {

@@ -1,11 +1,12 @@
 import type { MemorySpaceId } from "../../../features/memory/index.ts";
 import type {
   FillTask,
+  FillTaskBatchResult,
   FillTaskRepository,
-  FloorLedgerEntry,
-  FloorLedgerRepository,
 } from "../../../features/fill-tasks/fill-task.ts";
-import type { FloorLedgerRow, SteMemoryDatabase } from "../database.ts";
+import type { SteMemoryDatabase } from "../database.ts";
+
+export { DexieFloorLedgerRepository } from "./floor-ledger-repository.ts";
 
 /**
  * 旧任务行兼容（初始化填表新增 kind/initText 字段前的行）：缺省视为楼层填表任务
@@ -20,94 +21,13 @@ export function normalizeTaskRow(row: FillTask): FillTask {
 }
 
 /**
- * 填表任务 + 楼层进度台账的 Dexie 实现（ticket 13，ADR 0002）。
- *
- * - 任务行状态转换带守卫（仅 running → 终态）：取消与完成竞态下先落地者胜出，
- *   已取消的任务不会被循环改写为 succeeded/failed——与「用户取消落为 interrupted、
- *   不自动重放」语义一致。守卫用「事务内读 + 条件写」实现（IndexedDB 事务按
- *   表作用域串行，两个并发转换不会交错）。
- * - 楼层台账按（记忆空间, 同步楼层）唯一（`&[memorySpaceId+floor]`），
- *   markProcessed/markError 都是 upsert：error 被后续成功覆盖（可重试语义）；
- *   untracked = 无行，statuses() 查询时补齐。
+ * 任务状态与批次保存凭据由同一张表管理；文件成功后，调用方把台账写入与
+ * completeBatchSave 放在同一个事务内。取消和空间清理撤销凭据，迟到通知不再生效。
  */
-
-/** 楼层台账行 id：`${memorySpaceId}:${floor}`（唯一索引键的一部分，防跨空间冲突）。 */
-function ledgerRowId(memorySpaceId: MemorySpaceId, floor: number): string {
-  return `${memorySpaceId}:${floor}`;
-}
 
 /** 任务行排序：createdAt 倒序（id 兜底，保证确定性）——活动任务与最近列表共用。 */
 function byCreatedAtDesc(left: FillTask, right: FillTask): number {
   return right.createdAt.localeCompare(left.createdAt) || right.runId.localeCompare(left.runId);
-}
-
-export class DexieFloorLedgerRepository implements FloorLedgerRepository {
-  readonly #db: SteMemoryDatabase;
-  readonly #now: () => string;
-
-  constructor(db: SteMemoryDatabase, now: () => string = () => new Date().toISOString()) {
-    this.#db = db;
-    this.#now = now;
-  }
-
-  async markProcessed(memorySpaceId: MemorySpaceId, floors: readonly number[]): Promise<void> {
-    await this.#upsert(memorySpaceId, floors, "processed");
-  }
-
-  async markError(memorySpaceId: MemorySpaceId, floors: readonly number[]): Promise<void> {
-    await this.#upsert(memorySpaceId, floors, "error");
-  }
-
-  async statuses(
-    memorySpaceId: MemorySpaceId,
-    from: number,
-    to: number,
-  ): Promise<readonly FloorLedgerEntry[]> {
-    const rows = await this.#db.floorFillLedger
-      .where("[memorySpaceId+floor]")
-      // Dexie 4.4：between 默认上界开（includeUpper === true 才闭），闭区间必须显式传 true, true
-      .between([memorySpaceId, from], [memorySpaceId, to], true, true)
-      .toArray();
-    const byFloor = new Map(rows.map((row) => [row.floor, row.status]));
-    const entries: FloorLedgerEntry[] = [];
-    for (let floor = from; floor <= to; floor += 1) {
-      entries.push({ floor, status: byFloor.get(floor) ?? "untracked" });
-    }
-    return entries;
-  }
-
-  async processedCount(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<number> {
-    const statuses = await this.statuses(memorySpaceId, from, to);
-    return statuses.filter((entry) => entry.status === "processed").length;
-  }
-
-  async deleteStatuses(memorySpaceId: MemorySpaceId, from: number, to: number): Promise<void> {
-    await this.#db.floorFillLedger
-      .where("[memorySpaceId+floor]")
-      .between([memorySpaceId, from], [memorySpaceId, to], true, true)
-      .delete();
-  }
-
-  /** 清除空间记录/重置空间（spec reset-space）：删除该空间全部台账行。 */
-  async clear(memorySpaceId: MemorySpaceId): Promise<void> {
-    await this.#db.floorFillLedger.where("memorySpaceId").equals(memorySpaceId).delete();
-  }
-
-  async #upsert(
-    memorySpaceId: MemorySpaceId,
-    floors: readonly number[],
-    status: Exclude<FloorLedgerEntry["status"], "untracked">,
-  ): Promise<void> {
-    const updatedAt = this.#now();
-    const rows: FloorLedgerRow[] = floors.map((floor) => ({
-      id: ledgerRowId(memorySpaceId, floor),
-      memorySpaceId,
-      floor,
-      status,
-      updatedAt,
-    }));
-    await this.#db.floorFillLedger.bulkPut(rows);
-  }
 }
 
 export class DexieFillTaskRepository implements FillTaskRepository {
@@ -157,6 +77,53 @@ export class DexieFillTaskRepository implements FillTaskRepository {
       );
   }
 
+  async beginBatchSave(runId: string, batch: FillTaskBatchResult): Promise<boolean> {
+    return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const task = await this.find(runId);
+      if (task?.status !== "running" || task.pendingSave) return false;
+      await this.#db.memoryFillTasks.put({ ...task, pendingSave: batch, updatedAt: this.#now() });
+      return true;
+    });
+  }
+
+  async abandonBatchSave(runId: string, batch: FillTaskBatchResult): Promise<void> {
+    await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const task = await this.find(runId);
+      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to) return;
+      const remaining = { ...task, pendingSave: undefined };
+      await this.#db.memoryFillTasks.put(remaining);
+    });
+  }
+
+  async completeBatchSave(
+    runId: string,
+    batch: FillTaskBatchResult,
+  ): Promise<FillTask | undefined> {
+    return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const task = await this.find(runId);
+      if (task?.pendingSave?.from !== batch.from || task.pendingSave.to !== batch.to)
+        return undefined;
+      const remaining = { ...task, pendingSave: undefined };
+      // 首次保存仍归执行循环；失败后的保存重试仅收口，不重新启动后续 Agent。
+      const status =
+        task.status === "running"
+          ? "running"
+          : batch.nextFrom === null
+            ? "succeeded"
+            : "interrupted";
+      const completed: FillTask = {
+        ...remaining,
+        status,
+        nextFrom: batch.nextFrom,
+        blocksQueue: status === "interrupted",
+        errorMessage: null,
+        updatedAt: this.#now(),
+      };
+      await this.#db.memoryFillTasks.put(completed);
+      return completed;
+    });
+  }
+
   async markRunning(runId: string): Promise<boolean> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const task = await this.#db.memoryFillTasks.get(runId);
@@ -169,14 +136,21 @@ export class DexieFillTaskRepository implements FillTaskRepository {
   }
 
   async release(runId: string): Promise<void> {
-    await this.#db.memoryFillTasks.update(runId, { blocksQueue: false });
+    await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
+      const task = await this.find(runId);
+      if (!task) return;
+      const remaining = { ...task, pendingSave: undefined };
+      await this.#db.memoryFillTasks.put({ ...remaining, blocksQueue: false });
+    });
   }
 
   async interruptPending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]> {
     return this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const pending = await this.pending(memorySpaceId);
       for (const task of pending) {
-        await this.#db.memoryFillTasks.update(task.runId, {
+        const remaining = { ...task, pendingSave: undefined };
+        await this.#db.memoryFillTasks.put({
+          ...remaining,
           status: task.status === "failed" ? "failed" : "interrupted",
           blocksQueue: false,
           updatedAt: this.#now(),
@@ -215,18 +189,20 @@ export class DexieFillTaskRepository implements FillTaskRepository {
     return this.#transition(runId, "interrupted", null, reason);
   }
 
-  /** 启动时把 running 任务标记 interrupted 并阻塞，queued 任务保留，
-   *  并返回被中断的任务行（调用方据其写入中断结束日志）。 */
+  /** 页面重开丢失文件保存任务；保留批次凭据并标为未确认，禁止从辅助行推定保存成功。 */
   async markInterruptedOnStartup(): Promise<readonly FillTask[]> {
     const interrupted: FillTask[] = [];
     await this.#db.transaction("rw", this.#db.memoryFillTasks, async () => {
       const rows = await this.#db.memoryFillTasks.toArray();
       for (const row of rows) {
-        if (row.status !== "running") continue;
+        if (row.status !== "running" && !row.pendingSave) continue;
         const updated = {
           ...normalizeTaskRow(row),
           status: "interrupted" as const,
           blocksQueue: true,
+          errorMessage: row.pendingSave
+            ? "保存结果未确认，请核对对话记忆；可取消队列后主动重新提交"
+            : row.errorMessage,
           updatedAt: this.#now(),
         };
         await this.#db.memoryFillTasks.put(updated);

@@ -82,7 +82,6 @@ export interface RecordsSnapshot {
   readonly saving: boolean;
   readonly notice: string | null;
   readonly saveWarning: string | null;
-  readonly persistenceError: string | null;
   readonly references: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>;
   readonly retainedDraftCount: number;
 }
@@ -119,7 +118,6 @@ function initialSnapshot(context: RecordsContext | null): RecordsSnapshot {
     saving: false,
     notice: null,
     saveWarning: null,
-    persistenceError: null,
     references: new Map(),
     retainedDraftCount: 0,
   };
@@ -392,7 +390,6 @@ export class RecordsWorkspace {
     const submitted = { ...editor, errors: {}, error: null };
     this.#update(session, { editor: submitted, saving: true, saveWarning: null });
     let record: MemoryRecord;
-    let persistenceError: string | null = null;
     try {
       this.#services.assertContext(context);
       const result = editor.original
@@ -412,7 +409,6 @@ export class RecordsWorkspace {
         return;
       if (error instanceof MemoryRecordSaveError) {
         record = error.record;
-        persistenceError = error.message;
       } else {
         const conflict =
           typeof error === "object" &&
@@ -436,8 +432,7 @@ export class RecordsWorkspace {
       editor: null,
       detail: record,
       detailId: record.id,
-      notice: persistenceError ? "记录已更新，保存尚未完成" : "记录已保存",
-      persistenceError,
+      notice: "记录修改已提交",
     });
     // The mutation has committed. Follow-up failures must not turn it into a failed save.
     try {
@@ -445,28 +440,11 @@ export class RecordsWorkspace {
     } catch (error) {
       if (operation === session.saveRequest && editorGeneration === session.editorGeneration)
         this.#update(session, {
-          saveWarning: `记录已保存，后续刷新失败：${error instanceof Error ? error.message : String(error)}`,
+          saveWarning: `记录修改已提交，后续刷新失败：${error instanceof Error ? error.message : String(error)}`,
         });
     }
     if (this.#current === session && editorGeneration === session.editorGeneration)
       await Promise.all([this.#loadList(session), this.#loadDetail(session)]);
-  }
-
-  /** Retry the persisted snapshot, never replay the record mutation. */
-  async retryPersistence(retry: () => Promise<unknown>): Promise<void> {
-    const session = this.#requireSession();
-    const operation = session.saveRequest;
-    this.#services.assertContext(session.state.context!);
-    try {
-      await retry();
-      if (operation === session.saveRequest)
-        this.#update(session, { persistenceError: null, notice: "保存已完成" });
-    } catch (error) {
-      if (operation === session.saveRequest)
-        this.#update(session, {
-          persistenceError: error instanceof Error ? error.message : String(error),
-        });
-    }
   }
 
   async #loadList(session: Session): Promise<void> {

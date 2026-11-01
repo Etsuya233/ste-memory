@@ -35,7 +35,7 @@ function harness() {
       applyPreset: apply,
     },
     macro: { kick: vi.fn(async () => {}) },
-    mirror: { flushRebuiltSpace: vi.fn(async () => {}) },
+    persistence: {},
   } as unknown as SteMemoryRuntime;
   return {
     context,

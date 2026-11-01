@@ -5,7 +5,11 @@
  * queued → running → succeeded / failed / interrupted；失败和切换对话保留阻塞项，
  * 重试沿用原队列位置，取消后释放。任务执行与批次提交保持同一套事务和日志规则。
  */
-import type { MemoryEvidenceId, MemorySpaceId } from "../memory/index.ts";
+import {
+  MemoryCommitPersistenceError,
+  type MemoryEvidenceId,
+  type MemorySpaceId,
+} from "../memory/index.ts";
 import type { BeginFillTaskSession, FillTaskSession } from "./fill-task-session.ts";
 import {
   buildMemorySpaceTableDigest,
@@ -43,6 +47,7 @@ import {
   FillTaskStateError,
   isFillTaskTerminal,
   type FillTask,
+  type FillTaskBatchResult,
   type FillTaskRepository,
   type FillTaskSource,
   type FillTaskView,
@@ -344,9 +349,9 @@ export class FillTaskService {
     if (run) {
       if (run.phase === "saving") {
         if (reason) {
+          // 保存任务已经捕获原文件与批次归属，切聊天只停止后续批次，不等待文件网络。
           run.interruptionReason = reason;
-          await run.done;
-          return this.#toView(await this.#requireTask(memorySpaceId, runId));
+          return this.#toView(task);
         }
         throw new FillTaskStateError(task);
       }
@@ -431,12 +436,13 @@ export class FillTaskService {
   /** 重试生成新任务并保留历史；阻塞项沿用原位置，自动任务跳过已完成楼层。 */
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
-    if (!isFillTaskTerminal(task.status)) throw new FillTaskStateError(task);
+    if (!isFillTaskTerminal(task.status) || task.pendingSave || task.nextFrom === null)
+      throw new FillTaskStateError(task);
     const retryOf = task.blocksQueue ? task.runId : undefined;
     if (task.kind === "init") {
       return this.submitInit({ memorySpaceId, text: task.initText, retryOf });
     }
-    let from = task.from;
+    let from = task.nextFrom ?? task.from;
     const to = task.automatic ? Math.min(task.to, this.#source.chatMessageCount() - 1) : task.to;
     if (task.automatic) {
       const ledger = await this.#ledger.statuses(
@@ -468,6 +474,69 @@ export class FillTaskService {
           }
         : undefined,
     });
+  }
+
+  /** 文件保存凭据只收口所属任务；清理、取消或重复通知均不能重建旧台账。 */
+  async #completeSavedBatch(
+    memorySpaceId: MemorySpaceId,
+    runId: string,
+    batch: FillTaskBatchResult,
+  ): Promise<void> {
+    let completed: FillTask | undefined;
+    await this.#runInTransaction(async () => {
+      const task = await this.#tasks.find(runId);
+      if (
+        task?.memorySpaceId !== memorySpaceId ||
+        task.pendingSave?.from !== batch.from ||
+        task.pendingSave.to !== batch.to
+      )
+        return;
+      if (task.kind === "floor")
+        await this.#ledger.markProcessed(memorySpaceId, task.pendingSave.floors);
+      completed = await this.#tasks.completeBatchSave(runId, batch);
+    });
+    // 首次收口由原循环写结束日志；保存重试成功后在此结束原任务。
+    if (completed?.status === "succeeded") {
+      await this.#announceSucceededTask(completed);
+      if (!this.#suspended && this.#currentSpace === memorySpaceId) this.kick(memorySpaceId);
+    }
+  }
+
+  async #announceSucceededTask(task: FillTask): Promise<void> {
+    await this.#appendLog(
+      fillTaskEndLog({ task, status: "succeeded", errorMessage: null, endedAt: this.#now() }),
+      `填表任务 ${task.runId} 结束日志写入失败`,
+    );
+    if (
+      task.automatic &&
+      task.kind === "floor" &&
+      this.#currentSpace === task.memorySpaceId &&
+      (await this.#chatUnchanged(task))
+    ) {
+      try {
+        await this.#onAutomaticSuccess?.({ ...task, status: "succeeded" });
+      } catch (error) {
+        this.#logError(`填表任务 ${task.runId} 已成功，后续自动隐藏失败`, error);
+      }
+    }
+  }
+
+  /** SQLite提交失败撤销凭据；提交后失败交给文件保存任务继续收口。 */
+  async #saveBatch(
+    task: FillTask,
+    session: FillTaskSession,
+    batch: FillTaskBatchResult,
+  ): Promise<void> {
+    if (!(await this.#tasks.beginBatchSave(task.runId, batch))) throw new FillTaskStateError(task);
+    try {
+      await session.commitAndSave(() =>
+        this.#completeSavedBatch(task.memorySpaceId, task.runId, batch),
+      );
+    } catch (error) {
+      if (!(error instanceof MemoryCommitPersistenceError))
+        await this.#tasks.abandonBatchSave(task.runId, batch);
+      throw error;
+    }
   }
 
   /** 当前非终态任务视图（无则 undefined；单空间单活动任务守卫的 UI 侧查询）。 */
@@ -661,15 +730,15 @@ export class FillTaskService {
               // 从此处开始禁止取消；保存成功后才发布本批楼层进度。
               control.controller.signal.throwIfAborted();
               control.phase = "saving";
-              await session!.commitAndSave();
+              const batch: FillTaskBatchResult = {
+                from,
+                to,
+                floors: messages.map((message) => message.floor),
+                nextFrom: task.kind === "init" || to === task.to ? null : to + 1,
+              };
+              // 先留下批次凭据，再提交 SQLite；页面中断时不能把辅助进度当成文件已保存。
+              await this.#saveBatch(task, session!, batch);
               failingBlock = undefined;
-              if (task.kind !== "init")
-                await this.#runInTransaction(() =>
-                  this.#ledger.markProcessed(
-                    task.memorySpaceId,
-                    messages.map((message) => message.floor),
-                  ),
-                );
             },
             async () => {
               if (!(await this.#chatUnchanged(task))) {
@@ -695,21 +764,13 @@ export class FillTaskService {
         }
       }
       control.controller.signal.throwIfAborted();
-      if (await this.#tasks.markSucceeded(task.runId)) {
-        await this.#appendLog(
-          fillTaskEndLog({ task, status: "succeeded", errorMessage: null, endedAt: this.#now() }),
-          "填表任务 " + task.runId + " 结束日志写入失败",
-        );
-        if (task.automatic && task.kind === "floor") {
-          try {
-            await this.#onAutomaticSuccess?.({ ...task, status: "succeeded" });
-          } catch (error) {
-            this.#logError("填表任务 " + task.runId + " 已成功，后续自动隐藏失败", error);
-          }
-        }
-      }
+      if (await this.#tasks.markSucceeded(task.runId)) await this.#announceSucceededTask(task);
     } catch (error) {
       try {
+        if (error instanceof MemoryCommitPersistenceError) {
+          await this.#failTask(task, error);
+          return;
+        }
         if (control.controller.signal.aborted) {
           const applied = await this.#tasks.markInterrupted(
             task.runId,

@@ -458,7 +458,9 @@ function TasksMain({
         title="确认取消任务？"
         description={
           pendingCancel?.kind === "fill"
-            ? `${taskRangeText(pendingCancel.task)}：尚未完成的批次将停止，当前批次未提交的修改会回滚，已保存的批次会保留。`
+            ? pendingCancel.task.pendingSave
+              ? `${taskRangeText(pendingCancel.task)}：取消将释放队列并保留已有记忆修改，不会自动重放填表；请核对聊天文件中的批次保存结果。`
+              : `${taskRangeText(pendingCancel.task)}：尚未完成的批次将停止，当前批次未提交的修改会回滚，已保存的批次会保留。`
             : `将取消选中的 ${cancelVectors.length} 个向量任务，已生成的向量会保留。`
         }
         cancelLabel="继续运行"
@@ -668,7 +670,11 @@ function RunningTask({
         {formatCompactTime(task.createdAt)}
       </p>
       {task.blocksQueue && (
-        <p className="ste:text-xs ste:text-destructive">队列已暂停，重试或取消此任务后继续。</p>
+        <p className="ste:text-xs ste:text-destructive">
+          {task.pendingSave
+            ? "队列已暂停；取消可释放队列并保留已有记忆修改，取消不会自动重放填表。"
+            : "队列已暂停，重试或取消此任务后继续。"}
+        </p>
       )}
     </div>
   );
@@ -695,6 +701,9 @@ function LastResult({
           {formatCompactTime(task.createdAt)}
         </span>
       </div>
+      {task.pendingSave && (
+        <p className="ste:basis-full ste:text-xs ste:text-muted-foreground">{status.detail}</p>
+      )}
       <div className="ste:flex ste:gap-1">
         <Button
           variant="ghost"
@@ -705,7 +714,7 @@ function LastResult({
         >
           查看日志
         </Button>
-        {(task.status === "failed" || task.status === "interrupted") && (
+        {!task.pendingSave && (task.status === "failed" || task.status === "interrupted") && (
           <Button
             variant="outline"
             size="sm"
@@ -812,7 +821,7 @@ function FillRow({
 }) {
   const status = taskStatusViewModel(task);
   const canCancel = task.status === "queued" || task.status === "running" || task.blocksQueue;
-  const canRetry = task.status === "failed" || task.status === "interrupted";
+  const canRetry = !task.pendingSave && (task.status === "failed" || task.status === "interrupted");
   const openLog = () => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`);
   return (
     <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
@@ -856,7 +865,9 @@ function FillRow({
         </span>
         {task.blocksQueue && (
           <span className="ste:text-xs ste:text-destructive">
-            队列已暂停，重试或取消此任务后继续。
+            {task.pendingSave
+              ? "队列已暂停；取消可释放队列并保留已有记忆修改，取消不会自动重放填表。"
+              : "队列已暂停，重试或取消此任务后继续。"}
           </span>
         )}
       </div>

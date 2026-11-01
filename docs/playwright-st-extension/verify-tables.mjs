@@ -72,6 +72,27 @@ try {
     (await schema()).tables.find((table) => table.id === created.id).name === "预览事件",
   );
   await button("编辑表格").click();
+  await label("名称").fill("保存失败后的表格");
+  await page.evaluate(() => window.frontendPreview.failNextSchemaPersistence());
+  await save("table");
+  await page.getByText("已提交、未保存：preview file failure", { exact: false }).waitFor();
+  check(
+    "schema commit ends its editor despite file save failure",
+    (await action("save-table").count()) === 0,
+  );
+  await button("重试保存").click();
+  await page
+    .getByText("已提交、未保存：preview file failure", { exact: false })
+    .waitFor({ state: "hidden" });
+  check(
+    "top-level retry clears every table file warning without replaying its edit",
+    (await schema()).tables.find((table) => table.id === created.id).name === "保存失败后的表格" &&
+      (await page.getByText(/对话文件保存失败/).count()) === 0 &&
+      (await page.evaluate(
+        () => !("persistenceError" in window.frontendPreview.tablesWorkspace.getSnapshot()),
+      )),
+  );
+  await button("编辑表格").click();
   await label("名称").fill("空间A草稿");
   await switchChat("b");
   await action("open-table").waitFor();

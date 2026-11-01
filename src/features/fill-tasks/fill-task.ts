@@ -39,7 +39,19 @@ export function isFillTaskTerminal(status: FillTaskStatus): boolean {
  */
 export type FillTaskKind = "floor" | "init";
 
+/** 已进入提交保存的批次输入；nextFrom 为 null 表示初始化或最后一批。 */
+export interface FillTaskBatchResult {
+  readonly from: number;
+  readonly to: number;
+  readonly floors: readonly number[];
+  readonly nextFrom: number | null;
+}
+
 interface FillTaskBase {
+  /** 已提交批次的保存收口凭据；存在时只能重试保存，禁止重新执行 Agent。 */
+  readonly pendingSave?: FillTaskBatchResult;
+  /** 最近已保存批次后的继续位置；null 表示全部批次已保存。 */
+  readonly nextFrom?: number | null;
   readonly automatic?: boolean;
   /** 持久化的入队序号；同空间内递增，重试沿用原位置。 */
   readonly queuePosition?: number;
@@ -59,7 +71,7 @@ interface FillTaskBase {
   /** 对话身份快照（ST chatId；未保存对话为 null）：块开始前检测对话切换。 */
   readonly chatId: string | null;
   readonly status: FillTaskStatus;
-  /** 失败原因（可读中文；非 failed 为 null） */
+  /** 失败原因，或刷新后保存结果未确认的提示。 */
   readonly errorMessage: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -141,6 +153,10 @@ export interface FillTaskRepository {
   /** 原子分配队列位置并创建；重试替换阻塞项时沿用其位置。 */
   enqueue(task: FillTask, replaces?: string): Promise<FillTask>;
   pending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;
+  /** 提交前持久记录批次归属；提交失败时撤销，保存成功时原子收口。 */
+  beginBatchSave(runId: string, batch: FillTaskBatchResult): Promise<boolean>;
+  abandonBatchSave(runId: string, batch: FillTaskBatchResult): Promise<void>;
+  completeBatchSave(runId: string, batch: FillTaskBatchResult): Promise<FillTask | undefined>;
   markRunning(runId: string): Promise<boolean>;
   release(runId: string): Promise<void>;
   interruptPending(memorySpaceId: MemorySpaceId): Promise<readonly FillTask[]>;

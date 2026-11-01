@@ -42,18 +42,33 @@ async function switchChat(key) {
 try {
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825");
   await action("nav-settings").click();
-  await button("备份与空间维护").click();
-  await label("导出范围").selectOption("all");
-  const allDownload = page.waitForEvent("download");
-  await button("导出 JSON 文件").click();
-  const allFile = await allDownload;
-  const allText = await readFile(await allFile.path(), "utf8");
-  const decoded = JSON.parse(allText);
+  check("settings has no snapshot sync toggle", (await label("同步到对话文件").count()) === 0);
+  await page.evaluate(() => window.frontendPreview.showSaveFailure());
+  await page.getByText("已提交、未保存：preview file failure", { exact: false }).waitFor();
+  await switchChat("b");
+  check("other chat hides an unrelated file error", (await button("重试保存").count()) === 0);
   check(
-    "full export downloads backup envelope",
-    decoded.format === "ste-memory-backup" && decoded.data.spaces.length === 2,
+    "pending original chat still protects refresh",
+    await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }),
   );
-  await label("导出范围").selectOption("current");
+  await switchChat("a");
+  await button("重试保存").waitFor();
+  await button("重试保存").click();
+  check(
+    "settings retries the pending snapshot",
+    (await page.getByRole("button", { name: "重试保存", exact: true }).count()) === 0,
+  );
+  await button("备份与空间维护").click();
+  check(
+    "maintenance has no full-library or optional-history controls",
+    (await label("导出范围").count()) === 0 &&
+      (await label("恢复范围").count()) === 0 &&
+      (await label("包含修订历史").count()) === 0,
+  );
   const currentDownload = page.waitForEvent("download");
   await button("导出 JSON 文件").click();
   const currentFile = await currentDownload;
@@ -73,7 +88,7 @@ try {
   await upload(currentText);
   await preview().waitFor();
   check("backup upload only prepares preview", JSON.stringify(await records()) === original);
-  await button("确认恢复此文件").click();
+  await button("确认导入此文件").click();
   await button("取消").click();
   check(
     "cancel restore does not write",
@@ -81,25 +96,33 @@ try {
   );
   await switchChat("b");
   await preview().waitFor({ state: "hidden" });
-  check("chat switch invalidates prepared restore", (await button("确认恢复此文件").count()) === 0);
+  check("chat switch invalidates prepared restore", (await button("确认导入此文件").count()) === 0);
   await switchChat("a");
-  await label("恢复范围").selectOption("all");
-  await upload(allText);
+  const multiple = JSON.parse(currentText);
+  multiple.data.spaces.push({
+    ...multiple.data.spaces[0],
+    space: { ...multiple.data.spaces[0].space, id: "another-space" },
+    tables: [],
+    fields: [],
+    records: [],
+    evidence: [],
+    history: [],
+  });
+  await upload(JSON.stringify(multiple));
+  await page.getByText("导入文件必须只包含一个记忆空间", { exact: true }).waitFor();
+  check("multi-space file is explicitly rejected", (await preview().count()) === 0);
+  await upload(currentText);
   await preview().waitFor();
-  check(
-    "full restore preview reports data scope",
-    (await preview().textContent()).includes("2 个空间"),
-  );
   const directory =
     process.env.FRONTEND_SCREENSHOTS ?? "../../node_modules/.cache/frontend-preview/screenshots";
   await mkdir(directory, { recursive: true });
   await page.screenshot({ path: `${directory}/settings-maintenance-320.png` });
-  await button("确认恢复此文件").click();
-  await button("执行恢复").click();
+  await button("确认导入此文件").click();
+  await button("执行导入").click();
   await preview().waitFor({ state: "hidden" });
   check(
     "confirmed restore completes without reusable preview",
-    (await button("确认恢复此文件").count()) === 0,
+    (await button("确认导入此文件").count()) === 0,
   );
   await switchChat("b");
   const beforeClear = await records();

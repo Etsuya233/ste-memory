@@ -98,15 +98,11 @@ export function createTestMemorySpace(): TestMemorySpace {
   };
   const spacesRepo: MemorySpaceRepository = {
     async create() {},
-    async delete() {
-      return false;
-    },
+
     async find() {
       return undefined;
     },
-    async list() {
-      return [];
-    },
+
     async setMacros() {
       return undefined;
     },

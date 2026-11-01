@@ -36,7 +36,6 @@ export function RecordDetailPage({
   runHost,
   getMessageAt,
   onJumpFloor,
-  onRetrySave,
 }: {
   state: RecordsSnapshot;
   workspace: RecordsWorkspace;
@@ -47,7 +46,6 @@ export function RecordDetailPage({
   runHost: (action: () => Promise<unknown>) => Promise<void>;
   getMessageAt: (floor: number) => StChatMessage | undefined;
   onJumpFloor: (floor: number) => FloorJumpResult;
-  onRetrySave: () => Promise<void>;
 }) {
   const table = state.tables.find((item) => item.id === state.tableId);
   const labels = referenceLabels(state.references);
@@ -207,25 +205,9 @@ export function RecordDetailPage({
             ) : null}
           </div>
         ) : null}
-        {state.persistenceError ? (
-          <Alert variant="destructive" className="ste:mt-4">
-            <AlertTitle>记录已提交，写回尚未完成</AlertTitle>
-            <AlertDescription>
-              {state.persistenceError}
-              <Button
-                variant="outline"
-                size="sm"
-                data-action="retry-persistence"
-                onClick={() => void onRetrySave()}
-              >
-                重试写回
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
         {state.saveWarning ? (
           <Alert className="ste:mt-4">
-            <AlertTitle>记录已保存</AlertTitle>
+            <AlertTitle>记录修改已提交</AlertTitle>
             <AlertDescription>{state.saveWarning}</AlertDescription>
           </Alert>
         ) : null}

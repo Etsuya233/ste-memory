@@ -45,14 +45,6 @@ import {
   type TablePresetSettings,
 } from "../table-presets/preset-model.ts";
 
-/** 对话文件镜像设置（ticket 16）：随聊天文件同步记忆快照的开关与内容范围 */
-export interface ChatMirrorSettings {
-  /** 镜像总开关（默认开，跟随插件总开关） */
-  readonly enabled: boolean;
-  /** 镜像是否包含修订历史（默认开；关闭时 data.history 裁空，体积主要来源） */
-  readonly includeHistory: boolean;
-}
-
 /** 面板入口位置（面板入口：呼出/收起记忆面板的按钮所在的 ST 表面） */
 export type EntryPlacement = "top" | "wand" | "both";
 
@@ -67,15 +59,13 @@ export interface PluginSettings {
   /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
   readonly autoFill: AutoFillSettings;
-  /** 插件总开关：关闭后不建空间/不同步/事件桥不响应（设置面板开关） */
+  /** 插件总开关：关闭后暂停空间业务与事件桥；已提交内容仍保存（设置面板开关） */
   readonly enabled: boolean;
   /** 记忆宏全局前缀（ticket 15 生效；默认建议 {{ste}}，用户可直接粘贴进提示词预设）：
    * {{前缀}} = 默认快照；{{前缀::名字}} = 内置宏/视图/对话宏（对话 > 全局 > 内置） */
   readonly macroName: string;
   /** 记忆宏输出上限（字符，ticket 15；超出从尾部截断并附标记；默认 2000） */
   readonly macroLimit: number;
-  /** 对话文件镜像（ticket 16 生效） */
-  readonly mirror: ChatMirrorSettings;
   /** Agent 提示词预设（ticket 17 生效）：全局预设列表 + 活动预设 */
   readonly agentPresets: AgentPresetSettings;
   /** Agent 连接（ADR 0010）：命名 LLM 连接池（Base URL + API Key + 模型名） */
@@ -106,7 +96,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   enabled: true,
   macroName: "{{ste}}",
   macroLimit: 2000,
-  mirror: { enabled: true, includeHistory: true },
   agentPresets: DEFAULT_AGENT_PRESET_SETTINGS,
   agentConnections: [],
   fillTaskConnectionId: undefined,
@@ -163,7 +152,6 @@ export function mergeSettings(raw: unknown): PluginSettings {
       source.macroLimit >= 0
         ? source.macroLimit
         : DEFAULT_SETTINGS.macroLimit,
-    mirror: mergeMirror(source.mirror),
     agentPresets: mergeAgentPresets(source.agentPresets),
     agentConnections,
     // 悬空选择（指向已丢弃/不存在连接）回退跟随 ST 当前连接
@@ -252,16 +240,6 @@ function mergeAgentPreset(raw: unknown): AgentPromptPreset | undefined {
 
 function isAgentPresetRole(value: unknown): value is AgentPresetRole {
   return AGENT_PRESET_ROLES.includes(value as AgentPresetRole);
-}
-
-function mergeMirror(raw: unknown): ChatMirrorSettings {
-  const source = isRecord(raw) ? raw : {};
-  const defaults = DEFAULT_SETTINGS.mirror;
-  return {
-    enabled: typeof source.enabled === "boolean" ? source.enabled : defaults.enabled,
-    includeHistory:
-      typeof source.includeHistory === "boolean" ? source.includeHistory : defaults.includeHistory,
-  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

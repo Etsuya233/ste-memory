@@ -9,7 +9,7 @@ import type {
   ChatSnapshot,
   ChatSpaceBinding,
 } from "../../features/chat-binding/chat-space-manager.ts";
-import type { ChatMirrorStore } from "../../features/chat-mirror/chat-metadata-mirror-sync.ts";
+
 import type {
   MemoryMacroRegistrationPort,
   MemoryMacroExecutionContext,
@@ -24,7 +24,6 @@ import {
   readAgentPresetSelection,
   type AgentPresetSelectionStore,
 } from "../../features/agent-presets/preset-model.ts";
-import type { ChatMirrorFile } from "../../features/chat-mirror/index.ts";
 import type { ChatFileTarget, ChatSnapshotFileStore } from "../../features/chat-mirror/index.ts";
 import { chatIdentityKey } from "../../features/chat-binding/chat-space-manager.ts";
 import { StChatSnapshotFileStore } from "./chat-snapshot-file-store.ts";
@@ -403,41 +402,9 @@ export class StChatAdapter {
     };
   }
 
-  /** chatMetadata 绑定读写端口：写入即触发防抖持久化（随聊天文件走） */
+  /** 绑定只读取；新绑定与完整快照在指定文件同次保存成功后发布。 */
   get bindingStore(): ChatBindingStore {
-    return {
-      read: () => readChatSpaceBinding(this.#getContext().chatMetadata),
-      write: (binding) => {
-        const context = this.#getContext();
-        const metadata = context.chatMetadata;
-        if (!metadata) return;
-        // 写全新对象，不 alias 调用方传入的引用
-        if (binding.version === 2) {
-          metadata[CHAT_METADATA_BINDING_KEY] = {
-            version: 2,
-            spaceId: binding.spaceId,
-            chatIdentity: binding.chatIdentity,
-          };
-        } else {
-          metadata[CHAT_METADATA_BINDING_KEY] = { version: 1, spaceId: binding.spaceId };
-        }
-        context.saveMetadataDebounced?.();
-      },
-    };
-  }
-
-  /** chatMetadata 镜像读写端口（ticket 16）：写即触发防抖持久化（随聊天文件走） */
-  get mirrorStore(): ChatMirrorStore {
-    return {
-      read: () => this.#getContext().chatMetadata?.[CHAT_METADATA_MIRROR_KEY],
-      write: (file: ChatMirrorFile) => {
-        const context = this.#getContext();
-        const metadata = context.chatMetadata;
-        if (!metadata) return;
-        metadata[CHAT_METADATA_MIRROR_KEY] = file;
-        context.saveMetadataDebounced?.();
-      },
-    };
+    return { read: () => readChatSpaceBinding(this.#getContext().chatMetadata) };
   }
 
   /**
