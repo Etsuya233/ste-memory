@@ -113,6 +113,8 @@ export interface FillTaskInitInput {
 }
 
 export interface FillTaskServiceOptions {
+  /** 新任务和手动楼层修改遵守空间生命周期门控；已保存批次的确认不受此门控影响。 */
+  readonly assertCanEditSpace: (id: MemorySpaceId) => void;
   /** 整次自动楼层填表保存成功后的宿主动作，失败不改变填表结果。 */
   readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   readonly readAgentTimeoutMs?: () => number;
@@ -147,6 +149,7 @@ export interface FillTaskServiceOptions {
 }
 
 export class FillTaskService {
+  readonly #assertCanEditSpace: (id: MemorySpaceId) => void;
   readonly #onAutomaticSuccess: FillTaskServiceOptions["onAutomaticSuccess"];
   readonly #readAgentTimeoutMs: () => number;
   #suspended = false;
@@ -182,6 +185,7 @@ export class FillTaskService {
   readonly #logError: (message: string, error: unknown) => void;
 
   constructor(options: FillTaskServiceOptions) {
+    this.#assertCanEditSpace = options.assertCanEditSpace;
     this.#onAutomaticSuccess = options.onAutomaticSuccess;
     this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
@@ -305,6 +309,7 @@ export class FillTaskService {
   }
 
   async #submitFloor(input: FillTaskSubmitInput): Promise<FillTaskView> {
+    this.#assertCanEditSpace(input.memorySpaceId);
     const chatLength = this.#source.chatMessageCount();
     const blockSize = input.blockSize ?? DEFAULT_FILL_TASK_BLOCK_SIZE;
     if (
@@ -443,6 +448,7 @@ export class FillTaskService {
   }
 
   async #submitInit(input: FillTaskInitInput): Promise<FillTaskView> {
+    this.#assertCanEditSpace(input.memorySpaceId);
     const now = this.#now();
     const task: FillTask = {
       runId: this.#createRunId(),
@@ -468,6 +474,7 @@ export class FillTaskService {
 
   /** 重试生成新任务并保留历史；阻塞项沿用原位置，自动任务跳过已完成楼层。 */
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    this.#assertCanEditSpace(memorySpaceId);
     const task = await this.#requireTask(memorySpaceId, runId);
     if (!isFillTaskTerminal(task.status) || task.pendingSave || task.nextFrom === null) {
       throw new FillTaskStateError(task);
@@ -630,6 +637,7 @@ export class FillTaskService {
     to: number,
     status: "processed" | "untracked" | "error",
   ): Promise<void> {
+    this.#assertCanEditSpace(memorySpaceId);
     // 运行中任务守卫（与 submit 同语义）
     const active = await this.#tasks.findActive(memorySpaceId);
     if (active) {
@@ -648,6 +656,8 @@ export class FillTaskService {
         `消息楼层范围无效：请选择 [0, ${Math.max(chatLength - 1, 0)}] 内的闭区间（同步楼层从 0 开始）`,
       );
     }
+    // 读取活动任务期间可能开始重建；写台账前再次核对，避免新进度被旧清理删除。
+    this.#assertCanEditSpace(memorySpaceId);
     const floors = Array.from({ length: to - from + 1 }, (_, i) => from + i);
     switch (status) {
       case "processed":

@@ -287,12 +287,6 @@ export async function startSteMemory(
     },
     options.createSqlite ?? createSqliteMemoryClient,
   );
-  const spaceStructureRebuild = memoryStore.structureRebuild(async (id) => {
-    await fillTaskRepository.clear(id);
-    await floorLedgerRepository.clear(id);
-    await vector.purge({ memorySpaceId: id });
-  });
-
   const spaces = new MemorySpaceService(
     spaceRepository,
     () => createId("space") as MemorySpaceId,
@@ -441,6 +435,7 @@ export async function startSteMemory(
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
   const floorLedgerRepository = new DexieFloorLedgerRepository(db);
   const tasks = new FillTaskService({
+    assertCanEditSpace: (id) => lifecycle.assertCanEdit(id),
     onAutomaticSuccess: (task): Promise<void> => autoFill.taskSucceeded(task),
     tasks: fillTaskRepository,
     ledger: floorLedgerRepository,
@@ -550,7 +545,7 @@ export async function startSteMemory(
       }
     },
     cancelActiveTask: (id) => tasks.cancelAll(id),
-    rebuild: spaceStructureRebuild,
+    rebuild: { rebuild: (input) => lifecycle.rebuildStructure(input) },
     defaultPreset: () =>
       resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET),
     currentChatIdentity: () => chatIdentityKey(adapter.getChatSnapshot()),

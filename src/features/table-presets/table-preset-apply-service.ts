@@ -25,7 +25,7 @@ import type { ResolvedTablePreset } from "./preset-model.ts";
 export interface TablePresetApplyPorts {
   /** 取消该空间进行中的填表任务（安全点停止、未提交提案丢弃） */
   readonly cancelActiveTask: (id: MemorySpaceId) => Promise<void>;
-  /** 空间结构重建（单事务：结构/数据/任务与进度/来源） */
+  /** SQLite 原子重建结构、数据与来源；文件成功后按原归属清理任务与进度。 */
   readonly rebuild: SpaceStructureRebuild;
   /** 新空间默认预设（首次创建记忆空间时复制的内容） */
   readonly defaultPreset: () => ResolvedTablePreset;

@@ -826,6 +826,295 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     );
   });
 
+  it.each([false, true])(
+    "全量预设保存迟到时保留同 ID 新聊天的辅助数据（新聊天已卸载：%s）",
+    async (unloadNewChat) => {
+      const db = createTestDatabase();
+      const { context, handlers } = fakeStContext();
+      const ports = createRuntimeTestPorts(() => context);
+      const runtime = await startTestRuntime(() => context, {
+        createDb: () => db,
+        log: fakeLog(),
+        ...ports,
+      });
+      const original = await runtime.backup.exportCurrentSpace();
+      const metadataA = structuredClone(context.chatMetadata);
+      let markStarted!: () => void;
+      let releaseWrite!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      const write = ports.snapshotFiles.write;
+      vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+        markStarted();
+        await released;
+        await write(...args);
+      });
+      const applying = runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
+        chatIdentity: "char:3:story",
+        refreshMacros: async () => {},
+        saveSnapshot: async () => {},
+      });
+      await started;
+      context.characterId = 0;
+      context.chatMetadata = metadataA;
+      let recordId: string;
+      try {
+        await handlers.get("chat_id_changed")!();
+        const current = await runtime.backup.exportCurrentSpace();
+        expect(current.space.id).toBe(original.space.id);
+        const table = current.tables.find((table) => table.key === "characters")!;
+        const field = current.fields.find(
+          (field) => field.tableId === table.id && field.key === "name",
+        )!;
+        const record = await runtime.records.create(current.space.id, table.id, {
+          payload: { [field.id]: "B 的记录" },
+        });
+        recordId = record!.id;
+        await runtime.tasks.markFloorStatuses(current.space.id, 0, 0, "processed");
+        await db.memoryFillTasks.put({
+          runId: "B-full-rebuild-task",
+          memorySpaceId: current.space.id,
+          from: 0,
+          to: 0,
+          blockSize: 1,
+          kind: "floor",
+          initText: null,
+          chatId: "story",
+          status: "succeeded",
+          errorMessage: null,
+          createdAt: "2026-11-01T00:00:00Z",
+          updatedAt: "2026-11-01T00:00:00Z",
+        });
+        await db.recordVectors.put({
+          id: "B-full-rebuild-vector",
+          memorySpaceId: current.space.id,
+          tableId: table.id,
+          recordId: record!.id,
+          groupId: "B-group",
+          fingerprint: "B-fingerprint",
+          values: [1, 0],
+          model: "test",
+          version: "v1",
+          updatedAt: "2026-11-01T00:00:00Z",
+        });
+        if (unloadNewChat) {
+          context.chatId = "C";
+          context.chatMetadata = {};
+          await handlers.get("chat_id_changed")!();
+        }
+      } finally {
+        releaseWrite();
+      }
+      await applying;
+      expect(await db.memoryFillTasks.get("B-full-rebuild-task")).toBeDefined();
+      expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
+        { floor: 0, status: "processed" },
+      ]);
+      expect(await db.recordVectors.get("B-full-rebuild-vector")).toMatchObject({
+        recordId: recordId!,
+      });
+      const savedB = ports.snapshotWrites
+        .filter((entry) => entry.target.identity === "char:0:story")
+        .at(-1)!;
+      expect(savedB.file.data.records.some((record) => record.id === recordId!)).toBe(true);
+      // 跳过失去归属的清理也必须结束原请求，返回 A 后可继续编辑。
+      const savedA = ports.snapshotWrites
+        .filter((entry) => entry.target.identity === "char:3:story")
+        .at(-1)!;
+      context.characterId = 3;
+      context.chatId = "story";
+      context.chatMetadata = { ...metadataA, [CHAT_METADATA_MIRROR_KEY]: savedA.file };
+      await handlers.get("chat_id_changed")!();
+      const restored = await runtime.backup.exportCurrentSpace();
+      const table = restored.tables.find((table) => table.key === "characters")!;
+      const name = restored.fields.find(
+        (field) => field.tableId === table.id && field.key === "name",
+      )!;
+      expect(
+        await runtime.records.create(restored.space.id, table.id, {
+          payload: { [name.id]: "A 继续编辑" },
+        }),
+      ).toBeDefined();
+    },
+  );
+
+  it("重复旧重建确认不会清理同 owner 的新重建请求或解除其门控", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    const saves = vi.spyOn(runtime.persistence, "saveCommitted");
+    const sync = {
+      chatIdentity: "char:3:story",
+      refreshMacros: async () => {},
+      saveSnapshot: async () => {},
+    };
+    await runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, sync);
+    const oldConfirmation = saves.mock.calls.at(-1)![3]!;
+    await db.memoryFillTasks.put({
+      runId: "second-rebuild-old-task",
+      memorySpaceId: original.space.id,
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      kind: "floor",
+      initText: null,
+      chatId: "story",
+      status: "succeeded",
+      errorMessage: null,
+      createdAt: "2026-11-01T00:00:00Z",
+      updatedAt: "2026-11-01T00:00:00Z",
+    });
+    let markStarted!: () => void;
+    let releaseWrite!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const write = ports.snapshotFiles.write;
+    vi.spyOn(ports.snapshotFiles, "write").mockImplementationOnce(async (...args) => {
+      markStarted();
+      await released;
+      await write(...args);
+    });
+    const applying = runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, sync);
+    await started;
+    try {
+      await oldConfirmation();
+      expect(await db.memoryFillTasks.get("second-rebuild-old-task")).toBeDefined();
+      await expect(
+        runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed"),
+      ).rejects.toThrow("预设重建尚待保存确认");
+    } finally {
+      releaseWrite();
+    }
+    await applying;
+    expect(await db.memoryFillTasks.get("second-rebuild-old-task")).toBeUndefined();
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
+    expect(await runtime.tasks.ledgerStatuses(original.space.id, 0, 0)).toEqual([
+      { floor: 0, status: "processed" },
+    ]);
+  });
+
+  it("全量预设 SQL 替换失败保留旧内容并解除编辑门控", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const createSqlite = vi.fn(ports.createSqlite);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+      createSqlite,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    const sqlite = await createSqlite.mock.results[0]!.value;
+    vi.spyOn(sqlite, "importSpace").mockRejectedValueOnce(new Error("invalid rebuild"));
+    await expect(
+      runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
+        chatIdentity: "char:3:story",
+        refreshMacros: async () => {},
+        saveSnapshot: async () => {},
+      }),
+    ).rejects.toThrow("invalid rebuild");
+    expect(await runtime.backup.exportCurrentSpace()).toEqual(original);
+    const table = original.tables.find((table) => table.key === "characters")!;
+    const name = original.fields.find(
+      (field) => field.tableId === table.id && field.key === "name",
+    )!;
+    expect(
+      await runtime.records.create(original.space.id, table.id, {
+        payload: { [name.id]: "失败后可写" },
+      }),
+    ).toBeDefined();
+  });
+
+  it("全量预设未保存时拒绝新编辑、填表和楼层修改，重试确认后解除门控", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const original = await runtime.backup.exportCurrentSpace();
+    await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
+    await db.memoryFillTasks.put({
+      runId: "old-rebuild-task",
+      memorySpaceId: original.space.id,
+      from: 0,
+      to: 0,
+      blockSize: 1,
+      kind: "floor",
+      initText: null,
+      chatId: "story",
+      status: "failed",
+      nextFrom: 0,
+      errorMessage: "old failure",
+      createdAt: "2026-11-01T00:00:00Z",
+      updatedAt: "2026-11-01T00:00:00Z",
+    });
+    vi.spyOn(ports.snapshotFiles, "write").mockRejectedValueOnce(new Error("file offline"));
+    const outcome = await runtime.presetApply.applyPreset(original.space.id, SYSTEM_TABLE_PRESET, {
+      chatIdentity: "char:3:story",
+      refreshMacros: async () => {},
+      saveSnapshot: async () => {},
+    });
+    expect(outcome.kind).toBe("applied-with-sync-issue");
+    const rebuilt = await runtime.backup.exportCurrentSpace();
+    const table = rebuilt.tables.find((table) => table.key === "characters")!;
+    const name = rebuilt.fields.find(
+      (field) => field.tableId === table.id && field.key === "name",
+    )!;
+    await expect(
+      runtime.records.create(rebuilt.space.id, table.id, { payload: { [name.id]: "尚不可写" } }),
+    ).rejects.toThrow("预设重建尚待保存确认");
+    await expect(
+      runtime.tasks.submit({ memorySpaceId: rebuilt.space.id, from: 0, to: 0 }),
+    ).rejects.toThrow("预设重建尚待保存确认");
+    await expect(
+      runtime.tasks.submitInit({ memorySpaceId: rebuilt.space.id, text: "尚不可填" }),
+    ).rejects.toThrow("预设重建尚待保存确认");
+    await expect(runtime.tasks.retry(rebuilt.space.id, "old-rebuild-task")).rejects.toThrow(
+      "预设重建尚待保存确认",
+    );
+    await expect(
+      runtime.tasks.markFloorStatuses(rebuilt.space.id, 1, 1, "processed"),
+    ).rejects.toThrow("预设重建尚待保存确认");
+    expect(await db.memoryFillTasks.count()).toBe(1);
+    expect(await runtime.tasks.ledgerStatuses(rebuilt.space.id, 0, 1)).toEqual([
+      { floor: 0, status: "processed" },
+      { floor: 1, status: "untracked" },
+    ]);
+    await runtime.retryMemorySave();
+    expect(await db.memoryFillTasks.count()).toBe(0);
+    expect(await runtime.tasks.ledgerStatuses(rebuilt.space.id, 0, 1)).toEqual([
+      { floor: 0, status: "untracked" },
+      { floor: 1, status: "untracked" },
+    ]);
+    expect(
+      await runtime.records.create(rebuilt.space.id, table.id, {
+        payload: { [name.id]: "确认后可写" },
+      }),
+    ).toBeDefined();
+    await runtime.tasks.markFloorStatuses(rebuilt.space.id, 1, 1, "processed");
+    expect(await runtime.tasks.ledgerStatuses(rebuilt.space.id, 1, 1)).toEqual([
+      { floor: 1, status: "processed" },
+    ]);
+  });
+
   it("同空间ID由另一聊天接管后，迟到的候选保存不得卸载当前空间或清理辅助数据", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();

@@ -276,6 +276,7 @@ async function createHarness(
   services.memoryStore.saveSnapshot = (unit, saved) =>
     persistence.saveCommitted(target, binding, unit, saved);
   const service = new FillTaskService({
+    assertCanEditSpace: (id) => services.memoryStore.assertCanEdit(id),
     tasks,
     ledger,
     source,

@@ -250,12 +250,10 @@ export class SqliteMemoryStore {
     return sqliteRepositories(this, view, token);
   }
 
-  structureRebuild(
-    afterSaved?: (spaceId: MemorySpaceBackup["space"]["id"]) => Promise<void>,
-  ): SpaceStructureRebuild {
+  structureRebuild(afterSaved?: () => Promise<void>): SpaceStructureRebuild {
     return {
       rebuild: async (input) => {
-        this.assertCanEdit(input.memorySpaceId);
+        // 调用方拥有文件归属及编辑门控；此处只负责 SQL 替换与固定保存交接。
         const result = await this.exclusive(input.memorySpaceId, async (token) => {
           const unit = await this.snapshot(input.memorySpaceId);
           if (!unit) {
@@ -278,10 +276,7 @@ export class SqliteMemoryStore {
           };
           await this.replace(snapshot, token);
           try {
-            const saving = this.saveSnapshot(
-              snapshot,
-              afterSaved ? () => afterSaved(input.memorySpaceId) : undefined,
-            );
+            const saving = this.saveSnapshot(snapshot, afterSaved);
             return { kind: "rebuilt", saving } as const;
           } catch (cause) {
             throw new MemoryCommitPersistenceError(cause);
