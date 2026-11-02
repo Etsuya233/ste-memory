@@ -63,7 +63,11 @@ export function LogsPage({
   const [pageSize, setPageSize] = useState(defaultPageSize);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
-  const [copied, setCopied] = useState<"idle" | "done" | "error">("idle");
+  const [copyResult, setCopyResult] = useState<{
+    viewKey: string;
+    entries: readonly LogEntry[];
+    status: "done" | "error";
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
@@ -99,9 +103,8 @@ export function LogsPage({
       request.current++;
     };
   }, [logs, key]);
-  useEffect(() => {
-    setCopied("idle");
-  }, [selected?.id]);
+  const copied =
+    copyResult?.viewKey === viewKey && copyResult.entries === entries ? copyResult.status : "idle";
 
   const filtered = entries.filter(
     (entry) =>
@@ -112,6 +115,7 @@ export function LogsPage({
   );
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
+  const pageEntries = filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   const filtering = Boolean(key || level || type || keyword);
   const related = selected?.key
     ? entries.filter((entry) => entry.key === selected.key && entry.id !== selected.id).slice(0, 6)
@@ -141,15 +145,12 @@ export function LogsPage({
     setSelected(null);
     setPage(0);
   }
-  async function copySelected() {
-    if (!selected) {
-      return;
-    }
+  async function copyLogs(text: string) {
     try {
-      await copyText(selected.text);
-      setCopied("done");
+      await copyText(text);
+      setCopyResult({ viewKey, entries, status: "done" });
     } catch {
-      setCopied("error");
+      setCopyResult({ viewKey, entries, status: "error" });
     }
   }
 
@@ -212,7 +213,7 @@ export function LogsPage({
               <dd className="ste:break-all">{selected.key || "无"}</dd>
             </dl>
             <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2">
-              <Button variant="outline" size="sm" onClick={() => void copySelected()}>
+              <Button variant="outline" size="sm" onClick={() => void copyLogs(selected.text)}>
                 <Copy data-icon="inline-start" />
                 {copied === "done" ? "已复制" : "复制内容"}
               </Button>
@@ -357,6 +358,32 @@ export function LogsPage({
                 </Popover>
               </div>
               <div className="ste:flex ste:flex-wrap ste:items-center ste:gap-2 ste:text-xs ste:text-muted-foreground">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loading || clearing || Boolean(error) || !pageEntries.length}
+                  onClick={() =>
+                    void copyLogs(
+                      pageEntries
+                        .map(
+                          (entry) =>
+                            `[${entry.createdAt}] ${levelNames[entry.level]} · ${entry.type}\n任务 Key：${entry.key || "无"}\n${entry.text}`,
+                        )
+                        .join("\n\n"),
+                    )
+                  }
+                >
+                  <Copy data-icon="inline-start" />
+                  复制当前页
+                </Button>
+                {copied !== "idle" ? (
+                  <span
+                    role="status"
+                    className={copied === "error" ? "ste:text-destructive" : undefined}
+                  >
+                    {copied === "done" ? "已复制当前页日志" : "复制失败，请重试。"}
+                  </span>
+                ) : null}
                 <span>
                   共 {filtered.length} 条 · 上限 {LOG_LIMIT} 条
                 </span>
@@ -414,11 +441,9 @@ export function LogsPage({
                 </div>
               ) : filtered.length ? (
                 <ItemGroup className="ste:shrink-0 ste:gap-0 ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
-                  {filtered
-                    .slice(currentPage * pageSize, (currentPage + 1) * pageSize)
-                    .map((entry) => (
-                      <LogRow key={entry.id} entry={entry} onOpen={setSelected} />
-                    ))}
+                  {pageEntries.map((entry) => (
+                    <LogRow key={entry.id} entry={entry} onOpen={setSelected} />
+                  ))}
                 </ItemGroup>
               ) : (
                 <PageEmpty

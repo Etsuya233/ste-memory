@@ -4,7 +4,7 @@
  * execCommand path is the only fallback available on plain HTTP.
  */
 export async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return;
@@ -25,7 +25,9 @@ export async function copyText(text: string): Promise<void> {
   textarea.style.height = "1px";
   textarea.style.opacity = "0";
   textarea.style.pointerEvents = "none";
-  document.body.appendChild(textarea);
+  // Keep the selection inside the active surface, including native top-layer UI.
+  const container = active?.closest(":popover-open, dialog[open]") ?? document.body;
+  container.appendChild(textarea);
   try {
     textarea.focus();
     textarea.select();
