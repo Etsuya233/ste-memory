@@ -50,7 +50,7 @@ interface AutoFillPorts {
 /** 自动填表负责范围、入队和成功后的楼层隐藏；任务执行由 FillTaskService 管理。 */
 export class AutoFillService {
   readonly #ports: AutoFillPorts;
-  #generation: { identity: string; received: boolean } | undefined;
+  #generation: { identity: string; received: boolean; ended: boolean } | undefined;
   #hasReplied = false;
   #replyRevision = 0;
   #checkedReplyRevision = 0;
@@ -176,7 +176,9 @@ export class AutoFillService {
 
   generationStarted(): void {
     const current = this.#ports.current();
-    this.#generation = current ? { identity: current.identity, received: false } : undefined;
+    this.#generation = current
+      ? { identity: current.identity, received: false, ended: false }
+      : undefined;
     this.#suspended = true;
     this.#ports.tasks.suspend();
   }
@@ -189,6 +191,12 @@ export class AutoFillService {
       current.aiFloor === (floor ?? current.chatLength - 1)
     ) {
       this.#generation.received = true;
+      if (this.#generation.ended) {
+        this.#hasReplied = true;
+        this.#replyRevision++;
+        this.#generation = undefined;
+        this.kick();
+      }
     }
   }
   generationEnded(): void {
@@ -196,8 +204,10 @@ export class AutoFillService {
     if (this.#generation?.received && current?.identity === this.#generation.identity) {
       this.#hasReplied = true;
       this.#replyRevision++;
+      this.#generation = undefined;
+    } else if (this.#generation) {
+      this.#generation.ended = true;
     }
-    this.#generation = undefined;
     this.#suspended = false;
     this.kick();
   }

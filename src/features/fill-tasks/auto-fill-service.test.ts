@@ -162,6 +162,45 @@ describe("自动填表入队", () => {
     expect(h.tasks.submit).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["先收到消息", "先结束生成"])("%s 都等待两个事件到齐后只授权一次", async (order) => {
+    const h = setup();
+    h.service.generationStarted();
+    if (order === "先收到消息") {
+      h.service.messageReceived(31);
+    } else {
+      h.service.generationEnded();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    if (order === "先收到消息") {
+      h.service.generationEnded();
+    } else {
+      h.service.messageReceived(31);
+    }
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+    h.setCurrent({ chatLength: 52, aiFloor: 51 });
+    h.service.messageReceived(51);
+    h.service.generationEnded();
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
+  it.each(["停止生成", "切换对话"])("先结束生成后%s，迟到的消息不授权", async (action) => {
+    const h = setup();
+    h.service.generationStarted();
+    h.service.generationEnded();
+    if (action === "停止生成") {
+      h.service.generationStopped();
+    } else {
+      await h.service.chatChanged();
+      h.service.chatReady();
+    }
+    h.service.messageReceived(31);
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+  });
+
   it("无回复、空回复与停止生成不授权入队，切换对话后重新等待", async () => {
     const h = setup();
     h.service.generationEnded(); // quiet / dryRun 没有对应的有效开始。
