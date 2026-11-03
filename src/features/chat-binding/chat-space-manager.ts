@@ -25,10 +25,6 @@ export interface ChatSpaceManagerPorts {
   readonly captureTarget: () => ChatFileTarget | undefined;
   readonly bindingStore: Pick<ChatBindingStore, "read">;
   readonly persistence: ChatSnapshotPersistence;
-  readonly legacyFloorLedger?: {
-    read(spaceId: MemorySpaceId): Promise<MemorySpaceBackup["floorLedger"]>;
-    remove(spaceId: MemorySpaceId): Promise<void>;
-  };
   readonly createSnapshot: (name: string) => Promise<MemorySpaceBackup>;
   readonly validateSnapshot: (unit: MemorySpaceBackup) => Promise<void>;
   readonly activateSnapshot: (
@@ -158,13 +154,14 @@ export class ChatSpaceManager {
     binding: ChatSpaceBinding,
   ): Promise<SpaceContextStatus> {
     const { target } = selection;
-    const unit = await this.ports.persistence.load(target, binding.spaceId);
+    const loaded = await this.ports.persistence.load(target, binding);
     if (this.#selection !== selection) {
       return { kind: "load-error", humanMsg: "聊天已切换" };
     }
-    if (!unit) {
+    if (!loaded) {
       throw new Error("当前聊天文件没有记忆快照，无法加载已绑定空间");
     }
+    const unit = loaded.snapshot;
     // 沿用角色聊天的移植兼容约定：角色索引改变但文件名相同时允许升级绑定。
     // 文件名不能保证跨角色唯一；同 ID 被其他文件接管时，由空间生命周期检查 owner。
     const sameImportedFile =
@@ -180,40 +177,13 @@ export class ChatSpaceManager {
         source: unit,
       });
     }
-    if (unit.floorLedger.length === 0) {
-      // 只有原文件身份精确匹配才能使用本机台账；移植、分支和旧 v1 绑定不自动迁移。
-      const legacy =
-        binding.version === 2 && binding.chatIdentity === target.identity
-          ? await this.ports.legacyFloorLedger?.read(unit.space.id)
-          : undefined;
-      if (this.#selection !== selection) {
-        return { kind: "load-error", humanMsg: "聊天已切换" };
-      }
-      if (legacy?.length) {
-        const migrated: MemorySpaceBackup = {
-          ...unit,
-          floorLedger: legacy,
-        };
-        return this.saveCandidate(
-          selection,
-          () => migrated,
-          "replacement",
-          async () => {
-            const status = this.#status;
-            if (
-              this.#selection?.target.identity !== target.identity ||
-              status?.kind !== "active" ||
-              status.space.id !== migrated.space.id
-            ) {
-              throw new Error("请回到原聊天后核验旧楼层进度迁移");
-            }
-            await this.ports.legacyFloorLedger!.remove(migrated.space.id);
-          },
-        );
-      }
-    }
-    if (binding.version === 1 || binding.chatIdentity !== target.identity) {
-      return this.saveCandidate(selection, () => unit, "replacement");
+    if (loaded.replacement || binding.version === 1 || binding.chatIdentity !== target.identity) {
+      return this.saveCandidate(
+        selection,
+        () => unit,
+        "replacement",
+        loaded.replacement?.confirmed,
+      );
     }
     this.ports.persistence.remember(target, unit, binding);
     return this.activate(selection, binding, unit, "restored");

@@ -74,10 +74,6 @@ function harness() {
       memory.set(unit.space.id, unit);
     },
   );
-  const legacyFloorLedger = {
-    read: vi.fn(async (_id: MemorySpaceId): Promise<MemorySpaceBackup["floorLedger"]> => []),
-    remove: vi.fn(async (_id: MemorySpaceId) => {}),
-  };
   let serial = 0;
   const manager = new ChatSpaceManager({
     getChat: () => chat,
@@ -89,7 +85,6 @@ function harness() {
       },
     },
     persistence,
-    legacyFloorLedger,
     createSnapshot: async () => sample(),
     validateSnapshot: validate,
     activateSnapshot: activate,
@@ -113,7 +108,6 @@ function harness() {
   });
   return {
     manager,
-    legacyFloorLedger,
     persistence,
     store,
     files,
@@ -219,10 +213,8 @@ describe("当前聊天空间的候选提交", () => {
   });
 });
 
-describe("旧楼层进度迁移", () => {
-  const progress = [{ floor: 7, status: "processed" as const, updatedAt: "now" }];
-
-  it("原文件绑定精确匹配时迁入旧进度，完整文件核验后才清理", async () => {
+describe("加载候选的通用激活流程", () => {
+  it("加载结果要求替换时先激活候选，保存失败保持待重试，核验成功后运行回调", async () => {
     const h = harness();
     const unit = h.sample();
     const binding: ChatSpaceBinding = {
@@ -231,72 +223,23 @@ describe("旧楼层进度迁移", () => {
       chatIdentity: h.target().identity,
     };
     h.metadata.set(h.target().identity, binding);
-    h.files.set(h.target().identity, { binding, unit });
-    h.legacyFloorLedger.read.mockResolvedValue(progress);
-    vi.mocked(h.store.verify).mockImplementationOnce(async () => {
-      expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-      const file = h.files.get(h.target().identity)!;
-      expect(file.unit.floorLedger).toEqual(progress);
-      return {
-        steMemory: file.binding,
-        steMemoryMirror: createChatMirrorFile(
-          file.unit,
-          file.unit.space.id,
-          file.unit.space.updatedAt,
-          "test",
-        ),
-      };
+    const confirmed = vi.fn(async () => {});
+    vi.spyOn(h.persistence, "load").mockResolvedValueOnce({
+      snapshot: unit,
+      replacement: { confirmed },
     });
-    await h.manager.syncToCurrentChat();
-    expect(h.legacyFloorLedger.read).toHaveBeenCalledWith(unit.space.id);
-    expect(h.legacyFloorLedger.remove).toHaveBeenCalledExactlyOnceWith(unit.space.id);
+    vi.mocked(h.store.submit).mockImplementationOnce(async () => {
+      expect(h.manager.getStatus()).toMatchObject({ kind: "active", space: unit.space });
+      throw new Error("offline");
+    });
+    await expect(h.manager.syncToCurrentChat()).rejects.toThrow("尚未核验");
+    expect(confirmed).not.toHaveBeenCalled();
+    const pending = h.persistence.current(h.target().identity)!;
+    await h.persistence.forceSync(h.target(), pending.binding, pending.snapshot, () => {});
+    expect(confirmed).toHaveBeenCalledOnce();
   });
 
-  it.each(["save", "verify"])(
-    "%s 失败保留旧台账和候选，强制同步重试不再次读取旧进度",
-    async (phase) => {
-      const h = harness();
-      const unit = h.sample();
-      const binding: ChatSpaceBinding = {
-        version: 2,
-        spaceId: unit.space.id,
-        chatIdentity: h.target().identity,
-      };
-      h.metadata.set(h.target().identity, binding);
-      h.files.set(h.target().identity, { binding, unit });
-      h.legacyFloorLedger.read.mockResolvedValue(progress);
-      if (phase === "save") {
-        vi.mocked(h.store.submit).mockRejectedValueOnce(new Error("offline"));
-      } else {
-        vi.mocked(h.store.verify).mockResolvedValueOnce({});
-      }
-      await expect(h.manager.syncToCurrentChat()).rejects.toThrow("尚未核验");
-      expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-      const pending = h.persistence.current(h.target().identity)!;
-      expect(pending.snapshot.floorLedger).toEqual(progress);
-      await h.persistence.forceSync(h.target(), pending.binding, pending.snapshot, () => {});
-      expect(h.legacyFloorLedger.remove).toHaveBeenCalledOnce();
-      expect(h.legacyFloorLedger.read).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("聊天已有进度时完整保留，不读取或清理本机旧台账", async () => {
-    const h = harness();
-    const unit = { ...h.sample(), floorLedger: progress };
-    const binding: ChatSpaceBinding = {
-      version: 2,
-      spaceId: unit.space.id,
-      chatIdentity: h.target().identity,
-    };
-    h.metadata.set(h.target().identity, binding);
-    h.files.set(h.target().identity, { binding, unit });
-    await h.manager.syncToCurrentChat();
-    expect(h.persistence.current(h.target().identity)!.snapshot).toEqual(unit);
-    expect(h.legacyFloorLedger.read).not.toHaveBeenCalled();
-    expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-  });
-
-  it("旧台账不存在时保留空进度，不额外保存或清理", async () => {
+  it("读取加载候选期间切换聊天，旧结果不能激活或保存", async () => {
     const h = harness();
     const unit = h.sample();
     const binding: ChatSpaceBinding = {
@@ -305,86 +248,18 @@ describe("旧楼层进度迁移", () => {
       chatIdentity: h.target().identity,
     };
     h.metadata.set(h.target().identity, binding);
-    h.files.set(h.target().identity, { binding, unit });
-    await h.manager.syncToCurrentChat();
-    expect(h.persistence.current(h.target().identity)!.snapshot).toEqual(unit);
-    expect(h.store.submit).not.toHaveBeenCalled();
-    expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-  });
-
-  it("分支和移植文件不借用本机同空间旧台账", async () => {
-    const h = harness();
-    const unit = h.sample();
-    const binding: ChatSpaceBinding = {
-      version: 2,
-      spaceId: unit.space.id,
-      chatIdentity: "char:8:other-chat",
-    };
-    h.metadata.set(h.target().identity, binding);
-    h.files.set(h.target().identity, { binding, unit });
-    expect((await h.manager.syncToCurrentChat()).kind).toBe("branch-detected");
-    expect(h.legacyFloorLedger.read).not.toHaveBeenCalled();
-    expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-  });
-
-  it("核验期间切换聊天保留旧台账，回到原聊天可继续核验与清理", async () => {
-    const h = harness();
-    const unit = h.sample();
-    const binding: ChatSpaceBinding = {
-      version: 2,
-      spaceId: unit.space.id,
-      chatIdentity: h.target().identity,
-    };
-    const target = h.target();
-    h.metadata.set(target.identity, binding);
-    h.files.set(target.identity, { binding, unit });
-    h.legacyFloorLedger.read.mockResolvedValue(progress);
     const hold = gate();
-    vi.mocked(h.store.verify).mockImplementationOnce(async () => {
+    const confirmed = vi.fn(async () => {});
+    vi.spyOn(h.persistence, "load").mockImplementationOnce(async () => {
       await hold.promise;
-      const file = h.files.get(target.identity)!;
-      return {
-        steMemory: file.binding,
-        steMemoryMirror: createChatMirrorFile(
-          file.unit,
-          file.unit.space.id,
-          file.unit.space.updatedAt,
-          "test",
-        ),
-      };
+      return { snapshot: unit, replacement: { confirmed } };
     });
-    const saving = h.manager.syncToCurrentChat();
-    const rejected = expect(saving).rejects.toThrow("尚未核验");
-    await vi.waitFor(() => expect(h.store.verify).toHaveBeenCalledOnce());
+    const loading = h.manager.syncToCurrentChat();
     h.select("B");
     hold.release();
-    await rejected;
-    expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
-    h.select("A");
-    await h.manager.syncToCurrentChat();
-    const pending = h.persistence.current(target.identity)!;
-    await h.persistence.forceSync(target, pending.binding, pending.snapshot, () => {});
-    expect(h.legacyFloorLedger.remove).toHaveBeenCalledExactlyOnceWith(unit.space.id);
-    expect(h.legacyFloorLedger.read).toHaveBeenCalledOnce();
-  });
-
-  it("读取旧台账期间切换聊天，不激活、保存或清理旧结果", async () => {
-    const h = harness();
-    const unit = h.sample();
-    const binding: ChatSpaceBinding = {
-      version: 2,
-      spaceId: unit.space.id,
-      chatIdentity: h.target().identity,
-    };
-    h.metadata.set(h.target().identity, binding);
-    h.files.set(h.target().identity, { binding, unit });
-    h.legacyFloorLedger.read.mockImplementationOnce(async () => {
-      h.select("B");
-      return progress;
-    });
-    expect((await h.manager.syncToCurrentChat()).kind).toBe("load-error");
+    expect((await loading).kind).toBe("load-error");
     expect(h.activate).not.toHaveBeenCalled();
     expect(h.store.submit).not.toHaveBeenCalled();
-    expect(h.legacyFloorLedger.remove).not.toHaveBeenCalled();
+    expect(confirmed).not.toHaveBeenCalled();
   });
 });

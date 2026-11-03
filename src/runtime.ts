@@ -269,6 +269,23 @@ export async function startSteMemory(
   const persistence = new ChatSnapshotPersistence(
     options.snapshotFiles ?? adapter.snapshotFileStore,
     () => options.version ?? "",
+    {
+      read: async (spaceId) => {
+        const rows = await db.floorFillLedger.where("memorySpaceId").equals(spaceId).toArray();
+        return rows.map(({ floor, status, updatedAt }) => ({ floor, status, updatedAt }));
+      },
+      remove: async (spaceId) => {
+        await db.floorFillLedger.where("memorySpaceId").equals(spaceId).delete();
+      },
+      isActive: (target, spaceId) => {
+        const status = manager.getStatus();
+        return (
+          chatIdentityKey(adapter.getChatSnapshot()) === target.identity &&
+          status?.kind === "active" &&
+          status.space.id === spaceId
+        );
+      },
+    },
   );
   // 保存/编辑端口在构造时固定；首次加载前，所有生命周期依赖会完成装配。
   const saveSnapshot = (unit: MemorySpaceBackup) => lifecycle.saveSnapshot(unit);
@@ -585,15 +602,6 @@ export async function startSteMemory(
     captureTarget: () => adapter.captureFileTarget(),
     bindingStore: adapter.bindingStore,
     persistence,
-    legacyFloorLedger: {
-      read: async (spaceId) => {
-        const rows = await db.floorFillLedger.where("memorySpaceId").equals(spaceId).toArray();
-        return rows.map(({ floor, status, updatedAt }) => ({ floor, status, updatedAt }));
-      },
-      remove: async (spaceId) => {
-        await db.floorFillLedger.where("memorySpaceId").equals(spaceId).delete();
-      },
-    },
     createSnapshot: async (name) => {
       const preset = resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET);
       const id = createId("space") as MemorySpaceId;

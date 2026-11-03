@@ -3,6 +3,16 @@ import type { MemorySpaceBackup } from "../backup/index.ts";
 import type { ChatSpaceBinding } from "../chat-binding/chat-space-manager.ts";
 import { decodeChatMirrorFile } from "./chat-mirror-codec.ts";
 import type { ChatMirrorFile } from "./chat-mirror-file.ts";
+import {
+  migrateLegacyFloorLedger,
+  type LegacyFloorLedgerMigrationPorts,
+} from "./legacy-floor-ledger-migration.ts";
+
+/** 加载出的快照可要求走现有候选保存流程；回调仅在完整文件核验成功后执行。 */
+export interface LoadedChatSnapshot {
+  readonly snapshot: MemorySpaceBackup;
+  readonly replacement?: { readonly confirmed: () => Promise<void> };
+}
 
 /** 保存任务捕获文件身份，离开聊天后也不能从活动聊天推导保存目标。 */
 export type ChatFileTarget =
@@ -72,9 +82,15 @@ export class ChatSnapshotPersistence {
   readonly #listeners = new Set<() => void>();
   private readonly store: ChatSnapshotFileStore;
   private readonly appVersion: () => string;
-  constructor(store: ChatSnapshotFileStore, appVersion: () => string) {
+  private readonly legacyFloorLedger?: LegacyFloorLedgerMigrationPorts;
+  constructor(
+    store: ChatSnapshotFileStore,
+    appVersion: () => string,
+    legacyFloorLedger?: LegacyFloorLedgerMigrationPorts,
+  ) {
     this.store = store;
     this.appVersion = appVersion;
+    this.legacyFloorLedger = legacyFloorLedger;
   }
 
   hasPendingWrites(): boolean {
@@ -127,9 +143,12 @@ export class ChatSnapshotPersistence {
     return this.#entries.get(identity)?.pending?.operation === "replacement";
   }
 
-  async load(target: ChatFileTarget, spaceId?: string): Promise<MemorySpaceBackup | undefined> {
+  async load(
+    target: ChatFileTarget,
+    binding?: ChatSpaceBinding,
+  ): Promise<LoadedChatSnapshot | undefined> {
     if (this.hasPendingReplacement(target.identity)) {
-      return this.current(target.identity)?.snapshot;
+      return { snapshot: this.current(target.identity)!.snapshot };
     }
     const raw = await this.store.read(target);
     if (raw === undefined) {
@@ -139,10 +158,13 @@ export class ChatSnapshotPersistence {
     if (!file) {
       throw new Error("对话元数据中的记忆快照损坏或版本无法识别");
     }
-    if (spaceId !== undefined && file.spaceId !== spaceId) {
+    if (binding !== undefined && file.spaceId !== binding.spaceId) {
       throw new Error("对话元数据中的记忆快照与空间绑定不一致");
     }
-    return file.data;
+    if (binding && this.legacyFloorLedger) {
+      return migrateLegacyFloorLedger(target, binding, file.data, this.legacyFloorLedger);
+    }
+    return { snapshot: file.data };
   }
 
   saveCommitted(

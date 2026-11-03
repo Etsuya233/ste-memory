@@ -671,7 +671,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     },
   );
 
-  it("绑定已存在时只从聊天文件加载空间到 SQLite", async () => {
+  it.each([false, true])("绑定聊天按现有流程加载，旧台账：%s", async (hasLegacyLedger) => {
     const db = createTestDatabase();
     const fileUnit: MemorySpaceBackup = {
       schemaVersion: 3 as const,
@@ -703,7 +703,34 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       fileUnit.space.updatedAt,
       "test",
     );
-    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    const progress = [
+      { floor: 1, status: "processed" as const, updatedAt: fileUnit.space.updatedAt },
+    ];
+    if (hasLegacyLedger) {
+      await db.floorFillLedger.add({
+        id: "legacy-floor-1",
+        memorySpaceId: fileUnit.space.id,
+        ...progress[0]!,
+      });
+    }
+    const ports = createRuntimeTestPorts(() => context);
+    const verify = ports.snapshotFiles.verify;
+    const verification = vi
+      .spyOn(ports.snapshotFiles, "verify")
+      .mockImplementation(async (target) => {
+        expect(await db.floorFillLedger.count()).toBe(1);
+        return verify(target);
+      });
+    const runtime = await startTestRuntime(() => context, {
+      ...ports,
+      createDb: () => db,
+      log: fakeLog(),
+    });
+    expect(runtime.persistence.current("char:3:story")!.snapshot.floorLedger).toEqual(
+      hasLegacyLedger ? progress : [],
+    );
+    expect(await db.floorFillLedger.count()).toBe(0);
+    expect(verification).toHaveBeenCalledTimes(hasLegacyLedger ? 1 : 0);
     expect(runtime.manager.getStatus()).toMatchObject({
       kind: "active",
       created: false,
