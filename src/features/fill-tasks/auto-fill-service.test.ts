@@ -126,7 +126,12 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
   };
 }
 
-async function check(h: ReturnType<typeof setup>) {
+async function check(h: ReturnType<typeof setup>, reply = true) {
+  if (reply) {
+    h.service.generationStarted();
+    h.service.messageReceived();
+    h.service.generationEnded();
+  }
   const before = h.tasks.pendingTasks.mock.calls.length;
   const kicks = h.tasks.kick.mock.calls.length;
   h.service.kick();
@@ -135,6 +140,89 @@ async function check(h: ReturnType<typeof setup>) {
 }
 
 describe("自动填表入队", () => {
+  it("进入对话与轮询只通知，首个有效 AI 回复后才入队，后续轮询不创建任务", async () => {
+    const h = setup();
+    h.service.chatReady();
+    await check(h, false);
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.notify).toHaveBeenCalledOnce();
+    expect(h.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "reminder",
+        message: expect.stringContaining("下一次 AI 回复"),
+      }),
+    );
+    await check(h);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+    h.setCurrent({ chatLength: 52, aiFloor: 51 });
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+    await check(h);
+    expect(h.tasks.submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("无回复、空回复与停止生成不授权入队，切换对话后重新等待", async () => {
+    const h = setup();
+    h.service.generationEnded(); // quiet / dryRun 没有对应的有效开始。
+    await check(h, false);
+    h.service.generationStarted();
+    h.setCurrent({ chatLength: 33 }); // AI 占位为空，latestAiFloor 仍为旧回复。
+    h.service.messageReceived(32);
+    h.service.generationEnded();
+    await check(h, false);
+    h.service.generationStarted();
+    h.service.messageReceived(31);
+    h.service.generationStopped();
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    h.setCurrent({ chatLength: 32 });
+    await check(h);
+    await h.service.chatChanged();
+    h.setPending([]);
+    h.service.chatReady();
+    h.setCurrent({ chatLength: 52, aiFloor: 51 });
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
+  it("没有进度时从 #0 计算范围，进入先通知并等待 AI 回复", async () => {
+    const h = setup();
+    h.setLedger([]);
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "reminder", message: expect.stringContaining("#0–#30") }),
+    );
+    await check(h);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+    expect(h.tasks.submit.mock.calls[0]![0]).toMatchObject({ from: 0, to: 30 });
+  });
+
+  it("旧暂存范围在进入时保留，到有效回复完成才迁入队列", async () => {
+    const h = setup(
+      {},
+      {
+        overrides: {},
+        pausedReason: null,
+        stagedTasks: [
+          {
+            memorySpaceId: "space" as MemorySpaceId,
+            from: 21,
+            to: 30,
+            settings: DEFAULT_AUTO_FILL_SETTINGS,
+          },
+        ],
+      },
+    );
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.state().stagedTasks).toHaveLength(1);
+    await check(h);
+    expect(h.state().stagedTasks).toBeUndefined();
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
   it("从最高 processed 下一层计算范围，忽略历史空洞和 error", () => {
     const ledger: FloorLedgerEntry[] = [
       { floor: 25, status: "processed" },
@@ -222,6 +310,7 @@ describe("自动填表入队", () => {
     h.service.kick();
     expect(h.tasks.suspend).toHaveBeenCalledOnce();
     expect(h.tasks.submit).not.toHaveBeenCalled();
+    h.service.messageReceived();
     h.service.generationEnded();
     await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledOnce());
   });

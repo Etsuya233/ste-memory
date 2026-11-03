@@ -23,6 +23,10 @@ ADR 0028 中逐页混合新旧 UI 的迁移策略已由 ADR 0029 替代；阅读
 按钮只呈现简短的同步中、完成或失败结果，核验与切聊隔离由 runtime 维护，不另建保存链路。
 候选替换失败保持候选门控，普通强制同步失败释放本次临时门控；两种状态不得混用。
 
+进入对话先展示达到间隔的待填通知，自动任务等待当前对话的有效 AI 回复完成。
+没有进度时从 #0 计算待填范围，不增加人工确认流程。
+沿用全局 Toast 与现有进度表单，不新建进度持久层。规则见 [ADR 0036](../adr/st/0036-floor-progress-migration-and-auto-fill.md)。
+
 ## 架构与代码归属
 
 当前使用 React、TypeScript、Tailwind 4、shadcn Base UI / Luma（zinc、Lucide、Inter）和 esbuild。

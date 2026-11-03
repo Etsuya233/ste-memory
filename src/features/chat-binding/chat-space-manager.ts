@@ -25,6 +25,10 @@ export interface ChatSpaceManagerPorts {
   readonly captureTarget: () => ChatFileTarget | undefined;
   readonly bindingStore: Pick<ChatBindingStore, "read">;
   readonly persistence: ChatSnapshotPersistence;
+  readonly legacyFloorLedger?: {
+    read(spaceId: MemorySpaceId): Promise<MemorySpaceBackup["floorLedger"]>;
+    remove(spaceId: MemorySpaceId): Promise<void>;
+  };
   readonly createSnapshot: (name: string) => Promise<MemorySpaceBackup>;
   readonly validateSnapshot: (unit: MemorySpaceBackup) => Promise<void>;
   readonly activateSnapshot: (
@@ -176,6 +180,38 @@ export class ChatSpaceManager {
         source: unit,
       });
     }
+    if (unit.floorLedger.length === 0) {
+      // 只有原文件身份精确匹配才能使用本机台账；移植、分支和旧 v1 绑定不自动迁移。
+      const legacy =
+        binding.version === 2 && binding.chatIdentity === target.identity
+          ? await this.ports.legacyFloorLedger?.read(unit.space.id)
+          : undefined;
+      if (this.#selection !== selection) {
+        return { kind: "load-error", humanMsg: "聊天已切换" };
+      }
+      if (legacy?.length) {
+        const migrated: MemorySpaceBackup = {
+          ...unit,
+          floorLedger: legacy,
+        };
+        return this.saveCandidate(
+          selection,
+          () => migrated,
+          "replacement",
+          async () => {
+            const status = this.#status;
+            if (
+              this.#selection?.target.identity !== target.identity ||
+              status?.kind !== "active" ||
+              status.space.id !== migrated.space.id
+            ) {
+              throw new Error("请回到原聊天后核验旧楼层进度迁移");
+            }
+            await this.ports.legacyFloorLedger!.remove(migrated.space.id);
+          },
+        );
+      }
+    }
     if (binding.version === 1 || binding.chatIdentity !== target.identity) {
       return this.saveCandidate(selection, () => unit, "replacement");
     }
@@ -242,6 +278,7 @@ export class ChatSpaceManager {
     selection: ChatSelection,
     build: () => MemorySpaceBackup | Promise<MemorySpaceBackup>,
     origin: "created" | "replacement",
+    confirmed?: () => Promise<void>,
   ): Promise<SpaceContextStatus> {
     if (this.ports.persistence.hasPendingReplacement(selection.target.identity)) {
       throw new Error("候选空间尚待核验，请先强制同步");
@@ -270,7 +307,10 @@ export class ChatSpaceManager {
     };
     await this.activate(selection, binding, unit, origin);
     this.assertCandidateCurrent(request);
-    await this.ports.persistence.replace(selection.target, unit, binding, request.retireOld);
+    await this.ports.persistence.replace(selection.target, unit, binding, async () => {
+      await request.retireOld?.();
+      await confirmed?.();
+    });
     return {
       kind: "active",
       binding,

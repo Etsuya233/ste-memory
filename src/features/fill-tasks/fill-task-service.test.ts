@@ -212,6 +212,7 @@ async function createHarness(
     readonly failLedgerMarkProcessed?: boolean;
     readonly onSave?: () => Promise<void>;
     readonly saveError?: boolean;
+    readonly canStartAutomaticTask?: (task: FillTask) => boolean;
     readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   } = {},
 ): Promise<Harness> {
@@ -275,6 +276,7 @@ async function createHarness(
   services.memoryStore.saveSnapshot = (unit) => persistence.saveCommitted(target, binding, unit);
   const service = new FillTaskService({
     assertCanEditSpace: (id) => services.memoryStore.assertCanEdit(id),
+    canStartAutomaticTask: options.canStartAutomaticTask,
     tasks,
     ledger,
     source,
@@ -3039,4 +3041,48 @@ describe("填表 SQLite 事务与宿主提交", () => {
     expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(3);
     expect(stream.calls.count).toBe(6);
   });
+});
+
+it("手动任务结束后，旧自动队列仍需宿主授权才能启动", async () => {
+  let allowed = false;
+  const gate = vi.fn(() => allowed);
+  const harness = await createHarness({
+    streamFn: scriptedFillAgent(),
+    canStartAutomaticTask: gate,
+  });
+  const { service, spaceId } = harness;
+  service.suspend();
+  const manual = await service.submit({ memorySpaceId: spaceId, from: 0, to: 1 });
+  const automatic = await service.submit({
+    memorySpaceId: spaceId,
+    from: 2,
+    to: 3,
+    automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+  });
+  service.kick(spaceId);
+  expect((await waitForTerminal(harness, manual.runId)).status).toBe("succeeded");
+  await vi.waitFor(() => expect(gate).toHaveBeenCalled());
+  expect((await harness.tasks.find(automatic.runId))!.status).toBe("queued");
+  allowed = true;
+  service.kick(spaceId);
+  expect((await waitForTerminal(harness, automatic.runId)).status).toBe("succeeded");
+});
+
+it("自动任务按已排队范围执行，不在启动前跳过已处理楼层", async () => {
+  let allowed = false;
+  const stream = scriptedFillAgent();
+  const h = await createHarness({ streamFn: stream, canStartAutomaticTask: () => allowed });
+  const task = await h.service.submit({
+    memorySpaceId: h.spaceId,
+    from: 0,
+    to: 3,
+    blockSize: 2,
+    automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+  });
+  await h.service.markFloorStatuses(h.spaceId, 0, 3, "processed");
+  allowed = true;
+  h.service.kick(h.spaceId);
+  expect((await waitForTerminal(h, task.runId)).status).toBe("succeeded");
+  expect(stream.calls.count).toBe(4);
+  expect(JSON.stringify(stream.contexts)).toContain("消息 1");
 });

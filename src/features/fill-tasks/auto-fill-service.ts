@@ -50,6 +50,10 @@ interface AutoFillPorts {
 /** 自动填表负责范围、入队和成功后的楼层隐藏；任务执行由 FillTaskService 管理。 */
 export class AutoFillService {
   readonly #ports: AutoFillPorts;
+  #generation: { identity: string; received: boolean } | undefined;
+  #hasReplied = false;
+  #replyRevision = 0;
+  #checkedReplyRevision = 0;
   #checking = false;
   #pending = false;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -75,6 +79,18 @@ export class AutoFillService {
   }
   settings(): AutoFillSettings {
     return { ...this.#ports.globalSettings(), ...this.read().overrides };
+  }
+
+  canStartTask(task: FillTask): boolean {
+    const current = this.#ports.current();
+    return (
+      !!current &&
+      !this.#suspended &&
+      this.#hasReplied &&
+      this.settings().mode === "auto" &&
+      task.memorySpaceId === current.spaceId &&
+      (task.chatId ?? undefined) === current.chatId
+    );
   }
 
   async taskSucceeded(task: FillTask): Promise<void> {
@@ -159,10 +175,34 @@ export class AutoFillService {
   }
 
   generationStarted(): void {
+    const current = this.#ports.current();
+    this.#generation = current ? { identity: current.identity, received: false } : undefined;
     this.#suspended = true;
     this.#ports.tasks.suspend();
   }
+  messageReceived(floor?: number): void {
+    const current = this.#ports.current();
+    if (
+      this.#generation &&
+      current?.identity === this.#generation.identity &&
+      current.aiFloor >= 0 &&
+      current.aiFloor === (floor ?? current.chatLength - 1)
+    ) {
+      this.#generation.received = true;
+    }
+  }
   generationEnded(): void {
+    const current = this.#ports.current();
+    if (this.#generation?.received && current?.identity === this.#generation.identity) {
+      this.#hasReplied = true;
+      this.#replyRevision++;
+    }
+    this.#generation = undefined;
+    this.#suspended = false;
+    this.kick();
+  }
+  generationStopped(): void {
+    this.#generation = undefined;
     this.#suspended = false;
     this.kick();
   }
@@ -170,6 +210,11 @@ export class AutoFillService {
   async chatChanged(): Promise<void> {
     this.#suspended = true;
     this.#epoch += 1;
+    this.#generation = undefined;
+    this.#hasReplied = false;
+    this.#replyRevision = 0;
+    this.#checkedReplyRevision = 0;
+    this.#ports.dismissReminder();
     this.#ports.tasks.suspend();
     this.#reminded = undefined;
     this.#promptedResume = undefined;
@@ -219,6 +264,11 @@ export class AutoFillService {
       !this.#suspended &&
       this.#ports.current()?.identity === current.identity;
     const settings = this.settings();
+    const scheduleReply = this.#replyRevision > this.#checkedReplyRevision;
+    this.#checkedReplyRevision = this.#replyRevision;
+    if (settings.mode !== "auto") {
+      this.#hasReplied = false;
+    }
     let pending = await this.#ports.tasks.pendingTasks(current.spaceId);
     if (!unchanged()) {
       return;
@@ -226,7 +276,11 @@ export class AutoFillService {
 
     // 旧版本的聊天暂存项只在升级时转入任务表，之后删除旧状态。
     const legacy = this.read();
-    if (settings.mode === "auto" && (legacy.stagedTasks?.length || legacy.inFlightTask)) {
+    if (
+      settings.mode === "auto" &&
+      this.#hasReplied &&
+      (legacy.stagedTasks?.length || legacy.inFlightTask)
+    ) {
       this.#ports.tasks.suspend();
       const items = [
         ...(legacy.inFlightTask ? [legacy.inFlightTask] : []),
@@ -318,6 +372,7 @@ export class AutoFillService {
         return;
       }
       if (confirmed) {
+        this.#hasReplied = true;
         await this.#ports.tasks.retry(current.spaceId, head.runId);
       }
     }
@@ -328,7 +383,22 @@ export class AutoFillService {
     if (!unchanged()) {
       return;
     }
-    if (settings.mode !== "remind") {
+    if (
+      settings.mode === "auto" &&
+      !this.#hasReplied &&
+      range &&
+      range.to - range.from + 1 >= settings.interval
+    ) {
+      const key = `${current.identity}:waiting:${range.from}:${range.to}`;
+      if (this.#reminded !== key) {
+        this.#reminded = key;
+        this.#ports.notify({
+          kind: "reminder",
+          identity: current.identity,
+          message: `待填 #${range.from}–#${range.to}，共 ${range.to - range.from + 1} 层。已开启自动填表，将在下一次 AI 回复完成后检查并开始。`,
+        });
+      }
+    } else if (settings.mode !== "remind") {
       this.#ports.dismissReminder();
       this.#reminded = undefined;
     }
@@ -346,7 +416,7 @@ export class AutoFillService {
       this.#ports.dismissReminder();
       this.#reminded = undefined;
     }
-    if (settings.mode === "auto" && range) {
+    if (settings.mode === "auto" && scheduleReply && range) {
       const reservedThrough = pending.reduce(
         (highest, task) => (task.kind === "floor" ? Math.max(highest, task.to) : highest),
         -1,
@@ -380,7 +450,7 @@ export class AutoFillService {
         }
       }
     }
-    if (unchanged()) {
+    if (unchanged() && (!pending[0]?.automatic || this.#hasReplied)) {
       this.#ports.tasks.kick(current.spaceId);
     }
   }

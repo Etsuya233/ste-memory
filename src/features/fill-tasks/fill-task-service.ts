@@ -115,6 +115,8 @@ export interface FillTaskInitInput {
 export interface FillTaskServiceOptions {
   /** 新任务和手动楼层修改遵守空间生命周期门控；持有 writer 的批次可以完成自己的提交。 */
   readonly assertCanEditSpace: (id: MemorySpaceId) => void;
+  /** 宿主按当前对话的回复与进度状态授权旧队列中的自动任务。 */
+  readonly canStartAutomaticTask?: (task: FillTask) => boolean;
   /** 整次自动楼层填表提交完成后的宿主动作，失败不改变填表结果。 */
   readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   readonly readAgentTimeoutMs?: () => number;
@@ -148,6 +150,7 @@ export interface FillTaskServiceOptions {
 
 export class FillTaskService {
   readonly #assertCanEditSpace: (id: MemorySpaceId) => void;
+  readonly #canStartAutomaticTask: FillTaskServiceOptions["canStartAutomaticTask"];
   readonly #onAutomaticSuccess: FillTaskServiceOptions["onAutomaticSuccess"];
   readonly #readAgentTimeoutMs: () => number;
   #suspended = false;
@@ -184,6 +187,7 @@ export class FillTaskService {
   constructor(options: FillTaskServiceOptions) {
     this.#assertCanEditSpace = options.assertCanEditSpace;
     this.#onAutomaticSuccess = options.onAutomaticSuccess;
+    this.#canStartAutomaticTask = options.canStartAutomaticTask;
     this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
     this.#ledger = options.ledger;
@@ -240,6 +244,9 @@ export class FillTaskService {
           !task ||
           task.status !== "queued"
         ) {
+          break;
+        }
+        if (task.automatic && this.#canStartAutomaticTask && !this.#canStartAutomaticTask(task)) {
           break;
         }
         if (!(await this.#tasks.markRunning(task.runId))) {

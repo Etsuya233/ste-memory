@@ -687,7 +687,9 @@ export class StChatAdapter {
     if (types.MESSAGE_DELETED) {
       source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
     }
-    source.on(types.MESSAGE_RECEIVED, () => bridge.onMessageEvent("message_received"));
+    source.on(types.MESSAGE_RECEIVED, (floor) =>
+      bridge.onMessageEvent("message_received", floor as number),
+    );
   }
 
   #trackMacroEvaluation(result: void | Promise<void>, bridge: StEventBridge): void | Promise<void> {

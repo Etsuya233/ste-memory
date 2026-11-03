@@ -285,7 +285,7 @@ describe("StChatAdapter.registerEventBridge（事件桥）", () => {
 
     expect(bridge.onChatChanged).toHaveBeenCalledTimes(1);
     expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_sent", 3);
-    expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_received");
+    expect(bridge.onMessageEvent).toHaveBeenCalledWith("message_received", 4);
     expect(bridge.onMessageEvent).toHaveBeenCalledTimes(2);
     release();
     await returned;

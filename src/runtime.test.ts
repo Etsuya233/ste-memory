@@ -709,7 +709,10 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       created: false,
       space: { id: "file-first", name: "文件中的旧版本" },
     });
-    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual({ ...fileUnit.space, macros: [] });
+    expect(await runtime.spaces.find(fileUnit.space.id)).toEqual({
+      ...fileUnit.space,
+      macros: [],
+    });
   });
 
   it("普通保存失败切聊后不后台补写，返回按宿主文件加载并可强制同步", async () => {
@@ -2123,4 +2126,64 @@ describe("已激活候选的核验恢复", () => {
     expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
     expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
   });
+});
+
+it("真实 ST 事件桥进入时只通知，收到有效 AI 楼层并结束生成后才申请自动入队", async () => {
+  const db = createTestDatabase();
+  const { context, handlers } = fakeStContext({
+    chat: [
+      { mes: "旧用户消息", is_user: true },
+      { mes: "旧回复" },
+      { mes: "下一问", is_user: true },
+    ],
+    eventTypes: {
+      CHAT_CHANGED: "chat_id_changed",
+      MESSAGE_SENT: "message_sent",
+      MESSAGE_RECEIVED: "message_received",
+      GENERATION_STARTED: "generation_started",
+      GENERATION_ENDED: "generation_ended",
+      GENERATION_STOPPED: "generation_stopped",
+    },
+  });
+  const show = vi.fn();
+  const runtime = await startTestRuntime(() => context, {
+    createDb: () => db,
+    log: fakeLog(),
+    settingsStore: {
+      read: () => ({
+        ...DEFAULT_SETTINGS,
+        autoFill: { ...DEFAULT_SETTINGS.autoFill, mode: "auto", interval: 1, delayFloors: 0 },
+      }),
+      write() {},
+    },
+    autoFillNotifications: { show, dismissReminder() {} },
+  });
+  const submit = vi.spyOn(runtime.tasks, "submit").mockRejectedValue(new Error("测试截断模型执行"));
+  try {
+    await vi.waitFor(() =>
+      expect(show).toHaveBeenCalledWith(expect.objectContaining({ kind: "reminder" })),
+    );
+    expect(submit).not.toHaveBeenCalled();
+    await handlers.get("generation_started")!("quiet", {}, false);
+    handlers.get("generation_ended")!();
+    await handlers.get("generation_started")!("normal", {}, true);
+    handlers.get("generation_ended")!();
+    await handlers.get("generation_started")!("normal", {}, false);
+    handlers.get("generation_ended")!(); // 请求失败，没有收到 AI 消息。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(submit).not.toHaveBeenCalled();
+    await handlers.get("generation_started")!("normal", {}, false);
+    context.chat = [...context.chat!, { mes: "新的有效回复" }];
+    handlers.get("message_received")!(3, "normal");
+    expect(submit).not.toHaveBeenCalled();
+    handlers.get("generation_ended")!();
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(submit.mock.calls[0]![0]).toMatchObject({ from: 0, to: 3 });
+    handlers.get("generation_ended")!();
+    runtime.autoFill.kick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(submit).toHaveBeenCalledOnce();
+  } finally {
+    runtime.autoFill.stop();
+  }
 });

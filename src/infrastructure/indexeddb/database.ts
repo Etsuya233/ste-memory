@@ -1,5 +1,6 @@
 import { Dexie, type Table } from "dexie";
 import type { AssistantSession } from "../../features/query-chat/session-store.ts";
+import type { MemorySpaceBackupLedgerEntry } from "../../features/memory-snapshot/snapshot.ts";
 import type { FillTask } from "../../features/fill-tasks/fill-task.ts";
 import type {
   RecordVector,
@@ -13,6 +14,11 @@ export const ST_MEMORY_DB_NAME = "ste-memory";
 export class SteMemoryDatabase extends Dexie {
   assistantSessions!: Table<AssistantSession, string>;
   memoryFillTasks!: Table<FillTask, string>;
+  /** 只供一次性迁移读取，核验聊天文件后逐空间清理。 */
+  floorFillLedger!: Table<
+    MemorySpaceBackupLedgerEntry & { id: string; memorySpaceId: string },
+    string
+  >;
   vectorTasks!: Table<VectorTask, string>;
   recordVectors!: Table<RecordVector, string>;
   vectorSuppressions!: Table<VectorSuppression, string>;
@@ -67,10 +73,10 @@ export class SteMemoryDatabase extends Dexie {
       memoryEvidence: null,
     });
     this.version(13)
-      .stores({ floorFillLedger: null })
+      .stores({})
       .upgrade(async (transaction) => {
         // 仅迁移旧任务的提交归属，保证曾进入提交的初始化继续要求人工核对。
-        // 旧楼层台账直接废弃，不能据本机辅助数据推定聊天文件中的权威进度。
+        // 保留旧台账，等待对应聊天文件迁移并核验；已经删除的 v13 库无法补回。
         await transaction
           .table("memoryFillTasks")
           .toCollection()
@@ -81,5 +87,8 @@ export class SteMemoryDatabase extends Dexie {
             }
           });
       });
+    this.version(14).stores({
+      floorFillLedger: "id, &[memorySpaceId+floor], memorySpaceId",
+    });
   }
 }

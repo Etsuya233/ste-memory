@@ -434,6 +434,7 @@ export async function startSteMemory(
   const tasks = new FillTaskService({
     assertCanEditSpace: (id) => lifecycle.assertCanEdit(id),
     onAutomaticSuccess: (task): Promise<void> => autoFill.taskSucceeded(task),
+    canStartAutomaticTask: (task): boolean => autoFill.canStartTask(task),
     tasks: fillTaskRepository,
     ledger: floorLedgerRepository,
     logs,
@@ -584,6 +585,15 @@ export async function startSteMemory(
     captureTarget: () => adapter.captureFileTarget(),
     bindingStore: adapter.bindingStore,
     persistence,
+    legacyFloorLedger: {
+      read: async (spaceId) => {
+        const rows = await db.floorFillLedger.where("memorySpaceId").equals(spaceId).toArray();
+        return rows.map(({ floor, status, updatedAt }) => ({ floor, status, updatedAt }));
+      },
+      remove: async (spaceId) => {
+        await db.floorFillLedger.where("memorySpaceId").equals(spaceId).delete();
+      },
+    },
     createSnapshot: async (name) => {
       const preset = resolveDefaultTablePreset(settings.read().tablePresets, SYSTEM_TABLE_PRESET);
       const id = createId("space") as MemorySpaceId;
@@ -1008,10 +1018,14 @@ export async function startSteMemory(
         },
       );
     },
-    onMessageEvent: (kind, floor) =>
-      kind === "message_sent" && floor !== undefined
+    onMessageEvent: (kind, floor) => {
+      if (kind === "message_received") {
+        autoFill.messageReceived(floor);
+      }
+      return kind === "message_sent" && floor !== undefined
         ? macro.messageSent(adapter.getMessageAt(floor))
-        : undefined,
+        : undefined;
+    },
     onGenerationStarted: (type, options, dryRun) => {
       macro.started(type, options, dryRun);
       if (!dryRun && type !== "quiet" && type !== "impersonate") {
@@ -1030,7 +1044,10 @@ export async function startSteMemory(
       return macro.afterCommands(type, options, dryRun, lastUserMessage);
     },
     onGenerationEnded: () => autoFill.generationEnded(),
-    onGenerationStopped: () => macro.cancel("ST 已停止生成"),
+    onGenerationStopped: () => {
+      autoFill.generationStopped();
+      macro.cancel("ST 已停止生成");
+    },
     onGenerationFinished: (dryRun) => macro.generationFinished(dryRun),
     shouldAwaitMacros: macro.isPreparing,
     onGroupStarted: () => macro.groupStarted(),
