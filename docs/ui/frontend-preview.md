@@ -77,6 +77,7 @@ node verify-search.mjs
 node verify-cleaning.mjs
 node verify-macros.mjs
 node verify-presets.mjs
+node verify-table-preset-scroll.mjs
 node verify-preset-structure.mjs
 node verify-query.mjs
 node verify-assistant-concurrency.mjs
