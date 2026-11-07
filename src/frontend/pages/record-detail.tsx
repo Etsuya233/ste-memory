@@ -1,6 +1,7 @@
 import { PageFooter, SaveActions } from "../components/page-layout.tsx";
 import { useId, useState, type RefObject } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
+import { ConfirmAction } from "../components/confirmation.tsx";
 import type {
   StChatMessage,
   FloorJumpResult,
@@ -49,6 +50,8 @@ export function RecordDetailPage({
 }) {
   const table = state.tables.find((item) => item.id === state.tableId);
   const labels = referenceLabels(state.references);
+  const [deleteTarget, setDeleteTarget] = useState<typeof state.detail>(null);
+  const record = state.editor?.original ?? state.detail;
   return (
     <form
       id={formId}
@@ -80,6 +83,19 @@ export function RecordDetailPage({
             <p className="ste:text-xs ste:text-muted-foreground">
               更新于 {state.detail.updatedAt.slice(0, 16).replace("T", " ")}
             </p>
+          ) : null}
+          {record ? (
+            <Button
+              type="button"
+              variant="destructive"
+              className="ste:self-start"
+              data-action="delete-record"
+              disabled={state.saving || state.detailLoading || !!state.detailError}
+              onClick={() => setDeleteTarget(record)}
+            >
+              <Trash2 data-icon="inline-start" />
+              删除记录
+            </Button>
           ) : null}
         </div>
         {state.detailLoading ? <Skeleton className="ste:h-48 ste:w-full" /> : null}
@@ -228,6 +244,7 @@ export function RecordDetailPage({
             <Button
               data-action="edit-record"
               disabled={
+                state.saving ||
                 !state.detail ||
                 state.detailLoading ||
                 !!state.detailError ||
@@ -242,6 +259,22 @@ export function RecordDetailPage({
           </>
         </PageFooter>
       )}
+      <ConfirmAction
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="删除这条记录？"
+        description={
+          <>
+            将删除「{deleteTarget?.displayText}」。此操作无法在记录页撤销。
+            {state.editor?.dirty ? "当前未保存的修改也会丢弃。" : ""}
+          </>
+        }
+        confirmLabel="确认删除"
+        destructive
+        onConfirm={() => workspace.deleteRecord(deleteTarget!)}
+      />
     </form>
   );
 }

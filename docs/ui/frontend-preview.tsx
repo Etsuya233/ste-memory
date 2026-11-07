@@ -401,6 +401,22 @@ const workspace = new RecordsWorkspace({
       fields.filter((field) => field.memorySpaceId === spaceId && field.tableId === tableId),
   },
   records: {
+    delete: async (spaceId, tableId, id, revision, source) => {
+      const delay = delaySave;
+      delaySave = 0;
+      if (delay) await new Promise((done) => setTimeout(done, delay));
+      if (failSave) {
+        failSave = false;
+        throw new Error("模拟删除失败，请重试");
+      }
+      const deleted = await recordService.delete(spaceId, tableId, id, revision, source);
+      if (failPersistence) {
+        failPersistence = false;
+        publishSaveFailure();
+        throw new MemoryCommitPersistenceError(new Error("记录已删除，但对话文件写回失败"));
+      }
+      return deleted;
+    },
     list: (spaceId, tableId, options) => recordService.list(spaceId, tableId, options),
     find: async (spaceId, tableId, id) =>
       structuredClone(

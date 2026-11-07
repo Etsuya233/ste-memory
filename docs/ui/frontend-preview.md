@@ -69,6 +69,7 @@ Windows PowerShell 可使用：
 $env:CHROME='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 node verify-frontend.mjs
 node verify-record-editor.mjs
+node verify-record-deletion.mjs
 node verify-tables.mjs
 node verify-workbench.mjs
 node verify-task-cancellation.mjs

@@ -13,7 +13,11 @@ import type {
   MemoryTableId,
   MemoryTableService,
 } from "../../features/memory/index.ts";
-import { DEFAULT_RECORD_LIST_ORDER, MemoryRecordSaveError } from "../../features/memory/index.ts";
+import {
+  DEFAULT_RECORD_LIST_ORDER,
+  MemoryCommitPersistenceError,
+  MemoryRecordSaveError,
+} from "../../features/memory/index.ts";
 import {
   loadRecordSort,
   nextRecordSort,
@@ -42,7 +46,7 @@ export interface RecordsServices {
   readonly fields: Pick<MemoryFieldService, "list">;
   readonly records: Pick<
     MemoryRecordService,
-    "list" | "find" | "listHistory" | "create" | "update"
+    "list" | "find" | "listHistory" | "create" | "update" | "delete"
   >;
   /** Read the live host context; throw if the submitted context is no longer active. */
   readonly assertContext: (context: RecordsContext) => void;
@@ -410,6 +414,73 @@ export class RecordsWorkspace {
     }
     session.editorGeneration++;
     this.#update(session, { editor: null, notice: null });
+  }
+
+  async deleteRecord(record: MemoryRecord): Promise<void> {
+    const session = this.#requireSession();
+    const context = session.state.context!;
+    if (session.state.saving) {
+      return;
+    }
+    this.#services.assertContext(context);
+    if (
+      record.memorySpaceId !== context.spaceId ||
+      record.tableId !== session.state.tableId ||
+      record.id !== session.state.detailId
+    ) {
+      throw new Error("当前记录已切换，请重新打开删除确认");
+    }
+    const operation = ++session.saveRequest;
+    const generation = session.editorGeneration;
+    const epoch = this.#epoch;
+    this.#update(session, { saving: true, saveWarning: null });
+    try {
+      await this.#services.records.delete(
+        context.spaceId,
+        record.tableId,
+        record.id,
+        record.revisionId,
+        "user",
+      );
+    } catch (error) {
+      // A snapshot failure follows a successful deletion; never offer to submit it again.
+      if (!(error instanceof MemoryCommitPersistenceError)) {
+        this.#update(session, { saving: false });
+        throw error;
+      }
+    }
+    session.detailRequest++;
+    this.#update(session, {
+      saving: false,
+      editor: null,
+      detail: null,
+      detailId: null,
+      history: [],
+      detailLoading: false,
+      detailError: null,
+      notice: "记录已删除",
+    });
+    try {
+      await this.#services.onSaved?.(context);
+    } catch (error) {
+      if (operation === session.saveRequest && generation === session.editorGeneration) {
+        this.#update(session, {
+          notice: `记录已删除，后续刷新失败：${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+    if (
+      epoch === this.#epoch &&
+      this.#current === session &&
+      generation === session.editorGeneration
+    ) {
+      await this.#loadList(session);
+      const lastPage = Math.max(1, session.state.records?.totalPages ?? 1);
+      if (epoch === this.#epoch && !session.state.listError && session.state.page > lastPage) {
+        this.#update(session, { page: lastPage });
+        await this.#loadList(session);
+      }
+    }
   }
 
   async save(): Promise<void> {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { MemoryRecordSaveError } from "../../features/memory/index.ts";
+import {
+  MemoryCommitPersistenceError,
+  MemoryRecordSaveError,
+} from "../../features/memory/index.ts";
 import { loadRecordSort, saveRecordSort } from "../models/memory/record-sort-model.ts";
 import type {
   MemoryField,
@@ -105,6 +108,7 @@ function setup() {
   const tables = { list: vi.fn<RecordsServices["tables"]["list"]>().mockResolvedValue([table]) };
   const fields = { list: vi.fn<RecordsServices["fields"]["list"]>().mockResolvedValue([field]) };
   const records = {
+    delete: vi.fn<RecordsServices["records"]["delete"]>().mockResolvedValue(true),
     list: vi
       .fn<RecordsServices["records"]["list"]>()
       .mockImplementation(async (spaceId) => page([record(spaceId)])),
@@ -137,6 +141,83 @@ async function edit(workspace: RecordsWorkspace) {
 }
 
 describe("RecordsWorkspace", () => {
+  it("deletes with the displayed revision, clears the draft and returns from an empty last page", async () => {
+    const { workspace, records, onSaved } = setup();
+    await edit(workspace);
+    await workspace.setPage(2);
+    records.list.mockResolvedValue(page([]));
+    await workspace.deleteRecord(record());
+    expect(records.delete).toHaveBeenCalledWith(contextA.spaceId, tableId, recordId, "v1", "user");
+    expect(onSaved).toHaveBeenCalledWith(contextA);
+    expect(workspace.getSnapshot()).toMatchObject({
+      saving: false,
+      detailId: null,
+      detail: null,
+      editor: null,
+      page: 1,
+      notice: "记录已删除",
+    });
+  });
+
+  it("retains the record and draft after a rejected deletion and blocks stale host writes", async () => {
+    const { workspace, records, assertContext } = setup();
+    await edit(workspace);
+    records.delete.mockRejectedValueOnce(new Error("记录仍被引用"));
+    await expect(workspace.deleteRecord(record())).rejects.toThrow("仍被引用");
+    expect(workspace.getSnapshot()).toMatchObject({
+      saving: false,
+      detailId: recordId,
+      editor: { dirty: true },
+    });
+    assertContext.mockImplementation(() => {
+      throw new Error("对话已切换");
+    });
+    await expect(workspace.deleteRecord(record())).rejects.toThrow("对话已切换");
+    expect(records.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a committed deletion with failed persistence as completed", async () => {
+    const { workspace, records } = setup();
+    await edit(workspace);
+    records.delete.mockRejectedValueOnce(
+      new MemoryCommitPersistenceError(new Error("文件写回失败")),
+    );
+    await workspace.deleteRecord(record());
+    expect(workspace.getSnapshot()).toMatchObject({
+      saving: false,
+      detailId: null,
+      editor: null,
+      notice: "记录已删除",
+    });
+    expect(records.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["success", "failure"])(
+    "isolates an in-flight deletion %s from another chat and prevents duplicate writes",
+    async (outcome) => {
+      const { workspace, records } = setup();
+      await edit(workspace);
+      const slow = deferred<boolean>();
+      records.delete.mockReturnValueOnce(slow.promise);
+      const pending = workspace.deleteRecord(record());
+      await workspace.deleteRecord(record());
+      expect(records.delete).toHaveBeenCalledTimes(1);
+      expect(() => workspace.closeDetail()).toThrow("正在保存");
+      await workspace.setContext(contextB);
+      await workspace.openRecord(recordId, "edit");
+      workspace.setField(fieldId, "B 草稿");
+      if (outcome === "success") slow.resolve(true);
+      else slow.reject(new Error("删除失败"));
+      if (outcome === "success") await pending;
+      else await expect(pending).rejects.toThrow("删除失败");
+      expect(workspace.getSnapshot()).toMatchObject({
+        context: contextB,
+        saving: false,
+        editor: { draft: { values: { name: "B 草稿" } } },
+      });
+    },
+  );
+
   it("opens a fresh record directly in the editor and preserves the current query", async () => {
     const { workspace, records } = setup();
     await workspace.setContext(contextA);

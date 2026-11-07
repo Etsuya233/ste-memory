@@ -494,6 +494,7 @@ export function RecordsPage(props: RecordsPageProps) {
 
           {showingDetail ? (
             <RecordDetailPage
+              key={JSON.stringify([state.context.chatKey, state.context.spaceId, state.detailId])}
               state={state}
               workspace={workspace}
               detailRef={detailRef}
