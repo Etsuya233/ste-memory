@@ -5,6 +5,7 @@ import {
   joinListText,
   recordFieldValueText,
   recordFormDraftFromPayload,
+  recordHistoryFormDraft,
   recordFormPatchFromDraft,
   recordPayloadFromDraft,
   splitListText,
@@ -51,6 +52,43 @@ function record(payload: MemoryRecord["payload"] = {}): MemoryRecord {
     updatedAt: "2026-08-09T00:00:00.000Z",
   };
 }
+
+describe("historical field compatibility", () => {
+  it.each([
+    ["boolean", "旧文本"],
+    ["integer", "123"],
+    ["decimal", true],
+    ["short_text", ["旧列表"]],
+    ["multi_select", "旧选项"],
+    ["multi_reference", "旧引用"],
+    ["short_text_list", false],
+  ] as const)(
+    "requires explicit correction for %s with incompatible historical values",
+    (type, value) => {
+      const result = recordHistoryFormDraft([field({ type })], {}, { "field-1": value });
+      expect(result.issues["field-1"]).toContain(JSON.stringify(value));
+    },
+  );
+
+  it("loads compatible values and leaves disabled fields at current values", () => {
+    const fields = [
+      field({ id: "flag" as MemoryField["id"], type: "boolean" }),
+      field({ id: "list" as MemoryField["id"], type: "short_text_list" }),
+      field({ id: "count" as MemoryField["id"], type: "integer" }),
+      field({ id: "disabled" as MemoryField["id"], enabled: false }),
+    ];
+    expect(
+      recordHistoryFormDraft(
+        fields,
+        { disabled: "当前值" },
+        { flag: true, list: ["a"], count: 42, disabled: "历史值", removed: "旧字段" },
+      ),
+    ).toEqual({
+      draft: { values: { flag: true, list: ["a"], count: "42", disabled: "当前值" } },
+      issues: {},
+    });
+  });
+});
 
 describe("splitListText / joinListText（短文本列表分隔）", () => {
   it("中文/英文逗号、顿号、换行均可分隔，trim 并去空", () => {

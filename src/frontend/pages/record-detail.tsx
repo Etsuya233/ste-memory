@@ -107,6 +107,15 @@ export function RecordDetailPage({
         ) : null}
         {state.editor ? (
           <>
+            {state.editor.restoredFrom ? (
+              <Alert className="ste:mb-4">
+                <AlertTitle>已载入历史修订</AlertTitle>
+                <AlertDescription>
+                  归档于 {state.editor.restoredFrom.slice(0, 16).replace("T", " ")}
+                  ，点击保存后生效。 仅恢复当前启用字段；已停用字段保持当前值，已删除字段不恢复。
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <fieldset disabled={state.saving} className="ste:m-0 ste:min-w-0 ste:border-0 ste:p-0">
               <FieldGroup>
                 {state.editor.fields.map((field) =>
@@ -194,31 +203,57 @@ export function RecordDetailPage({
                 </div>
               ))}
             </div>
-            {state.history.length ? (
-              <Accordion>
-                <AccordionItem value="history">
-                  <AccordionTrigger>
-                    修订历史 <Badge variant="secondary">{state.history.length}</Badge>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {state.history.map((entry) => (
-                      <div key={entry.id} className="ste:mb-4 ste:flex ste:flex-col ste:gap-2">
-                        <p className="ste:text-xs ste:text-muted-foreground">
-                          {entry.archivedAt.slice(0, 16).replace("T", " ")}
-                        </p>
-                        {state.fields.map((field) => (
-                          <p key={field.id} className="ste:wrap-anywhere ste:whitespace-pre-wrap">
-                            <span className="ste:mr-2 ste:text-muted-foreground">{field.name}</span>
-                            {recordFieldValueText(field, entry.payload[field.id], labels)}
-                          </p>
-                        ))}
-                      </div>
-                    ))}
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            ) : null}
           </div>
+        ) : null}
+        {state.history.length && state.detail && !state.detailError ? (
+          <Accordion className="ste:mt-4">
+            <AccordionItem value="history">
+              <AccordionTrigger>
+                修订历史 <Badge variant="secondary">{state.history.length}</Badge>
+              </AccordionTrigger>
+              <AccordionContent>
+                {state.history.map((entry) => (
+                  <div key={entry.id} className="ste:mb-4 ste:flex ste:flex-col ste:gap-2">
+                    <p className="ste:text-xs ste:text-muted-foreground">
+                      {entry.archivedAt.slice(0, 16).replace("T", " ")}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="ste:self-start"
+                      data-action="restore-revision"
+                      data-history-id={entry.id}
+                      disabled={
+                        state.saving ||
+                        state.detailLoading ||
+                        state.listLoading ||
+                        !!state.listError
+                      }
+                      onClick={() =>
+                        navigate(() => {
+                          workspace.restoreRevision(entry.id);
+                          formRef.current
+                            ?.querySelector<HTMLElement>(
+                              "input, textarea, select, button[role=switch]",
+                            )
+                            ?.focus();
+                        })
+                      }
+                    >
+                      恢复到编辑
+                    </Button>
+                    {state.fields.map((field) => (
+                      <p key={field.id} className="ste:wrap-anywhere ste:whitespace-pre-wrap">
+                        <span className="ste:mr-2 ste:text-muted-foreground">{field.name}</span>
+                        {recordFieldValueText(field, entry.payload[field.id], labels)}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         ) : null}
         {state.saveWarning ? (
           <Alert className="ste:mt-4">

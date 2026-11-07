@@ -4,6 +4,7 @@ import type {
   MemoryFieldService,
   MemoryRecord,
   MemoryRecordHistory,
+  MemoryRecordHistoryId,
   MemoryRecordId,
   MemoryRecordPage,
   MemoryRecordService,
@@ -28,6 +29,8 @@ import {
   emptyRecordFormDraft,
   recordFormDraftFromPayload,
   recordFormPatchFromDraft,
+  recordHistoryFormDraft,
+  recordFormReferenceErrors,
   recordPayloadFromDraft,
   validateRecordFormDraft,
   type RecordFormDraft,
@@ -54,6 +57,9 @@ export interface RecordsServices {
 }
 
 export interface RecordsEditor {
+  readonly restoredFrom?: string;
+  /** 类型不兼容的历史值在用户编辑对应字段前持续阻止提交。 */
+  readonly historyIssues?: Readonly<Record<string, string>>;
   readonly original: MemoryRecord | null;
   readonly draft: RecordFormDraft;
   /** Keep the schema under which the draft was entered, including after a context switch. */
@@ -331,6 +337,44 @@ export class RecordsWorkspace {
     });
   }
 
+  restoreRevision(historyId: MemoryRecordHistoryId): void {
+    const session = this.#requireSession();
+    const { detail, fields, history, references } = session.state;
+    this.#services.assertContext(session.state.context!);
+    const entry = history.find((item) => item.id === historyId);
+    if (!detail || !entry || entry.recordId !== detail.id) {
+      throw new Error("所选修订已不可用，请重新打开记录");
+    }
+    if (session.state.detailLoading || session.state.detailError) {
+      throw new Error("请先完成记录加载");
+    }
+    this.startEdit();
+    const { draft, issues } = recordHistoryFormDraft(fields, detail.payload, entry.payload);
+    const enabled = fields.filter((field) => field.enabled);
+    const errors = {
+      ...validateRecordFormDraft(enabled, draft),
+      ...recordFormReferenceErrors(enabled, draft, references),
+      ...issues,
+    };
+    const dirty =
+      recordFormPatchFromDraft(enabled, detail, draft).changed || Object.keys(issues).length > 0;
+    this.#update(session, {
+      editor: {
+        ...session.state.editor!,
+        draft,
+        dirty,
+        errors,
+        historyIssues: issues,
+        restoredFrom: entry.archivedAt,
+      },
+      notice: Object.keys(errors).length
+        ? "已载入所选修订内容，请修正标记的字段后保存"
+        : dirty
+          ? "已载入所选修订内容，点击保存后生效"
+          : "所选修订与当前内容一致",
+    });
+  }
+
   startEdit(): void {
     const session = this.#requireSession();
     const original = session.state.detail;
@@ -398,12 +442,23 @@ export class RecordsWorkspace {
       throw new Error("该字段不能编辑");
     }
     const draft = { values: { ...editor.draft.values, [fieldId]: value } };
+    const historyIssues = { ...editor.historyIssues };
+    delete historyIssues[fieldId];
     const enabled = editor.fields.filter((field) => field.enabled);
     const dirty = editor.original
-      ? recordFormPatchFromDraft(enabled, editor.original, draft).changed
+      ? recordFormPatchFromDraft(enabled, editor.original, draft).changed ||
+        Object.keys(historyIssues).length > 0
       : JSON.stringify(draft) !== JSON.stringify(emptyRecordFormDraft(editor.fields));
     this.#update(session, {
-      editor: { ...editor, draft, dirty, errors: {}, error: editor.conflict ? editor.error : null },
+      editor: {
+        ...editor,
+        draft,
+        dirty,
+        historyIssues,
+        errors: historyIssues,
+        error: editor.conflict ? editor.error : null,
+      },
+      notice: null,
     });
   }
 
@@ -498,9 +553,18 @@ export class RecordsWorkspace {
       return;
     }
     const enabled = editor.fields.filter((field) => field.enabled);
-    const errors = validateRecordFormDraft(enabled, editor.draft);
+    const errors = {
+      ...validateRecordFormDraft(enabled, editor.draft),
+      ...(editor.restoredFrom
+        ? recordFormReferenceErrors(enabled, editor.draft, session.state.references)
+        : {}),
+      ...editor.historyIssues,
+    };
     if (Object.keys(errors).length) {
       this.#update(session, { editor: { ...editor, errors, error: "请检查标记的字段" } });
+      return;
+    }
+    if (!editor.dirty) {
       return;
     }
     const operation = ++session.saveRequest;

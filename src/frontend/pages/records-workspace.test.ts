@@ -9,6 +9,7 @@ import type {
   MemoryFieldId,
   MemoryRecord,
   MemoryRecordId,
+  MemoryRecordHistory,
   MemoryRecordPage,
   MemoryRevisionId,
   MemorySpaceId,
@@ -139,6 +140,121 @@ async function edit(workspace: RecordsWorkspace) {
   workspace.startEdit();
   workspace.setField(fieldId, "修改");
 }
+
+function historical(
+  payload: MemoryRecord["payload"] = { name: "历史姓名", disabled: "旧值" },
+): MemoryRecordHistory {
+  const original = record();
+  return {
+    ...original,
+    id: "history-1" as MemoryRecordHistory["id"],
+    recordId,
+    payload,
+    previousRevisionId: "v0" as MemoryRevisionId,
+    previousRevisionSource: "agent",
+    archivedAt: "2026-10-27T12:00:00.000Z",
+  };
+}
+
+describe("revision restoration", () => {
+  async function ready(payload?: MemoryRecord["payload"]) {
+    const fixture = setup();
+    const entry = historical(payload);
+    fixture.records.listHistory.mockResolvedValue([entry]);
+    fixture.fields.list.mockResolvedValue([
+      field,
+      { ...field, id: "disabled" as MemoryFieldId, enabled: false },
+    ]);
+    await fixture.workspace.setContext(contextA);
+    await fixture.workspace.openRecord(recordId);
+    return { ...fixture, entry };
+  }
+
+  it("loads a draft without writes, then saves a user patch against the current revision", async () => {
+    const { workspace, records, entry } = await ready();
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor).toMatchObject({
+      original: { revisionId: "v1" },
+      draft: { values: { name: "历史姓名", disabled: "保留" } },
+      dirty: true,
+      restoredFrom: entry.archivedAt,
+    });
+    expect(records.update).not.toHaveBeenCalled();
+    expect(records.create).not.toHaveBeenCalled();
+    await workspace.save();
+    expect(records.update).toHaveBeenCalledWith(contextA.spaceId, tableId, recordId, {
+      expectedRevisionId: "v1",
+      revisionSource: "user",
+      patch: { name: "历史姓名" },
+    });
+  });
+
+  it("keeps identical values clean and cancelling leaves committed data alone", async () => {
+    const { workspace, records, entry } = await ready({ name: "原文", removed: "已删除" });
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor?.dirty).toBe(false);
+    expect(workspace.getSnapshot().notice).toBe("所选修订与当前内容一致");
+    workspace.cancelEdit();
+    expect(workspace.getSnapshot().detail?.payload.name).toBe("原文");
+    expect(records.update).not.toHaveBeenCalled();
+  });
+
+  it("blocks incompatible historical types until that field is explicitly edited", async () => {
+    const { workspace, records, entry } = await ready({ name: ["旧列表"] });
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor?.errors.name).toContain("旧列表");
+    await workspace.save();
+    expect(records.update).not.toHaveBeenCalled();
+    workspace.setField(fieldId, "修正后的姓名");
+    await workspace.save();
+    expect(records.update).toHaveBeenCalledOnce();
+  });
+
+  it("validates fields added since the historical revision", async () => {
+    const { workspace, records, entry } = await ready({ removed: "旧字段" });
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor?.errors.name).toBe("请填写「姓名」");
+    await workspace.save();
+    expect(records.update).not.toHaveBeenCalled();
+  });
+
+  it("retains restored drafts across chats and preserves conflicts on save", async () => {
+    const { workspace, records, entry } = await ready();
+    workspace.restoreRevision(entry.id);
+    await workspace.setContext(contextB);
+    await workspace.setContext(contextA);
+    expect(workspace.getSnapshot().editor?.draft.values.name).toBe("历史姓名");
+    records.update.mockRejectedValue(
+      Object.assign(new Error("记录已变化"), { type: "memory_record_revision_conflict" }),
+    );
+    await workspace.save();
+    expect(workspace.getSnapshot().editor).toMatchObject({
+      conflict: true,
+      dirty: true,
+      draft: { values: { name: "历史姓名" } },
+    });
+  });
+
+  it("blocks stale references and options on restoration and rechecks before saving", async () => {
+    const { workspace, records, fields, entry } = await ready({ name: "missing" });
+    fields.list.mockResolvedValue([
+      { ...field, type: "single_reference", referenceTableId: tableId },
+    ]);
+    await workspace.refresh();
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor?.errors.name).toContain("已失效的引用");
+    workspace.setField(fieldId, "still-missing");
+    await workspace.save();
+    expect(records.update).not.toHaveBeenCalled();
+    workspace.cancelEdit();
+    fields.list.mockResolvedValue([{ ...field, type: "single_select", options: ["有效"] }]);
+    await workspace.refresh();
+    workspace.restoreRevision(entry.id);
+    expect(workspace.getSnapshot().editor?.errors.name).toContain("选项无效");
+    await workspace.save();
+    expect(records.update).not.toHaveBeenCalled();
+  });
+});
 
 describe("RecordsWorkspace", () => {
   it("deletes with the displayed revision, clears the draft and returns from an empty last page", async () => {

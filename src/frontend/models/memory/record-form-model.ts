@@ -10,6 +10,7 @@ import type {
   MemoryFieldValue,
   MemoryRecord,
   MemoryRecordPayload,
+  MemoryTableId,
 } from "../../../features/memory/index.ts";
 
 /** 表单值：文本/数字/日期/下拉/引用用字符串，布尔用布尔，列表类用数组 */
@@ -67,6 +68,54 @@ export function recordFormDraftFromPayload(
     values[field.id] = formValueFromPayload(field, value);
   }
   return { values };
+}
+
+/** 历史只恢复当前可编辑字段；类型不兼容的原值留在错误说明中，等待用户明确修改。 */
+export function recordHistoryFormDraft(
+  fields: readonly MemoryField[],
+  current: MemoryRecordPayload,
+  historical: MemoryRecordPayload,
+): { draft: RecordFormDraft; issues: Readonly<Record<string, string>> } {
+  const values = { ...recordFormDraftFromPayload(fields, current).values };
+  const issues: Record<string, string> = {};
+  for (const field of fields.filter((item) => item.enabled)) {
+    const value = historical[field.id] ?? null;
+    const compatible =
+      value === null ||
+      (field.type === "boolean"
+        ? typeof value === "boolean"
+        : ["short_text_list", "multi_select", "multi_reference"].includes(field.type)
+          ? Array.isArray(value)
+          : field.type === "integer" || field.type === "decimal"
+            ? typeof value === "number"
+            : typeof value === "string");
+    values[field.id] = compatible
+      ? formValueFromPayload(field, value)
+      : formValueForEmpty(field.type);
+    if (!compatible) {
+      issues[field.id] = `历史值 ${JSON.stringify(value)} 与当前字段类型不兼容，请重新填写`;
+    }
+  }
+  return { draft: { values }, issues };
+}
+
+/** 恢复时检查历史引用是否仍在当前空间的目标表中。 */
+export function recordFormReferenceErrors(
+  fields: readonly MemoryField[],
+  draft: RecordFormDraft,
+  references: ReadonlyMap<MemoryTableId, readonly MemoryRecord[]>,
+): Readonly<Record<string, string>> {
+  const errors: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.type !== "single_reference" && field.type !== "multi_reference") continue;
+    const value = draft.values[field.id];
+    const ids = Array.isArray(value) ? value : typeof value === "string" && value ? [value] : [];
+    const records = references.get(field.referenceTableId!);
+    if (ids.some((id) => !records?.some((record) => record.id === id))) {
+      errors[field.id] = `「${field.name}」包含已失效的引用，请重新选择`;
+    }
+  }
+  return errors;
 }
 
 /** 校验草稿：返回 fieldId → 中文错误文案；空对象 = 通过（语义与 Memory 一致） */
