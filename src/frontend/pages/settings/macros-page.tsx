@@ -8,6 +8,7 @@ import type {
 } from "../../../features/macros/memory-macro-service.ts";
 import type { MacroOverviewRow } from "../../../features/macros/macro-overview-model.ts";
 import { resolveMacroRegistrationName } from "../../../features/macros/macro-name.ts";
+import { BUILTIN_FULL_ARG } from "../../../features/macros/memory-macro-service.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import {
   macroFromEditorDraft,
@@ -74,7 +75,7 @@ export interface MacrosPageProps extends SettingsSubpageProps {
 
 export function MacrosPage(props: MacrosPageProps) {
   const { services, macroServices, context } = props;
-  const [page, setPage] = useState<"overview" | "defaults" | Scope>("overview");
+  const [page, setPage] = useState<"overview" | "defaults" | "builtin" | Scope>("overview");
   const [editors, setEditors] = useState<Record<string, EditorState>>({});
   const [schema, setSchema] = useState<readonly MacroSchema[]>([]);
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -159,8 +160,19 @@ export function MacrosPage(props: MacrosPageProps) {
   const global = settings.macros;
   const chat = context ? macroServices.readChatMacros() : [];
   const list = page === "chat" ? chat : global;
-  const label = page === "chat" ? "对话宏" : "全局宏";
+  const label = page === "builtin" ? "内置宏" : page === "chat" ? "对话宏" : "全局宏";
   const prefix = resolveMacroRegistrationName(settings.macroName);
+  // 内置入口来自当前表结构，无需等待真实生成产生结果快照。
+  const builtin = [
+    { name: "", description: "全部启用表的摘要，使用记录的显示文本。" },
+    { name: BUILTIN_FULL_ARG, description: "全部启用表的完整字段，以 Markdown 表格输出。" },
+    ...schema
+      .filter(({ table }) => table.enabled && table.key !== BUILTIN_FULL_ARG)
+      .map(({ table }) => ({
+        name: table.key,
+        description: `${table.name}：输出此表全部记录的启用字段。`,
+      })),
+  ];
   function patchEditor(editKey: string, patch: Partial<EditorState>, operation?: number) {
     setEditors((current) => {
       const value = current[editKey];
@@ -348,8 +360,12 @@ export function MacrosPage(props: MacrosPageProps) {
       setDeleting(false);
     }
   }
-  async function copyMacroName(macro: MemoryMacro) {
-    const token = prefix ? `{{${prefix}::${macro.name}}}` : macro.name;
+  async function copyMacroName(macro: { name: string }) {
+    const token = prefix
+      ? macro.name
+        ? `{{${prefix}::${macro.name}}}`
+        : `{{${prefix}}}`
+      : macro.name;
     try {
       await copyText(token);
       setNotice({ text: `已复制 ${token}`, error: false });
@@ -420,7 +436,7 @@ export function MacrosPage(props: MacrosPageProps) {
     <div className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
       <PageHeader
         title={page === "overview" ? "记忆宏" : label}
-        subtitle={page === "chat" ? context?.title : "全局设置"}
+        subtitle={page === "chat" || page === "builtin" ? context?.title : "全局设置"}
         icon={Variable}
         {...props.controls}
         onBack={back}
@@ -488,6 +504,24 @@ export function MacrosPage(props: MacrosPageProps) {
                     </ItemActions>
                   </Item>
                 </div>
+                <div role="listitem">
+                  <Item
+                    render={<button type="button" />}
+                    className="ste:rounded-none ste:border-0 ste:px-4 ste:py-2.5 ste:text-left ste:hover:bg-muted/60 ste:focus-visible:ring-inset"
+                    onClick={() => setPage("builtin")}
+                    data-action="open-builtin-macros"
+                  >
+                    <ItemContent>
+                      <ItemTitle>内置宏</ItemTitle>
+                      <ItemDescription className="ste:line-clamp-none">
+                        查看并复制摘要、完整表格与当前对话的单表宏
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <ChevronRight className="ste:size-4 ste:shrink-0 ste:text-muted-foreground" />
+                    </ItemActions>
+                  </Item>
+                </div>
               </ItemGroup>
               <div className="ste:border-t ste:border-border ste:px-4 ste:py-2.5">
                 <FieldDescription>
@@ -517,6 +551,61 @@ export function MacrosPage(props: MacrosPageProps) {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+            </PageSection>
+          </>
+        ) : page === "builtin" ? (
+          <>
+            <StatusNotice>
+              内置宏在实际生成时读取当前记忆，受默认输出字符上限限制。同名对话宏、全局宏优先，停用后仍会覆盖内置宏。
+            </StatusNotice>
+            {!prefix ? (
+              <StatusNotice>尚未设置有效的宏前缀，请在「前缀与输出上限」中设置。</StatusNotice>
+            ) : null}
+            {schemaError ? (
+              <StatusNotice variant="destructive">单表宏加载失败：{schemaError}</StatusNotice>
+            ) : null}
+            {!context ? <StatusNotice>打开对话后可查看该对话的单表宏。</StatusNotice> : null}
+            <PageSection title="内置宏" bodyClassName="ste:p-0">
+              <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
+                {builtin.map((macro) => {
+                  const override = chat.find((item) => item.name === macro.name)
+                    ? "对话宏"
+                    : global.some((item) => item.name === macro.name)
+                      ? "全局宏"
+                      : null;
+                  return (
+                    <div role="listitem" key={macro.name} data-builtin-macro={macro.name}>
+                      <Item className="ste:flex-nowrap ste:rounded-none ste:border-0">
+                        <ItemContent className="ste:min-w-0">
+                          <ItemTitle className="ste:line-clamp-none ste:max-w-full ste:break-all">
+                            {prefix
+                              ? macro.name
+                                ? `{{${prefix}::${macro.name}}}`
+                                : `{{${prefix}}}`
+                              : macro.name || "摘要"}
+                          </ItemTitle>
+                          <ItemDescription className="ste:line-clamp-none ste:break-words">
+                            {macro.description}
+                          </ItemDescription>
+                          {override ? <Badge variant="outline">已被{override}覆盖</Badge> : null}
+                        </ItemContent>
+                        <ItemActions className="ste:shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!prefix}
+                            aria-label={`复制内置宏 ${macro.name || "摘要"}`}
+                            title="复制宏名"
+                            onClick={() => void copyMacroName(macro)}
+                          >
+                            <Copy />
+                          </Button>
+                        </ItemActions>
+                      </Item>
+                    </div>
+                  );
+                })}
+              </ItemGroup>
             </PageSection>
           </>
         ) : !context && page === "chat" ? (
