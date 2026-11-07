@@ -46,6 +46,9 @@
 
 ## 独立预览
 
+Agent 提示词预设列表中的分组保持内容高度，由页面内容区统一滚动。
+`verify-agent-preset-scroll.mjs` 覆盖长列表、滚轮到达导入区、桌面与 320px 编辑页、长预览末尾和返回列表的位置恢复。
+
 记忆宏页提供独立「内置宏」入口，直接从当前表结构列出摘要、full 和启用表的单表宏，无需先生成对话。
 `verify-builtin-macros.mjs` 验证首次展示、切聊更新、复制与前缀变化、停用同名宏覆盖、未注册前缀及 320px 布局。
 
@@ -84,6 +87,7 @@ node verify-cleaning.mjs
 node verify-macros.mjs
 node verify-builtin-macros.mjs
 node verify-presets.mjs
+node verify-agent-preset-scroll.mjs
 node verify-table-preset-scroll.mjs
 node verify-preset-structure.mjs
 node verify-query.mjs

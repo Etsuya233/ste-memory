@@ -193,7 +193,7 @@ function AgentPresetList({
       <PageContent
         ref={scroll.ref}
         onScroll={scroll.onScroll}
-        className="ste:flex ste:flex-col ste:gap-4"
+        className="ste:flex ste:flex-col ste:gap-4 ste:[&>*]:shrink-0"
       >
         {error ? (
           <StatusNotice variant="destructive">{error}</StatusNotice>
