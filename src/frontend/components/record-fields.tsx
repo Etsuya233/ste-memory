@@ -128,6 +128,12 @@ export function RecordFieldInput({
       input = (
         <Input
           {...control}
+          // Keep native date controls within the field on iOS WebKit.
+          className={
+            field.type === "date" || field.type === "datetime"
+              ? "ste:block ste:max-w-full ste:appearance-none"
+              : undefined
+          }
           type={
             field.type === "integer" || field.type === "decimal"
               ? "number"

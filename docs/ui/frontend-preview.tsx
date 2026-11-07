@@ -108,6 +108,7 @@ let fields = tables.flatMap((table) =>
     { id: "tags", name: "标签", type: "multi_select", options: ["朋友", "同伴", "初次见面"] },
     { id: "count", name: "相遇次数", type: "integer" },
     { id: "date", name: "最近见面", type: "date" },
+    { id: "datetime", name: "最近交谈", type: "datetime" },
     {
       id: "place",
       name: "常去地点",
@@ -154,6 +155,7 @@ let records = Object.values(contexts).flatMap((context) =>
       tags: ["朋友"],
       count: index === 0 ? 3 : index === 24 ? null : index,
       date: "2026-10-27",
+      datetime: "2026-10-27 09:30:00",
       place: index === 25 ? null : `${context.spaceId}-record-25`,
       legacy: "这段停用字段内容应始终保留",
     },

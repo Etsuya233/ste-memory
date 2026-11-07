@@ -50,7 +50,14 @@ export function RecordDetailPage({
   const table = state.tables.find((item) => item.id === state.tableId);
   const labels = referenceLabels(state.references);
   return (
-    <section
+    <form
+      id={formId}
+      ref={formRef}
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        void workspace.save();
+      }}
       className="ste:flex ste:min-h-0 ste:flex-1 ste:flex-col"
       aria-label={state.editor ? "记录编辑" : "记录详情"}
     >
@@ -83,15 +90,7 @@ export function RecordDetailPage({
           </Alert>
         ) : null}
         {state.editor ? (
-          <form
-            id={formId}
-            ref={formRef}
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              void workspace.save();
-            }}
-          >
+          <>
             <fieldset disabled={state.saving} className="ste:m-0 ste:min-w-0 ste:border-0 ste:p-0">
               <FieldGroup>
                 {state.editor.fields.map((field) =>
@@ -145,7 +144,7 @@ export function RecordDetailPage({
                 </AlertDescription>
               </Alert>
             ) : null}
-          </form>
+          </>
         ) : state.detail ? (
           <div className="ste:flex ste:flex-col ste:gap-4">
             <div className="ste:divide-y ste:divide-border ste:overflow-hidden ste:rounded-xl ste:border ste:border-border">
@@ -214,7 +213,6 @@ export function RecordDetailPage({
       </div>
       {state.editor ? (
         <SaveActions
-          formId={formId}
           saveAction="save-record"
           busy={state.saving}
           dirty={state.editor.dirty}
@@ -244,7 +242,7 @@ export function RecordDetailPage({
           </>
         </PageFooter>
       )}
-    </section>
+    </form>
   );
 }
 

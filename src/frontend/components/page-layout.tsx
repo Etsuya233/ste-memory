@@ -122,7 +122,8 @@ export function SaveActions({
   saveLabel = "保存",
   saveAction = "save-changes",
 }: {
-  formId: string;
+  /** Omit when the save bar is inside its form. */
+  formId?: string;
   busy: boolean;
   dirty: boolean;
   disabled?: boolean;
