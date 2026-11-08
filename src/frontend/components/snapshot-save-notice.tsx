@@ -1,6 +1,7 @@
 import type { ChatSnapshotSaveStatus } from "../../features/chat-mirror/chat-snapshot-persistence.ts";
 import { Button } from "../primitives/button.tsx";
 import { useState } from "react";
+import { SaveErrorDetails } from "./save-error-details.tsx";
 
 /** 仅在保存需要处理时提示，重试不会重新提交业务操作。 */
 export function SnapshotSaveNotice({
@@ -36,16 +37,21 @@ export function SnapshotSaveNotice({
     <div
       className="ste:flex ste:shrink-0 ste:flex-wrap ste:items-center ste:gap-2 ste:border-b ste:border-border ste:px-4 ste:py-2 ste:text-xs ste:break-words ste:text-destructive"
       aria-live="polite"
+      data-testid="snapshot-save-notice"
     >
-      <span className="ste:min-w-0 ste:flex-1">
-        {busy
-          ? "正在重试保存…"
-          : status.kind === "failed"
-            ? status.humanMsg
-            : request.kind === "failed"
-              ? request.message
-              : ""}
-      </span>
+      {busy ? (
+        <span>正在重试保存…</span>
+      ) : (
+        <SaveErrorDetails
+          message={
+            status.kind === "failed"
+              ? status.humanMsg
+              : request.kind === "failed"
+                ? request.message
+                : ""
+          }
+        />
+      )}
       <Button variant="link" size="xs" disabled={!available || busy} onClick={() => void retry()}>
         重试保存
       </Button>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatSnapshotSaveStatus } from "../../../features/chat-mirror/chat-snapshot-persistence.ts";
 import { PageSection } from "../../components/page-section.tsx";
 import { Button } from "../../primitives/button.tsx";
+import { SaveErrorDetails } from "../../components/save-error-details.tsx";
 
 /** 工作区切换对话或空间时重新挂载，旧请求结果不会留在新聊天的设置中。 */
 export function SnapshotSyncControl({
@@ -38,6 +39,8 @@ export function SnapshotSyncControl({
     message = "正在同步…";
   } else if (request.kind === "failed") {
     message = `同步失败：${request.message}`;
+  } else if (status.kind === "failed") {
+    message = status.humanMsg;
   } else if (request.kind === "done" && status.kind === "verified") {
     message = "同步完成";
   }
@@ -60,13 +63,17 @@ export function SnapshotSyncControl({
           {busy ? "同步中…" : "强制同步"}
         </Button>
         {message && (
-          <p
-            className="ste:basis-full ste:text-xs ste:break-words ste:text-muted-foreground"
+          <div
+            className="ste:min-w-0 ste:max-w-full ste:basis-full ste:text-xs ste:break-words ste:text-muted-foreground"
             aria-live="polite"
             data-testid="snapshot-sync-result"
           >
-            {message}
-          </p>
+            {request.kind === "failed" || status.kind === "failed" ? (
+              <SaveErrorDetails message={message} />
+            ) : (
+              message
+            )}
+          </div>
         )}
       </div>
     </PageSection>

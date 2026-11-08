@@ -404,7 +404,9 @@ const workspace = new RecordsWorkspace({
     delete: async (spaceId, tableId, id, revision, source) => {
       const delay = delaySave;
       delaySave = 0;
-      if (delay) await new Promise((done) => setTimeout(done, delay));
+      if (delay) {
+        await new Promise((done) => setTimeout(done, delay));
+      }
       if (failSave) {
         failSave = false;
         throw new Error("模拟删除失败，请重试");
@@ -1360,7 +1362,7 @@ function Preview() {
         };
         await tasksWorkspace.refresh();
       },
-      showSaveFailure: () => publishSaveFailure(),
+      showSaveFailure: publishSaveFailure,
       delayNextForceSync: snapshotSaveFixture.delayNext,
       failNextForceSync: snapshotSaveFixture.failNext,
       failNextForceSyncBeforeStart: snapshotSaveFixture.failBeforeStart,

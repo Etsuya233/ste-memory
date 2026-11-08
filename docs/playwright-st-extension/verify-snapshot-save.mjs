@@ -91,7 +91,7 @@ try {
   await page.waitForTimeout(800);
   check("late result from A cannot confirm B", (await result.count()) === 0);
   await switchChat("a");
-  check("A to B to A cannot revive the old sync result", (await result.count()) === 0);
+  check("returning to A shows its pending save failure", (await result.textContent()).includes("对话已切换"));
   await forceSync.click();
   await waitForResult("同步完成");
   await page.evaluate(() => window.frontendPreview.workspace.setContext(null));

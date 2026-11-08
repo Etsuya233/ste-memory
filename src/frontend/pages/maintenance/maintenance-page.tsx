@@ -13,6 +13,7 @@ import {
 } from "../../primitives/card.tsx";
 import { PageContent, PageHeader, type PageControls } from "../../components/page-layout.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
+import { SaveErrorDetails } from "../../components/save-error-details.tsx";
 import {
   ConfirmAction,
   usePageLeave,
@@ -170,10 +171,18 @@ export function MaintenancePage({
         onBack={() => requestLeave(onBack)}
       />
       <PageContent className="ste:space-y-4">
-        {error && <StatusNotice variant="destructive">{error}</StatusNotice>}
+        {error && (
+          <StatusNotice variant="destructive">
+            <SaveErrorDetails message={error} />
+          </StatusNotice>
+        )}
         {notice && (
           <StatusNotice variant={notice.kind === "done" ? "default" : "destructive"}>
-            {notice.message}
+            {notice.kind === "done" ? (
+              notice.message
+            ) : (
+              <SaveErrorDetails message={notice.message} />
+            )}
           </StatusNotice>
         )}
         <Card size="sm">

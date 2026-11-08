@@ -94,6 +94,75 @@ describe("宿主提交与完整文件核验", () => {
     expect(h.persistence.getStatus("A").kind).toBe("verified");
   });
 
+  it("核验按实际 JSON 内容比较，可选 undefined 字段消失不会误报失败", async () => {
+    const h = harness();
+    const snapshot = unit();
+    const candidate = {
+      ...snapshot,
+      tables: snapshot.tables.map((table) => ({ ...table, vectorIndex: undefined })),
+    };
+    vi.mocked(h.store.verify).mockImplementation(async () =>
+      JSON.parse(JSON.stringify(h.metadata())),
+    );
+    await h.persistence.replace(target, candidate, binding);
+    expect(h.persistence.getStatus("A").kind).toBe("verified");
+  });
+
+  it("核验失败把目标、差异路径与双方值传到界面状态，保留待重试候选", async () => {
+    const h = harness();
+    vi.mocked(h.store.verify).mockImplementation(async () => {
+      const metadata = JSON.parse(JSON.stringify(h.metadata()));
+      metadata.steMemoryMirror.data.space.name = "文件里的旧名称";
+      return metadata;
+    });
+    await expect(h.persistence.replace(target, unit(), binding)).rejects.toThrow(
+      "chat_metadata.steMemoryMirror.data.space.name",
+    );
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "failed",
+      humanMsg: expect.stringContaining("文件里的旧名称"),
+      error: expect.stringContaining("目标对话：A"),
+    });
+    expect(h.persistence.hasPendingReplacement("A")).toBe(true);
+  });
+
+  it.each(["镜像缺失", "null 值", "数组长度", "数组顺序", "额外字段"])(
+    "JSON 核验仍拒绝真实差异：%s",
+    async (scenario) => {
+      const h = harness();
+      vi.mocked(h.store.verify).mockImplementation(async () => {
+        const metadata = JSON.parse(JSON.stringify(h.metadata()));
+        if (scenario === "镜像缺失") {
+          delete metadata.steMemoryMirror;
+        }
+        if (scenario === "null 值") {
+          metadata.steMemoryMirror.data.space.name = null;
+        }
+        if (scenario === "数组长度") {
+          metadata.steMemoryMirror.data.tables.pop();
+        }
+        if (scenario === "数组顺序") {
+          metadata.steMemoryMirror.data.floorLedger.reverse();
+        }
+        if (scenario === "额外字段") {
+          metadata.steMemoryMirror.extra = true;
+        }
+        return metadata;
+      });
+      const candidate = {
+        ...unit(),
+        floorLedger: [
+          { floor: 0, status: "processed" as const, updatedAt: "now" },
+          { floor: 1, status: "error" as const, updatedAt: "now" },
+        ],
+      };
+      await expect(h.persistence.forceSync(target, binding, candidate, () => {})).rejects.toThrow(
+        "首个差异：",
+      );
+      expect(h.persistence.getStatus("A").kind).toBe("failed");
+    },
+  );
+
   it("关键候选失败保持输入和清理门控，强制同步重试原候选且仅成功后清理", async () => {
     const h = harness();
     const cleanup = vi.fn(async () => {});

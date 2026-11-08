@@ -30,11 +30,15 @@ export class ChatSnapshotSaveTask {
     this.content = structuredClone(content);
     this.operation = operation;
     this.confirmed = confirmed;
-    this.file = createChatMirrorFile(
-      this.content.snapshot,
-      this.content.binding.spaceId,
-      this.content.snapshot.space.updatedAt,
-      appVersion,
+    this.file = JSON.parse(
+      JSON.stringify(
+        createChatMirrorFile(
+          this.content.snapshot,
+          this.content.binding.spaceId,
+          this.content.snapshot.space.updatedAt,
+          appVersion,
+        ),
+      ),
     );
   }
 
@@ -48,34 +52,99 @@ export class ChatSnapshotSaveTask {
 
   async verify(store: ChatSnapshotFileStore): Promise<void> {
     const metadata = await store.verify(this.content.target);
-    if (
-      !sameStructure(metadata.steMemory, this.content.binding) ||
-      !sameStructure(metadata.steMemoryMirror, this.file)
-    ) {
-      throw new Error("聊天文件中的完整记忆元数据与本次提交不一致");
+    // 核验的是实际写入 JSON 的内容；可选 undefined 属性会在序列化时消失。
+    const expected = JSON.parse(
+      JSON.stringify({
+        steMemory: this.content.binding,
+        steMemoryMirror: this.file,
+      }),
+    );
+    const difference = firstDifference(
+      expected,
+      {
+        steMemory: metadata.steMemory,
+        steMemoryMirror: metadata.steMemoryMirror,
+      },
+      "chat_metadata",
+    );
+    if (difference) {
+      throw new Error(
+        [
+          "聊天文件中的完整记忆元数据与本次提交不一致",
+          `目标对话：${this.content.target.identity}`,
+          `操作：${this.operation}`,
+          `首个差异：${difference.path}`,
+          `应保存：${describeValue(difference.expected)}`,
+          `文件回读：${describeValue(difference.actual)}`,
+        ].join("\n"),
+      );
     }
     await this.confirmed?.();
   }
 }
 
-/** JSON 对象键顺序不影响结构相等；数组顺序属于领域内容，必须相同。 */
-function sameStructure(left: unknown, right: unknown): boolean {
-  if (left === right) {
-    return true;
+interface SnapshotDifference {
+  readonly path: string;
+  readonly expected: unknown;
+  readonly actual: unknown;
+}
+
+/** 对象忽略键序，数组保留顺序；定位首个真实差异，避免在错误中倾倒整个空间。 */
+function firstDifference(
+  expected: unknown,
+  actual: unknown,
+  path: string,
+): SnapshotDifference | undefined {
+  if (expected === actual) {
+    return undefined;
   }
-  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
-    return false;
+  if (
+    typeof expected !== "object" ||
+    expected === null ||
+    typeof actual !== "object" ||
+    actual === null
+  ) {
+    return { path, expected, actual };
   }
-  if (Array.isArray(left) !== Array.isArray(right)) {
-    return false;
+  if (Array.isArray(expected) !== Array.isArray(actual)) {
+    return { path, expected, actual };
   }
-  const a = Object.entries(left);
-  const b = Object.entries(right);
-  return (
-    a.length === b.length &&
-    a.every(
-      ([key, value]) =>
-        Object.hasOwn(right, key) && sameStructure(value, (right as Record<string, unknown>)[key]),
-    )
-  );
+  if (Array.isArray(expected) && Array.isArray(actual)) {
+    if (expected.length !== actual.length) {
+      return { path: `${path}.length`, expected: expected.length, actual: actual.length };
+    }
+    for (let index = 0; index < expected.length; index++) {
+      const difference = firstDifference(expected[index], actual[index], `${path}[${index}]`);
+      if (difference) {
+        return difference;
+      }
+    }
+    return undefined;
+  }
+  const a = expected as Record<string, unknown>;
+  const b = actual as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const childPath = `${path}.${key}`;
+    if (!Object.hasOwn(a, key) || !Object.hasOwn(b, key)) {
+      return { path: childPath, expected: a[key], actual: b[key] };
+    }
+    const difference = firstDifference(a[key], b[key], childPath);
+    if (difference) {
+      return difference;
+    }
+  }
+  return undefined;
+}
+
+function describeValue(value: unknown): string {
+  if (value === undefined) {
+    return "字段缺失";
+  }
+  if (Array.isArray(value)) {
+    return `数组（${value.length} 项）`;
+  }
+  if (typeof value === "object" && value !== null) {
+    return `对象（键：${Object.keys(value).join("、")}）`;
+  }
+  return JSON.stringify(value);
 }

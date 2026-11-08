@@ -1852,6 +1852,12 @@ describe("强制同步与快照内进度", () => {
       kind: "failed",
       operation: "force-sync",
     });
+    await vi.waitFor(async () => {
+      const entry = (await runtime.logs.recent(10)).find((item) => item.type === "snapshot-save");
+      expect(entry).toMatchObject({ level: "error", key: "char:3:story" });
+      expect(entry!.text).toContain("首个差异：chat_metadata.steMemory.version");
+      expect(entry!.text).toContain("字段缺失");
+    });
     await runtime.tasks.markFloorStatuses(original.space.id, 0, 0, "processed");
     await runtime.forceSyncMemory();
     expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");

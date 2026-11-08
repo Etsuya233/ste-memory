@@ -446,6 +446,19 @@ export async function startSteMemory(
     logWarn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
   });
   const logs = new DexieLogRepository(logDb, { now });
+  persistence.onStatusChange((status) => {
+    if (status.kind === "failed") {
+      log.error("记忆保存失败", status);
+      void logs
+        .append({
+          type: "snapshot-save",
+          key: status.identity,
+          level: "error",
+          text: JSON.stringify(status, null, 2),
+        })
+        .catch((error) => log.error("保存诊断日志写入失败", error));
+    }
+  });
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
   const floorLedgerRepository = new SqliteFloorLedger(memoryStore, now);
   const tasks = new FillTaskService({

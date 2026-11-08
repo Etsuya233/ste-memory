@@ -79,7 +79,7 @@ interface ChatSaveEntry {
 /** 普通输入只在当前聊天保留；关键候选跨切聊保留唯一输入及清理权限。 */
 export class ChatSnapshotPersistence {
   readonly #entries = new Map<string, ChatSaveEntry>();
-  readonly #listeners = new Set<() => void>();
+  readonly #listeners = new Set<(status: ChatSnapshotSaveStatus) => void>();
   private readonly store: ChatSnapshotFileStore;
   private readonly appVersion: () => string;
   private readonly legacyFloorLedger?: LegacyFloorLedgerMigrationPorts;
@@ -103,7 +103,7 @@ export class ChatSnapshotPersistence {
       : (this.#entries.get(identity)?.status ?? IDLE_STATUS);
   }
 
-  onStatusChange(listener: () => void): () => void {
+  onStatusChange(listener: (status: ChatSnapshotSaveStatus) => void): () => void {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
@@ -310,7 +310,7 @@ export class ChatSnapshotPersistence {
     entry.status = status;
     for (const listener of this.#listeners) {
       try {
-        listener();
+        listener(status);
       } catch (error) {
         console.error("保存状态订阅刷新失败", error);
       }

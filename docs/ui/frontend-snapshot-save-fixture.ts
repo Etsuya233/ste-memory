@@ -24,13 +24,13 @@ export function createSnapshotSaveFixture(
       listener();
     }
   }
-  function fail(identity: string, operation: "update" | "force-sync", message: string) {
+  function fail(identity: string, operation: "update" | "force-sync" | "replacement", message: string) {
     publish(identity, {
       kind: "failed",
       identity,
       operation,
       error: message,
-      humanMsg: `${operation === "update" ? "已提交、未交给 ST 保存" : "强制同步未通过核验"}：${message}`,
+      humanMsg: `${operation === "update" ? "已提交、未交给 ST 保存" : operation === "replacement" ? "候选空间已启用、尚未核验，旧辅助数据保留" : "强制同步未通过核验"}：${message}`,
     });
   }
   async function save(verify: boolean) {
@@ -90,7 +90,7 @@ export function createSnapshotSaveFixture(
       const state = states.get(currentIdentity())!;
       return save(state.kind === "failed" && state.operation !== "update");
     },
-    showFailure: () => fail(currentIdentity(), "update", "preview file failure"),
+    showFailure: (message = "preview file failure", operation: "update" | "replacement" = "update") => fail(currentIdentity(), operation, message),
     delayNext: (ms: number) => {
       delay = ms;
     },
