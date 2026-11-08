@@ -593,8 +593,8 @@ it("新预设保留共用规则与纪要归属引用，另存可往返，已有�
   expect(stored.prompt).toBe(STORY_MEMORY_PRESET.prompt);
   const tables = await services.tables.list(fresh.id);
   const fields = (await services.memoryStore.snapshot(fresh.id))!.fields;
-  expect(tables).toHaveLength(8);
-  expect(fields).toHaveLength(44);
+  expect(tables).toHaveLength(9);
+  expect(fields).toHaveLength(49);
   const chronicle = tables.find((table) => table.key === "chronicle")!;
   const summary = tables.find((table) => table.key === "plot_summaries")!;
   expect(

@@ -13,6 +13,8 @@ import { createInProcessSqliteMemoryClient } from "../../infrastructure/sqlite/n
 import type { SqliteMemoryClient } from "../../infrastructure/sqlite/types.ts";
 import { createMacroEvaluationBatch, type MacroEvaluationBatch } from "./macro-evaluation.ts";
 import { QueryVectorCache } from "../semantic-query/query-vector-cache.ts";
+import { STORY_MEMORY_PRESET } from "../table-presets/story-memory-preset.ts";
+import { instantiateTablePreset } from "../table-presets/preset-instantiation.ts";
 
 const stamp = "2026-10-24T00:00:00.000Z";
 function fixture(count = 120): MemorySpaceBackup {
@@ -189,6 +191,63 @@ async function setup(
     onCleanupError,
   };
 }
+it("剧情预设有效信息差宏仅返回有效记录，结束后退出结果且保留原记录", async () => {
+  const empty = fixture(0);
+  let id = 0;
+  const structure = instantiateTablePreset(
+    STORY_MEMORY_PRESET,
+    empty.space.id,
+    {
+      table: () => `t${++id}` as never,
+      field: () => `f${++id}` as never,
+      group: () => `g${++id}`,
+    },
+    stamp,
+  );
+  const table = structure.tables.find((item) => item.key === "information_gap")!;
+  const fields = Object.fromEntries(
+    structure.fields
+      .filter((field) => field.tableId === table.id)
+      .map((field) => [field.key, field.id]),
+  );
+  const baseRecord = fixture(1).records[0]!;
+  const snapshot: MemorySpaceBackup = {
+    ...empty,
+    ...structure,
+    space: { ...empty.space, macros: structure.macros },
+    records: ["有效", "已消除", "已失效"].map((status, index) => ({
+      ...baseRecord,
+      id: `gap-${index}` as never,
+      stableId: `gap-${index}`,
+      tableId: table.id,
+      displayText: `信息差${index}`,
+      payload: {
+        [fields.name!]: `信息差${index}`,
+        [fields.fact!]: "甲已向乙表明意图。",
+        [fields.related_characters!]: [],
+        [fields.knowledge!]: "丙尚不知情。",
+        [fields.status!]: status,
+      },
+    })),
+  };
+  const macro = snapshot.space.macros!.find((item) => item.name === "有效信息差")!;
+  const { batch, embedding } = await setup(snapshot, false, false);
+  expect((await batch.evaluate(macro.expression)).rows.map((row) => row[0])).toEqual(["信息差0"]);
+  expect(embedding.embed).not.toHaveBeenCalled();
+
+  const ended = {
+    ...snapshot,
+    records: snapshot.records.map((record, index) =>
+      index === 0
+        ? { ...record, payload: { ...record.payload, [fields.status!]: "已消除" } }
+        : record,
+    ),
+  };
+  const next = await setup(ended, false, false);
+  expect((await next.batch.evaluate(macro.expression)).rows).toEqual([]);
+  expect(ended.records).toHaveLength(3);
+});
+
 it("scores every record and group before Query filtering, and shares embedding with SQL sources", async () => {
   const { batch, embedding } = await setup();
   const query = await batch.evaluate({

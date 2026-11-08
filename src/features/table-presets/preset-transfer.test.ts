@@ -15,7 +15,7 @@ import {
 const NOW = "2026-10-20T00:00:00.000Z";
 
 describe("表格预设导入导出", () => {
-  it("内置预设往返保留通用规则、44 字段、引用和显示策略，文件不带身份与默认选择", () => {
+  it("内置预设往返保留通用规则、49 字段、引用和显示策略，文件不带身份与默认选择", () => {
     const text = serializeTablePresetExport(STORY_MEMORY_PRESET, NOW);
     const parsed = parseTablePresetExport(text);
     expect(parsed).toEqual({
@@ -25,7 +25,7 @@ describe("表格预设导入导出", () => {
       prompt: STORY_MEMORY_PRESET.prompt,
       tables: STORY_MEMORY_PRESET.tables,
     });
-    expect(parsed.tables.reduce((sum, table) => sum + table.fields.length, 0)).toBe(44);
+    expect(parsed.tables.reduce((sum, table) => sum + table.fields.length, 0)).toBe(49);
     expect(JSON.parse(text).preset).not.toHaveProperty("id");
     expect(JSON.parse(text)).not.toHaveProperty("defaultPresetId");
     expect(JSON.parse(text).preset).not.toHaveProperty("records");

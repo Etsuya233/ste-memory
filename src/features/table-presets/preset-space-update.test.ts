@@ -49,6 +49,84 @@ function fixture() {
 }
 
 describe("从表格预设选择性更新空间", () => {
+  it("旧信息差表按 Key 补充内置字段，保留 entry、记录与历史", () => {
+    const { unit, preset, ids } = fixture();
+    const target = STORY_MEMORY_PRESET.tables.find((table) => table.key === "information_gap")!;
+    const legacy = instantiateTablePreset(
+      {
+        tables: [
+          {
+            ...target,
+            displayStrategy: null,
+            vectorIndex: undefined,
+            fields: [
+              {
+                ...target.fields.find((field) => field.key === "fact")!,
+                key: "entry",
+                name: "条目",
+                required: false,
+              },
+            ],
+          },
+        ],
+      },
+      unit.space.id,
+      ids,
+      stamp,
+    );
+    const oldTable = legacy.tables[0]!;
+    const entry = legacy.fields[0]!;
+    const record = {
+      id: "gap-record",
+      stableId: "gap-record",
+      memorySpaceId: unit.space.id,
+      tableId: oldTable.id,
+      payload: { [entry.id]: "甲知道约定，乙尚不知情。" },
+      fieldEvidence: {},
+      displayText: "旧信息差",
+      source: { type: "manual" },
+      revisionId: "revision",
+      revisionSource: "user",
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const populated = {
+      ...unit,
+      tables: [...unit.tables, ...legacy.tables],
+      fields: [...unit.fields, ...legacy.fields],
+      records: [record],
+      history: [
+        {
+          ...record,
+          id: "gap-history",
+          recordId: record.id,
+          previousRevisionId: "old",
+          previousRevisionSource: "user",
+          archivedAt: stamp,
+        },
+      ],
+    } as unknown as MemorySpaceBackup;
+    const plan = previewPresetUpdate(populated, { ...preset, tables: [...preset.tables, target] });
+    const changes = presetUpdateChanges(plan.nodes);
+    expect(
+      changes.some((change) => change.fieldKey === "entry" && change.action === "delete"),
+    ).toBe(true);
+    const result = buildPresetUpdate(
+      populated,
+      plan,
+      changes.filter((change) => change.action !== "delete").map((change) => change.id),
+      ids,
+      stamp,
+    );
+    expect(result.tables.find((table) => table.key === "information_gap")!.id).toBe(oldTable.id);
+    expect(
+      result.fields.filter((field) => field.tableId === oldTable.id).map((field) => field.key),
+    ).toEqual(["entry", "name", "fact", "related_characters", "knowledge", "status"]);
+    expect(result.fields.find((field) => field.id === entry.id)).toEqual(entry);
+    expect(result.records).toEqual(populated.records);
+    expect(result.history).toEqual(populated.history);
+  });
+
   it("按 Key 匹配不同名称的 entry；保留已有分组、表和字段身份及未选属性", () => {
     const { unit, preset, ids } = fixture();
     const first = preset.tables[0]!;

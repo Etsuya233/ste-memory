@@ -23,7 +23,7 @@ function idFactory(prefix = "") {
 }
 
 describe("预设实例化（spec 4.2 / 10.2）", () => {
-  it("剧情记忆实例化启用 7 表 8 组自动索引，捕获时保留预设字段映射", async () => {
+  it("剧情记忆实例化启用 8 表 9 组自动索引，捕获时保留预设字段映射", async () => {
     const { tables, fields } = instantiateTablePreset(
       STORY_MEMORY_PRESET,
       SPACE,
@@ -39,6 +39,7 @@ describe("预设实例化（spec 4.2 / 10.2）", () => {
       "chronicle",
       "important_events",
       "plot_summaries",
+      "information_gap",
     ]);
     const groupIds: string[] = [];
     for (const table of indexedTables) {
@@ -58,9 +59,27 @@ describe("预设实例化（spec 4.2 / 10.2）", () => {
         }
       }
     }
-    expect(groupIds).toHaveLength(8);
-    expect(new Set(groupIds).size).toBe(8);
+    expect(groupIds).toHaveLength(9);
+    expect(new Set(groupIds).size).toBe(9);
     expect(tables.find((table) => table.key === "story_state")!.vectorIndex).toBeUndefined();
+    const gap = tables.find((table) => table.key === "information_gap")!;
+    const gapFields = fields.filter((field) => field.tableId === gap.id);
+    expect(gapFields.map((field) => field.key)).toEqual([
+      "name",
+      "fact",
+      "related_characters",
+      "knowledge",
+      "status",
+    ]);
+    expect(gapFields.find((field) => field.key === "related_characters")!.referenceTableId).toBe(
+      tables.find((table) => table.key === "characters")!.id,
+    );
+    expect(gap.displayStrategy).toEqual({ type: "field", fieldId: gapFields[0]!.id });
+    expect(gapFields.find((field) => field.key === "status")!.options).toEqual([
+      "有效",
+      "已消除",
+      "已失效",
+    ]);
 
     const captured = await captureSpaceStructure(
       {
