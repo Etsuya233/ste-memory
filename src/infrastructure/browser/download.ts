@@ -1,14 +1,22 @@
 /**
  * 浏览器文件下载（导出备份/单空间导出共用）：Blob + 临时 object URL，
- * 触发后即释放；仅在浏览器环境可用（面板交互路径）。
+ * 保留文件地址直到浏览器有时间接管下载；仅用于浏览器面板交互。
  */
-export function downloadTextFile(text: string, filename: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+export function downloadTextFile(
+  text: string,
+  filename: string,
+  contentType = "application/json;charset=utf-8",
+): void {
+  const url = URL.createObjectURL(new Blob([text], { type: contentType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.hidden = true;
+  document.body.appendChild(anchor);
   anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  anchor.remove();
+  // 下载由浏览器异步接管，立即释放可能中断 Blob 下载及其文件名处理。
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 interface WritableTextFile {

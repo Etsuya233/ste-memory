@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, Copy, Filter, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ChevronRight, Copy, Download, Filter, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { downloadTextFile } from "../../../infrastructure/browser/download.ts";
 import {
   LOG_LIMIT,
   type LogEntry,
@@ -35,6 +36,15 @@ import { copyText } from "../../components/copy-text.ts";
 
 const levelNames: Record<LogLevel, string> = { info: "信息", warn: "警告", error: "错误" };
 const defaultPageSize = 30;
+
+function formatLogs(entries: readonly LogEntry[]): string {
+  return entries
+    .map(
+      (entry) =>
+        `[${entry.createdAt}] ${levelNames[entry.level]} · ${entry.type}\n任务 Key：${entry.key || "无"}\n${entry.text}`,
+    )
+    .join("\n\n");
+}
 
 export function LogsPage({
   logs,
@@ -72,6 +82,7 @@ export function LogsPage({
   const [error, setError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const request = useRef(0);
   const viewKey = selected
     ? `log-${selected.id}`
@@ -151,6 +162,18 @@ export function LogsPage({
       setCopyResult({ viewKey, entries, status: "done" });
     } catch {
       setCopyResult({ viewKey, entries, status: "error" });
+    }
+  }
+  function exportLogs() {
+    setExportError(null);
+    try {
+      downloadTextFile(
+        formatLogs(filtered),
+        `ste-memory-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+        "text/plain;charset=utf-8",
+      );
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
@@ -362,20 +385,26 @@ export function LogsPage({
                   variant="outline"
                   size="sm"
                   disabled={loading || clearing || Boolean(error) || !pageEntries.length}
-                  onClick={() =>
-                    void copyLogs(
-                      pageEntries
-                        .map(
-                          (entry) =>
-                            `[${entry.createdAt}] ${levelNames[entry.level]} · ${entry.type}\n任务 Key：${entry.key || "无"}\n${entry.text}`,
-                        )
-                        .join("\n\n"),
-                    )
-                  }
+                  onClick={() => void copyLogs(formatLogs(pageEntries))}
                 >
                   <Copy data-icon="inline-start" />
                   复制当前页
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title="导出当前筛选的全部日志，包含所有分页"
+                  disabled={loading || clearing || Boolean(error) || !filtered.length}
+                  onClick={exportLogs}
+                >
+                  <Download data-icon="inline-start" />
+                  导出日志
+                </Button>
+                {exportError ? (
+                  <span role="alert" className="ste:text-destructive">
+                    导出失败：{exportError}
+                  </span>
+                ) : null}
                 {copied !== "idle" ? (
                   <span
                     role="status"

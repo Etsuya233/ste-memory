@@ -1,7 +1,48 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { saveTextFile } from "./download.ts";
+import { downloadTextFile, saveTextFile } from "./download.ts";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+describe("downloadTextFile", () => {
+  it("下载时保留中文文件名，并在浏览器处理下载期间保留文件地址", async () => {
+    vi.useFakeTimers();
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:export-id");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const anchor = {
+      href: "",
+      download: "",
+      hidden: false,
+      click: vi.fn(() => {
+        expect(appendChild).toHaveBeenCalledWith(anchor);
+        expect(anchor.download).toBe("table-preset-剧情记忆.json");
+        expect(revokeObjectURL).not.toHaveBeenCalled();
+      }),
+      remove: vi.fn(),
+    };
+    const appendChild = vi.fn();
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => anchor),
+      body: { appendChild },
+    });
+
+    downloadTextFile('{"名称":"剧情记忆"}', "table-preset-剧情记忆.json");
+
+    expect(anchor.click).toHaveBeenCalledOnce();
+    expect(anchor.remove).toHaveBeenCalledOnce();
+    expect(anchor.href).toBe("blob:export-id");
+    const blob = createObjectURL.mock.calls[0]![0] as Blob;
+    expect(blob.type).toBe("application/json;charset=utf-8");
+    expect(await blob.text()).toBe('{"名称":"剧情记忆"}');
+    vi.advanceTimersByTime(1000);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:export-id");
+  });
+});
 
 describe("saveTextFile", () => {
   it("取得文件句柄后才生成内容，写入并关闭后返回 true", async () => {
