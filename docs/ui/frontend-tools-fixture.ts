@@ -111,7 +111,7 @@ export function createToolsFixture(options: {
           space: {
             macros: [],
             id: context.spaceId,
- stableId: context.spaceId,
+            stableId: context.spaceId,
             name: context.title,
             initializationSource: null,
             createdAt: "",
@@ -220,7 +220,10 @@ export function createToolsFixture(options: {
         };
       },
       clearRecords: async (context) => {
-        options.assertContext(context);
+        if (!context.spaceId) {
+          throw new Error("当前空间未加载，无法清除记录");
+        }
+        options.assertContext({ ...context, spaceId: context.spaceId });
         const data = options.read();
         options.write({
           ...data,

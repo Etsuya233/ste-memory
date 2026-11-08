@@ -19,6 +19,7 @@ export class ChatSnapshotSaveTask {
   readonly content: SavedChatContent;
   readonly file: ChatMirrorFile;
   readonly operation: SnapshotSaveOperation;
+  readonly retire?: () => Promise<void>;
   private readonly confirmed?: () => Promise<void>;
 
   constructor(
@@ -26,10 +27,12 @@ export class ChatSnapshotSaveTask {
     operation: SnapshotSaveOperation,
     appVersion: string,
     confirmed?: () => Promise<void>,
+    retire?: () => Promise<void>,
   ) {
     this.content = structuredClone(content);
     this.operation = operation;
     this.confirmed = confirmed;
+    this.retire = retire;
     this.file = JSON.parse(
       JSON.stringify(
         createChatMirrorFile(
@@ -79,7 +82,10 @@ export class ChatSnapshotSaveTask {
         ].join("\n"),
       );
     }
-    await this.confirmed?.();
+  }
+
+  confirm(): Promise<void> {
+    return this.confirmed?.() ?? Promise.resolve();
   }
 }
 

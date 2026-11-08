@@ -208,8 +208,8 @@ export class DomainError extends Error {
   readonly param?: unknown;
   readonly humanMsg: string;
 
-  constructor(data: DomainErrorData) {
-    super(data.humanMsg);
+  constructor(data: DomainErrorData, options?: ErrorOptions) {
+    super(data.humanMsg, options);
     this.name = "DomainError";
     this.type = data.type;
     this.param = "param" in data ? data.param : undefined;

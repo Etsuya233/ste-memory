@@ -35,7 +35,7 @@ export interface ChatSnapshotFileStore {
   verify(target: ChatFileTarget): Promise<Record<string, unknown>>;
 }
 export type SnapshotSaveOperation = "update" | "replacement" | "force-sync";
-export type ChatSnapshotSaveStatus =
+export type ChatSnapshotSaveStatus = (
   | { readonly kind: "idle" }
   | {
       readonly kind: "saving" | "verifying";
@@ -54,7 +54,8 @@ export type ChatSnapshotSaveStatus =
       readonly operation: SnapshotSaveOperation;
       readonly error: string;
       readonly humanMsg: string;
-    };
+    }
+) & { readonly cleanupWarning?: string };
 
 const IDLE_STATUS: ChatSnapshotSaveStatus = { kind: "idle" };
 
@@ -74,12 +75,23 @@ interface ChatSaveEntry {
   status: ChatSnapshotSaveStatus;
   queue: Promise<void>;
   attempt?: Promise<void>;
+  retirements: Set<() => Promise<void>>;
+  cleanupWarning?: string;
+  cleanupAttempt?: Promise<void>;
+}
+
+export interface SnapshotFailure {
+  readonly identity: string;
+  readonly operation: SnapshotSaveOperation;
+  readonly phase: "submit" | "verify" | "confirm" | "retire";
+  readonly error: unknown;
 }
 
 /** 普通输入只在当前聊天保留；关键候选跨切聊保留唯一输入及清理权限。 */
 export class ChatSnapshotPersistence {
   readonly #entries = new Map<string, ChatSaveEntry>();
   readonly #listeners = new Set<(status: ChatSnapshotSaveStatus) => void>();
+  readonly #failures = new Set<(failure: SnapshotFailure) => void>();
   private readonly store: ChatSnapshotFileStore;
   private readonly appVersion: () => string;
   private readonly legacyFloorLedger?: LegacyFloorLedgerMigrationPorts;
@@ -108,6 +120,46 @@ export class ChatSnapshotPersistence {
     return () => {
       this.#listeners.delete(listener);
     };
+  }
+
+  onFailure(listener: (failure: SnapshotFailure) => void): () => void {
+    this.#failures.add(listener);
+    return () => {
+      this.#failures.delete(listener);
+    };
+  }
+
+  hasPendingCleanup(identity: string): boolean {
+    return (this.#entries.get(identity)?.retirements.size ?? 0) > 0;
+  }
+
+  retryCleanup(identity: string): Promise<void> {
+    const entry = this.entry(identity);
+    if (entry.cleanupAttempt) {
+      return entry.cleanupAttempt;
+    }
+    const attempt = this.cleanRetired(entry, identity).finally(() => {
+      entry.cleanupAttempt = undefined;
+    });
+    entry.cleanupAttempt = attempt;
+    return attempt;
+  }
+
+  private async cleanRetired(entry: ChatSaveEntry, identity: string): Promise<void> {
+    const failures: string[] = [];
+    for (const retire of entry.retirements) {
+      try {
+        await retire();
+        entry.retirements.delete(retire);
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+        this.reportFailure({ identity, operation: "replacement", phase: "retire", error });
+      }
+    }
+    entry.cleanupWarning = failures.length
+      ? `记忆已保存，旧辅助数据清理未完成：${failures.join("；")}`
+      : undefined;
+    this.setStatus(entry, entry.status);
   }
 
   remember(target: ChatFileTarget, snapshot: MemorySpaceBackup, binding: ChatSpaceBinding): void {
@@ -182,6 +234,7 @@ export class ChatSnapshotPersistence {
     snapshot: MemorySpaceBackup,
     binding: ChatSpaceBinding,
     confirmed?: () => Promise<void>,
+    retire?: () => Promise<void>,
   ): Promise<void> {
     return this.schedule(
       new ChatSnapshotSaveTask(
@@ -189,6 +242,7 @@ export class ChatSnapshotPersistence {
         "replacement",
         this.appVersion(),
         confirmed,
+        retire,
       ),
     );
   }
@@ -215,7 +269,12 @@ export class ChatSnapshotPersistence {
   private entry(identity: string): ChatSaveEntry {
     let entry = this.#entries.get(identity);
     if (!entry) {
-      entry = { status: IDLE_STATUS, queue: Promise.resolve(), active: true };
+      entry = {
+        status: IDLE_STATUS,
+        queue: Promise.resolve(),
+        active: true,
+        retirements: new Set(),
+      };
       this.#entries.set(identity, entry);
     }
     return entry;
@@ -263,12 +322,16 @@ export class ChatSnapshotPersistence {
 
   private async submitAndVerify(entry: ChatSaveEntry, task: ChatSnapshotSaveTask): Promise<void> {
     const identity = task.content.target.identity;
+    let phase: SnapshotFailure["phase"] = "submit";
     this.setStatus(entry, { kind: "saving", identity, operation: task.operation });
     try {
       await task.submit(this.store);
       if (task.operation !== "update") {
+        phase = "verify";
         this.setStatus(entry, { kind: "verifying", identity, operation: task.operation });
         await task.verify(this.store);
+        phase = "confirm";
+        await task.confirm();
       }
       // 旧提交完成不能把较新的内容标记为已核验。
       if (entry.pending !== task) {
@@ -284,15 +347,23 @@ export class ChatSnapshotPersistence {
         completedAt: new Date().toISOString(),
         sizeBytes: task.sizeBytes,
       });
+      // 新 ID 空间退休不改变已确认的文件结果；同 ID 操作仍保留原确认回调。
+      if (task.retire) {
+        entry.retirements.add(task.retire);
+        await this.retryCleanup(identity);
+      }
     } catch (error) {
       if (entry.pending !== task) {
         throw error;
       }
       const reason = error instanceof Error ? error.message : String(error);
+      this.reportFailure({ identity, operation: task.operation, phase, error });
       const humanMsg =
-        task.operation === "replacement"
-          ? `候选空间已启用、尚未核验，旧辅助数据保留：${reason}`
-          : `记忆已提交、尚未核验：${reason}`;
+        phase === "confirm"
+          ? `聊天文件已核验，操作收尾尚未完成，请重试：${reason}`
+          : task.operation === "replacement"
+            ? `新内容已载入，聊天文件保存尚未核验；旧任务、向量和 Agent 会话尚未清理：${reason}`
+            : `记忆已提交、尚未核验：${reason}`;
       this.setStatus(entry, {
         kind: "failed",
         identity,
@@ -307,12 +378,26 @@ export class ChatSnapshotPersistence {
   }
 
   private setStatus(entry: ChatSaveEntry, status: ChatSnapshotSaveStatus): void {
-    entry.status = status;
+    const saved = { ...status };
+    delete saved.cleanupWarning;
+    entry.status = entry.cleanupWarning
+      ? { ...saved, cleanupWarning: entry.cleanupWarning }
+      : saved;
     for (const listener of this.#listeners) {
       try {
-        listener(status);
+        listener(entry.status);
       } catch (error) {
         console.error("保存状态订阅刷新失败", error);
+      }
+    }
+  }
+
+  private reportFailure(failure: SnapshotFailure): void {
+    for (const listener of this.#failures) {
+      try {
+        listener(failure);
+      } catch (error) {
+        console.error("保存诊断记录失败", error);
       }
     }
   }

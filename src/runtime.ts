@@ -1,4 +1,5 @@
 import { SqliteFloorLedger } from "./infrastructure/memory-runtime/sqlite-floor-ledger.ts";
+import { errorDetails } from "./features/logging/error-details.ts";
 import { PresetSpaceUpdater } from "./infrastructure/memory-runtime/preset-space-updater.ts";
 import { MemorySpaceLifecycle } from "./infrastructure/memory-runtime/memory-space-lifecycle.ts";
 import { instantiateTablePreset } from "./features/table-presets/preset-instantiation.ts";
@@ -446,18 +447,16 @@ export async function startSteMemory(
     logWarn: (message) => log.warn(`[${PLUGIN_DISPLAY_NAME}] ${message}`),
   });
   const logs = new DexieLogRepository(logDb, { now });
-  persistence.onStatusChange((status) => {
-    if (status.kind === "failed") {
-      log.error("记忆保存失败", status);
-      void logs
-        .append({
-          type: "snapshot-save",
-          key: status.identity,
-          level: "error",
-          text: JSON.stringify(status, null, 2),
-        })
-        .catch((error) => log.error("保存诊断日志写入失败", error));
-    }
+  persistence.onFailure((failure) => {
+    log.error("记忆保存或清理失败", failure);
+    void logs
+      .append({
+        type: "snapshot-save",
+        key: failure.identity,
+        level: "error",
+        text: JSON.stringify({ ...failure, error: errorDetails(failure.error) }, null, 2),
+      })
+      .catch((error) => log.error("保存诊断日志写入失败", error));
   });
   const fillTaskRepository = new DexieFillTaskRepository(db, now);
   const floorLedgerRepository = new SqliteFloorLedger(memoryStore, now);
@@ -652,7 +651,19 @@ export async function startSteMemory(
     validateSnapshot: (unit) => backup.validateSnapshot(unit),
     activateSnapshot: (target, binding, unit) => lifecycle.activate(target, binding, unit),
     unloadSnapshot: (id, target) => lifecycle.unload(id, target),
-    stopSpaceWrites: (id) => lifecycle.stopWrites(id),
+    prepareReplacement: (target, id) => lifecycle.prepareReplacement(target, id),
+    assertCanReplace: (target) => lifecycle.assertCanReplace(target),
+    reportError: (error) => {
+      log.error("空间刷新通知失败", error);
+      void logs
+        .append({
+          type: "space-notification",
+          key: chatIdentityKey(adapter.getChatSnapshot()) ?? "",
+          level: "error",
+          text: JSON.stringify(errorDetails(error), null, 2),
+        })
+        .catch((cause) => log.error("空间通知诊断写入失败", cause));
+    },
     captureRetirement: (id, target) => lifecycle.captureRetirement(id, target),
     findSpace: (id) => spaceRepository.find(id),
     createIds: {
@@ -1238,7 +1249,18 @@ export async function startSteMemory(
   return {
     publicRead,
     manager,
-    retryMemorySave: forceSyncMemory,
+    retryMemorySave: async () => {
+      const target = adapter.captureFileTarget();
+      if (
+        target &&
+        persistence.hasPendingCleanup(target.identity) &&
+        persistence.getStatus(target.identity).kind !== "failed"
+      ) {
+        await persistence.retryCleanup(target.identity);
+      } else {
+        await forceSyncMemory();
+      }
+    },
     forceSyncMemory,
     adapter,
     spaces,

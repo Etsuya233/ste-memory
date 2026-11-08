@@ -44,6 +44,7 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
       target.kind === "group" ? "/api/chats/group/get" : "/api/chats/get",
       {
         method: "POST",
+        signal: AbortSignal.timeout(30_000),
         headers: this.host.headers(),
         body: JSON.stringify(
           target.kind === "group"
@@ -53,7 +54,10 @@ export class StChatSnapshotFileStore implements ChatSnapshotFileStore {
       },
     );
     if (!response.ok) {
-      throw new Error(`聊天文件核验请求失败 (${response.status})`);
+      const detail = (await response.text()).slice(0, 2048);
+      throw new Error(
+        `聊天文件核验请求失败 (${response.status})\n目标对话：${target.identity}\n响应摘要：${detail}`,
+      );
     }
     const chat: unknown = await response.json();
     if (

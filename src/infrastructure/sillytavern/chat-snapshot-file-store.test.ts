@@ -55,6 +55,24 @@ function harness() {
 }
 
 describe("ST 原生元数据保存", () => {
+  it("核验失败提供固定目标和有界响应摘要，并设置请求截止时间", async () => {
+    const h = harness();
+    h.request.mockResolvedValueOnce(
+      new Response("proxy failure " + "x".repeat(5000), { status: 503 }),
+    );
+    let caught: unknown;
+    try {
+      await h.store.verify(target);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("503");
+    expect((caught as Error).message).toContain("char:1:A");
+    expect((caught as Error).message).toContain("proxy failure");
+    expect((caught as Error).message.length).toBeLessThan(2300);
+    expect(h.request.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
+  });
   it("加载使用已载metadata，保存只调用原生接口且保留其他键", async () => {
     const h = harness();
     h.metadata.other = "宿主数据";

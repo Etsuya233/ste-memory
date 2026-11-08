@@ -1,4 +1,5 @@
 import type { BackupIdFactory, MemorySpaceBackup } from "../backup/index.ts";
+import type { ImportPhase } from "../backup/import-diagnostic.ts";
 import type { MemorySpace, MemorySpaceId } from "../memory/index.ts";
 import { cloneMemorySnapshot } from "../memory-snapshot/snapshot-clone.ts";
 import type {
@@ -33,7 +34,12 @@ export interface ChatSpaceManagerPorts {
     unit: MemorySpaceBackup,
   ) => Promise<void>;
   readonly unloadSnapshot: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
-  readonly stopSpaceWrites: (id: MemorySpaceId) => Promise<void>;
+  readonly prepareReplacement: (
+    target: ChatFileTarget,
+    oldId: MemorySpaceId | undefined,
+  ) => Promise<() => void>;
+  readonly assertCanReplace: (target: ChatFileTarget) => void;
+  readonly reportError: (error: unknown) => void;
   readonly captureRetirement: (id: MemorySpaceId, target: ChatFileTarget) => () => Promise<void>;
   readonly findSpace: (id: MemorySpaceId) => Promise<MemorySpace | undefined>;
   readonly createIds: BackupIdFactory;
@@ -78,9 +84,7 @@ export class ChatSpaceManager {
   clearCurrent(): void {
     this.#selection = undefined;
     this.#status = undefined;
-    for (const listener of this.#listeners) {
-      listener();
-    }
+    this.notify();
   }
 
   reportLoadError(error: unknown): void {
@@ -214,7 +218,10 @@ export class ChatSpaceManager {
     );
   }
 
-  async importSpace(unit: MemorySpaceBackup): Promise<SpaceContextStatus> {
+  async importSpace(
+    unit: MemorySpaceBackup,
+    stage?: (phase: ImportPhase) => void,
+  ): Promise<SpaceContextStatus> {
     const selection = this.requireSelection();
     return this.saveCandidate(
       selection,
@@ -226,6 +233,8 @@ export class ChatSpaceManager {
           this.ports.now(),
         ),
       "replacement",
+      undefined,
+      stage,
     );
   }
 
@@ -249,45 +258,54 @@ export class ChatSpaceManager {
     build: () => MemorySpaceBackup | Promise<MemorySpaceBackup>,
     origin: "created" | "replacement",
     confirmed?: () => Promise<void>,
+    stage?: (phase: ImportPhase) => void,
   ): Promise<SpaceContextStatus> {
-    if (this.ports.persistence.hasPendingReplacement(selection.target.identity)) {
-      throw new Error("候选空间尚待核验，请先强制同步");
-    }
+    this.ports.assertCanReplace(selection.target);
     const request: CandidateRequest = {
       selection,
       oldId: this.#status?.kind === "active" ? this.#status.space.id : undefined,
     };
     this.#candidate = request;
     this.assertCandidateCurrent(request);
+    stage?.("clone");
     const unit = await build();
     this.assertCandidateCurrent(request);
+    stage?.("database-validation");
     await this.ports.validateSnapshot(unit);
     this.assertCandidateCurrent(request);
-    if (request.oldId) {
-      await this.ports.stopSpaceWrites(request.oldId);
+    stage?.("stop-writes");
+    const release = await this.ports.prepareReplacement(selection.target, request.oldId);
+    try {
       this.assertCandidateCurrent(request);
+      if (request.oldId && request.oldId !== unit.space.id) {
+        request.retireOld = this.ports.captureRetirement(request.oldId, selection.target);
+      }
+      const binding: ChatSpaceBindingV2 = {
+        version: 2,
+        spaceId: unit.space.id,
+        chatIdentity: selection.target.identity,
+      };
+      stage?.("activate");
+      await this.activate(selection, binding, unit, origin);
+      this.assertCandidateCurrent(request);
+      stage?.("save-confirm-retire");
+      await this.ports.persistence.replace(
+        selection.target,
+        unit,
+        binding,
+        confirmed,
+        request.retireOld,
+      );
+      return {
+        kind: "active",
+        binding,
+        space: unit.space,
+        created: origin === "created",
+        restored: false,
+      };
+    } finally {
+      release();
     }
-    if (request.oldId && request.oldId !== unit.space.id) {
-      request.retireOld = this.ports.captureRetirement(request.oldId, selection.target);
-    }
-    const binding: ChatSpaceBindingV2 = {
-      version: 2,
-      spaceId: unit.space.id,
-      chatIdentity: selection.target.identity,
-    };
-    await this.activate(selection, binding, unit, origin);
-    this.assertCandidateCurrent(request);
-    await this.ports.persistence.replace(selection.target, unit, binding, async () => {
-      await request.retireOld?.();
-      await confirmed?.();
-    });
-    return {
-      kind: "active",
-      binding,
-      space: unit.space,
-      created: origin === "created",
-      restored: false,
-    };
   }
 
   private async activate(
@@ -315,9 +333,17 @@ export class ChatSpaceManager {
 
   private publish(status: SpaceContextStatus): SpaceContextStatus {
     this.#status = status;
-    for (const listener of this.#listeners) {
-      listener();
-    }
+    this.notify();
     return status;
+  }
+
+  private notify(): void {
+    for (const listener of this.#listeners) {
+      try {
+        listener();
+      } catch (error) {
+        this.ports.reportError(error);
+      }
+    }
   }
 }

@@ -181,7 +181,7 @@ describe("加载阶段的旧楼层台账迁移", () => {
       return structuredClone(h.metadata());
     });
     const saving = h.restore();
-    const rejected = expect(saving).rejects.toThrow("尚未核验");
+    const rejected = expect(saving).rejects.toThrow("操作收尾尚未完成");
     await vi.waitFor(() => expect(h.store.verify).toHaveBeenCalledOnce());
     h.switchChat("B");
     hold.release();

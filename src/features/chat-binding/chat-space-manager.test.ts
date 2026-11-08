@@ -64,8 +64,9 @@ function harness() {
     }),
   };
   const persistence = new ChatSnapshotPersistence(store, () => "test");
+  const replacing = new Set<string>();
   const validate = vi.fn(async () => {});
-  const stop = vi.fn(async () => {});
+  const stop = vi.fn(async (_id: MemorySpaceId) => {});
   const retire = vi.fn(async (id: MemorySpaceId) => {
     memory.delete(id);
   });
@@ -91,7 +92,21 @@ function harness() {
     unloadSnapshot: async (id) => {
       memory.delete(id);
     },
-    stopSpaceWrites: stop,
+    prepareReplacement: async (_target, id) => {
+      replacing.add(_target.identity);
+      if (id) {
+        await stop(id);
+      }
+      return () => {
+        replacing.delete(_target.identity);
+      };
+    },
+    assertCanReplace: (target) => {
+      if (replacing.has(target.identity) || persistence.hasPendingReplacement(target.identity)) {
+        throw new Error("当前对话的空间替换尚未完成，请先处理保存结果");
+      }
+    },
+    reportError: vi.fn(),
     captureRetirement: (id) => () => retire(id),
     findSpace: async (id) => memory.get(id)?.space,
     now: () => "now",
@@ -141,7 +156,7 @@ describe("当前聊天空间的候选提交", () => {
       h.store.restore(target, file, binding);
       throw new Error("offline");
     });
-    await expect(h.manager.importSpace(h.sample())).rejects.toThrow("候选空间已启用");
+    await expect(h.manager.importSpace(h.sample())).rejects.toThrow("新内容已载入");
     expect(h.manager.getStatus()).not.toEqual(original);
     expect(h.metadata.get(h.target().identity)!.spaceId).not.toBe("space");
     expect(h.retire).not.toHaveBeenCalled();

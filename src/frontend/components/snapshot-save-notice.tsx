@@ -16,7 +16,12 @@ export function SnapshotSaveNotice({
   const [request, setRequest] = useState<
     { kind: "idle" | "running" } | { kind: "failed"; message: string }
   >({ kind: "idle" });
-  if ((status.kind !== "failed" || status.operation === "force-sync") && request.kind === "idle") {
+  const cleanup = status.cleanupWarning && status.kind !== "failed";
+  if (
+    !cleanup &&
+    (status.kind !== "failed" || status.operation === "force-sync") &&
+    request.kind === "idle"
+  ) {
     return null;
   }
   const busy =
@@ -40,20 +45,28 @@ export function SnapshotSaveNotice({
       data-testid="snapshot-save-notice"
     >
       {busy ? (
-        <span>正在重试保存…</span>
+        <span>
+          {request.kind === "running"
+            ? cleanup
+              ? "正在重试清理…"
+              : "正在重试保存…"
+            : "正在保存记忆…"}
+        </span>
       ) : (
         <SaveErrorDetails
           message={
             status.kind === "failed"
               ? status.humanMsg
-              : request.kind === "failed"
-                ? request.message
-                : ""
+              : cleanup
+                ? status.cleanupWarning!
+                : request.kind === "failed"
+                  ? request.message
+                  : ""
           }
         />
       )}
       <Button variant="link" size="xs" disabled={!available || busy} onClick={() => void retry()}>
-        重试保存
+        {cleanup ? "重试清理" : "重试保存"}
       </Button>
     </div>
   );

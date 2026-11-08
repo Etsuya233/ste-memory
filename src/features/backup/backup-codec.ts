@@ -91,13 +91,16 @@ export function parseBackupFile(text: string): MemoryBackupFile {
   try {
     value = JSON.parse(text);
   } catch (error) {
-    throw new DomainError({
-      type: "memory_backup_invalid_json",
-      param: { reason: error instanceof Error ? error.message : String(error) },
-      humanMsg: `备份文件不是有效的 JSON：${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    });
+    throw new DomainError(
+      {
+        type: "memory_backup_invalid_json",
+        param: { reason: error instanceof Error ? error.message : String(error) },
+        humanMsg: `备份文件不是有效的 JSON：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      },
+      { cause: error },
+    );
   }
   return decodeBackupFile(value);
 }

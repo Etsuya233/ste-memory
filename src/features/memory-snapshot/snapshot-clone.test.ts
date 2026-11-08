@@ -1,4 +1,5 @@
 import { createBackupFile, decodeBackupFile } from "../backup/backup-codec.ts";
+import { createInProcessSqliteMemoryClient } from "../../infrastructure/sqlite/node-client.ts";
 import { describe, expect, it } from "vitest";
 import type { BackupIdFactory } from "../backup/backup-port.ts";
 import type {
@@ -113,6 +114,42 @@ function fixture(): MemorySpaceBackup {
 }
 
 describe("空间快照独立副本", () => {
+  it("保留已删除字段的历史原文与证据，SQLite 及备份往返后仍不解释未知引用", async () => {
+    const source = fixture();
+    const history = source.history[0]!;
+    const archived = {
+      ...history,
+      payload: { ...history.payload, removed: "deleted", oldList: ["deleted"] },
+      fieldEvidence: {
+        ...history.fieldEvidence,
+        removed: history.fieldEvidence[source.fields[0]!.id]!,
+      },
+    };
+    const factory = ids();
+    const copy = cloneMemorySnapshot({ ...source, history: [archived] }, factory, "copy", "now");
+    const client = await createInProcessSqliteMemoryClient();
+    let stored: MemorySpaceBackup;
+    try {
+      await client.importSpace(copy);
+      stored = await client.exportSpace(copy.space.id);
+    } finally {
+      await client.close();
+    }
+    const restored = decodeBackupFile(
+      JSON.parse(JSON.stringify(createBackupFile({ spaces: [stored] }, "test", "now"))),
+    ).data.spaces[0]!;
+    expect(restored.history[0]!.payload.removed).toBe("deleted");
+    expect(restored.history[0]!.payload.oldList).toEqual(["deleted"]);
+    expect(restored.history[0]!.fieldEvidence.removed![0]!.evidence_id).toBe(
+      copy.evidence[0]!.evidence_id,
+    );
+    expect(restored.fields.some((field) => field.id === "removed")).toBe(false);
+    const second = cloneMemorySnapshot(restored, factory, "second", "now");
+    expect(second.history[0]!.payload.removed).toBe("deleted");
+    expect(second.history[0]!.fieldEvidence.removed![0]!.evidence_id).toBe(
+      second.evidence[0]!.evidence_id,
+    );
+  });
   it("重建空间、表、字段、记录、历史和证据身份，并保持所有引用一致且不修改输入", () => {
     const unit = fixture();
     const before = structuredClone(unit);

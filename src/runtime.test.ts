@@ -30,6 +30,8 @@ import type { MemorySpaceBackup } from "./features/backup/index.ts";
 import type { MemoryMacro, MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
 import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
+import { createMaintenanceServices } from "./frontend/host/maintenance-services.ts";
+import { createBackupFile } from "./features/backup/backup-codec.ts";
 
 function fakeLog() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -2097,6 +2099,40 @@ describe("关键清理与填表同步交错", () => {
 });
 
 describe("已激活候选的核验恢复", () => {
+  it("目标聊天快照损坏时可通过完整维护导入恢复", async () => {
+    const { context, handlers } = fakeStContext();
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => createTestDatabase(),
+      log: fakeLog(),
+      ...ports,
+    });
+    const source = await runtime.backup.exportCurrentSpace();
+    context.chatId = "broken-chat";
+    context.chatMetadata = {
+      [CHAT_METADATA_BINDING_KEY]: {
+        version: 2,
+        spaceId: source.space.id,
+        chatIdentity: "char:3:broken-chat",
+      },
+      [CHAT_METADATA_MIRROR_KEY]: { corrupt: true },
+    };
+    await handlers.get("chat_id_changed")!();
+    expect(runtime.manager.getStatus()?.kind).toBe("load-error");
+    const service = createMaintenanceServices(runtime, async () => {});
+    expect(service.currentContext()?.spaceId).toBeNull();
+    const preview = await service.previewImport(
+      JSON.stringify(createBackupFile({ spaces: [source] }, "test", "now")),
+    );
+    expect(await preview.apply()).toMatchObject({
+      kind: "done",
+      logKey: expect.stringMatching(/^import-/),
+    });
+    expect(runtime.manager.getStatus()?.kind).toBe("active");
+    expect(runtime.persistence.getStatus("char:3:broken-chat").kind).toBe("verified");
+    expect((await runtime.backup.exportCurrentSpace()).space.stableId).toBe(source.space.stableId);
+    expect(ports.snapshotWrites.at(-1)!.target.chatId).toBe("broken-chat");
+  });
   it("新聊天核验失败仍完成聊天就绪，强制同步后无需再次切聊", async () => {
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();
@@ -2143,21 +2179,80 @@ describe("已激活候选的核验恢复", () => {
     expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
   });
 
-  it("导入核验后辅助清理失败保留活动候选，同页重试不重复导入", async () => {
+  it("导入已核验后清理失败允许编辑，重试只清剩余步骤且不上传聊天", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext();
-    const runtime = await startTestRuntime(() => context, { createDb: () => db, log: fakeLog() });
+    const ports = createRuntimeTestPorts(() => context);
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
     const original = await runtime.backup.exportCurrentSpace();
+    const purge = vi.spyOn(runtime.vector, "purge");
     vi.spyOn(runtime.queryChat.store, "clearSpaceHistory").mockRejectedValueOnce(
       new Error("history cleanup failed"),
     );
-    await expect(runtime.manager.importSpace(original)).rejects.toThrow("history cleanup failed");
+    await runtime.manager.importSpace(original);
     expect(runtime.manager.getStatus()?.kind).toBe("active");
     const candidate = await runtime.backup.exportCurrentSpace();
     expect(candidate.space.id).not.toBe(original.space.id);
-    await runtime.forceSyncMemory();
+    expect(runtime.persistence.hasPendingReplacement("char:3:story")).toBe(false);
+    expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({
+      kind: "verified",
+      cleanupWarning: expect.stringContaining("history cleanup failed"),
+    });
+    await runtime.tables.create(candidate.space.id, {
+      key: "after_import",
+      name: "新表",
+      description: "",
+      prompt: "",
+      position: 100,
+    });
+    const writes = ports.snapshotWrites.length;
+    await runtime.retryMemorySave();
+    expect(ports.snapshotWrites).toHaveLength(writes);
+    expect(purge).toHaveBeenCalledTimes(1);
     expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
-    expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+    expect(runtime.persistence.getStatus("char:3:story")).not.toHaveProperty("cleanupWarning");
+  });
+
+  it("激活通知期间已禁止写入，订阅同步异常不打断导入保存", async () => {
+    const { context } = fakeStContext();
+    const log = fakeLog();
+    const runtime = await startTestRuntime(() => context, {
+      createDb: () => createTestDatabase(),
+      log,
+    });
+    const source = await runtime.backup.exportCurrentSpace();
+    let attempted: Promise<unknown> | undefined;
+    let overlapping: Promise<unknown> | undefined;
+    const unsubscribe = runtime.manager.onStatusChange(() => {
+      const status = runtime.manager.getStatus();
+      if (status?.kind === "active" && status.space.id !== source.space.id) {
+        overlapping = runtime.manager.importSpace(source).catch((error) => error);
+        attempted = runtime.tables
+          .create(status.space.id, {
+            key: "race",
+            name: "race",
+            description: "",
+            prompt: "",
+            position: 99,
+          })
+          .catch((error) => error);
+        throw new Error("refresh listener failed");
+      }
+    });
+    try {
+      await runtime.manager.importSpace(source);
+      expect(await attempted).toBeInstanceOf(Error);
+      expect(await overlapping).toBeInstanceOf(Error);
+      expect(String(await attempted)).toContain("尚待核验");
+      expect(runtime.persistence.getStatus("char:3:story").kind).toBe("verified");
+      expect(log.error).toHaveBeenCalledWith("空间刷新通知失败", expect.any(Error));
+    } finally {
+      unsubscribe();
+    }
   });
 });
 

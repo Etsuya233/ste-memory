@@ -7,9 +7,11 @@ import type { MemorySpaceBackup } from "../../features/backup/index.ts";
 import { createMaintenanceServices } from "./maintenance-services.ts";
 import { RecordsClearCleanupError } from "../../features/space-maintenance/space-maintenance-service.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "../../features/memory-snapshot/snapshot.ts";
+import type { LogAppendInput } from "../../features/logging/log.ts";
 
 function harness() {
   let chatId = "a";
+  let statusKind = "active";
   const unit: MemorySpaceBackup = {
     schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
     floorLedger: [],
@@ -33,19 +35,31 @@ function harness() {
   const changed = vi.fn(async () => {});
   const clear = vi.fn(async () => true);
   const clearAssistantHistory = vi.fn(async () => {});
+  const normalize = vi.fn(async (value: unknown) => value);
+  const append = vi.fn(async (_input: LogAppendInput) => {});
   const runtime = {
     version: "test",
+    logs: { append },
+    persistence: { getStatus: () => ({ kind: "idle" }) },
     settings: { read: () => ({ enabled: true }) },
-    adapter: { getChatSnapshot: () => ({ chatId, characterId: 1 }) },
+    adapter: {
+      getChatSnapshot: () => ({ chatId, characterId: 1 }),
+      captureFileTarget: () => ({
+        identity: `char:1:${chatId}`,
+        kind: "character",
+        chatId,
+        avatarUrl: "a.png",
+      }),
+    },
     manager: {
-      getStatus: () => ({ kind: "active", space: { id: "space", name: "A" } }),
+      getStatus: () => ({ kind: statusKind, space: { id: "space", name: "A" } }),
       importSpace: restore,
     },
     backup: { exportCurrentSpace: async () => unit },
     presetApply: { stopSpaceWrites: stop },
     spaceMaintenance: { clearRecords: clear },
     macro: { kick: async () => {} },
-    normalizeImportedSpace: async (value: unknown) => value,
+    normalizeImportedSpace: normalize,
     queryChat: { store: { clearSpaceHistory: clearAssistantHistory } },
   } as unknown as SteMemoryRuntime;
   const services = createMaintenanceServices(runtime, changed);
@@ -58,12 +72,51 @@ function harness() {
     changed,
     clear,
     clearAssistantHistory,
+    normalize,
+    append,
+    failLoad: () => {
+      statusKind = "load-error";
+    },
     switchChat: () => {
       chatId = "b";
     },
   };
 }
 describe("maintenance import boundaries", () => {
+  it("损坏空间可在明确目标聊天导入恢复，错误日志关联操作并保留异常链", async () => {
+    const h = harness();
+    h.failLoad();
+    expect(h.services.currentContext()?.spaceId).toBeNull();
+    const preview = await h.services.previewImport(h.text);
+    expect(await preview.apply()).toMatchObject({
+      kind: "done",
+      logKey: expect.stringMatching(/^import-/),
+    });
+    expect(h.restore).toHaveBeenCalledOnce();
+    await expect(h.services.previewImport("invalid JSON")).rejects.toThrow("阶段：读取备份");
+    const input = h.append.mock.calls.at(-1)![0];
+    expect(input).toMatchObject({
+      type: "memory-import",
+      level: "error",
+      key: expect.stringMatching(/^import-/),
+    });
+    expect(JSON.parse(input.text)).toMatchObject({
+      phase: "read-backup",
+      error: {
+        name: "DomainError",
+        stack: expect.any(String),
+        cause: { name: "SyntaxError", stack: expect.any(String) },
+      },
+    });
+  });
+  it("宏预检查失败不取消当前任务", async () => {
+    const h = harness();
+    h.normalize.mockRejectedValueOnce(new Error("宏预检查失败"));
+    const preview = await h.services.previewImport(h.text);
+    await expect(preview.apply()).rejects.toThrow("宏预检查失败");
+    expect(h.stop).not.toHaveBeenCalled();
+    expect(h.restore).not.toHaveBeenCalled();
+  });
   it("previews without writes and rejects an obsolete chat before importing", async () => {
     const h = harness();
     const preview = await h.services.previewImport(h.text);

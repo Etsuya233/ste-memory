@@ -39,7 +39,10 @@ export class MemorySpaceLifecycle {
   // 最后文件归属凭据跨 SQLite 卸载保留；它不证明已加载，也不参与加载或空间枚举。
   // 同文件重入复用凭据，另一文件接管换新对象，让旧清理请求永久失效。
   private readonly owners = new Map<string, SpaceOwner>();
-  private readonly pendingOperations = new Map<string, PendingSpaceOperation>();
+  private readonly pendingOperations = new Map<
+    string,
+    PendingSpaceOperation | { readonly kind: "replacement" }
+  >();
   private readonly synchronizing = new Map<SpaceOwner, { token: symbol; done: Promise<void> }>();
   private switching: Promise<void> = Promise.resolve();
   private readonly ports: SpaceLifecyclePorts;
@@ -61,6 +64,9 @@ export class MemorySpaceLifecycle {
     const owner = this.owners.get(id);
     if (!owner) {
       throw new Error("当前空间没有聊天归属");
+    }
+    if (this.pendingOperations.get(owner.target.identity)?.kind === "replacement") {
+      throw new Error("正在导入或切换空间，请等待保存交接完成");
     }
     if (this.synchronizing.has(owner)) {
       throw new Error("该空间正在强制同步");
@@ -160,6 +166,46 @@ export class MemorySpaceLifecycle {
 
   async stopWrites(id: MemorySpaceId): Promise<void> {
     this.assertCanEdit(id);
+    await this.cancelWrites(id);
+  }
+
+  /** 门控按聊天建立，覆盖旧空间停止与新空间激活，交接给保存任务后释放。 */
+  assertCanReplace(target: ChatFileTarget): void {
+    if (
+      this.pendingOperations.has(target.identity) ||
+      this.ports.persistence.hasPendingReplacement(target.identity)
+    ) {
+      throw new Error("当前对话的空间替换尚未完成，请先处理保存结果");
+    }
+  }
+
+  async prepareReplacement(
+    target: ChatFileTarget,
+    oldId: MemorySpaceId | undefined,
+  ): Promise<() => void> {
+    this.assertCanReplace(target);
+    if (oldId) {
+      this.assertCanEdit(oldId);
+    }
+    const operation = { kind: "replacement" as const };
+    this.pendingOperations.set(target.identity, operation);
+    const release = () => {
+      if (this.pendingOperations.get(target.identity) === operation) {
+        this.pendingOperations.delete(target.identity);
+      }
+    };
+    try {
+      if (oldId) {
+        await this.cancelWrites(oldId);
+      }
+      return release;
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  private async cancelWrites(id: MemorySpaceId): Promise<void> {
     await this.ports.tasks.cancelAll(id);
     await this.ports.vector.stop({ memorySpaceId: id });
     this.ports.assistant.cancelSpace(id);
@@ -274,20 +320,38 @@ export class MemorySpaceLifecycle {
     if (!owner || owner.target.identity !== target.identity) {
       throw new Error("待退休空间的聊天归属已变化");
     }
-    return () => this.retire(id, owner);
+    const progress = { next: 0 };
+    return () => this.retire(id, owner, progress);
   }
 
-  private retire(id: MemorySpaceId, expectedOwner: SpaceOwner): Promise<void> {
+  private retire(
+    id: MemorySpaceId,
+    expectedOwner: SpaceOwner,
+    progress: { next: number },
+  ): Promise<void> {
     return this.ports.memory.exclusive(id, async (token) => {
       const owner = this.owners.get(id);
       // 原聊天的候选保存可迟到；同一领域 ID 已归其他文件时不能清除新 owner。
       if (owner !== expectedOwner) {
         return;
       }
-      await this.ports.clearTasks(id);
-      await this.ports.vector.purge({ memorySpaceId: id });
-      await this.ports.assistant.clearSpaceHistory(id);
-      await this.ports.memory.unload(id, token);
+      const steps = [
+        ["任务历史", () => this.ports.clearTasks(id)],
+        ["向量", () => this.ports.vector.purge({ memorySpaceId: id })],
+        ["Agent 会话", () => this.ports.assistant.clearSpaceHistory(id)],
+        ["运行空间", () => this.ports.memory.unload(id, token)],
+      ] as const;
+      for (; progress.next < steps.length; progress.next++) {
+        const [name, remove] = steps[progress.next]!;
+        try {
+          await remove();
+        } catch (cause) {
+          throw new Error(
+            `旧${name}清理失败（${id}）：${cause instanceof Error ? cause.message : String(cause)}`,
+            { cause },
+          );
+        }
+      }
       this.owners.delete(id);
     });
   }

@@ -51,6 +51,27 @@ function deferred() {
 }
 
 describe("宿主提交与完整文件核验", () => {
+  it("文件确认后退休清理失败不阻塞编辑，重试只清理并保留后续保存状态", async () => {
+    const h = harness();
+    const retire = vi.fn(async () => {}).mockRejectedValueOnce(new Error("旧向量清理失败"));
+    await h.persistence.replace(target, unit(), binding, undefined, retire);
+    expect(h.persistence.hasPendingReplacement("A")).toBe(false);
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "verified",
+      cleanupWarning: expect.stringContaining("旧向量"),
+    });
+    await h.persistence.saveCommitted(target, binding, unit());
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "submitted",
+      cleanupWarning: expect.any(String),
+    });
+    const count = vi.mocked(h.store.submit).mock.calls.length;
+    await h.persistence.retryCleanup("A");
+    expect(retire).toHaveBeenCalledTimes(2);
+    expect(h.store.submit).toHaveBeenCalledTimes(count);
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "submitted" });
+    expect(h.persistence.getStatus("A")).not.toHaveProperty("cleanupWarning");
+  });
   it("普通提交同步发布两个键并即时调用宿主，不读取文件且只表示未核验", async () => {
     const h = harness();
     const saving = h.persistence.saveCommitted(target, binding, unit());

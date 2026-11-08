@@ -173,22 +173,39 @@ export function SettingsPage(
   },
 ) {
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "overview");
+  const [importLogKey, setImportLogKey] = useState("");
   const detailProps = { ...props, onBack: () => setSection("overview") };
   if (section === "logs") {
     return (
       <LogsPage
         logs={props.tools.logs}
         controls={props.controls}
-        onBack={props.onLogBack ?? detailProps.onBack}
+        onBack={
+          importLogKey
+            ? () => {
+                setImportLogKey("");
+                setSection("maintenance");
+              }
+            : (props.onLogBack ?? detailProps.onBack)
+        }
         title={props.logTitle}
         backLabel={props.logBackLabel}
         context={props.logContext}
-        initialKey={props.initialLogKey}
+        initialKey={importLogKey || props.initialLogKey}
       />
     );
   }
   if (section === "maintenance") {
-    return <MaintenancePage {...detailProps} services={props.tools.maintenance} />;
+    return (
+      <MaintenancePage
+        {...detailProps}
+        services={props.tools.maintenance}
+        onViewLog={(key) => {
+          setImportLogKey(key);
+          setSection("logs");
+        }}
+      />
+    );
   }
   if (section === "search") {
     return (

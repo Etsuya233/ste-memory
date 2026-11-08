@@ -14,6 +14,7 @@ import {
 import { PageContent, PageHeader, type PageControls } from "../../components/page-layout.tsx";
 import { StatusNotice } from "../../components/page-state.tsx";
 import { SaveErrorDetails } from "../../components/save-error-details.tsx";
+import { ImportFailure } from "../../../features/backup/import-diagnostic.ts";
 import {
   ConfirmAction,
   usePageLeave,
@@ -23,6 +24,7 @@ import {
 export interface MaintenanceOutcome {
   kind: "done" | "applied-with-sync-issue" | "replacement-unverified";
   message: string;
+  logKey?: string;
 }
 export interface MaintenanceImportPreview {
   recordCount: number;
@@ -31,10 +33,14 @@ export interface MaintenanceImportPreview {
   apply: () => Promise<MaintenanceOutcome>;
 }
 export interface MaintenanceServices {
-  currentContext: () => RecordsContext | null;
+  currentContext: () => MaintenanceContext | null;
   exportBackup: () => Promise<boolean>;
   previewImport: (text: string) => Promise<MaintenanceImportPreview>;
-  clearRecords: (target: RecordsContext) => Promise<MaintenanceOutcome>;
+  clearRecords: (target: MaintenanceContext) => Promise<MaintenanceOutcome>;
+}
+
+export interface MaintenanceContext extends Omit<RecordsContext, "spaceId"> {
+  spaceId: RecordsContext["spaceId"] | null;
 }
 
 export function MaintenancePage({
@@ -42,11 +48,13 @@ export function MaintenancePage({
   controls,
   onBack,
   registerLeaveGuard,
+  onViewLog,
 }: {
   services: MaintenanceServices;
   controls: PageControls;
   onBack: () => void;
   registerLeaveGuard?: RegisterLeaveGuard;
+  onViewLog: (key: string) => void;
 }) {
   const context = services.currentContext();
   const contextKey = JSON.stringify([context?.chatKey, context?.spaceId]);
@@ -54,6 +62,7 @@ export function MaintenancePage({
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorLogKey, setErrorLogKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<MaintenanceOutcome | null>(null);
   const [confirmImport, setConfirmImport] = useState(false);
   const [clearTarget, setClearTarget] = useState<RecordsContext | null>(null);
@@ -64,6 +73,7 @@ export function MaintenancePage({
     setConfirmImport(false);
     setClearTarget(null);
     setError(null);
+    setErrorLogKey(null);
     setNotice(null);
     setFileName("");
     setBusy(false);
@@ -116,6 +126,7 @@ export function MaintenancePage({
     const token = ++generation.current;
     setBusy(true);
     setError(null);
+    setErrorLogKey(null);
     setNotice(null);
     setPreview(null);
     setFileName(file.name);
@@ -127,6 +138,7 @@ export function MaintenancePage({
     } catch (cause) {
       if (token === generation.current) {
         setError(cause instanceof Error ? cause.message : String(cause));
+        setErrorLogKey(cause instanceof ImportFailure ? cause.operationId : null);
       }
     } finally {
       if (token === generation.current) {
@@ -137,6 +149,7 @@ export function MaintenancePage({
   async function mutate(action: () => Promise<MaintenanceOutcome>) {
     setBusy(true);
     setError(null);
+    setErrorLogKey(null);
     setNotice(null);
     const chatKey = context?.chatKey;
     try {
@@ -153,6 +166,7 @@ export function MaintenancePage({
     } catch (cause) {
       if (services.currentContext()?.chatKey === chatKey) {
         setError(cause instanceof Error ? cause.message : String(cause));
+        setErrorLogKey(cause instanceof ImportFailure ? cause.operationId : null);
       }
       throw cause;
     } finally {
@@ -174,6 +188,11 @@ export function MaintenancePage({
         {error && (
           <StatusNotice variant="destructive">
             <SaveErrorDetails message={error} />
+            {errorLogKey && (
+              <Button variant="link" size="xs" onClick={() => onViewLog(errorLogKey)}>
+                查看本次导入日志
+              </Button>
+            )}
           </StatusNotice>
         )}
         {notice && (
@@ -182,6 +201,11 @@ export function MaintenancePage({
               notice.message
             ) : (
               <SaveErrorDetails message={notice.message} />
+            )}
+            {notice.logKey && (
+              <Button variant="link" size="xs" onClick={() => onViewLog(notice.logKey!)}>
+                查看本次导入日志
+              </Button>
             )}
           </StatusNotice>
         )}
@@ -194,7 +218,7 @@ export function MaintenancePage({
             </CardDescription>
           </CardHeader>
           <CardContent className="ste:flex ste:flex-col ste:gap-4">
-            <Button disabled={busy || !context} onClick={() => void exportFile()}>
+            <Button disabled={busy || !context?.spaceId} onClick={() => void exportFile()}>
               <Download />
               导出 JSON 文件
             </Button>
@@ -258,8 +282,12 @@ export function MaintenancePage({
           <CardContent>
             <Button
               variant="destructive"
-              disabled={busy || !context}
-              onClick={() => setClearTarget(context)}
+              disabled={busy || !context?.spaceId}
+              onClick={() => {
+                if (context?.spaceId) {
+                  setClearTarget({ ...context, spaceId: context.spaceId });
+                }
+              }}
             >
               <Trash2 />
               清除当前空间记录

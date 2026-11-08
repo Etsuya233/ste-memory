@@ -95,8 +95,8 @@ class SnapshotIdentityCopy {
         recordId: this.recordId(item.recordId),
         memorySpaceId: this.spaceId,
         tableId: this.tables.get(item.tableId)!,
-        payload: this.payload(item.payload),
-        fieldEvidence: this.fieldEvidence(item.fieldEvidence),
+        payload: this.payload(item.payload, true),
+        fieldEvidence: this.fieldEvidence(item.fieldEvidence, true),
       })),
       evidence: this.unit.evidence.map((item) => ({
         ...item,
@@ -113,12 +113,15 @@ class SnapshotIdentityCopy {
     this.records.set(oldId, allocated);
     return allocated;
   }
-  private payload(old: MemoryRecordPayload): MemoryRecordPayload {
+  private payload(old: MemoryRecordPayload, historical = false): MemoryRecordPayload {
     const payload: Record<string, MemoryFieldValue> = {};
     for (const [key, value] of Object.entries(old)) {
       const field = this.definitions.get(key);
-      // 历史已删除字段沿用副本投影语义，不生成悬挂的新字段身份。
       if (!field) {
+        // 历史未知字段缺少类型信息，按原文归档，不猜测其中的记录引用。
+        if (historical) {
+          payload[key] = structuredClone(value);
+        }
         continue;
       }
       let next = value;
@@ -134,14 +137,15 @@ class SnapshotIdentityCopy {
   }
   private fieldEvidence(
     old: MemorySpaceBackup["records"][number]["fieldEvidence"],
+    historical = false,
   ): MemorySpaceBackup["records"][number]["fieldEvidence"] {
     const result: Record<string, MemoryEvidence[]> = {};
     for (const [key, values] of Object.entries(old)) {
       const field = this.definitions.get(key);
-      if (!field) {
+      if (!field && !historical) {
         continue;
       }
-      result[this.fields.get(field.id)!] = values
+      result[field ? this.fields.get(field.id)! : key] = values
         .filter((item) => this.evidence.has(item.evidence_id))
         .map((item) => ({ ...item, evidence_id: this.evidence.get(item.evidence_id)! }));
     }

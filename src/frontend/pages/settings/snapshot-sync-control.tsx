@@ -41,6 +41,8 @@ export function SnapshotSyncControl({
     message = `同步失败：${request.message}`;
   } else if (status.kind === "failed") {
     message = status.humanMsg;
+  } else if (status.cleanupWarning) {
+    message = status.cleanupWarning;
   } else if (request.kind === "done" && status.kind === "verified") {
     message = "同步完成";
   }
@@ -68,7 +70,7 @@ export function SnapshotSyncControl({
             aria-live="polite"
             data-testid="snapshot-sync-result"
           >
-            {request.kind === "failed" || status.kind === "failed" ? (
+            {request.kind === "failed" || status.kind === "failed" || status.cleanupWarning ? (
               <SaveErrorDetails message={message} />
             ) : (
               message
