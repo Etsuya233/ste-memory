@@ -4,15 +4,15 @@
  *
  * 填表任务与问答面板填写模式共用的 Agent 运行入口：接收调用方已展开的编排
  * 消息（ComposedAgentMessage[]）+ 本轮消息 + digest + 证据 + 消息范围，
- * 装配 5 个提案工具并跑通完整 Agent 循环。Agent 功能只提供零件（工具工厂、
+ * 装配查询与变更工具并跑通完整 Agent 循环。Agent 功能只提供零件（工具工厂、
  * ProposalState、校验闭包、run 基础设施、prompt 文本），编排权在调用方：
  *
  * - 编排：system 角色按顺序合并进系统提示词（空行分隔），user/assistant
  *   进入初始 transcript（run 的本轮消息之前）；
  * - 守卫：仅「组合后至少一条消息」抛错，不设「第一条/最后一条必须 user」
  *   守卫（assistant 结尾的预设直接进入 run）；
- * - 装配：后台每 run 新建 State，交互助手接收会话 State；装配校验闭包 + 5 个工具工厂
- *   （query_records / mutate / proposal_preview / drop_mutate / submit_proposal）；
+ * - 装配：后台每 run 新建 State，交互助手接收会话 State；装配校验闭包及工具工厂
+ *   （query_records / mutate / edit_text / proposal_preview / drop_mutate / submit_proposal）；
  * - digest 由调用方传入（ST 块循环构建一次，同时喂消息展开与工具装配），
  *   本模块不内置 digest 构建；
  * - run：runAgentWithTimeout（超时/取消语义沿用 Memory）；结果形状对齐
@@ -37,6 +37,7 @@ import {
   abortedAgentRunSummary,
   convertAgentMessagesToLlm,
   createDropMutateTool,
+  createEditTextTool,
   createMutateTool,
   createProposalPreviewTool,
   createQueryRecordsTool,
@@ -182,12 +183,20 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
   const preview = (operations: Parameters<typeof previewProposal>[2]) =>
     previewProposal(ports, memorySpaceId, operations);
 
+  const mutateTool = createMutateTool({ digest, state, validateOperation });
+  const editTextTool = createEditTextTool({
+    digest,
+    reader,
+    state,
+    update: async (id, params) => (await mutateTool.execute(id, params)).details,
+  });
   const taskTools =
     input.taskWriter === undefined
       ? undefined
       : createTaskMutationTools({
           digest,
           ports,
+          reader,
           memorySpaceId,
           messageRange,
           evidence,
@@ -211,7 +220,7 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
         systemTextOf(composedMessages) +
         (input.taskWriter === undefined
           ? ""
-          : "\n\n当前为事务填表模式：mutate 成功后已写入本任务事务，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请再次 mutate。全部操作完成后调用 submit_proposal 并结束。正式提交由宿主在整个任务结束后完成。"),
+          : "\n\n当前为事务填表模式：mutate / edit_text 成功后已写入本任务事务，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请使用 mutate 或 edit_text。全部操作完成后调用 submit_proposal 并结束。正式提交由宿主在整个任务结束后完成。"),
       // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
       messages: [...toAgentPrefixMessages(prefix, llm.model.id), ...(input.history ?? [])],
       model: llm.model,
@@ -220,7 +229,8 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
           ? [
               createQueryRecordsTool({ reader, digest }),
               ...sqlTools,
-              createMutateTool({ digest, state, validateOperation }),
+              mutateTool,
+              editTextTool,
               createProposalPreviewTool({ digest, state, validateOperations, preview }),
               createDropMutateTool({ state }),
               input.confirmationRequired

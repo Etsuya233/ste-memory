@@ -71,3 +71,6 @@ export {
   runAgentWithTimeout,
 } from "./agent-run.ts";
 export type { AgentRunSummary, RunHooks } from "./agent-run.ts";
+
+export { EDIT_TEXT_TOOL_NAME, createEditTextTool } from "./tools/index.ts";
+export type { EditTextToolDependencies, EditTextToolParams } from "./tools/index.ts";

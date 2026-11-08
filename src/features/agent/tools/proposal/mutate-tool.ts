@@ -124,7 +124,7 @@ const MUTATE_TOOL_DESCRIPTION = [
   "- op：create 新建 / update 更新 / delete 删除，每次调用只处理一个操作。",
   "- create：{ table, patch, tempId? }。tempId 不传时由引擎分配（返回结果中给出，格式 tmp:n，",
   "  后续引用该记录或覆盖它时使用）；传已存在的 tempId 会覆盖对应 create 操作。",
-  "- update：{ table, recordId, expectedRevisionId, patch }。patch 省略的字段保持不变，null 清空。",
+  "- update：{ table, recordId, expectedRevisionId, patch }。patch 省略的字段保持不变，null 清空；提供的文本值整体替换字段，新增经历或局部修改优先使用 edit_text。",
   "- delete：{ table, recordId, expectedRevisionId }。",
   "- recordId 与 expectedRevisionId 取自 query_records 结果的 id 与 revisionId（update/delete 必填）。",
   "- 引用字段的值填目标记录 id，或本批次 create 返回的 tmp: 前缀临时 ID。",

@@ -17,7 +17,7 @@ function tooLong(field: MemoryField, maxChars: number, valueLength: number): nev
   throw new DomainError({
     type: "memory_record_field_value_too_long",
     param: { fieldId: field.id, maxChars, actualLength: valueLength },
-    humanMsg: `字段“${field.name}”的值长度 ${valueLength} 超过上限 ${maxChars} 字；请压缩、合并或删除旧内容后再提交`,
+    humanMsg: `字段“${field.name}”的值长度 ${valueLength} 超过上限 ${maxChars} 字；请压缩重复表述和过程细节，保留重要旧事实与新增转折后再提交`,
   });
 }
 

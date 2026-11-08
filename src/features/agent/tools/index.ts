@@ -63,3 +63,6 @@ export type {
   SubmitProposalToolDependencies,
   SubmitProposalToolResult,
 } from "./proposal/submit-proposal-tool.ts";
+
+export { EDIT_TEXT_TOOL_NAME, createEditTextTool } from "./proposal/edit-text-tool.ts";
+export type { EditTextToolDependencies, EditTextToolParams } from "./proposal/edit-text-tool.ts";

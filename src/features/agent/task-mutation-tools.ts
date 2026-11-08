@@ -9,15 +9,18 @@ import {
   type MemoryProposalPorts,
   type MemoryRecordService,
   type MemorySpaceId,
+  type MemorySpaceReader,
 } from "../memory/index.ts";
 import type { MemorySpaceTableDigest } from "./digest.ts";
 import { createMutateTool } from "./tools/proposal/mutate-tool.ts";
+import { createEditTextTool } from "./tools/proposal/edit-text-tool.ts";
 import { ProposalState } from "./tools/proposal/proposal-state.ts";
 import { compileProposalOperations } from "./tools/proposal/proposal-compiler.ts";
 
 interface TaskMutationToolsInput {
   readonly digest: MemorySpaceTableDigest;
   readonly ports: MemoryProposalPorts;
+  readonly reader: MemorySpaceReader;
   readonly memorySpaceId: MemorySpaceId;
   readonly messageRange: MemoryMessageRange;
   readonly evidence: readonly MemoryEvidence[];
@@ -44,10 +47,13 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
     validateOperation: (operation) =>
       validateProposalOperation(input.ports, input.memorySpaceId, operation),
   });
-  const mutate: AgentTool<typeof template.parameters, unknown> = {
+  const mutate: AgentTool<
+    typeof template.parameters,
+    { status: string; recordId: string; revisionId: string }
+  > = {
     ...template,
     description:
-      "立即在本任务事务中 create/update/delete 一条记录。参数使用表和字段 key。create 提供 table 和 patch，禁止指定 tempId，返回真实 recordId。update/delete 提供 query_records 中最新的 recordId 和 expectedRevisionId；update 同时提供 patch。成功后 query_records 可读取变更，引用使用真实 recordId。约束失败仅撤销当前调用，可修正重试。",
+      "立即在本任务事务中 create/update/delete 一条记录。参数使用表和字段 key。create 提供 table 和 patch，禁止指定 tempId，返回真实 recordId。update/delete 提供 query_records 中最新的 recordId 和 expectedRevisionId；update 同时提供 patch，文本字段会被整体替换；经历新增或局部修改优先使用 edit_text。成功后 query_records 可读取变更，引用使用真实 recordId。约束失败仅撤销当前调用，可修正重试。",
     async execute(id, params) {
       assertOpen();
       if (params.tempId !== undefined) {
@@ -84,6 +90,11 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
   };
   const tools: AgentTool[] = [
     mutate,
+    createEditTextTool({
+      digest: input.digest,
+      reader: input.reader,
+      update: async (id, params) => (await mutate.execute(id, params)).details,
+    }),
     {
       name: "submit_proposal",
       label: "完成本块填写",
