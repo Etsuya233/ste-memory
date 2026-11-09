@@ -149,6 +149,29 @@ function scriptedSubmitAgent() {
 }
 
 describe("runFillAgent", () => {
+  it("只读助手保留普通 SQL 能力并阻止事务写入模式混用", async () => {
+    const harness = await createHarness();
+    const querySql = async () => [{ found: 1 }];
+    const streamFn = scriptedStreamFn((context) => {
+      expect(context.tools?.map((tool) => tool.name)).toEqual(["query_records", "query_sql"]);
+      if (!lastToolResult(context)) {
+        return assistantMessage(
+          [toolCallMessage("inspect", "query_sql", { sql: "SELECT 1 AS found" })],
+          "toolUse",
+        );
+      }
+      return assistantMessage([textMessage("核对完成")], "stop");
+    });
+    const input = {
+      ...runInput(harness, streamFn),
+      reader: { ...harness.reader, querySql },
+      readOnly: true,
+    };
+    expect(await runFillAgent(input)).toMatchObject({ stopReason: "stop", proposal: undefined });
+    await expect(runFillAgent({ ...input, taskWriter: harness.services.records })).rejects.toThrow(
+      "只读助手不能配置事务写入工具",
+    );
+  });
   it("宿主提供SQL能力时填表Agent挂载只读query_sql", async () => {
     const harness = await createHarness();
     let query: string | undefined;

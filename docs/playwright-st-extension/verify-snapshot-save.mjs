@@ -52,7 +52,7 @@ try {
   await timeout.fill("601");
   await page.evaluate(() => window.frontendPreview.delayNextForceSync(400));
   await forceSync.click();
-  await waitForResult("正在同步");
+  await waitForResult("正在核验聊天文件");
   check("force sync prevents duplicate clicks", await forceSync.isDisabled());
   await waitForResult("同步完成");
   check(
@@ -74,7 +74,7 @@ try {
     window.frontendPreview.failNextForceSync("远端快照与当前已提交记忆不一致"),
   );
   await forceSync.click();
-  await waitForResult("同步失败：远端快照与当前已提交记忆不一致");
+  await waitForResult("远端快照与当前已提交记忆不一致");
   check(
     "failed verification never shows sync complete",
     !(await control.textContent()).includes("同步完成"),
@@ -91,7 +91,12 @@ try {
   await page.waitForTimeout(800);
   check("late result from A cannot confirm B", (await result.count()) === 0);
   await switchChat("a");
-  check("returning to A shows its pending save failure", (await result.textContent()).includes("对话已切换"));
+  check(
+    "released ordinary synchronization does not leave A permanently busy",
+    (await result.count()) === 0 &&
+      (await forceSync.isEnabled()) &&
+      (await page.evaluate(() => window.frontendPreview.snapshotSaveState().kind)) === "idle",
+  );
   await forceSync.click();
   await waitForResult("同步完成");
   await page.evaluate(() => window.frontendPreview.workspace.setContext(null));

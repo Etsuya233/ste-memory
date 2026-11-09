@@ -46,6 +46,7 @@ import {
   FillTaskRangeError,
   FillTaskStateError,
   isFillTaskTerminal,
+  fillTaskActions,
   type FillTask,
   type FillTaskBatchResult,
   type FillTaskRepository,
@@ -371,6 +372,9 @@ export class FillTaskService {
   ): Promise<FillTaskView> {
     const task = await this.#requireTask(memorySpaceId, runId);
     const run = this.#runs.get(runId);
+    if (!reason && !fillTaskActions({ ...task, phase: run?.phase }).cancel.allowed) {
+      throw new FillTaskStateError(task);
+    }
     if (run) {
       if (run.phase === "saving") {
         if (reason) {
@@ -479,10 +483,7 @@ export class FillTaskService {
   async retry(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
     this.#assertCanEditSpace(memorySpaceId);
     const task = await this.#requireTask(memorySpaceId, runId);
-    if (
-      !isFillTaskTerminal(task.status) ||
-      (task.kind === "init" && (task.pendingCommit || task.nextFrom === null))
-    ) {
+    if (!fillTaskActions(task).retry.allowed) {
       throw new FillTaskStateError(task);
     }
     const retryOf = task.blocksQueue ? task.runId : undefined;

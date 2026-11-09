@@ -40,7 +40,7 @@ function harness() {
   const runtime = {
     version: "test",
     logs: { append },
-    persistence: { getStatus: () => ({ kind: "idle" }) },
+    persistence: { getStatus: () => ({ kind: "idle", cleanup: { kind: "idle" } }) },
     settings: { read: () => ({ enabled: true }) },
     adapter: {
       getChatSnapshot: () => ({ chatId, characterId: 1 }),

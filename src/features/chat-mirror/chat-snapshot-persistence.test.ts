@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ChatSnapshotPersistence,
+  snapshotSaveActions,
   type ChatFileTarget,
   type ChatSnapshotFileStore,
 } from "./chat-snapshot-persistence.ts";
@@ -51,6 +52,219 @@ function deferred() {
 }
 
 describe("宿主提交与完整文件核验", () => {
+  it.each(["submit", "verify", "confirm"] as const)(
+    "候选失败暴露实际阶段 %s，重试沿用原操作身份",
+    async (phase) => {
+      const h = harness();
+      const confirmed = vi.fn(async () => {});
+      if (phase === "submit") {
+        vi.mocked(h.store.submit).mockRejectedValueOnce(new Error("阶段失败"));
+      } else if (phase === "verify") {
+        vi.mocked(h.store.verify).mockRejectedValueOnce(new Error("阶段失败"));
+      } else {
+        confirmed.mockRejectedValueOnce(new Error("阶段失败"));
+      }
+      await expect(h.persistence.replace(target, unit(), binding, confirmed)).rejects.toThrow(
+        "阶段失败",
+      );
+      const failed = h.persistence.getStatus("A");
+      expect(failed).toMatchObject({ kind: "failed", phase, operationId: 1 });
+      expect(snapshotSaveActions(failed, true)).toMatchObject({
+        busy: false,
+        recovery: "retry-save",
+        canRetry: true,
+      });
+      expect(snapshotSaveActions(failed, false)).toMatchObject({
+        canRetry: false,
+        canForceSync: false,
+        disabledReason: "请回到原对话后操作",
+      });
+      await h.persistence.forceSync(target, binding, unit(), () => {});
+      expect(h.persistence.getStatus("A")).toMatchObject({ kind: "verified", operationId: 1 });
+    },
+  );
+
+  it("确认收尾保持忙碌，重复保存重试共用原候选在途请求", async () => {
+    const h = harness();
+    const gate = deferred();
+    const saving = h.persistence.replace(target, unit(), binding, () => gate.promise);
+    await vi.waitFor(() => expect(h.persistence.getStatus("A").kind).toBe("confirming"));
+    expect(snapshotSaveActions(h.persistence.getStatus("A"), true)).toMatchObject({
+      busy: true,
+      canRetry: false,
+      canForceSync: false,
+    });
+    const duplicate = h.persistence.forceSync(target, binding, unit(), () => {});
+    expect(duplicate).toBe(saving);
+    gate.resolve();
+    await Promise.all([saving, duplicate]);
+    expect(h.store.submit).toHaveBeenCalledOnce();
+  });
+
+  it("旧强制同步核验迟到不能覆盖更新提交，也不能发布确认阶段", async () => {
+    const h = harness();
+    const gate = deferred();
+    vi.mocked(h.store.verify).mockImplementationOnce(async () => {
+      const captured = structuredClone(h.metadata());
+      await gate.promise;
+      return captured;
+    });
+    const stages: string[] = [];
+    h.persistence.onStatusChange((status) => stages.push(status.kind));
+    const forced = h.persistence.forceSync(target, binding, unit(), () => {});
+    await vi.waitFor(() => expect(h.persistence.getStatus("A").kind).toBe("verifying"));
+    await h.persistence.saveCommitted(target, binding, unit());
+    gate.resolve();
+    await forced;
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "submitted", operationId: 2 });
+    expect(stages).not.toContain("confirming");
+  });
+
+  it("确认阶段的同步订阅可开始新提交，旧操作不会发布最终核验结果", async () => {
+    const h = harness();
+    let newer: Promise<void> | undefined;
+    h.persistence.onStatusChange((status) => {
+      if (status.kind === "confirming" && status.operationId === 1) {
+        newer = h.persistence.saveCommitted(target, binding, unit());
+      }
+    });
+    await h.persistence.forceSync(target, binding, unit(), () => {});
+    await newer;
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "submitted", operationId: 2 });
+  });
+
+  it("失败诊断订阅启动更新保存时，旧失败不能覆盖新操作", async () => {
+    const h = harness();
+    const gate = deferred();
+    vi.mocked(h.store.submit)
+      .mockRejectedValueOnce(new Error("旧保存失败"))
+      .mockImplementationOnce(async (owner, mirror, nextBinding) => {
+        h.store.restore(owner, mirror, nextBinding);
+        await gate.promise;
+      });
+    let newer: Promise<void> | undefined;
+    h.persistence.onFailure((failure) => {
+      if (failure.operationId === 1) {
+        newer = h.persistence.saveCommitted(target, binding, unit());
+      }
+    });
+    await expect(h.persistence.saveCommitted(target, binding, unit())).rejects.toThrow(
+      "旧保存失败",
+    );
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "saving", operationId: 2 });
+    gate.resolve();
+    await newer;
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "submitted", operationId: 2 });
+  });
+
+  it("发布核验成功时已登记原清理，订阅重入的新保存不会丢失它", async () => {
+    const h = harness();
+    const retire = vi.fn(async () => {
+      throw new Error("原空间清理失败");
+    });
+    let newer: Promise<void> | undefined;
+    let registeredAtPublication: boolean | undefined;
+    let cleanupAtPublication: string | undefined;
+    h.persistence.onStatusChange((status) => {
+      if (status.kind === "verified" && status.operationId === 1 && newer === undefined) {
+        registeredAtPublication = h.persistence.hasPendingCleanup("A");
+        cleanupAtPublication = status.cleanup.kind;
+        newer = h.persistence.saveCommitted(target, binding, unit());
+      }
+    });
+    await h.persistence.replace(target, unit(), binding, undefined, retire);
+    await newer;
+    expect(registeredAtPublication).toBe(true);
+    expect(cleanupAtPublication).toBe("running");
+    expect(retire).toHaveBeenCalledOnce();
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "submitted",
+      operationId: 2,
+      cleanup: { kind: "failed", operationIds: [1] },
+    });
+  });
+
+  it("旧退休清理与新提交并行，清理失败保留其原操作身份，重试不会上传聊天", async () => {
+    const h = harness();
+    const gate = deferred();
+    const retire = vi.fn<() => Promise<void>>(async () => {
+      await gate.promise;
+      throw new Error("旧辅助清理失败");
+    });
+    const replaced = h.persistence.replace(target, unit(), binding, undefined, retire);
+    await vi.waitFor(() => expect(h.persistence.getStatus("A").cleanup.kind).toBe("running"));
+    await h.persistence.saveCommitted(target, binding, unit());
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "submitted",
+      operationId: 2,
+      cleanup: { kind: "running", operationIds: [1] },
+    });
+    gate.resolve();
+    await replaced;
+    const failed = h.persistence.getStatus("A");
+    expect(failed).toMatchObject({
+      kind: "submitted",
+      operationId: 2,
+      cleanup: { kind: "failed", operationIds: [1] },
+    });
+    expect(snapshotSaveActions(failed, true).recovery).toBe("retry-cleanup");
+    retire.mockImplementationOnce(async () => {});
+    const submissions = vi.mocked(h.store.submit).mock.calls.length;
+    const first = h.persistence.retryCleanup("A");
+    const second = h.persistence.retryCleanup("A");
+    expect(first).toBe(second);
+    await Promise.all([first, second]);
+    expect(h.store.submit).toHaveBeenCalledTimes(submissions);
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "submitted",
+      operationId: 2,
+      cleanup: { kind: "idle" },
+    });
+  });
+
+  it("离开聊天释放未完成的普通同步，迟到结果不会留下忙碌状态", async () => {
+    const h = harness();
+    const gate = deferred();
+    vi.mocked(h.store.verify).mockImplementationOnce(async () => {
+      const captured = structuredClone(h.metadata());
+      await gate.promise;
+      return captured;
+    });
+    const forced = h.persistence.forceSync(target, binding, unit(), () => {});
+    await vi.waitFor(() => expect(h.persistence.getStatus("A").kind).toBe("verifying"));
+    h.persistence.release("A");
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "idle" });
+    gate.resolve();
+    await forced;
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "idle" });
+    expect(h.persistence.hasPendingWrites()).toBe(false);
+  });
+
+  it("离开聊天释放失败同步的快照和待写入状态，返回时保留原诊断并保存最新内容", async () => {
+    const h = harness();
+    vi.mocked(h.store.verify).mockRejectedValueOnce(new Error("核验离线"));
+    await expect(h.persistence.forceSync(target, binding, unit(), () => {})).rejects.toThrow(
+      "核验离线",
+    );
+    h.persistence.release("A");
+    expect(h.persistence.current("A")).toBeUndefined();
+    expect(h.persistence.hasPendingWrites()).toBe(false);
+    expect(h.persistence.getStatus("A")).toMatchObject({
+      kind: "failed",
+      operationId: 1,
+      operation: "force-sync",
+      phase: "verify",
+      error: "核验离线",
+    });
+    const latest = unit();
+    const changed = { ...latest, space: { ...latest.space, name: "返回后的最新内容" } };
+    h.persistence.remember(target, changed, binding);
+    expect(snapshotSaveActions(h.persistence.getStatus("A"), true).recovery).toBe("retry-save");
+    await h.persistence.forceSync(target, binding, changed, () => {});
+    expect(h.persistence.getStatus("A")).toMatchObject({ kind: "verified", operationId: 2 });
+    expect((h.file().steMemoryMirror as ChatMirrorFile).data.space.name).toBe("返回后的最新内容");
+  });
+
   it("文件确认后退休清理失败不阻塞编辑，重试只清理并保留后续保存状态", async () => {
     const h = harness();
     const retire = vi.fn(async () => {}).mockRejectedValueOnce(new Error("旧向量清理失败"));
@@ -58,19 +272,19 @@ describe("宿主提交与完整文件核验", () => {
     expect(h.persistence.hasPendingReplacement("A")).toBe(false);
     expect(h.persistence.getStatus("A")).toMatchObject({
       kind: "verified",
-      cleanupWarning: expect.stringContaining("旧向量"),
+      cleanup: { kind: "failed", operationIds: [1], message: expect.stringContaining("旧向量") },
     });
     await h.persistence.saveCommitted(target, binding, unit());
     expect(h.persistence.getStatus("A")).toMatchObject({
       kind: "submitted",
-      cleanupWarning: expect.any(String),
+      cleanup: { kind: "failed", operationIds: [1], message: expect.any(String) },
     });
     const count = vi.mocked(h.store.submit).mock.calls.length;
     await h.persistence.retryCleanup("A");
     expect(retire).toHaveBeenCalledTimes(2);
     expect(h.store.submit).toHaveBeenCalledTimes(count);
     expect(h.persistence.getStatus("A")).toMatchObject({ kind: "submitted" });
-    expect(h.persistence.getStatus("A")).not.toHaveProperty("cleanupWarning");
+    expect(h.persistence.getStatus("A").cleanup).toEqual({ kind: "idle" });
   });
   it("普通提交同步发布两个键并即时调用宿主，不读取文件且只表示未核验", async () => {
     const h = harness();

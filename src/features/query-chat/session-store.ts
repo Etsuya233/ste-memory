@@ -6,6 +6,17 @@ import {
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { ProposalPreviewToolResult } from "../agent/index.ts";
 import {
+  assistantSessionActions,
+  AssistantSessionActionError,
+  type AssistantOperationPhase,
+  type AssistantSessionActions,
+} from "./assistant-session-state.ts";
+export type {
+  AssistantSessionActions,
+  AssistantActionAvailability,
+  AssistantExecutionState,
+} from "./assistant-session-state.ts";
+import {
   applyQueryChatEvent,
   translateAgentEvent,
   createUserMessage,
@@ -162,7 +173,13 @@ export class QueryChatStore {
   // 只记录已成功落盘的版本，后续排队快照据此做原子版本校验。
   readonly #revisions = new Map<string, number>();
   // 排队和持锁都属于一次操作，取消也能终止尚在等待跨页锁的请求。
-  readonly #operations = new Map<string, { controller: AbortController; ownsLock: boolean }>();
+  readonly #operations = new Map<
+    string,
+    {
+      controller: AbortController;
+      phase: AssistantOperationPhase;
+    }
+  >();
   readonly #lifetime = new AbortController();
   readonly #recovering = new Set<string>();
   #unsubscribe: (() => void) | undefined;
@@ -179,6 +196,9 @@ export class QueryChatStore {
   isExecuting(id: string) {
     return this.#operations.has(id);
   }
+  getSessionActions(id: string): AssistantSessionActions {
+    return assistantSessionActions(this.get(id), this.#operations.get(id)?.phase);
+  }
   /**
    * 先保存本页编辑，再等待跨标签页锁；拿锁后重读最新会话交给业务。
    * 回调退出前等待所有检查点落盘，再释放锁，其他页面才可继续同一会话。
@@ -188,18 +208,24 @@ export class QueryChatStore {
     work: (session: AssistantSession, signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
     if (this.#operations.has(id)) {
-      throw new Error("会话正在执行，请等待完成或停止");
+      throw new AssistantSessionActionError({
+        allowed: false,
+        code: "session-busy",
+        message: "会话正在执行，请等待完成或停止",
+      });
     }
     const controller = new AbortController();
-    const operation = { controller, ownsLock: false };
+    const operation = { controller, phase: "saving-checkpoint" as AssistantOperationPhase };
     this.#operations.set(id, operation);
     this.#notify();
     try {
       await this.flush();
+      operation.phase = "waiting-for-lock";
+      this.#notify();
       return await this.#repository.withLock(
         id,
         async () => {
-          operation.ownsLock = true;
+          operation.phase = "owned";
           try {
             const latest = await this.#repository.find(id);
             if (!latest) {
@@ -213,11 +239,9 @@ export class QueryChatStore {
             controller.signal.throwIfAborted();
             return await work(latest, controller.signal);
           } finally {
-            try {
-              await this.flush();
-            } finally {
-              operation.ownsLock = false;
-            }
+            operation.phase = "finishing";
+            this.#notify();
+            await this.flush();
           }
         },
         true,
@@ -287,23 +311,19 @@ export class QueryChatStore {
     return session;
   }
   setDraft(id: string, text: string) {
+    this.#assertAction(id, "edit");
     this.#update(id, { draft: text });
   }
   rename(id: string, title: string) {
+    this.#assertAction(id, "edit");
     if (!title.trim()) {
       throw new Error("会话名称不能为空");
     }
     this.#update(id, { title: title.trim() });
   }
   async delete(id: string) {
-    const session = this.get(id);
-    if (session.status === "committing") {
-      throw new Error("正在提交，完成后可删除会话");
-    }
-    if (session.status === "running" && !this.#operations.has(id)) {
-      throw new AssistantSessionBusyError();
-    }
-    this.cancel(id);
+    this.#assertAction(id, "delete");
+    this.#operations.get(id)?.controller.abort();
     this.#runs.delete(id);
     this.#sessions = this.#sessions.filter((session) => session.id !== id);
     this.#unsaved.set(id, null);
@@ -314,9 +334,7 @@ export class QueryChatStore {
   /** 将输入、占位回复与运行状态作为同一个检查点保存。 */
   startRun(id: string, text: string): AssistantRun {
     const session = this.get(id);
-    if (session.status === "committing" || this.#runs.has(id)) {
-      throw new Error("会话正在执行，请等待完成或停止");
-    }
+    this.#assertAction(id, "send", "owned-transition");
     const input: AgentMessage = {
       role: "user",
       content: [{ type: "text", text }],
@@ -397,20 +415,16 @@ export class QueryChatStore {
   /** 校验用户确认的预览身份，并先进入可恢复的提交中状态。 */
   beginCommit(id: string, previewId: string): ProposalPreviewToolResult {
     const session = this.get(id);
-    if (session.status === "running" || session.status === "committing") {
-      throw new Error("会话正在执行");
-    }
-    if (session.commitUncertain) {
-      throw new Error("上次提交结果待核对，请查询记录并放弃旧提案后重新准备修改");
-    }
-    if (!session.preview?.valid || session.previewId !== previewId) {
-      throw new Error("提案已变化，请重新查看变更后确认");
-    }
-    if (!session.proposal.operations.length) {
-      throw new Error("提案为空");
+    this.#assertAction(id, "confirm", "owned-transition");
+    if (session.previewId !== previewId) {
+      throw new AssistantSessionActionError({
+        allowed: false,
+        code: "preview-required",
+        message: "提案已变化，请重新查看变更后确认",
+      });
     }
     this.#update(id, { status: "committing" });
-    return session.preview;
+    return session.preview!;
   }
 
   /** 成功回执与清空草稿一次落盘；失败保留提案，但需要重新预览确认。 */
@@ -443,9 +457,7 @@ export class QueryChatStore {
 
   discardProposal(id: string) {
     const session = this.get(id);
-    if (session.status === "running" || session.status === "committing") {
-      throw new Error("会话正在执行");
-    }
+    this.#assertAction(id, "discard", "owned-transition");
     this.#update(id, {
       proposal: new ProposalState().snapshot(),
       preview: undefined,
@@ -462,13 +474,19 @@ export class QueryChatStore {
     });
   }
   cancel(id: string) {
+    if (!this.#operations.has(id)) {
+      return false;
+    }
+    if (!this.getSessionActions(id).cancel.allowed) {
+      return false;
+    }
     this.#operations.get(id)?.controller.abort();
     return this.#runs.has(id) || this.#operations.has(id);
   }
   cancelSpace(spaceId: MemorySpaceId) {
     for (const session of this.#sessions) {
       if (session.spaceId === spaceId) {
-        this.cancel(session.id);
+        this.#operations.get(session.id)?.controller.abort();
       }
     }
   }
@@ -665,20 +683,27 @@ export class QueryChatStore {
     persist = true,
   ) {
     const current = this.get(id);
-    if (
-      persist &&
-      (patch.title !== undefined || patch.draft !== undefined) &&
-      !this.#operations.get(id)?.ownsLock &&
-      (this.#operations.has(id) || current.status === "running" || current.status === "committing")
-    ) {
-      throw new AssistantSessionBusyError();
-    }
     const session = { ...current, ...patch, updatedAt: new Date().toISOString() };
     this.#sessions = this.#sessions.map((item) => (item.id === id ? session : item));
     if (persist) {
       this.#persist(session);
     }
     this.#notify();
+  }
+  #assertAction(
+    id: string,
+    action: Exclude<keyof AssistantSessionActions, "execution">,
+    source: "admission" | "owned-transition" = "admission",
+  ) {
+    const phase = this.#operations.get(id)?.phase;
+    // 持锁业务转换使用同一会话规则；本页在途操作仍阻止外部按钮再次入场。
+    const available = assistantSessionActions(
+      this.get(id),
+      source === "owned-transition" && phase === "owned" ? undefined : phase,
+    )[action];
+    if (!available.allowed) {
+      throw new AssistantSessionActionError(available);
+    }
   }
   #persist(session: AssistantSession) {
     const snapshot = structuredClone(session);

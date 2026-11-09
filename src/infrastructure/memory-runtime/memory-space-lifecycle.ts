@@ -33,6 +33,24 @@ interface PendingSpaceOperation {
   readonly kind: "rebuild" | "clear-records";
 }
 
+/** 写入许可由当前归属和操作推导，读取许可与文件保存结果独立。 */
+export type SpaceWriteState =
+  | { readonly kind: "editable" }
+  | {
+      readonly kind: "synchronizing" | "replacing" | "candidate-unverified";
+      readonly identity: string;
+      readonly message: string;
+    };
+
+export class SpaceWriteBlockedError extends Error {
+  readonly code: Exclude<SpaceWriteState["kind"], "editable">;
+  constructor(state: Exclude<SpaceWriteState, { kind: "editable" }>) {
+    super(state.message);
+    this.name = "SpaceWriteBlockedError";
+    this.code = state.kind;
+  }
+}
+
 /** 在线空间的文件归属与离开/退休流程只有这一处维护。保存任务持有独立输入，
  * 卸载只释放 SQLite；成功替换才清辅助数据，并按原文件核对归属。 */
 export class MemorySpaceLifecycle {
@@ -45,10 +63,28 @@ export class MemorySpaceLifecycle {
   >();
   private readonly synchronizing = new Map<SpaceOwner, { token: symbol; done: Promise<void> }>();
   private switching: Promise<void> = Promise.resolve();
+  private readonly listeners = new Set<() => void>();
   private readonly ports: SpaceLifecyclePorts;
 
   constructor(ports: SpaceLifecyclePorts) {
     this.ports = ports;
+  }
+
+  onWriteStateChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyWriteState(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (error) {
+        this.ports.reportSwitchError(error);
+      }
+    }
   }
 
   saveSnapshot(unit: MemorySpaceBackup): Promise<void> {
@@ -79,6 +115,7 @@ export class MemorySpaceLifecycle {
       finish = complete;
     });
     this.synchronizing.set(owner, { token: operation, done });
+    this.notifyWriteState();
     try {
       await this.ports.memory.whenIdle(id);
       assertActive();
@@ -96,6 +133,7 @@ export class MemorySpaceLifecycle {
       if (this.synchronizing.get(owner)?.token === operation) {
         this.synchronizing.delete(owner);
         finish();
+        this.notifyWriteState();
       }
     }
   }
@@ -127,16 +165,36 @@ export class MemorySpaceLifecycle {
     }
   }
 
-  assertCanEdit(id: string): void {
+  getWriteState(id: string): SpaceWriteState {
     const owner = this.owners.get(id);
     if (owner && this.synchronizing.has(owner)) {
-      throw new Error("正在强制同步，请等待核验完成");
+      return {
+        kind: "synchronizing",
+        identity: owner.target.identity,
+        message: "正在强制同步，请等待核验完成",
+      };
     }
     if (owner && this.pendingOperations.has(owner.target.identity)) {
-      throw new Error("空间替换尚待核验，请先强制同步");
+      return {
+        kind: "replacing",
+        identity: owner.target.identity,
+        message: "空间替换尚待核验，请先强制同步",
+      };
     }
     if (owner && this.ports.persistence.hasPendingReplacement(owner.target.identity)) {
-      throw new Error("候选空间尚未完成保存，请先重试保存");
+      return {
+        kind: "candidate-unverified",
+        identity: owner.target.identity,
+        message: "候选空间尚未完成保存，请先重试保存",
+      };
+    }
+    return { kind: "editable" };
+  }
+
+  assertCanEdit(id: string): void {
+    const state = this.getWriteState(id);
+    if (state.kind !== "editable") {
+      throw new SpaceWriteBlockedError(state);
     }
   }
 
@@ -189,9 +247,11 @@ export class MemorySpaceLifecycle {
     }
     const operation = { kind: "replacement" as const };
     this.pendingOperations.set(target.identity, operation);
+    this.notifyWriteState();
     const release = () => {
       if (this.pendingOperations.get(target.identity) === operation) {
         this.pendingOperations.delete(target.identity);
+        this.notifyWriteState();
       }
     };
     try {
@@ -220,6 +280,7 @@ export class MemorySpaceLifecycle {
     }
     const request: PendingSpaceOperation = { spaceId: input.memorySpaceId, owner, kind: "rebuild" };
     this.pendingOperations.set(owner.target.identity, request);
+    this.notifyWriteState();
     try {
       this.ports.assistant.cancelSpace(request.spaceId);
       await this.ports.vector.stop({ memorySpaceId: request.spaceId });
@@ -236,12 +297,14 @@ export class MemorySpaceLifecycle {
         .rebuild(input);
       if (!rebuilt) {
         this.pendingOperations.delete(owner.target.identity);
+        this.notifyWriteState();
       }
       return rebuilt;
     } catch (error) {
       // SQL 失败未提交，解除门控；文件或确认失败仍由保存任务持有本请求，等待重试。
       if (!(error instanceof MemoryCommitPersistenceError)) {
         this.pendingOperations.delete(owner.target.identity);
+        this.notifyWriteState();
       }
       throw error;
     }
@@ -255,6 +318,7 @@ export class MemorySpaceLifecycle {
     }
     const request: PendingSpaceOperation = { spaceId: id, owner, kind: "clear-records" };
     this.pendingOperations.set(owner.target.identity, request);
+    this.notifyWriteState();
     try {
       this.ports.assistant.cancelSpace(id);
       await this.ports.vector.stop({ memorySpaceId: id });
@@ -273,6 +337,7 @@ export class MemorySpaceLifecycle {
       });
       if (!candidate) {
         this.pendingOperations.delete(owner.target.identity);
+        this.notifyWriteState();
         return false;
       }
       await this.ports.persistence.replace(owner.target, candidate, owner.binding, () =>
@@ -282,6 +347,7 @@ export class MemorySpaceLifecycle {
     } catch (error) {
       if (!this.ports.persistence.hasPendingReplacement(owner.target.identity)) {
         this.pendingOperations.delete(owner.target.identity);
+        this.notifyWriteState();
       }
       throw error;
     }
@@ -312,6 +378,7 @@ export class MemorySpaceLifecycle {
         }
       }
       this.pendingOperations.delete(identity);
+      this.notifyWriteState();
     });
   }
 

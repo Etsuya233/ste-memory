@@ -121,6 +121,17 @@ describe("会话持久化与恢复", () => {
       commitUncertain: true,
       previewId: undefined,
     });
+    expect(restored.getSessionActions(a.id)).toMatchObject({
+      execution: "idle",
+      send: { allowed: true },
+      prepare: { allowed: false, code: "commit-uncertain" },
+      confirm: { allowed: false, code: "commit-uncertain" },
+      discard: { allowed: true },
+      cancel: { allowed: false, code: "not-running" },
+    });
+    expect(() => restored.beginCommit(a.id, "old")).toThrow("上次提交结果待核对");
+    restored.discardProposal(a.id);
+    expect(restored.getSessionActions(a.id).prepare).toEqual({ allowed: true });
   });
   it("保存失败展示错误并保留删除操作，重试后不会恢复已删除会话", async () => {
     const repo = new InMemoryAssistantSessions();
@@ -135,6 +146,54 @@ describe("会话持久化与恢复", () => {
     failure.mockRestore();
     expect(await repo.list()).toHaveLength(0);
     expect(store.storageError()).toBeNull();
+  });
+  it("等待另一页提交的本页请求可取消，等待本身不获得删除权限", async () => {
+    const repo = new InMemoryAssistantSessions();
+    const store = new QueryChatStore(repo);
+    await store.ready;
+    const session = store.create(context);
+    await store.flush();
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const owner = repo.withLock(session.id, async () => {
+      const saved = (await repo.find(session.id))!;
+      await repo.put(
+        { ...saved, status: "committing", storageRevision: saved.storageRevision + 1 },
+        saved.storageRevision,
+      );
+      started();
+      await gate;
+    });
+    await ready;
+    const peer = new QueryChatStore(repo);
+    await peer.ready;
+    const work = vi.fn();
+    const waiting = peer.withExclusiveSession(session.id, work);
+    try {
+      await vi.waitFor(() =>
+        expect(peer.getSessionActions(session.id).execution).toBe("waiting-for-lock"),
+      );
+      expect(peer.getSessionActions(session.id)).toMatchObject({
+        cancel: { allowed: true },
+        delete: { allowed: false },
+      });
+      await expect(peer.delete(session.id)).rejects.toMatchObject({ code: "waiting-for-lock" });
+      expect(peer.cancel(session.id)).toBe(true);
+      await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+      expect(work).not.toHaveBeenCalled();
+      expect((await repo.find(session.id))?.status).toBe("committing");
+    } finally {
+      peer.dispose();
+      store.dispose();
+      release();
+      await owner;
+    }
   });
   it("加载失败不会当作空会话覆盖数据，重试可恢复", async () => {
     const repo = new InMemoryAssistantSessions();

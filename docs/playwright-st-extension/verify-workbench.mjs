@@ -180,6 +180,7 @@ try {
   );
   check("vector batch cancellation works", true);
   await action("nav-settings").click();
+  const originalSettings = await page.evaluate(() => window.frontendPreview.settingsSnapshot());
   const timeout = page.getByLabel("每批填写 Agent 超时（秒）", { exact: true });
   await timeout.fill("777");
   await action("nav-records").click();
@@ -191,9 +192,10 @@ try {
   );
   check(
     "timeout persists and retains unrelated defaults",
-    await page.evaluate(
-      () => window.frontendPreview.settingsSnapshot().mirror.includeHistory === true,
-    ),
+    JSON.stringify({
+      ...(await page.evaluate(() => window.frontendPreview.settingsSnapshot())),
+      fillAgentTimeoutSeconds: originalSettings.fillAgentTimeoutSeconds,
+    }) === JSON.stringify(originalSettings),
   );
   await timeout.fill("10");
   await button("保存超时").click();
@@ -203,9 +205,11 @@ try {
   await button("放弃修改并继续").click();
   await action("nav-settings").click();
   check("discard timeout returns saved value", (await timeout.inputValue()) === "777");
-  await page.getByRole("switch", { name: "同步到对话文件", exact: true }).click();
-  await page.waitForFunction(() => !window.frontendPreview.settingsSnapshot().mirror.enabled);
-  check("mirror switch persists immediately", true);
+  check(
+    "chat persistence exposes force sync without an optional mirror switch",
+    (await action("force-sync-memory").isEnabled()) &&
+      (await page.getByRole("switch", { name: "同步到对话文件", exact: true }).count()) === 0,
+  );
   await page.getByRole("switch", { name: "启用记忆插件", exact: true }).click();
   await page.waitForFunction(
     () =>

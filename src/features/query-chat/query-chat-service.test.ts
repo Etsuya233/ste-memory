@@ -303,6 +303,70 @@ describe("记忆助手会话", () => {
       writer.mockRestore();
     }
   });
+  it("提交中断后的交流仅挂载查询工具，旧提案须放弃后才恢复准备修改", async () => {
+    const h = await createHarness({ streamFn: draftScript() });
+    const session = createSession(h);
+    await h.service.run({ sessionId: session.id, text: "新增云烬" });
+    const oldProposal = h.store.get(session.id).proposal;
+    h.store.dispose();
+    const repo = new IndexedDbAssistantSessions(h.db);
+    const saved = (await repo.find(session.id))!;
+    await repo.put(
+      { ...saved, status: "committing", storageRevision: saved.storageRevision + 1 },
+      saved.storageRevision,
+    );
+    const restored = new QueryChatStore(repo);
+    await restored.ready;
+    const query = h.buildService(
+      scriptedStreamFn((context) => {
+        expect(context.tools?.map((tool) => tool.name)).toEqual(["query_records"]);
+        expect(context.systemPrompt).toContain("仅允许查询记忆");
+        if (context.messages.at(-1)?.role === "user") {
+          return assistantMessage(
+            [
+              toolCallMessage("forbidden", "mutate", {
+                op: "create",
+                table: "characters",
+                patch: { name: "不应新增" },
+              }),
+              toolCallMessage("inspect", "query_records", { table: "characters" }),
+            ],
+            "toolUse",
+          );
+        }
+        expect(
+          context.messages.some(
+            (message) =>
+              message.role === "toolResult" &&
+              message.toolCallId === "forbidden" &&
+              message.isError,
+          ),
+        ).toBe(true);
+        expect(lastToolResult(context)?.toolName).toBe("query_records");
+        return assistantMessage([textMessage("已查询当前记录，请核对后放弃旧提案。")], "stop");
+      }),
+      restored,
+    );
+    try {
+      await query.run({ sessionId: session.id, text: "先查询记录并再次新增" });
+      expect(restored.get(session.id)).toMatchObject({
+        commitUncertain: true,
+        proposal: oldProposal,
+        preview: undefined,
+        previewId: undefined,
+      });
+      expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(0);
+      await expect(query.confirm(session.id, "old-preview")).rejects.toMatchObject({
+        code: "commit-uncertain",
+      });
+      await query.discard(session.id);
+      expect(restored.getSessionActions(session.id).prepare).toEqual({ allowed: true });
+      expect(restored.get(session.id).proposal.operations).toHaveLength(0);
+    } finally {
+      restored.dispose();
+      h.db.close();
+    }
+  });
   it("提交成功后可在同一会话准备下一份提案，重复确认在途提交被拒绝", async () => {
     const h = await createHarness({ streamFn: draftScript() });
     const session = createSession(h);
@@ -401,7 +465,20 @@ describe("记忆助手会话", () => {
       await second.ready;
       await second.flush();
       expect(second.get(session.id).status).toBe("running");
+      expect(h.store.getSessionActions(session.id)).toMatchObject({
+        execution: "running-local",
+        cancel: { allowed: true },
+        send: { allowed: false, code: "session-busy" },
+        edit: { allowed: false, code: "session-busy" },
+      });
+      expect(() => h.store.setDraft(session.id, "运行中修改")).toThrow("会话正在执行");
+      expect(second.getSessionActions(session.id)).toMatchObject({
+        execution: "running-elsewhere",
+        cancel: { allowed: false },
+        delete: { allowed: false, code: "running-elsewhere" },
+      });
       expect((await h.db.assistantSessions.get(session.id))!.status).toBe("running");
+      second.dispose();
     } finally {
       h.store.cancel(session.id);
       await running;
@@ -420,6 +497,17 @@ describe("记忆助手会话", () => {
       const another = h.buildService(draftScript(), second);
       const queued = another.run({ sessionId: session.id, text: "排队消息" });
       expect(second.isExecuting(session.id)).toBe(true);
+      expect(second.getSessionActions(session.id).execution).toBe("saving-checkpoint");
+      await vi.waitFor(() =>
+        expect(second!.getSessionActions(session.id).execution).toBe("waiting-for-lock"),
+      );
+      expect(second.getSessionActions(session.id)).toMatchObject({
+        send: { allowed: false, code: "waiting-for-lock" },
+        cancel: { allowed: true },
+        delete: { allowed: false, code: "running-elsewhere" },
+      });
+      await expect(second.delete(session.id)).rejects.toMatchObject({ code: "running-elsewhere" });
+      expect(await h.db.assistantSessions.get(session.id)).toBeDefined();
       second.cancel(session.id);
       await expect(queued).rejects.toMatchObject({ name: "AbortError" });
       expect(second.isExecuting(session.id)).toBe(false);

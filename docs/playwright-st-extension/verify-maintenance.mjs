@@ -43,8 +43,10 @@ try {
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825");
   await action("nav-settings").click();
   check("settings has no snapshot sync toggle", (await label("同步到对话文件").count()) === 0);
-  await page.evaluate(() => window.frontendPreview.showSaveFailure());
-  await page.getByText("已提交、未交给 ST 保存：preview file failure", { exact: false }).waitFor();
+  await page.evaluate(() =>
+    window.frontendPreview.showSaveFailure("preview file failure", "replacement"),
+  );
+  await page.getByText("新内容已载入，聊天文件保存尚未核验", { exact: false }).first().waitFor();
   await switchChat("b");
   check("other chat hides an unrelated file error", (await button("重试保存").count()) === 0);
   check(

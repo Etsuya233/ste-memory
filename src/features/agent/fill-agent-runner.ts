@@ -59,6 +59,8 @@ export interface FillAgentRunInput {
   readonly semanticQuery?: SemanticQueryExecutor;
   /** 交互助手只准备提案，由界面确认后提交。 */
   readonly confirmationRequired?: boolean;
+  /** 提交结果待核对时只提供查询工具，旧提案保留给用户处理。 */
+  readonly readOnly?: boolean;
   readonly retryPolicy?: RetryPolicy;
   readonly retryCallbacks?: RetryCallbacks;
   /** 填表任务即时写入；交互问答省略此端口，保持确认后提交。 */
@@ -149,6 +151,9 @@ function toAgentPrefixMessages(
  * 本轮消息为空时抛错，其余角色顺序自由。
  */
 export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentRunResult> {
+  if (input.readOnly && input.taskWriter !== undefined) {
+    throw new Error("只读助手不能配置事务写入工具");
+  }
   if (input.signal?.aborted) {
     return { ...abortedAgentRunSummary("run 启动前调用方已取消"), proposal: undefined };
   }
@@ -218,14 +223,18 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
     initialState: {
       systemPrompt:
         systemTextOf(composedMessages) +
+        (input.readOnly
+          ? "\n\n当前会话的上次提交结果待核对，仅允许查询记忆。mutate、edit_text、proposal_preview、drop_mutate 和 submit_proposal 均不可用。请先帮助用户查询已提交记录；用户在界面放弃旧提案后才可准备新的修改。"
+          : "") +
         (input.taskWriter === undefined
           ? ""
-          : "\n\n当前为事务填表模式：mutate / edit_text 成功后已写入本任务事务，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请使用 mutate 或 edit_text。全部操作完成后调用 submit_proposal 并结束。正式提交由宿主在整个任务结束后完成。"),
+          : "\n\n当前为事务填表模式：mutate / edit_text 成功后已写入本批事务，commitState 为 staged，query_records 可立即读取。create 返回真实 recordId，引用必须使用真实 ID；update/delete 前查询最新 revisionId。没有 proposal_preview 和 drop_mutate；修正已写入数据请使用 mutate 或 edit_text。全部操作完成后调用 submit_proposal 并结束。本批成功后由宿主提交并保存，已完成批次会保留。"),
       // 编排消息作为初始 transcript：run 的本轮消息（prompt）追加在其后。
       messages: [...toAgentPrefixMessages(prefix, llm.model.id), ...(input.history ?? [])],
       model: llm.model,
-      tools:
-        input.taskWriter === undefined
+      tools: input.readOnly
+        ? [createQueryRecordsTool({ reader, digest }), ...sqlTools]
+        : input.taskWriter === undefined
           ? [
               createQueryRecordsTool({ reader, digest }),
               ...sqlTools,
@@ -289,5 +298,5 @@ export async function runFillAgent(input: FillAgentRunInput): Promise<FillAgentR
   if (summary.errorMessage === undefined && summary.stopReason !== "aborted") {
     taskTools?.assertCompleted();
   }
-  return { ...summary, proposal: state.frozenProposal };
+  return { ...summary, proposal: input.readOnly ? undefined : state.frozenProposal };
 }

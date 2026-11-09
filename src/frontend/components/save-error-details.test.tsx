@@ -10,6 +10,9 @@ const status = (operation: "replacement" | "force-sync"): ChatSnapshotSaveStatus
   kind: "failed",
   identity: "A",
   operation,
+  operationId: 1,
+  phase: "verify",
+  cleanup: { kind: "idle" },
   error: message,
   humanMsg: message,
 });

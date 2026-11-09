@@ -35,10 +35,12 @@ export function TablesPage({
   workspace,
   controls,
   registerLeaveGuard,
+  writeBlockReason,
 }: {
   workspace: TablesWorkspace;
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
+  writeBlockReason?: string;
 }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const active = usePrimitivesActive();
@@ -137,7 +139,7 @@ export function TablesPage({
           !state.editor && !state.tableId ? (
             <Button
               data-action="create-table"
-              disabled={state.saving || !state.context}
+              disabled={!!writeBlockReason || state.saving || !state.context}
               onClick={() => workspace.begin("table")}
             >
               <Plus />
@@ -306,7 +308,7 @@ export function TablesPage({
                           variant="ghost"
                           size="icon"
                           aria-label={`删除字段 ${field.name}`}
-                          disabled={state.saving}
+                          disabled={!!writeBlockReason || state.saving}
                           onClick={() =>
                             setDeletion({ kind: "field", fieldId: field.id, name: field.name })
                           }
@@ -403,7 +405,7 @@ export function TablesPage({
                 <Button
                   variant="destructive"
                   size="sm"
-                  disabled={state.saving}
+                  disabled={!!writeBlockReason || state.saving}
                   className="ste:self-start"
                   onClick={() => setDeletion({ kind: "table", name: table.name })}
                 >
@@ -464,6 +466,7 @@ export function TablesPage({
           formId="ste-table-editor"
           busy={state.saving}
           dirty={state.editor.dirty}
+          disabled={!!writeBlockReason}
           onCancel={back}
           saveAction={`save-${state.editor.kind}`}
         />
@@ -485,6 +488,7 @@ export function TablesPage({
               : "将清除这张表的向量索引，记忆正文、证据与修订保留。之后需要重新补建才能用于向量检索。"
         }
         confirmLabel="确认删除"
+        disabledReason={writeBlockReason}
         destructive
         onConfirm={async () => {
           if (deletion?.kind === "vectors") {

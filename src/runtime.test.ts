@@ -658,7 +658,8 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
         expect(current.context.chatIdentity).toBe(`char:3:preset-${operation}-B`);
         expect(current.snapshot.space.id).not.toBe(original.space.id);
         expect(await runtime.spaces.find(original.space.id)).toBeUndefined();
-        expect(runtime.persistence.getStatus(identity).kind).toBe("saving");
+        // 普通输入随离开释放，宿主请求可自行结束；旧对话不保留永久忙碌状态。
+        expect(runtime.persistence.getStatus(identity).kind).toBe("idle");
       } finally {
         clearTimeout(timeout);
         releaseWrite();
@@ -1895,8 +1896,17 @@ describe("强制同步与快照内进度", () => {
         await released;
         return persisted;
       });
+      const writeChanges: (string | undefined)[] = [];
+      const stopWatchingWrites = runtime.onMemoryWriteStateChange(() => {
+        writeChanges.push(runtime.getMemoryWriteState()?.kind);
+      });
       const syncing = runtime.forceSyncMemory();
       // 同一轮事件中发起的新编辑也必须被挡住，不能等到回读阶段才建立门控。
+      expect(writeChanges[0]).toBe("synchronizing");
+      expect(runtime.getMemoryWriteState()).toMatchObject({
+        kind: "synchronizing",
+        identity: "char:3:story",
+      });
       const table = original.tables.find((item) => item.key === "characters")!;
       const name = original.fields.find(
         (item) => item.tableId === table.id && item.key === "name",
@@ -1934,6 +1944,9 @@ describe("强制同步与快照内进度", () => {
         releaseVerify();
       }
       await syncing;
+      expect(runtime.getMemoryWriteState()).toEqual({ kind: "editable" });
+      expect(writeChanges).toContain("editable");
+      stopWatchingWrites();
       expect(runtime.publicRead.getContext().chatIdentity).toBe(
         sameSpaceId ? "char:0:story" : "char:3:force-sync-B",
       );
@@ -2200,8 +2213,9 @@ describe("已激活候选的核验恢复", () => {
     expect(runtime.persistence.hasPendingReplacement("char:3:story")).toBe(false);
     expect(runtime.persistence.getStatus("char:3:story")).toMatchObject({
       kind: "verified",
-      cleanupWarning: expect.stringContaining("history cleanup failed"),
+      cleanup: { kind: "failed", message: expect.stringContaining("history cleanup failed") },
     });
+    expect(runtime.getMemoryWriteState()).toEqual({ kind: "editable" });
     await runtime.tables.create(candidate.space.id, {
       key: "after_import",
       name: "新表",
@@ -2214,7 +2228,7 @@ describe("已激活候选的核验恢复", () => {
     expect(ports.snapshotWrites).toHaveLength(writes);
     expect(purge).toHaveBeenCalledTimes(1);
     expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
-    expect(runtime.persistence.getStatus("char:3:story")).not.toHaveProperty("cleanupWarning");
+    expect(runtime.persistence.getStatus("char:3:story").cleanup).toEqual({ kind: "idle" });
   });
 
   it("激活通知期间已禁止写入，订阅同步异常不打断导入保存", async () => {

@@ -528,6 +528,17 @@ describe("初始化填表（spec init-fill）：任务类型标签与视图", ()
     } as FillTaskView);
   }
 
+  it("已提交初始化的辅助状态保存失败后，历史不提供模型重试", () => {
+    const view = buildTasksTabViewModel({
+      chatLength: 2,
+      ledger: [],
+      activeTask: undefined,
+      historyTasks: [initTask({ status: "failed", nextFrom: null, blocksQueue: true })],
+      cleaning: { selectedRuleId: undefined, rules: [] },
+    });
+    expect(view.history[0]!.retryable).toBe(false);
+  });
+
   it("taskStatusViewModel：init 任务运行中显示初始化文案，不显示楼层进度", () => {
     expect(taskStatusViewModel(initTask())).toEqual({ label: "运行中", detail: "正在初始化…" });
     expect(taskStatusViewModel(initTask({ status: "succeeded" }))).toEqual({

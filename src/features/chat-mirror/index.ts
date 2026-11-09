@@ -6,9 +6,13 @@ export {
 } from "./chat-mirror-file.ts";
 export type { ChatMirrorFile } from "./chat-mirror-file.ts";
 export { createChatMirrorFile, decodeChatMirrorFile } from "./chat-mirror-codec.ts";
-export { ChatSnapshotPersistence } from "./chat-snapshot-persistence.ts";
+export { ChatSnapshotPersistence, snapshotSaveActions } from "./chat-snapshot-persistence.ts";
 export type {
   ChatFileTarget,
   ChatSnapshotFileStore,
   ChatSnapshotSaveStatus,
+  SnapshotCleanupStatus,
+  SnapshotSaveActions,
+  SnapshotSaveFailurePhase,
+  SnapshotSaveOperation,
 } from "./chat-snapshot-persistence.ts";

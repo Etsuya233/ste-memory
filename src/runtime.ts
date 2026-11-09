@@ -1,7 +1,10 @@
 import { SqliteFloorLedger } from "./infrastructure/memory-runtime/sqlite-floor-ledger.ts";
 import { errorDetails } from "./features/logging/error-details.ts";
 import { PresetSpaceUpdater } from "./infrastructure/memory-runtime/preset-space-updater.ts";
-import { MemorySpaceLifecycle } from "./infrastructure/memory-runtime/memory-space-lifecycle.ts";
+import {
+  MemorySpaceLifecycle,
+  type SpaceWriteState,
+} from "./infrastructure/memory-runtime/memory-space-lifecycle.ts";
 import { instantiateTablePreset } from "./features/table-presets/preset-instantiation.ts";
 import { MEMORY_SNAPSHOT_SCHEMA_VERSION } from "./features/memory-snapshot/snapshot.ts";
 import { QueryChatStore } from "./features/query-chat/session-store.ts";
@@ -53,6 +56,7 @@ import { PLUGIN_DISPLAY_NAME } from "./constants.ts";
 import {
   ChatSnapshotPersistence,
   ChatSnapshotReplacementSaveError,
+  snapshotSaveActions,
   type ChatSnapshotFileStore,
 } from "./features/chat-mirror/chat-snapshot-persistence.ts";
 import {
@@ -136,6 +140,9 @@ export interface SteMemoryRuntime {
   readonly retryMemorySave: () => Promise<void>;
   /** 保存已提交 SQLite 完整快照并从固定文件核验；不提交 UI 草稿。 */
   readonly forceSyncMemory: () => Promise<void>;
+  /** 当前活动空间的写入门控，供调用方检查并解释操作许可；写入时仍实时复查。 */
+  readonly getMemoryWriteState: () => SpaceWriteState | undefined;
+  readonly onMemoryWriteStateChange: (listener: () => void) => () => void;
   /** 当前聊天完整空间导出与候选SQLite验证 */
   readonly backup: MemoryBackupRepository;
   /** 插件设置存储（设置面板读写与运行时开关门控共用同一实例） */
@@ -1251,17 +1258,32 @@ export async function startSteMemory(
     manager,
     retryMemorySave: async () => {
       const target = adapter.captureFileTarget();
-      if (
-        target &&
-        persistence.hasPendingCleanup(target.identity) &&
-        persistence.getStatus(target.identity).kind !== "failed"
-      ) {
+      if (!target) {
+        throw new Error("当前聊天记忆尚未就绪");
+      }
+      const actions = snapshotSaveActions(persistence.getStatus(target.identity), true);
+      if (!actions.canRetry) {
+        throw new Error(actions.disabledReason ?? "当前没有需要重试的保存或清理");
+      }
+      if (actions.recovery === "retry-cleanup") {
         await persistence.retryCleanup(target.identity);
       } else {
         await forceSyncMemory();
       }
     },
     forceSyncMemory,
+    getMemoryWriteState: () => {
+      const status = manager.getStatus();
+      return status?.kind === "active" ? lifecycle.getWriteState(status.space.id) : undefined;
+    },
+    onMemoryWriteStateChange: (listener) => {
+      const releases = [
+        lifecycle.onWriteStateChange(listener),
+        persistence.onStatusChange(listener),
+        manager.onStatusChange(listener),
+      ];
+      return () => releases.forEach((release) => release());
+    },
     adapter,
     spaces,
     tables,

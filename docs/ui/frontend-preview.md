@@ -99,6 +99,9 @@ node verify-log-copy.mjs
 node verify-log-export.mjs
 node verify-log-layout.mjs
 node verify-maintenance.mjs
+node verify-snapshot-save.mjs
+node verify-snapshot-diagnostics.mjs
+node verify-workflow-lifecycle.mjs
 node verify-auto-fill.mjs
 node verify-fill-notifications.mjs
 node verify-preset-update.mjs

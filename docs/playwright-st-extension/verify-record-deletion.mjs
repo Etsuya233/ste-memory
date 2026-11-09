@@ -17,8 +17,17 @@ try {
     const before = await snapshot();
     await action("delete-record").click();
     await page.getByRole("alertdialog").waitFor();
-    assert.equal(await page.getByRole("button", { name: "取消", exact: true }).evaluate((el) => el === document.activeElement), true);
-    assert.ok(await page.getByRole("alertdialog").evaluate((el) => el.getBoundingClientRect().right <= innerWidth));
+    assert.equal(
+      await page
+        .getByRole("button", { name: "取消", exact: true })
+        .evaluate((el) => el === document.activeElement),
+      true,
+    );
+    assert.ok(
+      await page
+        .getByRole("alertdialog")
+        .evaluate((el) => el.getBoundingClientRect().right <= innerWidth),
+    );
     await page.getByRole("button", { name: "取消", exact: true }).click();
     assert.deepEqual(await snapshot(), before);
     await page.evaluate(() => window.frontendPreview.failNextSave());
@@ -41,7 +50,7 @@ try {
   await page.evaluate(() => window.frontendPreview.failNextPersistence());
   await confirm();
   await page.getByText("记录已删除", { exact: true }).waitFor();
-  await page.getByText("已提交、未交给 ST 保存：preview file failure", { exact: false }).waitFor();
+  await page.getByText("记忆已提交、尚未核验：preview file failure", { exact: false }).waitFor();
   assert.equal((await snapshot()).length, before.length - 1);
   assert.equal(await action("save-record").count(), 0);
   await page.goto(process.env.FRONTEND_URL ?? "http://127.0.0.1:18825");
@@ -52,7 +61,9 @@ try {
   await page.evaluate(() => window.frontendPreview.switchChat("a"));
   assert.equal(await page.getByRole("alertdialog").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("PASS record deletion: 320/390/1100px, cancel focus, failure retry, table editor draft, committed persistence failure");
+  console.log(
+    "PASS record deletion: 320/390/1100px, cancel focus, failure retry, table editor draft, committed persistence failure",
+  );
 } finally {
   await browser.close();
 }

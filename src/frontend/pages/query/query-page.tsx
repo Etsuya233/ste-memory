@@ -66,6 +66,7 @@ export interface QueryServices {
   onDataChanged: (context: RecordsContext) => void | Promise<void>;
 }
 export interface QueryPageProps extends QueryServices {
+  writeBlockReason?: string;
   context: RecordsContext | null;
   controls: PageControls;
   onBack?: () => void;
@@ -119,14 +120,14 @@ export function QueryPage(props: QueryPageProps) {
   currentKey.current = key;
   const scroll = usePageScroll(store, `list:${scope}`, !!context && list);
   const chatting = !!context && loaded && !list && !!session;
-  const executing = useSyncExternalStore(
+  const execution = useSyncExternalStore(
     subscribe,
-    () => !!session && store.isExecuting(session.id),
-    () => false,
+    () => (session ? store.getSessionActions(session.id).execution : "idle"),
+    () => "idle",
   );
-  const busy = executing || session?.status === "running" || session?.status === "committing";
+  const actions = session ? store.getSessionActions(session.id) : null;
+  const busy = actions !== null && !actions.send.allowed;
   const committing = session?.status === "committing";
-  const runningElsewhere = !!session && busy && !executing;
   useEffect(() => () => window.clearTimeout(noticeTimeout.current), []);
   useEffect(() => {
     setDeleting(null);
@@ -194,14 +195,14 @@ export function QueryPage(props: QueryPageProps) {
     }
   }
   function send() {
-    if (!context || !session || busy) {
+    if (!context || !session || !actions?.send.allowed) {
       return;
     }
     props.assertContext(context);
     setNotice(null);
     return props.service.run({ sessionId: session.id, text: session.draft.trim() });
   }
-  const statusText = runningElsewhere ? "会话正在其他标签页处理。" : "";
+  const statusText = actions && !actions.send.allowed ? actions.send.message : "";
   const sessionMeta = (item: (typeof available)[number]) => {
     const status =
       item.status === "running"
@@ -216,7 +217,10 @@ export function QueryPage(props: QueryPageProps) {
     return `${status} · ${formatCompactTime(item.updatedAt)}`;
   };
   return (
-    <section className="ste:flex ste:h-full ste:min-h-0 ste:flex-col">
+    <section
+      className="ste:flex ste:h-full ste:min-h-0 ste:flex-col"
+      data-assistant-execution={execution}
+    >
       <PageHeader
         title={
           list ? (
@@ -365,7 +369,11 @@ export function QueryPage(props: QueryPageProps) {
                       </ItemMedia>
                       <ItemContent className="ste:min-w-0">
                         <ItemTitle>待提交修改 · {session.proposal.operations.length} 项</ItemTitle>
-                        <ItemDescription>核对以下差异，确认后写入记忆。</ItemDescription>
+                        <ItemDescription>
+                          {session.commitUncertain
+                            ? "先核对已提交记录，再放弃这份旧提案。"
+                            : "核对以下差异，确认后写入记忆。"}
+                        </ItemDescription>
                       </ItemContent>
                     </ItemHeader>
                     <ItemGroup>
@@ -411,17 +419,20 @@ export function QueryPage(props: QueryPageProps) {
                     ))}
                     {!session.preview ? (
                       <p className="ste:text-sm ste:text-muted-foreground">
-                        发送消息让助手重新检查提案后，可查看差异并确认。
+                        {session.commitUncertain
+                          ? "当前交流仅用于查询记录。放弃旧提案后，可以重新准备修改。"
+                          : "发送消息让助手重新检查提案后，可查看差异并确认。"}
                       </p>
                     ) : null}
                     <ItemFooter>
                       <ItemActions className="ste:flex-wrap">
                         <Button
-                          disabled={
-                            !session.preview?.valid ||
-                            !session.previewId ||
-                            session.commitUncertain ||
-                            busy
+                          disabled={!actions?.confirm.allowed || !!props.writeBlockReason}
+                          title={
+                            props.writeBlockReason ??
+                            (actions && !actions.confirm.allowed
+                              ? actions.confirm.message
+                              : undefined)
                           }
                           data-action="assistant-confirm"
                           onClick={() =>
@@ -435,7 +446,7 @@ export function QueryPage(props: QueryPageProps) {
                         </Button>
                         <Button
                           variant="outline"
-                          disabled={busy}
+                          disabled={!actions?.discard.allowed}
                           onClick={() => setDiscarding(true)}
                         >
                           放弃提案
@@ -533,6 +544,7 @@ export function QueryPage(props: QueryPageProps) {
                               variant="ghost"
                               size="icon"
                               aria-label={`重命名 ${item.title}`}
+                              disabled={!store.getSessionActions(item.id).edit.allowed}
                               onClick={() => {
                                 setEditing(item.id);
                                 setName(item.title);
@@ -544,7 +556,7 @@ export function QueryPage(props: QueryPageProps) {
                               variant="ghost"
                               size="icon"
                               aria-label={`删除 ${item.title}`}
-                              disabled={item.status === "committing"}
+                              disabled={!store.getSessionActions(item.id).delete.allowed}
                               onClick={() => setDeleting(item.id)}
                             >
                               <Trash2 />
@@ -614,8 +626,14 @@ export function QueryPage(props: QueryPageProps) {
                   rows={1}
                   className="ste:min-h-0"
                   value={session.draft}
-                  disabled={busy}
-                  placeholder={busy ? "助手正在处理…" : "查询记忆，或描述要修改的内容…"}
+                  disabled={!actions?.edit.allowed}
+                  placeholder={
+                    busy
+                      ? "助手正在处理…"
+                      : session.commitUncertain
+                        ? "查询记忆，核对上次提交结果…"
+                        : "查询记忆，或描述要修改的内容…"
+                  }
                   onChange={(event) => store.setDraft(session.id, event.target.value)}
                 />
                 <InputGroupAddon
@@ -623,7 +641,7 @@ export function QueryPage(props: QueryPageProps) {
                   // 上游 inline-end 用负外边距收紧右侧留白，会溢出输入组 4px；收回外边距并用内边距补偿。
                   className="ste:self-end ste:pr-2 ste:has-[>button]:mr-0"
                 >
-                  {executing && !committing ? (
+                  {actions?.cancel.allowed ? (
                     <InputGroupButton
                       type="button"
                       size="sm"
@@ -639,7 +657,7 @@ export function QueryPage(props: QueryPageProps) {
                       type="submit"
                       size="sm"
                       variant="default"
-                      disabled={busy || !session.draft.trim() || !!storageError}
+                      disabled={!actions?.send.allowed || !session.draft.trim() || !!storageError}
                       data-action="query-chat-send"
                     >
                       <Send data-icon="inline-start" />

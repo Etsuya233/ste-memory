@@ -123,7 +123,8 @@ export function createMaintenanceServices(
               try {
                 diagnostic.stage("refresh");
                 await refresh();
-                const warning = runtime.persistence.getStatus(target.chatKey).cleanupWarning;
+                const cleanup = runtime.persistence.getStatus(target.chatKey).cleanup;
+                const warning = cleanup.kind === "failed" ? cleanup.message : undefined;
                 if (warning) {
                   diagnostic.warning(warning);
                 }

@@ -123,6 +123,10 @@ function StFrontend({
     (listener) => runtime.persistence.onStatusChange(listener),
     () => runtime.persistence.getStatus(chatIdentityKey(runtime.adapter.getChatSnapshot())),
   );
+  const writeBlockReason = useSyncExternalStore(runtime.onMemoryWriteStateChange, () => {
+    const state = runtime.getMemoryWriteState();
+    return state && state.kind !== "editable" ? state.message : null;
+  });
   const [, refreshSettings] = useState(0);
   const synchronize = useCallback(() => {
     const current = runtime.manager.getStatus();
@@ -254,6 +258,7 @@ function StFrontend({
           active={open}
           status={status}
           persistence={persistence}
+          writeBlockReason={writeBlockReason ?? undefined}
           hasPendingSnapshotWrites={() => runtime.persistence.hasPendingWrites()}
           onClose={() => setOpen(false)}
           onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}

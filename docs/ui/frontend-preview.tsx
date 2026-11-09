@@ -137,7 +137,7 @@ let fields = tables.flatMap((table) =>
 let records = Object.values(contexts).flatMap((context) =>
   Array.from({ length: 26 }, (_, index) => ({
     id: `${context.spaceId}-record-${index}`,
- stableId: `${context.spaceId}-record-${index}`,
+    stableId: `${context.spaceId}-record-${index}`,
     memorySpaceId: context.spaceId,
     tableId: `${context.spaceId}-table-${index === 25 ? 1 : 0}`,
     payload: {
@@ -195,9 +195,11 @@ let serial = 100;
 let failSave = false;
 let failPersistence = false;
 const snapshotSaveFixture = createSnapshotSaveFixture(
-  Object.values(contexts).map((context) => context.chatKey),
   () => contexts[current].chatKey,
-  date,
+  (identity) =>
+    previewSnapshot(
+      Object.values(contexts).find((context) => context.chatKey === identity)!.spaceId,
+    ),
 );
 const publishSaveFailure = snapshotSaveFixture.showFailure;
 let delaySave = 0;
@@ -214,6 +216,26 @@ function previewFloorLedger(spaceId: MemorySpaceId) {
   return [...floorProgress.get(spaceId)!.entries()]
     .sort(([left], [right]) => left - right)
     .map(([floor, status]) => ({ floor, status, updatedAt: date }));
+}
+function previewSnapshot(spaceId: MemorySpaceId) {
+  const space = spaces.find((space) => space.id === spaceId)!;
+  const ownRecords = records.filter((record) => record.memorySpaceId === spaceId);
+  const ownHistory = history.filter((record) => record.memorySpaceId === spaceId);
+  const evidence = new Map(
+    [...ownRecords, ...ownHistory]
+      .flatMap((record) => Object.values(record.fieldEvidence).flat())
+      .map((entry) => [entry.evidence_id, entry]),
+  );
+  return structuredClone({
+    schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
+    floorLedger: previewFloorLedger(spaceId),
+    space: { ...space, macros: parseMemoryMacros(space.macros) },
+    tables: tables.filter((table) => table.memorySpaceId === spaceId),
+    fields: fields.filter((field) => field.memorySpaceId === spaceId),
+    records: ownRecords,
+    history: ownHistory,
+    evidence: [...evidence.values()],
+  });
 }
 const tableRepository: MemoryTableRepository = {
   list: async (spaceId) =>
@@ -238,7 +260,7 @@ const tableRepository: MemoryTableRepository = {
     tables[index] = structuredClone(table);
     if (failSchemaPersistence) {
       failSchemaPersistence = false;
-      publishSaveFailure();
+      await publishSaveFailure();
       throw new MemoryCommitPersistenceError(new Error("preview file failure"));
     }
     return true;
@@ -337,7 +359,7 @@ const recordRepository: MemoryRecordRepository = {
 };
 const spaces: MemorySpace[] = Object.values(contexts).map((context) => ({
   id: context.spaceId,
- stableId: context.spaceId,
+  stableId: context.spaceId,
   name: context.title,
   initializationSource: null,
   macros: [],
@@ -414,7 +436,7 @@ const workspace = new RecordsWorkspace({
       const deleted = await recordService.delete(spaceId, tableId, id, revision, source);
       if (failPersistence) {
         failPersistence = false;
-        publishSaveFailure();
+        await publishSaveFailure();
         throw new MemoryCommitPersistenceError(new Error("记录已删除，但对话文件写回失败"));
       }
       return deleted;
@@ -468,12 +490,16 @@ const workspace = new RecordsWorkspace({
         ...record,
         id: `history-${serial}`,
         recordId: record.id,
+        revisionId: updated.revisionId,
+        revisionSource: updated.revisionSource,
+        previousRevisionId: record.revisionId,
+        previousRevisionSource: record.revisionSource,
         archivedAt: updated.updatedAt,
       } as MemoryRecordHistory);
       records = records.map((item) => (item.id === id ? updated : item));
       if (failPersistence) {
         failPersistence = false;
-        publishSaveFailure();
+        await publishSaveFailure();
         throw new MemoryRecordSaveError(updated, new Error("记录已提交，但对话文件写回失败"));
       }
       return structuredClone(updated);
@@ -481,7 +507,7 @@ const workspace = new RecordsWorkspace({
     create: async (spaceId, tableId, input) => {
       const created = {
         id: `record-${++serial}`,
- stableId: `record-${++serial}`,
+        stableId: `record-${++serial}`,
         memorySpaceId: spaceId,
         tableId,
         payload: input.payload,
@@ -496,7 +522,7 @@ const workspace = new RecordsWorkspace({
       records.push(created);
       if (failPersistence) {
         failPersistence = false;
-        publishSaveFailure();
+        await publishSaveFailure();
         throw new MemoryRecordSaveError(created, new Error("记录已提交，但对话文件写回失败"));
       }
       return structuredClone(created);
@@ -683,26 +709,7 @@ let presetBackupCancelled = false;
 const assertPresetContext = (context: PresetContext) =>
   assertContext({ chatKey: context.chatIdentity, spaceId: context.spaceId, title: context.title });
 const presetUpdateFixture = createPresetUpdateFixture({
-  read: (spaceId) => {
-    const space = spaces.find((space) => space.id === spaceId)!;
-    const ownRecords = records.filter((record) => record.memorySpaceId === spaceId);
-    const ownHistory = history.filter((record) => record.memorySpaceId === spaceId);
-    const evidence = new Map(
-      [...ownRecords, ...ownHistory]
-        .flatMap((record) => Object.values(record.fieldEvidence).flat())
-        .map((entry) => [entry.evidence_id, entry]),
-    );
-    return structuredClone({
-      schemaVersion: MEMORY_SNAPSHOT_SCHEMA_VERSION,
-      floorLedger: previewFloorLedger(spaceId),
-      space: { ...space, macros: parseMemoryMacros(space.macros) },
-      tables: tables.filter((table) => table.memorySpaceId === spaceId),
-      fields: fields.filter((field) => field.memorySpaceId === spaceId),
-      records: ownRecords,
-      history: ownHistory,
-      evidence: [...evidence.values()],
-    });
-  },
+  read: previewSnapshot,
   write: (unit) => {
     floorProgress.set(
       unit.space.id,
@@ -1243,6 +1250,7 @@ function Preview() {
       tasksWorkspace.setContext(null),
     ]);
     current = next;
+    snapshotSaveFixture.enterChat();
     ready = settingsValue.enabled;
     syncSearchContext();
     setStatus(ready ? activeStatus() : undefined);
@@ -1367,6 +1375,10 @@ function Preview() {
       failNextForceSync: snapshotSaveFixture.failNext,
       failNextForceSyncBeforeStart: snapshotSaveFixture.failBeforeStart,
       forceSyncCalls: snapshotSaveFixture.syncCalls,
+      snapshotSaveState: snapshotSaveFixture.getSnapshot,
+      snapshotSaveMetrics: snapshotSaveFixture.metrics,
+      saveCommittedSnapshot: snapshotSaveFixture.saveCommitted,
+      replaceSnapshot: snapshotSaveFixture.replace,
       failNextPersistence: () => {
         failPersistence = true;
       },
@@ -1414,6 +1426,7 @@ function Preview() {
               presets={presetServices}
               tools={toolsFixture.tools}
               workspace={workspace}
+              writeBlockReason={snapshotSaveFixture.writeBlockReason()}
               status={status}
               persistence={persistence}
               hasPendingSnapshotWrites={snapshotSaveFixture.hasPendingWrites}

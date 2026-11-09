@@ -50,6 +50,7 @@ import {
 import { PagePagination } from "../components/page-pagination.tsx";
 
 export interface RecordsPageProps {
+  writeBlockReason?: string;
   registerLeaveGuard?: RegisterLeaveGuard;
   workspace: RecordsWorkspace;
   status: SpaceContextStatus | undefined;
@@ -504,6 +505,7 @@ export function RecordsPage(props: RecordsPageProps) {
               runHost={runHost}
               getMessageAt={props.getMessageAt}
               onJumpFloor={props.onJumpFloor}
+              writeBlocked={!!props.writeBlockReason}
             />
           ) : null}
           {!showingDetail ? (

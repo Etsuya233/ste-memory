@@ -89,6 +89,38 @@ export type FillTaskView = FillTask & {
   readonly retryState?: FillTaskRetryState;
 };
 
+export type FillTaskAction =
+  | { readonly allowed: true }
+  | {
+      readonly allowed: false;
+      readonly code: "saving" | "not-retryable" | "review-required" | "finished";
+      readonly message: string;
+    };
+
+/** 页面和命令入口共用；已经进入提交的初始化任务需要核对，不能重放模型。 */
+export function fillTaskActions(task: FillTask & { readonly phase?: "running" | "saving" }): {
+  readonly cancel: FillTaskAction;
+  readonly retry: FillTaskAction;
+} {
+  const cancel: FillTaskAction =
+    task.phase === "saving"
+      ? { allowed: false, code: "saving", message: "批次正在保存，请等待完成" }
+      : task.status === "queued" || task.status === "running" || task.blocksQueue
+        ? { allowed: true }
+        : { allowed: false, code: "finished", message: "任务已结束且未阻塞队列" };
+  const retry: FillTaskAction =
+    task.status !== "failed" && task.status !== "interrupted"
+      ? { allowed: false, code: "not-retryable", message: "仅失败或中断任务可以重试" }
+      : task.kind === "init" && (task.pendingCommit !== undefined || task.nextFrom === null)
+        ? {
+            allowed: false,
+            code: "review-required",
+            message: "初始化批次已进入提交，请先核对记忆结果，取消任务可释放队列",
+          }
+        : { allowed: true };
+  return { cancel, retry };
+}
+
 export interface FillTaskRetryState {
   readonly from: number;
   readonly to: number;

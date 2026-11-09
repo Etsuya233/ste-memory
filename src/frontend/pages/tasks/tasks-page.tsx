@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ChevronDown, ListTodo } from "lucide-react";
 import type { FillTaskView, FloorFillStatus } from "../../../features/fill-tasks/fill-task.ts";
+import { fillTaskActions } from "../../../features/fill-tasks/fill-task.ts";
 import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type { VectorTaskStatus } from "../../../features/vector-index/types.ts";
 import { Button } from "../../primitives/button.tsx";
@@ -65,6 +66,7 @@ interface TasksPageProps {
   controls: PageControls;
   registerLeaveGuard?: RegisterLeaveGuard;
   active?: boolean;
+  writeBlockReason?: string;
 }
 
 export function TasksPage(props: TasksPageProps) {
@@ -85,6 +87,7 @@ function TasksMain({
   active = true,
   onAutoFill,
   onOpenLog,
+  writeBlockReason,
 }: TasksPageProps & { onAutoFill: () => void }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const scope = JSON.stringify([state.context?.chatKey, state.context?.spaceId]);
@@ -171,11 +174,7 @@ function TasksMain({
   const cancellationAvailable =
     pendingCancel?.scope === scope &&
     (pendingCancel.kind === "fill"
-      ? !!cancelFill &&
-        cancelFill.phase !== "saving" &&
-        (cancelFill.status === "queued" ||
-          cancelFill.status === "running" ||
-          !!cancelFill.blocksQueue)
+      ? !!cancelFill && fillTaskActions(cancelFill).cancel.allowed
       : cancelVectors.length > 0);
 
   function fillAction(task: FillTaskView, action: "cancel" | "retry") {
@@ -286,6 +285,7 @@ function TasksMain({
                 running={running}
                 last={history[0]}
                 busy={state.busy}
+                writeBlocked={!!writeBlockReason}
                 onSelectRange={applyFillRange}
                 onOpenLog={onOpenLog}
                 onCancel={(task) => fillAction(task, "cancel")}
@@ -349,13 +349,21 @@ function TasksMain({
                     <p className="ste:text-xs ste:text-muted-foreground">
                       楼层从 0 开始，范围包含起止楼层。
                     </p>
-                    <Button type="submit" disabled={state.busy || state.messageCount === 0}>
+                    <Button
+                      type="submit"
+                      disabled={!!writeBlockReason || state.busy || state.messageCount === 0}
+                    >
                       开始填表
                     </Button>
                   </div>
                 </form>
               </PageSection>
-              <FloorProgressForm key={scope} workspace={workspace} state={state} />
+              <FloorProgressForm
+                key={scope}
+                workspace={workspace}
+                state={state}
+                writeBlocked={!!writeBlockReason}
+              />
               <PageSection
                 title="本对话配置"
                 meta={<span className="ste:text-xs ste:text-muted-foreground">随对话保存</span>}
@@ -378,6 +386,7 @@ function TasksMain({
                 title="排队与阻塞"
                 items={queued}
                 busy={state.busy}
+                writeBlocked={!!writeBlockReason}
                 onOpenLog={onOpenLog}
                 onAction={fillAction}
               />
@@ -397,6 +406,7 @@ function TasksMain({
                         <FillRow
                           task={task}
                           busy={state.busy}
+                          writeBlocked={!!writeBlockReason}
                           onOpenLog={onOpenLog}
                           onAction={fillAction}
                         />
@@ -444,7 +454,10 @@ function TasksMain({
                         <p className="ste:text-xs ste:text-muted-foreground">
                           草稿按对话保留；提交后清空。
                         </p>
-                        <Button type="submit" disabled={state.busy || !state.draft.trim()}>
+                        <Button
+                          type="submit"
+                          disabled={!!writeBlockReason || state.busy || !state.draft.trim()}
+                        >
                           提交初始化任务
                         </Button>
                       </div>
@@ -502,6 +515,7 @@ function TasksMain({
         }
         cancelLabel="取消"
         confirmLabel="开始填表"
+        disabledReason={writeBlockReason}
         onConfirm={confirmFill}
       />
     </section>
@@ -511,16 +525,18 @@ function TasksMain({
 function FloorProgressForm({
   workspace,
   state,
+  writeBlocked,
 }: {
   workspace: TasksWorkspace;
   state: TasksSnapshot;
+  writeBlocked: boolean;
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [status, setStatus] = useState<FloorFillStatus>("processed");
   const [error, setError] = useState<string | null>(null);
   const running = state.pending.some((task) => task.status === "running");
-  const disabled = state.busy || state.messageCount === 0 || running;
+  const disabled = writeBlocked || state.busy || state.messageCount === 0 || running;
   return (
     <Accordion>
       <AccordionItem value="floor-progress">
@@ -605,6 +621,7 @@ function ProgressSection({
   onOpenLog,
   onCancel,
   onRetry,
+  writeBlocked,
 }: {
   coverage: ReturnType<typeof buildCoverageViewModel>;
   running: FillTaskView | undefined;
@@ -614,6 +631,7 @@ function ProgressSection({
   onOpenLog: (key: string, summary?: string) => void;
   onCancel: (task: FillTaskView) => void;
   onRetry: (task: FillTaskView) => void;
+  writeBlocked: boolean;
 }) {
   return (
     <PageSection
@@ -626,7 +644,12 @@ function ProgressSection({
         {running ? (
           <RunningTask task={running} busy={busy} onOpenLog={onOpenLog} onCancel={onCancel} />
         ) : last ? (
-          <LastResult task={last} busy={busy} onOpenLog={onOpenLog} onRetry={onRetry} />
+          <LastResult
+            task={last}
+            busy={busy || writeBlocked}
+            onOpenLog={onOpenLog}
+            onRetry={onRetry}
+          />
         ) : (
           <p className="ste:text-sm ste:text-muted-foreground">还没有填表任务。</p>
         )}
@@ -726,19 +749,18 @@ function LastResult({
         >
           查看日志
         </Button>
-        {!(task.kind === "init" && task.pendingCommit) &&
-          (task.status === "failed" || task.status === "interrupted") && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              data-action="retry-task"
-              data-task-key={task.runId}
-              onClick={() => onRetry(task)}
-            >
-              重试
-            </Button>
-          )}
+        {fillTaskActions(task).retry.allowed && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            data-action="retry-task"
+            data-task-key={task.runId}
+            onClick={() => onRetry(task)}
+          >
+            重试
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -796,12 +818,14 @@ function FillList({
   busy,
   onOpenLog,
   onAction,
+  writeBlocked,
 }: {
   title: string;
   items: readonly FillTaskView[];
   busy: boolean;
   onOpenLog: (key: string, summary?: string) => void;
   onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
+  writeBlocked: boolean;
 }) {
   if (items.length === 0) {
     return null;
@@ -815,7 +839,13 @@ function FillList({
       <ItemGroup className="ste:gap-0 ste:divide-y ste:divide-border">
         {items.map((task) => (
           <div role="listitem" key={task.runId} data-fill-task={task.runId}>
-            <FillRow task={task} busy={busy} onOpenLog={onOpenLog} onAction={onAction} />
+            <FillRow
+              task={task}
+              busy={busy}
+              onOpenLog={onOpenLog}
+              onAction={onAction}
+              writeBlocked={writeBlocked}
+            />
           </div>
         ))}
       </ItemGroup>
@@ -828,17 +858,18 @@ function FillRow({
   busy,
   onOpenLog,
   onAction,
+  writeBlocked,
 }: {
   task: FillTaskView;
   busy: boolean;
   onOpenLog: (key: string, summary?: string) => void;
   onAction: (task: FillTaskView, action: "cancel" | "retry") => void;
+  writeBlocked: boolean;
 }) {
   const status = taskStatusViewModel(task);
-  const canCancel = task.status === "queued" || task.status === "running" || task.blocksQueue;
-  const canRetry =
-    !(task.kind === "init" && task.pendingCommit) &&
-    (task.status === "failed" || task.status === "interrupted");
+  const actions = fillTaskActions(task);
+  const canCancel = actions.cancel.allowed;
+  const canRetry = actions.retry.allowed;
   const openLog = () => onOpenLog(task.runId, `${taskRangeText(task)} · ${status.label}`);
   return (
     <Item className="ste:gap-0 ste:rounded-none ste:border-0 ste:p-0 ste:hover:bg-muted/50">
@@ -906,7 +937,7 @@ function FillRow({
             <Button
               variant="outline"
               size="sm"
-              disabled={busy}
+              disabled={busy || writeBlocked}
               data-action="retry-task"
               data-task-key={task.runId}
               onClick={() => onAction(task, "retry")}

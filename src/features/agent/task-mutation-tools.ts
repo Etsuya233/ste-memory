@@ -49,7 +49,7 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
   });
   const mutate: AgentTool<
     typeof template.parameters,
-    { status: string; recordId: string; revisionId: string }
+    { status: "applied"; commitState: "staged"; recordId: string; revisionId: string }
   > = {
     ...template,
     description:
@@ -84,7 +84,12 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
               (record) => record.revisionId === result.revisionId,
             )!.id
           : operation.recordId;
-      const details = { status: "applied", recordId, revisionId: result.revisionId };
+      const details = {
+        status: "applied" as const,
+        commitState: "staged" as const,
+        recordId,
+        revisionId: result.revisionId,
+      };
       return { content: [{ type: "text", text: JSON.stringify(details) }], details };
     },
   };
@@ -99,7 +104,7 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
       name: "submit_proposal",
       label: "完成本块填写",
       description:
-        "确认本块修改完成。变更已暂存在任务事务中；整个填表任务成功后由宿主统一提交。调用后直接结束对话。",
+        "确认本块修改完成。变更已暂存在本批事务中；本批成功后由宿主提交并保存，已完成批次会保留。调用后直接结束对话。",
       parameters: Type.Object({}),
       executionMode: "sequential",
       async execute() {
@@ -107,7 +112,7 @@ export function createTaskMutationTools(input: TaskMutationToolsInput): {
         finished = true;
         return {
           content: [{ type: "text", text: "本块填写完成" }],
-          details: { status: "submitted" },
+          details: { status: "submitted", commitState: "awaiting_batch_commit" },
         };
       },
     },

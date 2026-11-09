@@ -23,6 +23,7 @@ export function ConfirmAction({
   cancelLabel = "取消",
   onConfirm,
   destructive = false,
+  disabledReason,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,6 +33,7 @@ export function ConfirmAction({
   cancelLabel?: string;
   onConfirm: () => void | Promise<void>;
   destructive?: boolean;
+  disabledReason?: string;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   const operation = useRef(0);
@@ -46,7 +48,7 @@ export function ConfirmAction({
     };
   }, [open]);
   async function confirm() {
-    if (busy) {
+    if (busy || disabledReason) {
       return;
     }
     const token = ++operation.current;
@@ -81,9 +83,9 @@ export function ConfirmAction({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
-        {error ? (
+        {error || disabledReason ? (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{error ?? disabledReason}</AlertDescription>
           </Alert>
         ) : null}
         <AlertDialogFooter>
@@ -92,7 +94,7 @@ export function ConfirmAction({
           </AlertDialogCancel>
           <AlertDialogAction
             variant={destructive ? "destructive" : "default"}
-            disabled={busy}
+            disabled={busy || !!disabledReason}
             onClick={() => void confirm()}
           >
             {busy ? "处理中…" : confirmLabel}

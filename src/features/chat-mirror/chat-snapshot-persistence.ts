@@ -7,6 +7,21 @@ import {
   migrateLegacyFloorLedger,
   type LegacyFloorLedgerMigrationPorts,
 } from "./legacy-floor-ledger-migration.ts";
+import {
+  snapshotSaveActions,
+  type ChatSnapshotSaveStatus,
+  type SnapshotCleanupStatus,
+  type SnapshotSaveFailurePhase,
+  type SnapshotSaveOperation,
+} from "./snapshot-save-state.ts";
+export { snapshotSaveActions } from "./snapshot-save-state.ts";
+export type {
+  ChatSnapshotSaveStatus,
+  SnapshotCleanupStatus,
+  SnapshotSaveActions,
+  SnapshotSaveFailurePhase,
+  SnapshotSaveOperation,
+} from "./snapshot-save-state.ts";
 
 /** 加载出的快照可要求走现有候选保存流程；回调仅在完整文件核验成功后执行。 */
 export interface LoadedChatSnapshot {
@@ -34,30 +49,7 @@ export interface ChatSnapshotFileStore {
   /** 仅关键操作和强制同步读取固定文件；返回原始两个键。 */
   verify(target: ChatFileTarget): Promise<Record<string, unknown>>;
 }
-export type SnapshotSaveOperation = "update" | "replacement" | "force-sync";
-export type ChatSnapshotSaveStatus = (
-  | { readonly kind: "idle" }
-  | {
-      readonly kind: "saving" | "verifying";
-      readonly identity: string;
-      readonly operation: SnapshotSaveOperation;
-    }
-  | {
-      readonly kind: "submitted" | "verified";
-      readonly identity: string;
-      readonly completedAt: string;
-      readonly sizeBytes: number;
-    }
-  | {
-      readonly kind: "failed";
-      readonly identity: string;
-      readonly operation: SnapshotSaveOperation;
-      readonly error: string;
-      readonly humanMsg: string;
-    }
-) & { readonly cleanupWarning?: string };
-
-const IDLE_STATUS: ChatSnapshotSaveStatus = { kind: "idle" };
+const IDLE_STATUS: ChatSnapshotSaveStatus = { kind: "idle", cleanup: { kind: "idle" } };
 
 export class ChatSnapshotReplacementSaveError extends Error {
   readonly humanMsg: string;
@@ -68,20 +60,65 @@ export class ChatSnapshotReplacementSaveError extends Error {
   }
 }
 
+interface SaveRequest {
+  readonly task: ChatSnapshotSaveTask;
+  readonly operationId: number;
+}
+
+type SaveLifecycle =
+  | { readonly kind: "idle" }
+  | {
+      readonly kind: "queued" | "saving" | "verifying" | "confirming";
+      readonly request: SaveRequest;
+      readonly attempt: Promise<void>;
+    }
+  | {
+      readonly kind: "failed";
+      readonly request: SaveRequest;
+      readonly phase: SnapshotSaveFailurePhase;
+      readonly error: string;
+      readonly humanMsg: string;
+    }
+  | {
+      readonly kind: "released-failure";
+      readonly identity: string;
+      readonly operationId: number;
+      readonly operation: SnapshotSaveOperation;
+      readonly phase: SnapshotSaveFailurePhase;
+      readonly error: string;
+      readonly humanMsg: string;
+    }
+  | {
+      readonly kind: "submitted" | "verified";
+      readonly identity: string;
+      readonly operationId: number;
+      readonly operation: SnapshotSaveOperation;
+      readonly completedAt: string;
+      readonly sizeBytes: number;
+    };
+
+type CleanupLifecycle =
+  | { readonly kind: "idle" }
+  | {
+      readonly kind: "running";
+      readonly operationIds: readonly number[];
+      readonly attempt: Promise<void>;
+    }
+  | Extract<SnapshotCleanupStatus, { kind: "failed" }>;
+
 interface ChatSaveEntry {
   content?: SavedChatContent;
   active: boolean;
-  pending?: ChatSnapshotSaveTask;
+  save: SaveLifecycle;
   status: ChatSnapshotSaveStatus;
   queue: Promise<void>;
-  attempt?: Promise<void>;
-  retirements: Set<() => Promise<void>>;
-  cleanupWarning?: string;
-  cleanupAttempt?: Promise<void>;
+  retirements: Map<number, () => Promise<void>>;
+  cleanup: CleanupLifecycle;
 }
 
 export interface SnapshotFailure {
   readonly identity: string;
+  readonly operationId: number;
   readonly operation: SnapshotSaveOperation;
   readonly phase: "submit" | "verify" | "confirm" | "retire";
   readonly error: unknown;
@@ -92,6 +129,7 @@ export class ChatSnapshotPersistence {
   readonly #entries = new Map<string, ChatSaveEntry>();
   readonly #listeners = new Set<(status: ChatSnapshotSaveStatus) => void>();
   readonly #failures = new Set<(failure: SnapshotFailure) => void>();
+  #operationSequence = 0;
   private readonly store: ChatSnapshotFileStore;
   private readonly appVersion: () => string;
   private readonly legacyFloorLedger?: LegacyFloorLedgerMigrationPorts;
@@ -106,7 +144,7 @@ export class ChatSnapshotPersistence {
   }
 
   hasPendingWrites(): boolean {
-    return [...this.#entries.values()].some((entry) => entry.pending !== undefined);
+    return [...this.#entries.values()].some((entry) => this.pendingRequest(entry) !== undefined);
   }
 
   getStatus(identity?: string): ChatSnapshotSaveStatus {
@@ -135,31 +173,56 @@ export class ChatSnapshotPersistence {
 
   retryCleanup(identity: string): Promise<void> {
     const entry = this.entry(identity);
-    if (entry.cleanupAttempt) {
-      return entry.cleanupAttempt;
+    if (entry.cleanup.kind === "running") {
+      return entry.cleanup.attempt;
     }
-    const attempt = this.cleanRetired(entry, identity).finally(() => {
-      entry.cleanupAttempt = undefined;
-    });
-    entry.cleanupAttempt = attempt;
-    return attempt;
+    if (!entry.retirements.size) {
+      throw new Error("当前聊天没有待清理的旧辅助数据");
+    }
+    const actions = snapshotSaveActions(entry.status, entry.active);
+    if (actions.busy || entry.status.kind === "failed" || !entry.active) {
+      throw new Error(actions.disabledReason ?? "请先处理当前保存失败");
+    }
+    return this.startCleanup(entry, identity);
+  }
+
+  private startCleanup(entry: ChatSaveEntry, identity: string): Promise<void> {
+    const completion = Promise.withResolvers<void>();
+    entry.cleanup = {
+      kind: "running",
+      operationIds: [...entry.retirements.keys()],
+      attempt: completion.promise,
+    };
+    this.publish(entry);
+    void this.cleanRetired(entry, identity).then(completion.resolve, completion.reject);
+    return completion.promise;
   }
 
   private async cleanRetired(entry: ChatSaveEntry, identity: string): Promise<void> {
     const failures: string[] = [];
-    for (const retire of entry.retirements) {
+    for (const [operationId, retire] of entry.retirements) {
       try {
         await retire();
-        entry.retirements.delete(retire);
+        entry.retirements.delete(operationId);
       } catch (error) {
         failures.push(error instanceof Error ? error.message : String(error));
-        this.reportFailure({ identity, operation: "replacement", phase: "retire", error });
+        this.reportFailure({
+          identity,
+          operationId,
+          operation: "replacement",
+          phase: "retire",
+          error,
+        });
       }
     }
-    entry.cleanupWarning = failures.length
-      ? `记忆已保存，旧辅助数据清理未完成：${failures.join("；")}`
-      : undefined;
-    this.setStatus(entry, entry.status);
+    entry.cleanup = failures.length
+      ? {
+          kind: "failed",
+          operationIds: [...entry.retirements.keys()],
+          message: `记忆已保存，旧辅助数据清理未完成：${failures.join("；")}`,
+        }
+      : { kind: "idle" };
+    this.publish(entry);
   }
 
   remember(target: ChatFileTarget, snapshot: MemorySpaceBackup, binding: ChatSpaceBinding): void {
@@ -173,7 +236,8 @@ export class ChatSnapshotPersistence {
   }
 
   restoreCandidate(identity: string): void {
-    const task = this.#entries.get(identity)?.pending;
+    const entry = this.#entries.get(identity);
+    const task = entry && this.pendingRequest(entry)?.task;
     if (task?.operation !== "replacement") {
       throw new Error("当前聊天没有待确认候选");
     }
@@ -184,15 +248,31 @@ export class ChatSnapshotPersistence {
     const entry = this.#entries.get(identity);
     if (entry) {
       entry.active = false;
-      if (entry.pending?.operation !== "replacement") {
+      if (this.pendingRequest(entry)?.task.operation !== "replacement") {
         entry.content = undefined;
-        entry.pending = undefined;
+        if (entry.save.kind === "failed") {
+          const { request, phase, error, humanMsg } = entry.save;
+          entry.save = {
+            kind: "released-failure",
+            identity: request.task.content.target.identity,
+            operationId: request.operationId,
+            operation: request.task.operation,
+            phase,
+            error,
+            humanMsg,
+          };
+          this.publish(entry);
+        } else if (this.pendingRequest(entry)) {
+          entry.save = { kind: "idle" };
+          this.publish(entry);
+        }
       }
     }
   }
 
   hasPendingReplacement(identity: string): boolean {
-    return this.#entries.get(identity)?.pending?.operation === "replacement";
+    const entry = this.#entries.get(identity);
+    return entry !== undefined && this.pendingRequest(entry)?.task.operation === "replacement";
   }
 
   async load(
@@ -254,11 +334,17 @@ export class ChatSnapshotPersistence {
     assertActive: () => void,
   ): Promise<void> {
     const entry = this.entry(target.identity);
-    if (entry.pending?.operation === "replacement") {
-      if (entry.status.kind === "saving" || entry.status.kind === "verifying") {
-        return entry.attempt!;
+    const pending = this.pendingRequest(entry);
+    if (pending?.task.operation === "replacement") {
+      if (
+        entry.save.kind === "queued" ||
+        entry.save.kind === "saving" ||
+        entry.save.kind === "verifying" ||
+        entry.save.kind === "confirming"
+      ) {
+        return entry.save.attempt;
       }
-      return this.enqueue(entry, entry.pending, assertActive);
+      return this.enqueue(entry, pending, assertActive);
     }
     return this.schedule(
       new ChatSnapshotSaveTask({ target, snapshot, binding }, "force-sync", this.appVersion()),
@@ -271,9 +357,11 @@ export class ChatSnapshotPersistence {
     if (!entry) {
       entry = {
         status: IDLE_STATUS,
+        save: { kind: "idle" },
+        cleanup: { kind: "idle" },
         queue: Promise.resolve(),
         active: true,
-        retirements: new Set(),
+        retirements: new Map(),
       };
       this.#entries.set(identity, entry);
     }
@@ -282,107 +370,211 @@ export class ChatSnapshotPersistence {
 
   private schedule(task: ChatSnapshotSaveTask, assertActive?: () => void): Promise<void> {
     const entry = this.entry(task.content.target.identity);
-    if (entry.pending?.operation === "replacement") {
+    if (this.pendingRequest(entry)?.task.operation === "replacement") {
       throw new Error("候选空间尚待核验，请先强制同步");
     }
+    const request: SaveRequest = { task, operationId: ++this.#operationSequence };
     entry.content = task.content;
-    entry.pending = task;
     // 普通提交在 SQLite 交接的同一同步步骤发布 metadata 并请求宿主保存。
     // 宿主自行串行文件保存；本队列等待完成，供强制同步在旧调用结束后捕获核验。
     if (task.operation === "update") {
-      const saving = this.submitAndVerify(entry, task);
+      const completion = Promise.withResolvers<void>();
+      entry.save = { kind: "saving", request, attempt: completion.promise };
+      void this.submitAndVerify(entry, request).then(completion.resolve, completion.reject);
+      const saving = completion.promise;
       entry.queue = Promise.allSettled([entry.queue, saving]).then(() => undefined);
       return saving;
     }
-    const completion = this.enqueue(entry, task, assertActive);
-    this.setStatus(entry, {
-      kind: "saving",
-      identity: task.content.target.identity,
-      operation: task.operation,
-    });
-    return completion;
+    return this.enqueue(entry, request, assertActive);
   }
 
   private enqueue(
     entry: ChatSaveEntry,
-    task: ChatSnapshotSaveTask,
+    request: SaveRequest,
     assertActive?: () => void,
   ): Promise<void> {
+    const completion = Promise.withResolvers<void>();
+    entry.save = { kind: "queued", request, attempt: completion.promise };
+    this.publish(entry);
     const run = entry.queue.then(() => {
-      if (entry.pending !== task) {
+      if (this.pendingRequest(entry) !== request) {
         throw new Error("同步操作已过期，请在当前聊天重新同步");
       }
-      assertActive?.();
-      return this.submitAndVerify(entry, task);
+      return this.submitAndVerify(entry, request, assertActive);
     });
-    entry.attempt = run;
     entry.queue = run.catch(() => undefined);
-    return run;
+    void run.then(completion.resolve, completion.reject);
+    return completion.promise;
   }
 
-  private async submitAndVerify(entry: ChatSaveEntry, task: ChatSnapshotSaveTask): Promise<void> {
+  private async submitAndVerify(
+    entry: ChatSaveEntry,
+    request: SaveRequest,
+    assertActive?: () => void,
+  ): Promise<void> {
+    const task = request.task;
     const identity = task.content.target.identity;
-    let phase: SnapshotFailure["phase"] = "submit";
-    this.setStatus(entry, { kind: "saving", identity, operation: task.operation });
+    let phase: SnapshotSaveFailurePhase = "submit";
     try {
+      assertActive?.();
+      this.advance(entry, request, "saving");
+      if (this.pendingRequest(entry) !== request) {
+        return;
+      }
       await task.submit(this.store);
+      if (this.pendingRequest(entry) !== request) {
+        return;
+      }
       if (task.operation !== "update") {
         phase = "verify";
-        this.setStatus(entry, { kind: "verifying", identity, operation: task.operation });
+        this.advance(entry, request, "verifying");
+        if (this.pendingRequest(entry) !== request) {
+          return;
+        }
         await task.verify(this.store);
+        if (this.pendingRequest(entry) !== request) {
+          return;
+        }
         phase = "confirm";
+        this.advance(entry, request, "confirming");
+        if (this.pendingRequest(entry) !== request) {
+          return;
+        }
         await task.confirm();
       }
       // 旧提交完成不能把较新的内容标记为已核验。
-      if (entry.pending !== task) {
+      if (this.pendingRequest(entry) !== request) {
         return;
       }
-      entry.pending = undefined;
       if (!entry.active) {
         entry.content = undefined;
       }
-      this.setStatus(entry, {
+      entry.save = {
         kind: task.operation === "update" ? "submitted" : "verified",
         identity,
+        operationId: request.operationId,
+        operation: task.operation,
         completedAt: new Date().toISOString(),
         sizeBytes: task.sizeBytes,
-      });
+      };
       // 新 ID 空间退休不改变已确认的文件结果；同 ID 操作仍保留原确认回调。
+      // 先登记清理再发布完成，订阅者重入时能看到完整操作结果与清理归属。
       if (task.retire) {
-        entry.retirements.add(task.retire);
-        await this.retryCleanup(identity);
+        entry.retirements.set(request.operationId, task.retire);
+        if (entry.cleanup.kind === "running") {
+          entry.cleanup = { ...entry.cleanup, operationIds: [...entry.retirements.keys()] };
+          this.publish(entry);
+          await entry.cleanup.attempt;
+        } else {
+          await this.startCleanup(entry, identity);
+        }
+      } else {
+        this.publish(entry);
       }
     } catch (error) {
-      if (entry.pending !== task) {
+      if (this.pendingRequest(entry) !== request) {
         throw error;
       }
       const reason = error instanceof Error ? error.message : String(error);
-      this.reportFailure({ identity, operation: task.operation, phase, error });
+      this.reportFailure({
+        identity,
+        operationId: request.operationId,
+        operation: task.operation,
+        phase,
+        error,
+      });
+      if (this.pendingRequest(entry) !== request) {
+        throw error;
+      }
       const humanMsg =
         phase === "confirm"
           ? `聊天文件已核验，操作收尾尚未完成，请重试：${reason}`
           : task.operation === "replacement"
             ? `新内容已载入，聊天文件保存尚未核验；旧任务、向量和 Agent 会话尚未清理：${reason}`
             : `记忆已提交、尚未核验：${reason}`;
-      this.setStatus(entry, {
+      entry.save = {
         kind: "failed",
-        identity,
-        operation: task.operation,
+        request,
+        phase,
         error: reason,
         humanMsg,
-      });
+      };
+      this.publish(entry);
       throw task.operation === "replacement"
         ? new ChatSnapshotReplacementSaveError(error, humanMsg)
         : error;
     }
   }
 
-  private setStatus(entry: ChatSaveEntry, status: ChatSnapshotSaveStatus): void {
-    const saved = { ...status };
-    delete saved.cleanupWarning;
-    entry.status = entry.cleanupWarning
-      ? { ...saved, cleanupWarning: entry.cleanupWarning }
-      : saved;
+  private pendingRequest(entry: ChatSaveEntry): SaveRequest | undefined {
+    switch (entry.save.kind) {
+      case "queued":
+      case "saving":
+      case "verifying":
+      case "confirming":
+      case "failed":
+        return entry.save.request;
+      case "idle":
+      case "released-failure":
+      case "submitted":
+      case "verified":
+        return undefined;
+    }
+  }
+
+  private advance(
+    entry: ChatSaveEntry,
+    request: SaveRequest,
+    kind: "saving" | "verifying" | "confirming",
+  ): void {
+    const current = entry.save;
+    if (
+      (current.kind !== "queued" &&
+        current.kind !== "saving" &&
+        current.kind !== "verifying" &&
+        current.kind !== "confirming") ||
+      current.request !== request
+    ) {
+      throw new Error("保存操作归属已过期");
+    }
+    entry.save = { ...current, kind };
+    this.publish(entry);
+  }
+
+  private publish(entry: ChatSaveEntry): void {
+    const { save, cleanup } = entry;
+    const cleanupStatus: SnapshotCleanupStatus =
+      cleanup.kind === "running"
+        ? { kind: "running", operationIds: cleanup.operationIds }
+        : cleanup;
+    if (save.kind === "released-failure") {
+      entry.status = { ...save, kind: "failed", cleanup: cleanupStatus };
+    } else if (!("request" in save)) {
+      entry.status = { ...save, cleanup: cleanupStatus };
+    } else {
+      const { task, operationId } = save.request;
+      const identity = task.content.target.identity;
+      if (save.kind === "failed") {
+        entry.status = {
+          kind: "failed",
+          phase: save.phase,
+          error: save.error,
+          humanMsg: save.humanMsg,
+          identity,
+          operationId,
+          operation: task.operation,
+          cleanup: cleanupStatus,
+        };
+      } else {
+        entry.status = {
+          kind: save.kind,
+          identity,
+          operationId,
+          operation: task.operation,
+          cleanup: cleanupStatus,
+        };
+      }
+    }
     for (const listener of this.#listeners) {
       try {
         listener(entry.status);

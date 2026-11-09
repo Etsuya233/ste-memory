@@ -14,7 +14,7 @@ import type {
   FillTaskView,
   FloorLedgerEntry,
 } from "../../../features/fill-tasks/fill-task.ts";
-import { isFillTaskTerminal } from "../../../features/fill-tasks/fill-task.ts";
+import { fillTaskActions, isFillTaskTerminal } from "../../../features/fill-tasks/fill-task.ts";
 import { DEFAULT_FILL_TASK_BLOCK_SIZE } from "../../../features/fill-tasks/fill-task-service.ts";
 import { formatDisplayTime } from "../shell/space-info.ts";
 import type { CleaningRule } from "../../../features/cleaning/cleaning-rules.ts";
@@ -349,9 +349,7 @@ function toHistoryItem(task: FillTaskView): TaskHistoryItemViewModel {
     timeText: formatDisplayTime(task.createdAt),
     progressText: taskProgressText(task),
     errorMessage: task.errorMessage,
-    retryable:
-      !(task.kind === "init" && task.pendingCommit) &&
-      (task.status === "failed" || task.status === "interrupted"),
+    retryable: fillTaskActions(task).retry.allowed,
   };
 }
 

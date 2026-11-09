@@ -2965,6 +2965,21 @@ describe("自动填表成功后续动作", () => {
 });
 
 describe("填表 SQLite 事务与宿主提交", () => {
+  it("初始化已提交后辅助任务收口失败，拒绝重放且允许取消释放队列", async () => {
+    const stream = scriptedFillAgent();
+    const h = await createHarness({ streamFn: stream });
+    vi.spyOn(h.tasks, "completeBatchCommit").mockRejectedValueOnce(new Error("任务历史离线"));
+    const task = await h.service.submitInit({ memorySpaceId: h.spaceId, text: "初始化人物" });
+    expect((await waitForTerminal(h, task.runId)).status).toBe("failed");
+    const calls = stream.calls.count;
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
+    await expect(h.service.retry(h.spaceId, task.runId)).rejects.toThrow();
+    await h.service.cancel(h.spaceId, task.runId);
+    expect((await h.tasks.find(task.runId))!.blocksQueue).toBe(false);
+    expect(stream.calls.count).toBe(calls);
+    expect((await h.services.memoryStore.snapshot(h.spaceId))!.records).toHaveLength(1);
+  });
+
   it("宿主保存仍在途时，记忆与已处理进度已在同一SQLite快照中提交", async () => {
     let release!: () => void;
     const gate = new Promise<void>((done) => {

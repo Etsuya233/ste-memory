@@ -37,6 +37,7 @@ export function RecordDetailPage({
   runHost,
   getMessageAt,
   onJumpFloor,
+  writeBlocked = false,
 }: {
   state: RecordsSnapshot;
   workspace: RecordsWorkspace;
@@ -47,6 +48,7 @@ export function RecordDetailPage({
   runHost: (action: () => Promise<unknown>) => Promise<void>;
   getMessageAt: (floor: number) => StChatMessage | undefined;
   onJumpFloor: (floor: number) => FloorJumpResult;
+  writeBlocked?: boolean;
 }) {
   const table = state.tables.find((item) => item.id === state.tableId);
   const labels = referenceLabels(state.references);
@@ -90,7 +92,7 @@ export function RecordDetailPage({
               variant="destructive"
               className="ste:self-start"
               data-action="delete-record"
-              disabled={state.saving || state.detailLoading || !!state.detailError}
+              disabled={writeBlocked || state.saving || state.detailLoading || !!state.detailError}
               onClick={() => setDeleteTarget(record)}
             >
               <Trash2 data-icon="inline-start" />
@@ -267,7 +269,7 @@ export function RecordDetailPage({
           saveAction="save-record"
           busy={state.saving}
           dirty={state.editor.dirty}
-          disabled={state.editor.conflict}
+          disabled={writeBlocked || state.editor.conflict}
           onCancel={() => navigate(() => workspace.cancelEdit())}
         />
       ) : (
@@ -297,7 +299,9 @@ export function RecordDetailPage({
       <ConfirmAction
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open) {
+            setDeleteTarget(null);
+          }
         }}
         title="删除这条记录？"
         description={
@@ -307,6 +311,7 @@ export function RecordDetailPage({
           </>
         }
         confirmLabel="确认删除"
+        disabledReason={writeBlocked ? "当前空间暂停写入，请等待保存核验完成" : undefined}
         destructive
         onConfirm={() => workspace.deleteRecord(deleteTarget!)}
       />

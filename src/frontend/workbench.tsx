@@ -23,6 +23,7 @@ import type { PresetSettingsServices } from "./pages/settings/preset-settings-se
 import type { SettingsTools } from "./pages/settings/SettingsPage.tsx";
 import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
+import { StatusNotice } from "./components/page-state.tsx";
 
 export interface WorkbenchProps extends RecordsPageProps {
   persistence: ChatSnapshotSaveStatus;
@@ -102,6 +103,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
           available={context !== null}
           onRetry={props.onRetrySave}
         />
+        {props.writeBlockReason ? <StatusNotice>{props.writeBlockReason}</StatusNotice> : null}
         <div className="ste:min-h-0 ste:flex-1">
           {!enabled && page !== "settings" ? (
             <div className="ste:flex ste:h-full ste:flex-col">
@@ -118,6 +120,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
               workspace={props.tables}
               controls={controls}
               registerLeaveGuard={registerLeaveGuard}
+              writeBlockReason={props.writeBlockReason}
             />
           ) : page === "query" ? (
             <QueryPage
@@ -125,6 +128,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
               context={context}
               controls={controls}
               registerLeaveGuard={registerLeaveGuard}
+              writeBlockReason={props.writeBlockReason}
             />
           ) : page === "tasks" ? (
             <TasksPage
@@ -143,6 +147,7 @@ export function WorkbenchApp(props: WorkbenchProps) {
               controls={controls}
               registerLeaveGuard={registerLeaveGuard}
               active={props.active ?? true}
+              writeBlockReason={props.writeBlockReason}
             />
           ) : (
             <SettingsPage

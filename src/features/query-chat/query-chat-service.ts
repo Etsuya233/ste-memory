@@ -33,6 +33,7 @@ import {
 } from "../agent/index.ts";
 import { runFillAgent } from "../agent/fill-agent-runner.ts";
 import type { QueryChatStore, AssistantContext } from "./session-store.ts";
+import { assistantSessionActions } from "./assistant-session-state.ts";
 import {
   errorMessage,
   terminalQueryChatEvent,
@@ -81,6 +82,8 @@ export class QueryChatService {
       if (!input.text.trim()) {
         throw new Error("消息不能为空");
       }
+      const preparation = assistantSessionActions(session).prepare;
+      const readOnly = !preparation.allowed && preparation.code === "commit-uncertain";
       const run = this.store.startRun(session.id, input.text);
       let terminal: QueryChatEvent;
       let preview: ProposalPreviewToolResult | undefined;
@@ -102,6 +105,7 @@ export class QueryChatService {
           history: session.transcript,
           semanticQuery: this.#options.semanticQuery,
           confirmationRequired: true,
+          readOnly,
           composedMessages: [
             { role: "system", text: composeInteractiveProposalAgentSystemPrompt(digest) },
           ],
@@ -114,7 +118,12 @@ export class QueryChatService {
           onEvent: (event) => this.store.recordAgentEvent(session.id, run.pendingId, event),
         });
         terminal = terminalQueryChatEvent(result, signal);
-        if (run.proposal.operations.length && result.stopReason === "stop" && !signal.aborted) {
+        if (
+          !readOnly &&
+          run.proposal.operations.length &&
+          result.stopReason === "stop" &&
+          !signal.aborted
+        ) {
           preview = (await this.#prepareProposal(session.spaceId, run.proposal)).preview;
         }
       } catch (cause) {
