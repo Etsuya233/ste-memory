@@ -85,3 +85,20 @@ node verify.mjs
 上述独立预览和单元测试不替代真实 ST 写回、发送/重生成时的宏注入、真实模型及检索缓存端到端验收。
 删除的旧脚本可从 Git 历史查阅；对应真实 ST 集成场景后续应以新前端与专用测试对话补充，不能视为已通过。
 不依赖旧界面的 verify.mjs、verify-space-binding.mjs 与 verify-llm-adapter.mjs 继续保留。
+
+## 独立测试对话的真实 ST 验收
+
+写入验收必须使用独立 ST dataRoot，安装当前构建产物并完成首次启动。保留日常实例及其数据。
+设置 `ST_URL` 指向测试实例、`ST_IMPORT_TEST_INSTANCE=1`，按需设置 `CHROME` 指向浏览器。
+
+`verify-import-roundtrip.mjs` 检查角色与群聊导入、完整文件回读、失败重试和清理重试。
+`verify-native-persistence.mjs` 还要求 `ST_TEST_DATA_ROOT` 指向测试实例数据目录，直接比较磁盘 JSONL，
+覆盖普通保存、原生 HTTP 保存失败、强制同步恢复、保存中切聊、A→B→A 与刷新恢复。
+`verify-generation-lifecycle.mjs` 调用真实 ST Generate，检查发送、重生成、继续、停止、停止后重启、
+模型请求失败及切聊后的身份清除。仅模型 HTTP 响应受控，事件桥、宏引擎与聊天保存均使用原生实现。
+记忆宏通过真实扩展提示词注入，避开 MESSAGE_SENT 之前的用户输入宏展开时机。
+
+在本目录运行 `node verify-native-persistence.mjs` 和 `node verify-generation-lifecycle.mjs`；
+可用 `ST_TEST_RESULTS` 指定各脚本的 JSON 结果文件，导入脚本使用 `IMPORT_RESULTS`。
+脚本创建名称带时间戳的专用测试对话，并覆盖群聊发送、重生成与继续。
+结果只代表实际运行时点；外部模型服务和工具调用递归仍需各自端到端验证。

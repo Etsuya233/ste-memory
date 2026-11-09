@@ -17,4 +17,25 @@ date: 2026-10-26
 
 取消等待后的旧生成通过生成拦截器退出，再释放下一次生成。宿主按扩展的 `loading_order` 升序调用拦截器，第三方调用 `abort(true)` 会立即终止后续调用。因此本插件设置为 `-1000`，取消门禁必须先于其他可能提前终止的拦截器运行；第三方设置更低的顺序仍会破坏这一前提。正常批次经过本插件门禁后，后续拦截器的终止由宿主解除生成状态并发出结束事件，清除本插件保留的批次身份。
 
+## 生成身份与状态归属（2026-11-09）
+
+宿主适配器为每次前台生成分配 `GenerationIdentity`，宏与自动填表共享同一个对象。
+quiet、impersonate 和 dry-run 不替换前台身份；同次工具递归沿用身份，已结束后的新生成分配新身份。
+事件方法必须携带身份，过期 Promise、AbortSignal 和功能回调只能作用于自己的生成。
+排队等候门禁时被替代或切聊撤销的 STARTED 以 AbortError 拒绝，阻止原生旧调用继续执行。
+群聊外层 Generate 只委托成员，不分配回复身份；群聊重生成将成员的原生 normal 类型归一为 regenerate，
+使其在命令结束后使用最新用户输入准备宏，普通群聊发送仍等待新用户消息。
+原生 ENDED/STOPPED 没有调用身份，适配器依赖 ST 的串行前台生成约定和旧调用拦截器排空门禁；
+无法为第三方任意伪造或乱序发出的匿名结束事件推断原始调用。
+
+宏生命周期为 idle、waiting-message、awaiting-commands、preparing、ready、finished 或 cancelled。
+只有 ready 且对话上下文仍匹配时，同步宏才能读取本批结果；历史诊断结果保留供查看。
+群聊批次独立拥有可复用快照，每个成员的生成分别开闭可读窗口。停止、切聊、停用、取消和群聊结束
+撤销对应复用许可。公开 `prepare` 使用独立诊断求值身份，不模拟宿主前台生成。
+`getGenerationState()` 提供阶段、生成编号、批次编号、群聊编号和可读状态，供调试与自动化检查。
+
+ST 在 MESSAGE_SENT 前展开用户输入宏；生成期记忆宏应放在角色卡、预设或扩展提示词等生成提示词位置。
+真实 ST 验收通过原生 Generate、宏引擎与聊天文件保存检查发送、重生成、继续、停止后重启和失败流程；
+模型 HTTP 响应受控，不覆盖外部模型服务的可用性。
+
 需求见 [宏重构需求](../../../.scratch/macro-expression-refactor/spec.md)，双方取舍见 [质询记录](../../../.scratch/macro-expression-refactor/discussion.md)，实施与验证范围见 [验收记录](../../../.scratch/macro-expression-refactor/implementation.md)。该决策替代上述旧文档中关于记忆宏后台预计算和 memoryRecall 的行为。

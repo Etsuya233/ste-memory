@@ -1057,18 +1057,21 @@ export async function startSteMemory(
         },
       );
     },
-    onMessageEvent: (kind, floor) => {
+    onMessageEvent: (kind, floor, generation) => {
+      if (!generation) {
+        return;
+      }
       if (kind === "message_received") {
-        autoFill.messageReceived(floor);
+        autoFill.messageReceived(floor, generation);
       }
       return kind === "message_sent" && floor !== undefined
-        ? macro.messageSent(adapter.getMessageAt(floor))
+        ? macro.messageSent(adapter.getMessageAt(floor), generation)
         : undefined;
     },
     onGenerationStarted: (type, options, dryRun) => {
       macro.started(type, options, dryRun);
       if (!dryRun && type !== "quiet" && type !== "impersonate") {
-        autoFill.generationStarted();
+        autoFill.generationStarted(options.generation);
       }
     },
     onGenerationAfterCommands: (type, options, dryRun) => {
@@ -1082,12 +1085,16 @@ export async function startSteMemory(
       }
       return macro.afterCommands(type, options, dryRun, lastUserMessage);
     },
-    onGenerationEnded: () => autoFill.generationEnded(),
-    onGenerationStopped: () => {
-      autoFill.generationStopped();
-      macro.cancel("ST 已停止生成");
+    onGenerationEnded: (generation) => autoFill.generationEnded(generation),
+    onGenerationStopped: (generation) => {
+      autoFill.generationStopped(generation);
+      macro.generationStopped(generation);
     },
-    onGenerationFinished: (dryRun) => macro.generationFinished(dryRun),
+    onGenerationFinished: (dryRun, generation) => {
+      if (generation) {
+        macro.generationFinished(dryRun, generation);
+      }
+    },
     shouldAwaitMacros: macro.isPreparing,
     onGroupStarted: () => macro.groupStarted(),
     onGroupEnded: () => macro.groupEnded(),

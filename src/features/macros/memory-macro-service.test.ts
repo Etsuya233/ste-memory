@@ -3,9 +3,14 @@ import type { MemorySpaceBackup } from "../backup/backup-file.ts";
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { MemoryMacro } from "./macro-expression.ts";
 import type { MemoryView } from "./memory-views.ts";
-import { MemoryMacroService, type MemoryMacroExecutionContext } from "./memory-macro-service.ts";
+import {
+  MemoryMacroService,
+  type MemoryMacroExecutionContext,
+  type MemoryMacroServicePorts,
+} from "./memory-macro-service.ts";
 import type { MacroEvaluationStatistics } from "./macro-evaluation.ts";
 import { renderMacroResult } from "./macro-result-render.ts";
+import type { GenerationIdentity } from "../generation/generation-identity.ts";
 
 const definition = (name = "记忆"): MemoryMacro => ({
   id: name,
@@ -17,6 +22,8 @@ const definition = (name = "记忆"): MemoryMacro => ({
 
 function harness(timeoutMs = 1000) {
   let context = "chat-A";
+  let generationSequence = 0;
+  let generation: GenerationIdentity = { id: generationSequence, chatIdentity: context };
   let local: readonly MemoryMacro[] = [];
   let legacy: readonly MemoryView[] = [];
   const settings = {
@@ -51,6 +58,12 @@ function harness(timeoutMs = 1000) {
     queryVectorScope: "batch",
     queryVectors: { requests: 0, executionHits: 0, sharedHits: 0 },
   }));
+  const createBatch = vi.fn<MemoryMacroServicePorts["createBatch"]>(async () => ({
+    evaluate,
+    close,
+    validate: async () => false,
+    statistics,
+  }));
   const service = new MemoryMacroService({
     getContext: () => context,
     getChatMacros: () => local,
@@ -63,12 +76,7 @@ function harness(timeoutMs = 1000) {
     },
     readSettings: () => settings,
     capture,
-    createBatch: async () => ({
-      evaluate,
-      close,
-      validate: async () => false,
-      statistics,
-    }),
+    createBatch,
     registerMacro: {
       register: (_name, next) => {
         handler = next;
@@ -81,9 +89,30 @@ function harness(timeoutMs = 1000) {
   });
   return {
     service,
+    started: (
+      type: unknown,
+      options: { automatic_trigger?: boolean; continuation?: boolean },
+      dryRun: boolean,
+    ) => {
+      if (!dryRun && type !== "quiet" && type !== "impersonate" && !options.continuation) {
+        generation = { id: ++generationSequence, chatIdentity: context };
+      }
+      service.started(type, { ...options, generation }, dryRun);
+    },
+    afterCommands: (
+      type: unknown,
+      options: { automatic_trigger?: boolean },
+      dryRun: boolean,
+      text: string | null,
+    ) => service.afterCommands(type, { ...options, generation }, dryRun, text),
+    messageSent: (message: { content: string; isUser: boolean } | undefined) =>
+      service.messageSent(message, generation),
+    finished: (dryRun: boolean) => service.generationFinished(dryRun, generation),
+    generation: () => generation,
     settings,
     evaluate,
     capture,
+    createBatch,
     close,
     statistics,
     setLocal: (value: readonly MemoryMacro[]) => {
@@ -247,8 +276,8 @@ describe("生成时统一求值", () => {
     h.capture.mockResolvedValue(snapshot);
     await h.service.start();
     try {
-      h.service.started("regenerate", {}, false);
-      await h.service.afterCommands("regenerate", {}, false, "测试");
+      h.started("regenerate", {}, false);
+      await h.afterCommands("regenerate", {}, false, "测试");
       expect(h.expand(name)).toContain(
         "| 出航 | 林舟（船长） | 苏月（医师）、林舟（船长） | person-1、海上 |",
       );
@@ -272,8 +301,8 @@ describe("生成时统一求值", () => {
     });
     h.evaluate.mockRejectedValue(new Error("不同查询文本超过 4 种"));
     await h.service.start();
-    h.service.started("regenerate", {}, false);
-    await h.service.afterCommands("regenerate", {}, false, "查询");
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "查询");
     const recent = h.service.getRecentResults();
     expect(recent.find((row) => row.name === "记忆")?.diagnostics).toEqual([
       { execution: h.statistics() },
@@ -293,8 +322,8 @@ describe("生成时统一求值", () => {
     const h = harness();
     h.close.mockRejectedValueOnce(new Error("close RPC failed"));
     await h.service.start();
-    h.service.started("regenerate", {}, false);
-    await expect(h.service.afterCommands("regenerate", {}, false, "查询")).resolves.toBeUndefined();
+    h.started("regenerate", {}, false);
+    await expect(h.afterCommands("regenerate", {}, false, "查询")).resolves.toBeUndefined();
     expect(h.expand()).toBe("");
     expect(h.service.getRecentResults().find((row) => row.name === "记忆")?.error).toContain(
       "close RPC failed",
@@ -307,14 +336,14 @@ describe("生成时统一求值", () => {
     await h.service.kick();
     expect(h.capture).not.toHaveBeenCalled();
     expect(h.expand()).toBe("");
-    h.service.started("normal", {}, false);
-    await h.service.afterCommands("normal", {}, false, "旧消息");
+    h.started("normal", {}, false);
+    await h.afterCommands("normal", {}, false, "旧消息");
     expect(h.capture).not.toHaveBeenCalled();
-    await h.service.messageSent({ isUser: true, content: "本次消息" });
+    await h.messageSent({ isUser: true, content: "本次消息" });
     expect(h.evaluate).toHaveBeenCalledOnce();
     expect(h.expand()).toBe("本次记忆");
     expect(h.expand()).toBe("本次记忆");
-    h.service.generationFinished(false);
+    h.finished(false);
     expect(h.expand()).toBe("");
     expect(h.service.getRecentResults().find((row) => row.name === "记忆")?.text).toBe("本次记忆");
     h.service.stop();
@@ -322,13 +351,13 @@ describe("生成时统一求值", () => {
   it("重生成与续写重新计算，独立dry run不计算", async () => {
     const h = harness();
     await h.service.start();
-    h.service.started("normal", {}, true);
-    await h.service.afterCommands("normal", {}, true, "测试");
+    h.started("normal", {}, true);
+    await h.afterCommands("normal", {}, true, "测试");
     expect(h.evaluate).not.toHaveBeenCalled();
     for (const type of ["regenerate", "swipe", "continue"]) {
-      h.service.started(type, {}, false);
-      await h.service.afterCommands(type, {}, false, "测试");
-      h.service.generationFinished(false);
+      h.started(type, {}, false);
+      await h.afterCommands(type, {}, false, "测试");
+      h.finished(false);
     }
     expect(h.evaluate).toHaveBeenCalledTimes(3);
     h.service.stop();
@@ -336,10 +365,10 @@ describe("生成时统一求值", () => {
   it("同次工具递归不重复求值，测试超时也会释放且不污染真实结果", async () => {
     const h = harness(10);
     await h.service.start();
-    h.service.started("regenerate", {}, false);
-    await h.service.afterCommands("regenerate", {}, false, "本次");
-    h.service.started("normal", { continuation: true }, false);
-    await h.service.afterCommands("normal", {}, false, "本次");
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "本次");
+    h.started("normal", { continuation: true }, false);
+    await h.afterCommands("normal", {}, false, "本次");
     expect(h.evaluate).toHaveBeenCalledOnce();
     expect(h.expand()).toBe("本次记忆");
     let release!: (value: { columns: string[]; rows: string[][]; sources: never[] }) => void;
@@ -366,22 +395,59 @@ describe("生成时统一求值", () => {
     for (let group = 0; group < 2; group++) {
       h.service.groupStarted();
       for (let member = 0; member < 2; member++) {
-        h.service.started("normal", { automatic_trigger: true }, false);
-        await h.service.afterCommands("normal", { automatic_trigger: true }, false, "群聊消息");
+        h.started("normal", { automatic_trigger: true }, false);
+        await h.afterCommands("normal", { automatic_trigger: true }, false, "群聊消息");
         expect(h.expand()).toBe("本次记忆");
-        h.service.generationFinished(false);
+        h.finished(false);
       }
       h.service.groupEnded();
     }
     expect(h.evaluate).toHaveBeenCalledTimes(2);
     h.service.stop();
   });
+  it("群聊重生成成员按宿主保留的 regenerate 类型准备，无需等待用户消息", async () => {
+    const h = harness();
+    await h.service.start();
+    h.service.groupStarted();
+    // ST 的 regenerate 包装器内部调用 normal；宿主向策略保留包装器的 regenerate。
+    h.started("regenerate", { automatic_trigger: false }, false);
+    await h.afterCommands("regenerate", { automatic_trigger: false }, false, "最近用户消息");
+    expect(h.expand()).toBe("本次记忆");
+    expect(h.createBatch).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ lastUserMessage: "最近用户消息" }),
+    );
+    h.finished(false);
+    h.started("regenerate", { automatic_trigger: false }, false);
+    await h.afterCommands("regenerate", { automatic_trigger: false }, false, "最近用户消息");
+    expect(h.expand()).toBe("本次记忆");
+    expect(h.evaluate).toHaveBeenCalledOnce();
+    h.service.groupEnded();
+    h.service.stop();
+  });
+  it("手动输入的普通群聊首成员仍等待本次 MESSAGE_SENT", async () => {
+    const h = harness();
+    await h.service.start();
+    h.service.groupStarted();
+    h.started("normal", { automatic_trigger: false }, false);
+    await h.afterCommands("normal", { automatic_trigger: false }, false, "旧用户消息");
+    expect(h.capture).not.toHaveBeenCalled();
+    expect(h.service.getGenerationState().phase).toBe("waiting-message");
+    await h.messageSent({ isUser: true, content: "本次群聊消息" });
+    expect(h.createBatch).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ lastUserMessage: "本次群聊消息" }),
+    );
+    expect(h.expand()).toBe("本次记忆");
+    h.service.groupEnded();
+    h.service.stop();
+  });
   it("停用对话宏遮蔽同名全局宏，其他宏继续", async () => {
     const h = harness();
     h.setLocal([{ ...definition(), enabled: false }, definition("另一个")]);
     await h.service.start();
-    h.service.started("regenerate", {}, false);
-    await h.service.afterCommands("regenerate", {}, false, "测试");
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "测试");
     expect(h.expand()).toBe("");
     expect(h.expand("另一个")).toBe("本次记忆");
     expect(h.evaluate).toHaveBeenCalledOnce();
@@ -397,8 +463,8 @@ describe("生成时统一求值", () => {
         }),
     );
     await h.service.start();
-    h.service.started("regenerate", {}, false);
-    await h.service.afterCommands("regenerate", {}, false, "测试");
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "测试");
     expect(h.expand()).toBe("");
     expect(h.service.getRecentResults().find((row) => row.name === "记忆")?.error).toContain(
       "超过",
@@ -417,8 +483,8 @@ describe("生成时统一求值", () => {
     await h.service.start();
     await h.service.migrateLegacyChatMacros();
     expect(h.service.getMigrationConflicts()).toHaveLength(1);
-    h.service.started("regenerate", {}, false);
-    await h.service.afterCommands("regenerate", {}, false, "测试");
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "测试");
     expect(h.expand()).toBe("");
     const before = h.service.getRecentResults();
     const tested = await h.service.testMacro({
@@ -431,6 +497,200 @@ describe("生成时统一求值", () => {
     await h.service.resolveMigrationConflict("记忆", { kind: "rename", name: "旧记忆" });
     expect(h.local().map((macro) => macro.name)).toEqual(["记忆", "旧记忆"]);
     expect(h.legacy()).toEqual([]);
+    h.service.stop();
+  });
+
+  it("迟到消息、命令结束、停止与结束事件均不能操作新生成", async () => {
+    const h = harness();
+    await h.service.start();
+    h.started("normal", {}, false);
+    const old = h.generation();
+    h.started("normal", {}, false);
+    const current = h.generation();
+    await h.service.messageSent({ isUser: true, content: "旧用户消息" }, old);
+    await h.service.afterCommands(
+      "normal",
+      { automatic_trigger: true, generation: old },
+      false,
+      "旧命令",
+    );
+    expect(h.capture).not.toHaveBeenCalled();
+    await h.messageSent({ isUser: true, content: "当前用户消息" });
+    const ready = h.service.getGenerationState();
+    expect(ready).toMatchObject({ phase: "ready", generation: { id: current.id }, readable: true });
+    h.service.generationFinished(false, old);
+    h.service.generationStopped(old);
+    h.service.generationFinished(false, { ...current });
+    expect(h.expand()).toBe("本次记忆");
+    expect(h.service.getGenerationState()).toEqual(ready);
+    h.service.generationFinished(false, current);
+    expect(h.expand()).toBe("");
+    expect(h.service.getGenerationState().phase).toBe("finished");
+    h.service.stop();
+  });
+
+  it("取消撤销同次递归复用，历史结果保持可查看且不会重新注入", async () => {
+    const h = harness();
+    await h.service.start();
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "第一次");
+    const firstBatch = h.service.getGenerationState().batchId;
+    h.service.generationStopped(h.generation());
+    expect(h.service.getRecentResults().find((row) => row.name === "记忆")?.text).toBe("本次记忆");
+    h.started("normal", { continuation: true }, false);
+    expect(h.expand()).toBe("");
+    expect(h.service.getGenerationState().phase).toBe("awaiting-commands");
+    await h.afterCommands("normal", {}, false, "重新生成");
+    expect(h.evaluate).toHaveBeenCalledTimes(2);
+    expect(h.service.getGenerationState().batchId).not.toBe(firstBatch);
+    h.service.stop();
+  });
+
+  it("群聊成员正常结束可以复用，停止后下一成员重新求值", async () => {
+    const h = harness();
+    await h.service.start();
+    h.service.groupStarted();
+    h.started("normal", { automatic_trigger: true }, false);
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "群聊");
+    const firstBatch = h.service.getGenerationState().batchId;
+    h.finished(false);
+    h.started("normal", { automatic_trigger: true }, false);
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "群聊");
+    expect(h.evaluate).toHaveBeenCalledOnce();
+    expect(h.service.getGenerationState().batchId).toBe(firstBatch);
+    h.service.generationStopped(h.generation());
+    h.started("normal", { automatic_trigger: true }, false);
+    expect(h.expand()).toBe("");
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "群聊");
+    expect(h.evaluate).toHaveBeenCalledTimes(2);
+    expect(h.service.getGenerationState().batchId).not.toBe(firstBatch);
+    h.service.stop();
+  });
+
+  it("旧群聊的在途求值不能把新群聊标为可复用", async () => {
+    const h = harness();
+    const oldEvaluation = Promise.withResolvers<{
+      columns: string[];
+      rows: string[][];
+      sources: never[];
+    }>();
+    h.evaluate.mockImplementationOnce(() => oldEvaluation.promise);
+    await h.service.start();
+    h.service.groupStarted();
+    h.started("normal", { automatic_trigger: true }, false);
+    const first = h.afterCommands("normal", { automatic_trigger: true }, false, "旧群聊");
+    await vi.waitFor(() => expect(h.evaluate).toHaveBeenCalledOnce());
+    const firstGroup = h.service.getGenerationState().groupId;
+    h.service.groupEnded();
+    h.service.groupStarted();
+    await first;
+    oldEvaluation.resolve({ columns: ["内容"], rows: [["迟到旧群聊"]], sources: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.started("normal", { automatic_trigger: true }, false);
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "新群聊");
+    expect(h.evaluate).toHaveBeenCalledTimes(2);
+    expect(h.service.getGenerationState().groupId).not.toBe(firstGroup);
+    expect(h.expand()).toBe("本次记忆");
+    h.service.stop();
+  });
+
+  it("群聊结束撤销最后一个成员的批次复用", async () => {
+    const h = harness();
+    await h.service.start();
+    h.service.groupStarted();
+    h.started("normal", { automatic_trigger: true }, false);
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "群聊");
+    h.finished(false);
+    h.service.groupEnded();
+    expect(h.service.getGenerationState()).toMatchObject({
+      phase: "finished",
+      groupId: null,
+      batchId: null,
+      readable: false,
+    });
+    h.started("normal", { continuation: true }, false);
+    expect(h.expand()).toBe("");
+    await h.afterCommands("normal", {}, false, "下一次生成");
+    expect(h.evaluate).toHaveBeenCalledTimes(2);
+    h.service.stop();
+  });
+
+  it.each(["cancel", "skip"] as const)(
+    "开始通知中同步 %s 时，不启动快照读取或挂起等待",
+    async (action) => {
+      const h = harness();
+      h.capture.mockImplementation(() => new Promise(() => {}));
+      await h.service.start();
+      const unsubscribe = h.service.subscribe(() => {
+        if (h.service.isPreparing()) {
+          if (action === "cancel") {
+            h.service.cancel("订阅者取消");
+          } else {
+            h.service.skip();
+          }
+        }
+      });
+      h.started("regenerate", {}, false);
+      await h.afterCommands("regenerate", {}, false, "测试");
+      expect(h.capture).not.toHaveBeenCalled();
+      expect(h.service.isPreparing()).toBe(false);
+      expect(h.expand()).toBe("");
+      expect(h.service.getGenerationState().canSkip).toBe(false);
+      unsubscribe();
+      h.service.stop();
+    },
+  );
+
+  it("插件停用会撤销群聊缓存，重新启用后下一成员重新求值", async () => {
+    const h = harness();
+    await h.service.start();
+    h.service.groupStarted();
+    h.started("normal", { automatic_trigger: true }, false);
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "第一次");
+    h.settings.enabled = false;
+    await h.service.kick();
+    h.settings.enabled = true;
+    await h.service.kick();
+    h.started("normal", { automatic_trigger: true }, false);
+    expect(h.expand()).toBe("");
+    await h.afterCommands("normal", { automatic_trigger: true }, false, "第二次");
+    expect(h.evaluate).toHaveBeenCalledTimes(2);
+    h.service.stop();
+  });
+
+  it("quiet、impersonate 与 dry-run 不会关闭当前可读批次", async () => {
+    const h = harness();
+    await h.service.start();
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "当前生成");
+    const ready = h.service.getGenerationState();
+    for (const type of ["quiet", "impersonate"]) {
+      h.started(type, {}, false);
+      await h.afterCommands(type, {}, false, "内部调用");
+    }
+    h.started("normal", {}, true);
+    await h.afterCommands("normal", {}, true, "试算");
+    h.finished(true);
+    expect(h.expand()).toBe("本次记忆");
+    expect(h.evaluate).toHaveBeenCalledOnce();
+    expect(h.service.getGenerationState()).toEqual(ready);
+    h.service.stop();
+  });
+
+  it("单个宏错误只清空其输出，其他宏仍参与本次注入", async () => {
+    const h = harness();
+    h.settings.macros = [definition("失败"), definition("成功")];
+    h.evaluate.mockRejectedValueOnce(new Error("单个表达式出错"));
+    await h.service.start();
+    h.started("regenerate", {}, false);
+    await h.afterCommands("regenerate", {}, false, "测试");
+    expect(h.expand("失败")).toBe("");
+    expect(h.expand("成功")).toBe("本次记忆");
+    expect(h.service.getRecentResults().find((row) => row.name === "失败")).toMatchObject({
+      status: "error",
+      error: "单个表达式出错",
+    });
+    expect(h.service.getGenerationState().readable).toBe(true);
     h.service.stop();
   });
 });

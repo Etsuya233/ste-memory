@@ -39,6 +39,7 @@ import {
   type ChatScopeMacroStore,
 } from "../../features/macros/chat-scope-macros.ts";
 import type { MemoryView } from "../../features/macros/memory-views.ts";
+import type { GenerationIdentity } from "../../features/generation/generation-identity.ts";
 /**
  * ST 1.18 getContext() 返回对象的插件所需子集（public/scripts/st-context.js 已核实）。
  * 事件 payload 事实（public/script.js 已核实）：CHAT_CHANGED 带当前 chatId、
@@ -198,24 +199,60 @@ export interface StEventBridge {
   /** CHAT_CHANGED：切换对话 → 重新同步空间上下文 */
   onChatChanged(): void | Promise<void>;
   /** MESSAGE_SENT 返回本轮召回 Promise；MESSAGE_RECEIVED 保留消息通知入口。 */
-  onMessageEvent(kind: "message_sent" | "message_received", floor?: number): void | Promise<void>;
+  onMessageEvent(
+    kind: "message_sent" | "message_received",
+    floor?: number,
+    generation?: GenerationIdentity,
+  ): void | Promise<void>;
   onGenerationStarted?(
     type: unknown,
-    options: { automatic_trigger?: boolean; signal?: AbortSignal; continuation?: boolean },
+    options: {
+      automatic_trigger?: boolean;
+      signal?: AbortSignal;
+      continuation: boolean;
+      generation: GenerationIdentity;
+    },
     dryRun: boolean,
   ): void;
   onGenerationAfterCommands?(
     type: unknown,
-    options: { automatic_trigger?: boolean },
+    options: { automatic_trigger?: boolean; generation: GenerationIdentity },
     dryRun: boolean,
   ): void | Promise<void>;
-  onGenerationStopped?(): void;
-  onGenerationFinished?(dryRun: boolean): void;
+  onGenerationStopped?(generation: GenerationIdentity): void;
+  onGenerationFinished?(dryRun: boolean, generation?: GenerationIdentity): void;
   shouldAwaitMacros?(): boolean;
   onGroupStarted?(): void;
   onGroupEnded?(): void;
   onMessageChanged?(): void;
-  onGenerationEnded?(): void;
+  onGenerationEnded?(generation: GenerationIdentity): void;
+}
+
+interface HostGeneration {
+  readonly identity: GenerationIdentity;
+  readonly input: "user" | "none";
+  readonly signal: AbortSignal | undefined;
+  phase: "commands" | "input" | "preparing" | "active" | "ended" | "stopped";
+}
+
+interface PromptBarrier {
+  readonly drained: Promise<void>;
+  readonly drain: () => void;
+  readonly removeAbortListener: () => void;
+}
+
+type PromptGate =
+  | { readonly kind: "idle" }
+  | {
+      readonly kind: "preparing" | "ready" | "prompted" | "cancelled" | "draining";
+      readonly generation: GenerationIdentity;
+      readonly barrier: PromptBarrier;
+    };
+
+export interface HostGenerationState {
+  readonly generation: GenerationIdentity | undefined;
+  readonly phase: HostGeneration["phase"] | "idle";
+  readonly prompt: PromptGate["kind"];
 }
 
 export type FloorJumpResult =
@@ -250,19 +287,22 @@ export interface StChatMessage {
  */
 export class StChatAdapter {
   readonly #getContext: () => StContext;
-  #sendEligible = false;
-  #afterCommands = false;
-  #generationSignal: AbortSignal | undefined;
-  #generation: {
-    awaitingMessage: boolean;
-    prompted: boolean;
-    cancelled: boolean;
-    drained: Promise<void>;
-    drain: () => void;
-  } | null = null;
+  #generationSequence = 0;
+  #startRevision = 0;
+  #groupWrapper: { readonly type: unknown } | undefined;
+  #generation: HostGeneration | undefined;
+  #prompt: PromptGate = { kind: "idle" };
 
   constructor(getContext: () => StContext) {
     this.#getContext = getContext;
+  }
+
+  getGenerationState(): HostGenerationState {
+    return {
+      generation: this.#generation?.identity,
+      phase: this.#generation?.phase ?? "idle",
+      prompt: this.#prompt.kind,
+    };
   }
 
   /** 直接调用 ST /hide 回调；身份检查与消息更新之间没有异步等待。 */
@@ -567,54 +607,99 @@ export class StChatAdapter {
       return;
     }
     source.on(types.CHAT_CHANGED, () => {
-      this.#sendEligible = false;
-      this.#afterCommands = false;
-      if (this.#generation && !this.#generation.prompted) {
-        this.#generation.cancelled = true;
+      this.#startRevision++;
+      this.#groupWrapper = undefined;
+      this.#generation = undefined;
+      const prompt = this.#prompt;
+      if (prompt.kind !== "idle" && prompt.kind !== "prompted") {
+        this.#prompt = { ...prompt, kind: "cancelled" };
         this.#getContext().stopGeneration?.();
+      } else if (prompt.kind === "prompted") {
+        this.#releasePrompt(prompt);
       }
       return bridge.onChatChanged();
     });
     source.on(types.MESSAGE_SENT, (floor) => {
-      if (types.GENERATION_STARTED && (!this.#sendEligible || !this.#afterCommands)) {
+      const generation = this.#generation;
+      if (
+        types.GENERATION_STARTED &&
+        (!generation || generation.phase !== "input" || generation.input !== "user")
+      ) {
         return;
       }
-      return this.#trackMacroEvaluation(
-        bridge.onMessageEvent("message_sent", floor as number),
-        bridge,
-      );
+      if (generation) {
+        generation.phase = "preparing";
+      }
+      const result = generation
+        ? bridge.onMessageEvent("message_sent", floor as number, generation.identity)
+        : bridge.onMessageEvent("message_sent", floor as number);
+      return this.#trackMacroEvaluation(result, bridge, generation);
     });
     if (types.GENERATION_STARTED) {
       source.on(types.GENERATION_STARTED, async (type, options, dryRun) => {
-        const generationOptions = options as { automatic_trigger?: boolean; signal?: AbortSignal };
-        const excluded = dryRun === true || type === "quiet" || type === "impersonate";
-        if (excluded) {
-          bridge.onGenerationStarted?.(type, generationOptions, dryRun === true);
+        if (dryRun === true || type === "quiet" || type === "impersonate") {
           return;
         }
-        // ST 在 STARTED 监听器返回后才替换全局取消控制器。旧等待先走到拦截器退出，
-        // 再放行新生成，避免旧调用使用新调用的 controller 发出请求。
-        const previous = this.#generation;
-        if (previous?.awaitingMessage || previous?.cancelled) {
-          previous.cancelled = true;
+        const groupId = this.#getContext().groupId;
+        // 群聊外层 Generate 只委托 wrapper，不构建提示词，也没有自己的回复。
+        if (groupId != null && groupId !== "" && !this.#groupWrapper) {
+          return;
+        }
+        const normalizedType =
+          this.#groupWrapper?.type === "regenerate" && type === "normal" ? "regenerate" : type;
+        const revision = ++this.#startRevision;
+        const chatIdentity = chatIdentityKey(this.getChatSnapshot());
+        const generationOptions = options as { automatic_trigger?: boolean; signal?: AbortSignal };
+        const previous = this.#prompt;
+        // STARTED 返回后 ST 才更换全局 controller；被取消的旧调用先经拦截器退出。
+        if (
+          previous.kind === "preparing" ||
+          previous.kind === "ready" ||
+          previous.kind === "cancelled" ||
+          previous.kind === "draining"
+        ) {
+          if (previous.kind !== "draining") {
+            this.#prompt = { ...previous, kind: "cancelled" };
+          }
           this.#getContext().stopGeneration?.();
-          await previous.drained;
+          await previous.barrier.drained;
+          if (
+            revision !== this.#startRevision ||
+            chatIdentity !== chatIdentityKey(this.getChatSnapshot())
+          ) {
+            // ST await emit(STARTED) 后会继续命令和提示词构建；失效调用必须在此退出。
+            throw new DOMException("Generation was superseded before admission", "AbortError");
+          }
         }
-        const continuation = this.#generation?.prompted === true;
-        if (!continuation) {
-          this.#generation?.drain();
-          this.#generation = null;
+        const current = this.#generation;
+        const continuation =
+          current?.phase === "active" &&
+          (this.#prompt.kind === "idle" || this.#prompt.kind === "prompted");
+        const identity = continuation
+          ? current.identity
+          : {
+              id: ++this.#generationSequence,
+              chatIdentity,
+            };
+        if (!continuation && this.#prompt.kind !== "idle") {
+          this.#releasePrompt(this.#prompt);
         }
-        this.#sendEligible =
-          !continuation &&
-          !generationOptions.automatic_trigger &&
-          (type === undefined || type === "normal");
-        this.#afterCommands = false;
-        this.#generationSignal = generationOptions.signal;
+        const generation: HostGeneration = {
+          identity,
+          phase: "commands",
+          input:
+            !continuation &&
+            !generationOptions.automatic_trigger &&
+            (normalizedType === undefined || normalizedType === "normal")
+              ? "user"
+              : "none",
+          signal: generationOptions.signal,
+        };
+        this.#generation = generation;
         bridge.onGenerationStarted?.(
-          type,
-          { ...(options as { automatic_trigger?: boolean; signal?: AbortSignal }), continuation },
-          dryRun === true,
+          normalizedType,
+          { ...generationOptions, continuation, generation: identity },
+          false,
         );
       });
     }
@@ -623,13 +708,26 @@ export class StChatAdapter {
         if (dryRun === true || type === "quiet" || type === "impersonate") {
           return;
         }
-        this.#afterCommands = true;
+        const groupId = this.#getContext().groupId;
+        if (groupId != null && groupId !== "" && !this.#groupWrapper) {
+          return;
+        }
+        const normalizedType =
+          this.#groupWrapper?.type === "regenerate" && type === "normal" ? "regenerate" : type;
+        const generation = this.#generation;
+        if (!generation || generation.phase !== "commands") {
+          return;
+        }
+        generation.phase = "input";
         const result = bridge.onGenerationAfterCommands?.(
-          type,
-          options as { automatic_trigger?: boolean },
-          dryRun === true,
+          normalizedType,
+          {
+            ...(options as { automatic_trigger?: boolean }),
+            generation: generation.identity,
+          },
+          false,
         );
-        return dryRun === true ? result : this.#trackMacroEvaluation(result, bridge);
+        return this.#trackMacroEvaluation(result, bridge, generation);
       });
     }
     if (types.GENERATE_AFTER_DATA) {
@@ -637,49 +735,51 @@ export class StChatAdapter {
         if (dryRun === true) {
           return bridge.onGenerationFinished?.(true);
         }
-        if (this.#generation && !this.#generation.prompted) {
+        const prompt = this.#prompt;
+        if (prompt.kind !== "idle" && prompt.kind !== "prompted") {
           return;
         }
-        return bridge.onGenerationFinished?.(false);
+        const generation = this.#generation;
+        if (generation && generation.phase !== "ended" && generation.phase !== "stopped") {
+          return bridge.onGenerationFinished?.(false, generation.identity);
+        }
       });
     }
     if (types.GENERATION_ENDED) {
       source.on(types.GENERATION_ENDED, () => {
-        // This global UI event also comes from quiet calls and has no operation identity.
-        if (this.#generation && !this.#generation.prompted && !this.#generation.cancelled) {
+        // ST 的全局 UI 结束事件没有调用身份；前台宏等待期间不能据此结束本轮。
+        const prompt = this.#prompt;
+        if (prompt.kind !== "idle" && prompt.kind !== "prompted") {
           return;
         }
-        this.#sendEligible = false;
-        this.#afterCommands = false;
-        if (
-          this.#generation?.prompted &&
-          !this.#generation.awaitingMessage &&
-          !this.#generation.cancelled
-        ) {
-          this.#generation.drain();
-          this.#generation = null;
+        const generation = this.#generation;
+        if (!generation || generation.phase === "ended" || generation.phase === "stopped") {
+          return;
         }
-        bridge.onGenerationFinished?.(false);
-        bridge.onGenerationEnded?.();
+        generation.phase = "ended";
+        if (prompt.kind === "prompted") {
+          this.#releasePrompt(prompt);
+        }
+        // 保留 ended 身份，允许先 ENDED 后 MESSAGE_RECEIVED 的同轮消息配对。
+        bridge.onGenerationFinished?.(false, generation.identity);
+        bridge.onGenerationEnded?.(generation.identity);
       });
     }
     if (types.GENERATION_STOPPED) {
-      source.on(types.GENERATION_STOPPED, () => {
-        const generation = this.#generation;
-        if (generation && !generation.prompted) {
-          generation.cancelled = true;
-        } else if (generation && !generation.cancelled) {
-          generation.drain();
-          this.#generation = null;
-        }
-        bridge.onGenerationStopped?.();
-      });
+      source.on(types.GENERATION_STOPPED, () => this.#stopOwnedGeneration(bridge));
     }
     if (types.GROUP_WRAPPER_STARTED) {
-      source.on(types.GROUP_WRAPPER_STARTED, () => bridge.onGroupStarted?.());
+      source.on(types.GROUP_WRAPPER_STARTED, (options) => {
+        this.#groupWrapper = { type: (options as { type: unknown }).type };
+        this.#generation = undefined;
+        return bridge.onGroupStarted?.();
+      });
     }
     if (types.GROUP_WRAPPER_FINISHED) {
-      source.on(types.GROUP_WRAPPER_FINISHED, () => bridge.onGroupEnded?.());
+      source.on(types.GROUP_WRAPPER_FINISHED, () => {
+        this.#groupWrapper = undefined;
+        return bridge.onGroupEnded?.();
+      });
     }
     if (types.MESSAGE_EDITED) {
       source.on(types.MESSAGE_EDITED, () => bridge.onMessageChanged?.());
@@ -687,43 +787,95 @@ export class StChatAdapter {
     if (types.MESSAGE_DELETED) {
       source.on(types.MESSAGE_DELETED, () => bridge.onMessageChanged?.());
     }
-    source.on(types.MESSAGE_RECEIVED, (floor) =>
-      bridge.onMessageEvent("message_received", floor as number),
-    );
+    source.on(types.MESSAGE_RECEIVED, (floor, type) => {
+      if (type === "quiet" || type === "impersonate" || type === "first_message") {
+        return;
+      }
+      const generation = this.#generation;
+      if (
+        generation &&
+        generation.phase !== "stopped" &&
+        generation.identity.chatIdentity === chatIdentityKey(this.getChatSnapshot())
+      ) {
+        return bridge.onMessageEvent("message_received", floor as number, generation.identity);
+      }
+      return bridge.onMessageEvent("message_received", floor as number);
+    });
   }
 
-  #trackMacroEvaluation(result: void | Promise<void>, bridge: StEventBridge): void | Promise<void> {
-    if (!result || !bridge.shouldAwaitMacros?.()) {
+  #stopOwnedGeneration(bridge: StEventBridge, expected?: GenerationIdentity): void {
+    const generation = this.#generation;
+    if (
+      !generation ||
+      generation.phase === "stopped" ||
+      (expected !== undefined && generation.identity !== expected)
+    ) {
+      return;
+    }
+    generation.phase = "stopped";
+    const prompt = this.#prompt;
+    if (prompt.kind !== "idle" && prompt.generation === generation.identity) {
+      if (prompt.kind === "prompted") {
+        this.#releasePrompt(prompt);
+      } else if (prompt.kind !== "draining") {
+        this.#prompt = { ...prompt, kind: "cancelled" };
+      }
+    }
+    bridge.onGenerationStopped?.(generation.identity);
+  }
+
+  #trackMacroEvaluation(
+    result: void | Promise<void>,
+    bridge: StEventBridge,
+    generation: HostGeneration | undefined,
+  ): void | Promise<void> {
+    if (
+      !result ||
+      !bridge.shouldAwaitMacros?.() ||
+      !generation ||
+      this.#generation !== generation
+    ) {
       return result;
     }
-    let drain!: () => void;
-    const drained = new Promise<void>((resolve) => {
-      drain = resolve;
+    if (this.#prompt.kind !== "idle") {
+      this.#releasePrompt(this.#prompt);
+    }
+    const completion = Promise.withResolvers<void>();
+    generation.phase = "preparing";
+    const aborted = () => this.#stopOwnedGeneration(bridge, generation.identity);
+    const barrier: PromptBarrier = {
+      drained: completion.promise,
+      drain: completion.resolve,
+      removeAbortListener: () => generation.signal?.removeEventListener("abort", aborted),
+    };
+    this.#prompt = { kind: "preparing", generation: generation.identity, barrier };
+    generation.signal?.addEventListener("abort", aborted, { once: true });
+    if (generation.signal?.aborted) {
+      aborted();
+    }
+    const settled = () => {
+      const prompt = this.#prompt;
+      if (prompt.kind === "preparing" && prompt.barrier === barrier) {
+        this.#prompt = { ...prompt, kind: "ready" };
+      }
+    };
+    void result.then(settled, () => {
+      const prompt = this.#prompt;
+      if (prompt.kind !== "idle" && prompt.barrier === barrier) {
+        this.#stopOwnedGeneration(bridge, generation.identity);
+        // 宿主 await 已拒绝，旧调用不会再到达提示词拦截器。
+        this.#releasePrompt(prompt);
+      }
     });
-    const generation = { awaitingMessage: true, prompted: false, cancelled: false, drained, drain };
-    this.#generation = generation;
-    this.#generationSignal?.addEventListener(
-      "abort",
-      () => {
-        if (this.#generation !== generation) {
-          return;
-        }
-        if (!generation.prompted) {
-          generation.cancelled = true;
-        }
-        bridge.onGenerationStopped?.();
-      },
-      { once: true },
-    );
-    void result.then(
-      () => {
-        generation.awaitingMessage = false;
-      },
-      () => {
-        generation.awaitingMessage = false;
-      },
-    );
     return result;
+  }
+
+  #releasePrompt(prompt: Exclude<PromptGate, { kind: "idle" }>): void {
+    prompt.barrier.removeAbortListener();
+    if (this.#prompt.kind !== "idle" && this.#prompt.barrier === prompt.barrier) {
+      this.#prompt = { kind: "idle" };
+    }
+    prompt.barrier.drain();
   }
 
   clearLegacyRecall(): void {
@@ -739,23 +891,28 @@ export class StChatAdapter {
     if (type === "quiet" || type === "impersonate") {
       return;
     }
-    const generation = this.#generation;
-    if (!generation) {
-      return;
-    }
-    if (generation.cancelled) {
+    const prompt = this.#prompt;
+    if (prompt.kind === "cancelled" || prompt.kind === "draining") {
       abort(true);
+      if (prompt.kind === "draining") {
+        return;
+      }
+      this.#prompt = { ...prompt, kind: "draining" };
       // 让 ST 先执行拦截器后的 unblockGeneration，下一任务再放行新 STARTED。
       // 否则旧调用发出的 ENDED 会把新调用的状态清掉。
       setTimeout(() => {
-        if (this.#generation === generation) {
-          this.#generation = null;
-        }
-        generation.drain();
+        this.#releasePrompt(prompt);
       }, 0);
       return;
     }
-    generation.prompted = true;
+    const generation = this.#generation;
+    if (!generation || generation.phase === "ended" || generation.phase === "stopped") {
+      return;
+    }
+    generation.phase = "active";
+    if (prompt.kind !== "idle") {
+      this.#prompt = { ...prompt, kind: "prompted" };
+    }
   }
 
   /**

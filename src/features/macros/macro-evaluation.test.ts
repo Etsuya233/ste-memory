@@ -1100,8 +1100,9 @@ it("publishes reranked Query and SQL macro rows during actual generation expansi
   });
   await service.start();
   expect(expand?.({ unnamedArgs: ["查询记忆"] })).toBe("");
-  service.started("regenerate", {}, false);
-  await service.afterCommands("regenerate", {}, false, "本轮问题");
+  const generation = { id: 1, chatIdentity: "chat" };
+  service.started("regenerate", { generation }, false);
+  await service.afterCommands("regenerate", { generation }, false, "本轮问题");
   expect(expand?.({ unnamedArgs: ["查询记忆"] })).toBe("内容1");
   expect(expand?.({ unnamedArgs: ["SQL记忆"] })).toBe("内容1");
   expect(rerank).toHaveBeenCalledTimes(1);

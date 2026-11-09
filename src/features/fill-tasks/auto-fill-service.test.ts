@@ -3,6 +3,7 @@ import type { MemorySpaceId } from "../memory/index.ts";
 import type { FillTask, FillTaskView, FloorLedgerEntry } from "./fill-task.ts";
 import type { FillTaskSubmitInput } from "./fill-task-service.ts";
 import { AutoFillService } from "./auto-fill-service.ts";
+import type { GenerationIdentity } from "../generation/generation-identity.ts";
 import {
   autoFillRange,
   DEFAULT_AUTO_FILL_SETTINGS,
@@ -20,6 +21,8 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
     chatLength: 32,
     aiFloor: 31,
   };
+  let generation: GenerationIdentity = { id: 0, chatIdentity: current.identity };
+  let generationSequence = 0;
   let ledger: readonly FloorLedgerEntry[] = [{ floor: 20, status: "processed" }];
   let pending: FillTaskView[] = [];
   const recent: FillTaskView[] = [];
@@ -94,6 +97,13 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
   });
   return {
     service,
+    get generation() {
+      return generation;
+    },
+    nextGeneration: () => {
+      generation = { id: ++generationSequence, chatIdentity: current.identity };
+      return generation;
+    },
     tasks,
     notify,
     confirmResume,
@@ -128,9 +138,9 @@ function setup(overrides: Partial<AutoFillSettings> = {}, initialState?: AutoFil
 
 async function check(h: ReturnType<typeof setup>, reply = true) {
   if (reply) {
-    h.service.generationStarted();
-    h.service.messageReceived();
-    h.service.generationEnded();
+    h.service.generationStarted(h.nextGeneration());
+    h.service.messageReceived(undefined, h.generation);
+    h.service.generationEnded(h.generation);
   }
   const before = h.tasks.pendingTasks.mock.calls.length;
   const kicks = h.tasks.kick.mock.calls.length;
@@ -140,6 +150,144 @@ async function check(h: ReturnType<typeof setup>, reply = true) {
 }
 
 describe("自动填表入队", () => {
+  it("同一生成递归开始和重复终态不会再次授权新范围", async () => {
+    const h = setup();
+    await check(h);
+    const generation = h.generation;
+    h.setCurrent({ chatLength: 52, aiFloor: 51 });
+    h.service.generationStarted(generation);
+    h.service.messageReceived(51, generation);
+    h.service.generationEnded(generation);
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+    expect(h.tasks.suspend).toHaveBeenCalledOnce();
+    expect(h.service.getGenerationState()).toEqual({ kind: "completed", generation });
+  });
+
+  it("较早生成的消息、停止和结束不能影响新的生成", async () => {
+    const h = setup();
+    const first = h.nextGeneration();
+    h.service.generationStarted(first);
+    h.service.messageReceived(31, first);
+    const second = h.nextGeneration();
+    h.service.generationStarted(second);
+    h.service.generationEnded(first);
+    h.service.generationStopped(first);
+    h.service.messageReceived(31, first);
+    expect(h.service.getGenerationState()).toEqual({ kind: "awaiting-reply", generation: second });
+    h.service.generationEnded(second);
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    h.service.messageReceived(31, second);
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
+  it("对话载入期间观察到生成，chatReady 不会提前恢复调度", async () => {
+    const h = setup();
+    await h.service.chatChanged();
+    h.service.generationStarted(h.nextGeneration());
+    h.service.chatReady();
+    h.service.messageReceived(31, h.generation);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.service.getGenerationState()).toEqual({
+      kind: "reply-received",
+      generation: h.generation,
+    });
+    h.service.generationEnded(h.generation);
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
+  it("停止后同一生成的递归和迟到事件不能重新开启回复授权", async () => {
+    const h = setup();
+    const generation = h.nextGeneration();
+    h.service.generationStarted(generation);
+    h.service.generationStopped(generation);
+    h.service.generationStarted(generation);
+    h.service.messageReceived(31, generation);
+    h.service.generationEnded(generation);
+    await check(h, false);
+    expect(h.tasks.submit).not.toHaveBeenCalled();
+    expect(h.service.getGenerationState()).toEqual({ kind: "stopped", generation });
+    await check(h);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
+  it.each(["A→B→A", "同对话替换空间"])("%s 不接受此前的范围读取", async (change) => {
+    const h = setup();
+    const reading = Promise.withResolvers<readonly FloorLedgerEntry[]>();
+    h.tasks.ledgerStatuses.mockImplementationOnce(() => reading.promise);
+    const range = h.service.range();
+    if (change === "A→B→A") {
+      await h.service.chatChanged();
+      h.setCurrent({ identity: "b", chatId: "b" });
+      await h.service.chatChanged();
+      h.setCurrent({ identity: "a", chatId: "a" });
+      h.service.chatReady();
+    } else {
+      h.setCurrent({ spaceId: "new-space" as MemorySpaceId });
+    }
+    reading.resolve([{ floor: 20, status: "processed" }]);
+    expect(await range).toBeUndefined();
+  });
+
+  it("A→B→A 不复活旧自动任务的执行许可或迟到入队通知", async () => {
+    const h = setup();
+    const submit = h.tasks.submit.getMockImplementation()!;
+    const submitted = Promise.withResolvers<void>();
+    h.tasks.submit.mockImplementationOnce(async (input) => {
+      const task = await submit(input);
+      await submitted.promise;
+      return task;
+    });
+    h.service.generationStarted(h.nextGeneration());
+    h.service.messageReceived(31, h.generation);
+    h.service.generationEnded(h.generation);
+    await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledOnce());
+    const policy = h.tasks.submit.mock.calls[0]![0].automatic!;
+    expect(policy.canContinue()).toBe(true);
+    await h.service.chatChanged();
+    h.setCurrent({ identity: "b", chatId: "b" });
+    await h.service.chatChanged();
+    h.setCurrent({ identity: "a", chatId: "a" });
+    h.service.chatReady();
+    expect(policy.canContinue()).toBe(false);
+    expect(policy.interruptionReason!()).toBe("chat-changed");
+    submitted.resolve();
+    await vi.waitFor(() =>
+      expect(h.tasks.cancel).toHaveBeenCalledExactlyOnceWith("space", "run-1", "chat-changed"),
+    );
+    await vi.waitFor(() => expect(h.confirmResume).toHaveBeenCalledOnce());
+    expect(h.notify).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "started" }));
+    expect(h.state().lastScheduled).toBeUndefined();
+  });
+
+  it("明确继续旧任务只授权队列，不会把轮询变成新的入队触发", async () => {
+    const h = setup();
+    const previous = await h.tasks.submit({
+      memorySpaceId: "space" as MemorySpaceId,
+      from: 21,
+      to: 30,
+      automatic: { retries: 0, delaySeconds: 1, canContinue: () => true },
+    });
+    const interrupted = {
+      ...previous,
+      status: "interrupted" as const,
+      blocksQueue: true,
+      interruptionReason: "chat-changed" as const,
+    };
+    h.setPending([interrupted]);
+    h.confirmResume.mockResolvedValueOnce(true);
+    h.service.chatReady();
+    await vi.waitFor(() => expect(h.tasks.retry).toHaveBeenCalledExactlyOnceWith("space", "run-1"));
+    expect(h.service.canStartTask(interrupted)).toBe(true);
+    h.setCurrent({ chatLength: 52, aiFloor: 51 });
+    await check(h, false);
+    expect(h.tasks.submit).toHaveBeenCalledOnce();
+  });
+
   it("进入对话与轮询只通知，首个有效 AI 回复后才入队，后续轮询不创建任务", async () => {
     const h = setup();
     h.service.chatReady();
@@ -164,55 +312,55 @@ describe("自动填表入队", () => {
 
   it.each(["先收到消息", "先结束生成"])("%s 都等待两个事件到齐后只授权一次", async (order) => {
     const h = setup();
-    h.service.generationStarted();
+    h.service.generationStarted(h.nextGeneration());
     if (order === "先收到消息") {
-      h.service.messageReceived(31);
+      h.service.messageReceived(31, h.generation);
     } else {
-      h.service.generationEnded();
+      h.service.generationEnded(h.generation);
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(h.tasks.submit).not.toHaveBeenCalled();
     if (order === "先收到消息") {
-      h.service.generationEnded();
+      h.service.generationEnded(h.generation);
     } else {
-      h.service.messageReceived(31);
+      h.service.messageReceived(31, h.generation);
     }
     await check(h, false);
     expect(h.tasks.submit).toHaveBeenCalledOnce();
     h.setCurrent({ chatLength: 52, aiFloor: 51 });
-    h.service.messageReceived(51);
-    h.service.generationEnded();
+    h.service.messageReceived(51, h.generation);
+    h.service.generationEnded(h.generation);
     await check(h, false);
     expect(h.tasks.submit).toHaveBeenCalledOnce();
   });
 
   it.each(["停止生成", "切换对话"])("先结束生成后%s，迟到的消息不授权", async (action) => {
     const h = setup();
-    h.service.generationStarted();
-    h.service.generationEnded();
+    h.service.generationStarted(h.nextGeneration());
+    h.service.generationEnded(h.generation);
     if (action === "停止生成") {
-      h.service.generationStopped();
+      h.service.generationStopped(h.generation);
     } else {
       await h.service.chatChanged();
       h.service.chatReady();
     }
-    h.service.messageReceived(31);
+    h.service.messageReceived(31, h.generation);
     await check(h, false);
     expect(h.tasks.submit).not.toHaveBeenCalled();
   });
 
   it("无回复、空回复与停止生成不授权入队，切换对话后重新等待", async () => {
     const h = setup();
-    h.service.generationEnded(); // quiet / dryRun 没有对应的有效开始。
+    h.service.generationEnded(h.generation); // quiet / dryRun 没有对应的有效开始。
     await check(h, false);
-    h.service.generationStarted();
+    h.service.generationStarted(h.nextGeneration());
     h.setCurrent({ chatLength: 33 }); // AI 占位为空，latestAiFloor 仍为旧回复。
-    h.service.messageReceived(32);
-    h.service.generationEnded();
+    h.service.messageReceived(32, h.generation);
+    h.service.generationEnded(h.generation);
     await check(h, false);
-    h.service.generationStarted();
-    h.service.messageReceived(31);
-    h.service.generationStopped();
+    h.service.generationStarted(h.nextGeneration());
+    h.service.messageReceived(31, h.generation);
+    h.service.generationStopped(h.generation);
     await check(h, false);
     expect(h.tasks.submit).not.toHaveBeenCalled();
     h.setCurrent({ chatLength: 32 });
@@ -345,12 +493,12 @@ describe("自动填表入队", () => {
 
   it("生成期间暂停启动队列，完整回复结束后才计算并提交范围", async () => {
     const h = setup();
-    h.service.generationStarted();
+    h.service.generationStarted(h.nextGeneration());
     h.service.kick();
     expect(h.tasks.suspend).toHaveBeenCalledOnce();
     expect(h.tasks.submit).not.toHaveBeenCalled();
-    h.service.messageReceived();
-    h.service.generationEnded();
+    h.service.messageReceived(undefined, h.generation);
+    h.service.generationEnded(h.generation);
     await vi.waitFor(() => expect(h.tasks.submit).toHaveBeenCalledOnce());
   });
 
@@ -532,6 +680,18 @@ describe("自动填表成功后隐藏", () => {
     });
     await h.service.taskSucceeded(task);
     expect(h.hideFloors).not.toHaveBeenCalled();
+  });
+
+  it("隐藏请求失败时已替换空间，旧错误只记日志，不通知新空间", async () => {
+    const h = setup({ hideAfterSuccess: true });
+    const error = new Error("旧空间隐藏失败");
+    h.hideFloors.mockImplementationOnce(async () => {
+      h.setCurrent({ spaceId: "replacement-space" as MemorySpaceId });
+      throw error;
+    });
+    await h.service.taskSucceeded(task);
+    expect(h.reportError).toHaveBeenCalledExactlyOnceWith(error);
+    expect(h.notify).not.toHaveBeenCalled();
   });
 
   it("隐藏失败单独提示填表成功，后续完成轮询不覆盖失败提示", async () => {

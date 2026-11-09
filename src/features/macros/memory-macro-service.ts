@@ -8,6 +8,7 @@ import { assembleMemoryContextSnapshot } from "./memory-context-snapshot.ts";
 import { renderMemoryFullSnapshot, sanitizeMacroSyntax } from "./memory-view-render.ts";
 import { resolveMacroRegistrationName } from "./macro-name.ts";
 import { renderMacroResult } from "./macro-result-render.ts";
+import type { GenerationIdentity } from "../generation/generation-identity.ts";
 
 export const BUILTIN_FULL_ARG = "full";
 export interface MemoryMacroExecutionContext {
@@ -77,6 +78,60 @@ export interface MemoryMacroServicePorts {
   readonly timeoutMs?: number;
 }
 
+type MacroGenerationOwner =
+  | { readonly kind: "host"; readonly identity: GenerationIdentity }
+  | { readonly kind: "diagnostic"; readonly id: number };
+
+interface PreparedMacroBatch {
+  readonly id: number;
+  readonly context: string;
+  readonly results: readonly MacroExecutionResult[];
+}
+
+interface MacroEvaluation {
+  readonly id: number;
+  readonly owner: MacroGenerationOwner;
+  readonly context: string;
+  readonly groupId: number | undefined;
+  readonly controller: AbortController;
+}
+
+type MacroGenerationLifecycle =
+  | { readonly phase: "idle" }
+  | {
+      readonly phase: "waiting-message" | "awaiting-commands";
+      readonly owner: MacroGenerationOwner;
+    }
+  | { readonly phase: "preparing"; readonly evaluation: MacroEvaluation }
+  | {
+      readonly phase: "ready";
+      readonly owner: MacroGenerationOwner;
+      readonly batch: PreparedMacroBatch;
+      readonly reused: boolean;
+    }
+  | {
+      readonly phase: "finished";
+      readonly owner: MacroGenerationOwner;
+      readonly batch?: PreparedMacroBatch;
+    }
+  | { readonly phase: "cancelled"; readonly reason: string };
+
+type MacroGroupLifecycle =
+  | { readonly kind: "closed" }
+  | { readonly kind: "open"; readonly id: number; readonly batch?: PreparedMacroBatch };
+
+export interface MacroGenerationStatus {
+  readonly phase: MacroGenerationLifecycle["phase"];
+  readonly generation:
+    | { readonly kind: "host"; readonly id: number; readonly chatIdentity: string | undefined }
+    | { readonly kind: "diagnostic"; readonly id: number }
+    | null;
+  readonly batchId: number | null;
+  readonly groupId: number | null;
+  readonly canSkip: boolean;
+  readonly readable: boolean;
+}
+
 /** Generation-scoped evaluation. Registration and invalidation never query memory. */
 export class MemoryMacroService {
   readonly #ports: MemoryMacroServicePorts;
@@ -85,16 +140,11 @@ export class MemoryMacroService {
   #results: readonly MacroExecutionResult[] = [];
   #conflicts: readonly MacroMigrationConflict[] = [];
   #migrationError: string | null = null;
-  #controller: AbortController | undefined;
-  #epoch = 0;
-  #readable = false;
-  #building = false;
-  #waitingMessage = false;
-  #group = false;
-  #groupPrepared = false;
-  #preparing = false;
-  #reuseBatch = false;
-  #publishedContext: string | undefined;
+  #generation: MacroGenerationLifecycle = { phase: "idle" };
+  #group: MacroGroupLifecycle = { kind: "closed" };
+  #evaluationSequence = 0;
+  #groupSequence = 0;
+  #diagnosticSequence = 0;
 
   constructor(ports: MemoryMacroServicePorts) {
     this.#ports = ports;
@@ -108,6 +158,31 @@ export class MemoryMacroService {
   getRecentResults = (): readonly MacroExecutionResult[] => this.#results;
   getMigrationConflicts = (): readonly MacroMigrationConflict[] => this.#conflicts;
   getMigrationError = (): string | null => this.#migrationError;
+
+  getGenerationState(): MacroGenerationStatus {
+    const state = this.#generation;
+    const owner = this.#generationOwner();
+    return {
+      phase: state.phase,
+      generation: owner
+        ? owner.kind === "host"
+          ? { kind: "host", ...owner.identity }
+          : owner
+        : null,
+      batchId:
+        state.phase === "preparing"
+          ? state.evaluation.id
+          : (state.phase === "ready" || state.phase === "finished") && state.batch
+            ? state.batch.id
+            : null,
+      groupId: this.#group.kind === "open" ? this.#group.id : null,
+      canSkip: state.phase === "preparing",
+      readable:
+        state.phase === "ready" &&
+        state.batch.context === this.#ports.getContext() &&
+        this.#ports.readSettings().enabled,
+    };
+  }
 
   async start(): Promise<void> {
     await this.kick();
@@ -135,9 +210,8 @@ export class MemoryMacroService {
           name,
           (context) => {
             if (
-              !this.#readable ||
-              !this.#building ||
-              this.#publishedContext !== this.#ports.getContext() ||
+              this.#generation.phase !== "ready" ||
+              this.#generation.batch.context !== this.#ports.getContext() ||
               !this.#ports.readSettings().enabled
             ) {
               return "";
@@ -159,7 +233,13 @@ export class MemoryMacroService {
   }
 
   markStale(): void {
-    if (this.#building || !this.#results.length) {
+    if (
+      this.#generation.phase === "waiting-message" ||
+      this.#generation.phase === "awaiting-commands" ||
+      this.#generation.phase === "preparing" ||
+      this.#generation.phase === "ready" ||
+      !this.#results.length
+    ) {
       return;
     }
     this.#results = this.#results.map((result) => ({ ...result, status: "stale" }));
@@ -168,8 +248,7 @@ export class MemoryMacroService {
 
   chatChanged(): void {
     this.cancel("对话已切换");
-    this.#group = false;
-    this.#groupPrepared = false;
+    this.#group = { kind: "closed" };
     this.#results = [];
     this.#conflicts = [];
     this.#migrationError = null;
@@ -177,94 +256,180 @@ export class MemoryMacroService {
   }
 
   cancel(reason = "宏计算已取消"): void {
-    this.#controller?.abort(new Error(reason));
-    this.#epoch++;
-    this.#readable = false;
-    this.#building = false;
-    this.#waitingMessage = false;
-    this.#preparing = false;
-    this.#reuseBatch = false;
-    if (this.#results.some((result) => result.status === "running")) {
-      this.#results = this.#results.map((result) =>
-        result.status === "running"
-          ? { ...result, status: "cancelled", text: "", error: reason }
-          : result,
-      );
+    const previous = this.#generation;
+    this.#generation = { phase: "cancelled", reason };
+    if (this.#group.kind === "open") {
+      this.#group = { kind: "open", id: this.#group.id };
+    }
+    this.#results = this.#results.map((result) =>
+      result.status === "running"
+        ? { ...result, status: "cancelled", text: "", error: reason }
+        : result,
+    );
+    if (previous.phase === "preparing") {
+      previous.evaluation.controller.abort(new Error(reason));
+    }
+    this.#notify();
+  }
+
+  skip = (): void => {
+    if (this.#generation.phase === "preparing") {
+      this.#generation.evaluation.controller.abort(new Error("已跳过本次宏计算"));
+    }
+  };
+
+  isPreparing = (): boolean => this.#generation.phase === "preparing";
+
+  groupStarted(): void {
+    this.#group = { kind: "open", id: ++this.#groupSequence };
+    this.cancel("新的群聊批次");
+  }
+
+  groupEnded(): void {
+    this.#group = { kind: "closed" };
+    const current = this.#generation;
+    if (current.phase === "preparing") {
+      this.cancel("群聊批次已结束");
+    } else if (current.phase === "ready" || current.phase === "finished") {
+      this.#generation = { phase: "finished", owner: current.owner };
       this.#notify();
     }
   }
 
-  skip = (): void => {
-    this.#controller?.abort(new Error("已跳过本次宏计算"));
-  };
-
-  isPreparing = (): boolean => this.#preparing;
-
-  groupStarted(): void {
-    this.#group = true;
-    this.#groupPrepared = false;
-  }
-
-  groupEnded(): void {
-    this.#group = false;
-    this.#groupPrepared = false;
-    this.#building = false;
-    this.#readable = false;
-  }
-
   started(
     type: unknown,
-    options: { automatic_trigger?: boolean; continuation?: boolean },
+    options: {
+      automatic_trigger?: boolean;
+      continuation?: boolean;
+      generation: GenerationIdentity;
+    },
     dryRun: boolean,
   ): void {
     if (dryRun || type === "quiet" || type === "impersonate") {
       return;
     }
-    if (options.continuation || (this.#group && this.#groupPrepared)) {
-      this.#building = true;
-      this.#readable = this.#results.length > 0;
-      this.#reuseBatch = true;
+    if (!this.#ports.readSettings().enabled) {
+      this.cancel("插件已停用");
       return;
     }
-    this.cancel("新的生成操作");
-    this.#building = true;
-    this.#waitingMessage = (type === undefined || type === "normal") && !options.automatic_trigger;
+    const previous = this.#generation;
+    const owner: MacroGenerationOwner = { kind: "host", identity: options.generation };
+    const context = this.#ports.getContext();
+    const sameGeneration =
+      (previous.phase === "ready" || previous.phase === "finished") &&
+      previous.owner.kind === "host" &&
+      previous.owner.identity === options.generation;
+    const reusable =
+      options.continuation && sameGeneration
+        ? previous.batch
+        : this.#group.kind === "open"
+          ? this.#group.batch
+          : undefined;
+    if (reusable?.context === context) {
+      this.#generation = { phase: "ready", owner, batch: reusable, reused: true };
+      this.#results = reusable.results;
+      if (previous.phase === "preparing") {
+        previous.evaluation.controller.abort(new Error("新的生成操作"));
+      }
+      this.#notify();
+      return;
+    }
+    if (this.#group.kind === "open") {
+      this.#group = { kind: "open", id: this.#group.id };
+    }
+    this.#generation = {
+      phase:
+        (type === undefined || type === "normal") &&
+        !options.automatic_trigger &&
+        !options.continuation
+          ? "waiting-message"
+          : "awaiting-commands",
+      owner,
+    };
+    this.#results = this.#results.map((result) =>
+      result.status === "running"
+        ? { ...result, status: "cancelled", text: "", error: "新的生成操作" }
+        : result,
+    );
+    if (previous.phase === "preparing") {
+      previous.evaluation.controller.abort(new Error("新的生成操作"));
+    }
+    this.#notify();
   }
 
   async afterCommands(
     type: unknown,
-    options: { automatic_trigger?: boolean },
+    options: { automatic_trigger?: boolean; generation: GenerationIdentity },
     dryRun: boolean,
     lastUserMessage: string | null,
   ): Promise<void> {
     if (dryRun || type === "quiet" || type === "impersonate") {
       return;
     }
-    if (this.#reuseBatch) {
-      return;
-    }
-    if (this.#group && this.#groupPrepared) {
-      return;
-    }
-    if (!this.#waitingMessage || options.automatic_trigger) {
-      await this.prepare(lastUserMessage);
+    const state = this.#generation;
+    if (
+      (state.phase === "awaiting-commands" ||
+        (state.phase === "waiting-message" && options.automatic_trigger)) &&
+      state.owner.kind === "host" &&
+      state.owner.identity === options.generation
+    ) {
+      await this.#evaluate(lastUserMessage, state.owner);
     }
   }
 
-  async messageSent(message: { content: string; isUser: boolean } | undefined): Promise<void> {
-    if (!this.#waitingMessage || !message?.isUser) {
+  async messageSent(
+    message: { content: string; isUser: boolean } | undefined,
+    generation: GenerationIdentity,
+  ): Promise<void> {
+    const state = this.#generation;
+    if (
+      state.phase !== "waiting-message" ||
+      state.owner.kind !== "host" ||
+      state.owner.identity !== generation ||
+      !message?.isUser
+    ) {
       return;
     }
-    this.#waitingMessage = false;
-    await this.prepare(message.content);
+    await this.#evaluate(message.content, state.owner);
   }
 
-  generationFinished(dryRun: boolean): void {
+  generationFinished(dryRun: boolean, generation: GenerationIdentity): void {
     if (dryRun) {
       return;
     }
-    this.#building = false;
-    this.#readable = false;
+    const current = this.#generation;
+    const owner = this.#generationOwner();
+    if (owner?.kind !== "host" || owner.identity !== generation) {
+      return;
+    }
+    if (current.phase === "preparing") {
+      this.cancel("生成已结束");
+      return;
+    }
+    this.#generation = {
+      phase: "finished",
+      owner,
+      ...((current.phase === "ready" || current.phase === "finished") && current.batch
+        ? { batch: current.batch }
+        : {}),
+    };
+    this.#notify();
+  }
+
+  generationStopped(generation: GenerationIdentity): void {
+    const owner = this.#generationOwner();
+    if (owner?.kind === "host" && owner.identity === generation) {
+      this.cancel("ST 已停止生成");
+    }
+  }
+
+  #generationOwner(): MacroGenerationOwner | undefined {
+    const state = this.#generation;
+    return state.phase === "preparing"
+      ? state.evaluation.owner
+      : "owner" in state
+        ? state.owner
+        : undefined;
   }
 
   async migrateLegacyChatMacros(): Promise<void> {
@@ -446,17 +611,28 @@ export class MemoryMacroService {
   }
 
   async prepare(lastUserMessage: string | null): Promise<void> {
-    if (!this.#ports.readSettings().enabled || (this.#group && this.#groupPrepared)) {
+    await this.#evaluate(lastUserMessage, { kind: "diagnostic", id: ++this.#diagnosticSequence });
+  }
+
+  async #evaluate(lastUserMessage: string | null, owner: MacroGenerationOwner): Promise<void> {
+    if (
+      !this.#ports.readSettings().enabled ||
+      (this.#group.kind === "open" && this.#group.batch?.context === this.#ports.getContext())
+    ) {
       return;
     }
-    const epoch = ++this.#epoch;
     const context = this.#ports.getContext();
     const settings = this.#ports.readSettings();
     const controller = new AbortController();
-    this.#controller = controller;
-    this.#preparing = true;
-    this.#building = true;
-    this.#readable = false;
+    const evaluation: MacroEvaluation = {
+      id: ++this.#evaluationSequence,
+      owner,
+      context,
+      groupId: this.#group.kind === "open" ? this.#group.id : undefined,
+      controller,
+    };
+    const previous = this.#generation;
+    this.#generation = { phase: "preparing", evaluation };
     const deadline = performance.now() + (this.#ports.timeoutMs ?? 10_000);
     const selected = new Map<string, { macro: MemoryMacro; scope: "chat" | "global" }>();
     for (const macro of settings.macros) {
@@ -476,7 +652,6 @@ export class MemoryMacroService {
       });
     }
     this.#results = [...results.values()];
-    this.#notify();
     const timer = setTimeout(
       () => controller.abort(new Error("本次宏计算超过 10 秒")),
       Math.max(0, deadline - performance.now()),
@@ -495,6 +670,7 @@ export class MemoryMacroService {
           throw new Error("当前记忆空间尚未准备好");
         }
         const builtins = await this.#builtins(snapshot, settings.macroLimit);
+        controller.signal.throwIfAborted();
         for (const result of builtins) {
           if (!selected.has(result.name)) {
             results.set(
@@ -510,6 +686,7 @@ export class MemoryMacroService {
           signal: controller.signal,
           deadline,
         });
+        controller.signal.throwIfAborted();
         await Promise.all(
           [...selected.values()].map(async ({ macro }) => {
             const initial = results.get(macro.name)!;
@@ -578,8 +755,17 @@ export class MemoryMacroService {
       }
     };
     try {
-      await Promise.race([work(), interrupted]);
-      if (epoch !== this.#epoch || context !== this.#ports.getContext()) {
+      if (previous.phase === "preparing") {
+        previous.evaluation.controller.abort(new Error("新的宏计算"));
+      }
+      this.#notify();
+      if (!this.#ownsEvaluation(evaluation) || context !== this.#ports.getContext()) {
+        return;
+      }
+      if (!controller.signal.aborted) {
+        await Promise.race([work(), interrupted]);
+      }
+      if (!this.#ownsEvaluation(evaluation) || context !== this.#ports.getContext()) {
         return;
       }
       for (const [name, result] of results) {
@@ -598,18 +784,28 @@ export class MemoryMacroService {
           });
         }
       }
-      this.#results = [...results.values()];
-      this.#publishedContext = context;
-      this.#readable = true;
-      this.#groupPrepared = this.#group;
+      const prepared: PreparedMacroBatch = {
+        id: evaluation.id,
+        context,
+        results: [...results.values()],
+      };
+      this.#results = prepared.results;
+      this.#generation = { phase: "ready", owner, batch: prepared, reused: false };
+      if (this.#group.kind === "open" && this.#group.id === evaluation.groupId) {
+        this.#group = { kind: "open", id: this.#group.id, batch: prepared };
+      }
       this.#notify();
     } finally {
       clearTimeout(timer);
       controller.signal.removeEventListener("abort", release);
-      if (epoch === this.#epoch) {
-        this.#preparing = false;
+      if (this.#ownsEvaluation(evaluation)) {
+        this.cancel("宏计算已结束，结果归属已失效");
       }
     }
+  }
+
+  #ownsEvaluation(evaluation: MacroEvaluation): boolean {
+    return this.#generation.phase === "preparing" && this.#generation.evaluation === evaluation;
   }
 
   getSnapshot(): string {

@@ -1,6 +1,7 @@
 import type { MemorySpaceId } from "../memory/index.ts";
 import type { FillTaskService } from "./fill-task-service.ts";
 import type { FillTask, FillTaskView } from "./fill-task.ts";
+import type { GenerationIdentity } from "../generation/generation-identity.ts";
 import {
   autoFillRange,
   migrateAutoFillSettings,
@@ -15,6 +16,18 @@ export interface AutoFillNotification {
   readonly message: string;
   readonly identity: string;
 }
+
+export type AutoFillGenerationState =
+  | { readonly kind: "idle" | "loading-chat" }
+  | {
+      readonly kind:
+        "awaiting-reply" | "reply-received" | "ended-awaiting-reply" | "completed" | "stopped";
+      readonly generation: GenerationIdentity;
+    };
+
+type AutoFillAuthorization =
+  | { readonly kind: "waiting-for-reply" }
+  | { readonly kind: "authorized"; readonly pendingReply: GenerationIdentity | null };
 
 interface AutoFillPorts {
   readonly tasks: Pick<
@@ -50,14 +63,11 @@ interface AutoFillPorts {
 /** 自动填表负责范围、入队和成功后的楼层隐藏；任务执行由 FillTaskService 管理。 */
 export class AutoFillService {
   readonly #ports: AutoFillPorts;
-  #generation: { identity: string; received: boolean; ended: boolean } | undefined;
-  #hasReplied = false;
-  #replyRevision = 0;
-  #checkedReplyRevision = 0;
+  #generationState: AutoFillGenerationState = { kind: "idle" };
+  #authorization: AutoFillAuthorization = { kind: "waiting-for-reply" };
   #checking = false;
   #pending = false;
   #timer: ReturnType<typeof setInterval> | undefined;
-  #suspended = false;
   #epoch = 0;
   #reminded: string | undefined;
   #promptedResume: string | undefined;
@@ -65,6 +75,18 @@ export class AutoFillService {
 
   constructor(ports: AutoFillPorts) {
     this.#ports = ports;
+  }
+
+  getGenerationState(): AutoFillGenerationState {
+    return this.#generationState;
+  }
+
+  get #suspended(): boolean {
+    return (
+      this.#generationState.kind === "loading-chat" ||
+      this.#generationState.kind === "awaiting-reply" ||
+      this.#generationState.kind === "reply-received"
+    );
   }
 
   start(): void {
@@ -86,7 +108,7 @@ export class AutoFillService {
     return (
       !!current &&
       !this.#suspended &&
-      this.#hasReplied &&
+      this.#authorization.kind === "authorized" &&
       this.settings().mode === "auto" &&
       task.memorySpaceId === current.spaceId &&
       (task.chatId ?? undefined) === current.chatId
@@ -140,7 +162,12 @@ export class AutoFillService {
       }
     } catch (error) {
       this.#ports.reportError(error);
-      if (this.#epoch !== epoch || this.#ports.current()?.identity !== current.identity) {
+      const latest = this.#ports.current();
+      if (
+        this.#epoch !== epoch ||
+        latest?.identity !== current.identity ||
+        latest.spaceId !== current.spaceId
+      ) {
         return;
       }
       this.#observed.delete(task.runId);
@@ -163,67 +190,88 @@ export class AutoFillService {
     if (!current || current.aiFloor < 0) {
       return undefined;
     }
+    const epoch = this.#epoch;
     const ledger = await this.#ports.tasks.ledgerStatuses(
       current.spaceId,
       0,
       current.chatLength - 1,
     );
-    if (this.#ports.current()?.identity !== current.identity) {
+    const latest = this.#ports.current();
+    if (
+      this.#epoch !== epoch ||
+      latest?.identity !== current.identity ||
+      latest.spaceId !== current.spaceId
+    ) {
       return undefined;
     }
     return autoFillRange(ledger, current.aiFloor, this.settings().delayFloors);
   }
 
-  generationStarted(): void {
+  generationStarted(generation: GenerationIdentity): void {
     const current = this.#ports.current();
-    this.#generation = current
-      ? { identity: current.identity, received: false, ended: false }
-      : undefined;
-    this.#suspended = true;
+    if (!current || generation.chatIdentity !== current.identity) {
+      return;
+    }
+    if ("generation" in this.#generationState && this.#generationState.generation === generation) {
+      return;
+    }
+    this.#generationState = { kind: "awaiting-reply", generation };
     this.#ports.tasks.suspend();
   }
-  messageReceived(floor?: number): void {
+  messageReceived(floor: number | undefined, generation: GenerationIdentity): void {
+    const state = this.#generationState;
     const current = this.#ports.current();
     if (
-      this.#generation &&
-      current?.identity === this.#generation.identity &&
+      "generation" in state &&
+      state.generation === generation &&
+      current !== undefined &&
+      current.identity === generation.chatIdentity &&
       current.aiFloor >= 0 &&
       current.aiFloor === (floor ?? current.chatLength - 1)
     ) {
-      this.#generation.received = true;
-      if (this.#generation.ended) {
-        this.#hasReplied = true;
-        this.#replyRevision++;
-        this.#generation = undefined;
-        this.kick();
+      if (state.kind === "awaiting-reply") {
+        this.#generationState = { kind: "reply-received", generation };
+      } else if (state.kind === "ended-awaiting-reply") {
+        this.#completeReply(generation);
       }
     }
   }
-  generationEnded(): void {
+  generationEnded(generation: GenerationIdentity): void {
+    const state = this.#generationState;
     const current = this.#ports.current();
-    if (this.#generation?.received && current?.identity === this.#generation.identity) {
-      this.#hasReplied = true;
-      this.#replyRevision++;
-      this.#generation = undefined;
-    } else if (this.#generation) {
-      this.#generation.ended = true;
+    if (
+      !("generation" in state) ||
+      state.generation !== generation ||
+      current?.identity !== generation.chatIdentity
+    ) {
+      return;
     }
-    this.#suspended = false;
+    if (state.kind === "reply-received") {
+      this.#completeReply(generation);
+    } else if (state.kind === "awaiting-reply") {
+      this.#generationState = { kind: "ended-awaiting-reply", generation };
+      this.kick();
+    }
+  }
+  generationStopped(generation: GenerationIdentity): void {
+    const state = this.#generationState;
+    if (!("generation" in state) || state.generation !== generation) {
+      return;
+    }
+    this.#generationState = { kind: "stopped", generation };
     this.kick();
   }
-  generationStopped(): void {
-    this.#generation = undefined;
-    this.#suspended = false;
+
+  #completeReply(generation: GenerationIdentity): void {
+    this.#generationState = { kind: "completed", generation };
+    this.#authorization = { kind: "authorized", pendingReply: generation };
     this.kick();
   }
 
   async chatChanged(): Promise<void> {
-    this.#suspended = true;
+    this.#generationState = { kind: "loading-chat" };
     this.#epoch += 1;
-    this.#generation = undefined;
-    this.#hasReplied = false;
-    this.#replyRevision = 0;
-    this.#checkedReplyRevision = 0;
+    this.#authorization = { kind: "waiting-for-reply" };
     this.#ports.dismissReminder();
     this.#ports.tasks.suspend();
     this.#reminded = undefined;
@@ -239,7 +287,9 @@ export class AutoFillService {
     }
   }
   chatReady(): void {
-    this.#suspended = false;
+    if (this.#generationState.kind === "loading-chat") {
+      this.#generationState = { kind: "idle" };
+    }
     this.kick();
   }
 
@@ -269,15 +319,22 @@ export class AutoFillService {
       return;
     }
     const epoch = this.#epoch;
-    const unchanged = () =>
-      this.#epoch === epoch &&
-      !this.#suspended &&
-      this.#ports.current()?.identity === current.identity;
+    const unchanged = () => {
+      const latest = this.#ports.current();
+      return (
+        this.#epoch === epoch &&
+        !this.#suspended &&
+        latest?.identity === current.identity &&
+        latest.spaceId === current.spaceId
+      );
+    };
     const settings = this.settings();
-    const scheduleReply = this.#replyRevision > this.#checkedReplyRevision;
-    this.#checkedReplyRevision = this.#replyRevision;
+    const scheduleReply =
+      this.#authorization.kind === "authorized" && this.#authorization.pendingReply !== null;
     if (settings.mode !== "auto") {
-      this.#hasReplied = false;
+      this.#authorization = { kind: "waiting-for-reply" };
+    } else if (scheduleReply) {
+      this.#authorization = { kind: "authorized", pendingReply: null };
     }
     let pending = await this.#ports.tasks.pendingTasks(current.spaceId);
     if (!unchanged()) {
@@ -288,7 +345,7 @@ export class AutoFillService {
     const legacy = this.read();
     if (
       settings.mode === "auto" &&
-      this.#hasReplied &&
+      this.#authorization.kind === "authorized" &&
       (legacy.stagedTasks?.length || legacy.inFlightTask)
     ) {
       this.#ports.tasks.suspend();
@@ -321,6 +378,9 @@ export class AutoFillService {
           ...settings,
           ...migrateAutoFillSettings(item.settings),
         });
+        if (!unchanged()) {
+          return;
+        }
         if (item === items[0] && (legacy.pausedReason || legacy.pendingResumeTask)) {
           await this.#ports.tasks.cancel(current.spaceId, task.runId, "chat-changed");
         }
@@ -382,7 +442,7 @@ export class AutoFillService {
         return;
       }
       if (confirmed) {
-        this.#hasReplied = true;
+        this.#authorization = { kind: "authorized", pendingReply: null };
         await this.#ports.tasks.retry(current.spaceId, head.runId);
       }
     }
@@ -395,7 +455,7 @@ export class AutoFillService {
     }
     if (
       settings.mode === "auto" &&
-      !this.#hasReplied &&
+      this.#authorization.kind === "waiting-for-reply" &&
       range &&
       range.to - range.from + 1 >= settings.interval
     ) {
@@ -460,7 +520,7 @@ export class AutoFillService {
         }
       }
     }
-    if (unchanged() && (!pending[0]?.automatic || this.#hasReplied)) {
+    if (unchanged() && (!pending[0]?.automatic || this.#authorization.kind === "authorized")) {
       this.#ports.tasks.kick(current.spaceId);
     }
   }
@@ -472,6 +532,15 @@ export class AutoFillService {
     settings: AutoFillSettings,
   ): Promise<FillTaskView> {
     validateAutoFillSettings(settings);
+    const epoch = this.#epoch;
+    const ownsChat = () => {
+      const latest = this.#ports.current();
+      return (
+        this.#epoch === epoch &&
+        latest?.identity === current.identity &&
+        latest.spaceId === current.spaceId
+      );
+    };
     const task = await this.#ports.tasks.submit({
       memorySpaceId: current.spaceId,
       from,
@@ -480,13 +549,14 @@ export class AutoFillService {
       automatic: {
         retries: settings.retries,
         delaySeconds: settings.retryDelaySeconds,
-        interruptionReason: () =>
-          this.#ports.current()?.identity !== current.identity ? "chat-changed" : undefined,
-        canContinue: () =>
-          this.#ports.current()?.identity === current.identity &&
-          this.settings().mode === settings.mode,
+        interruptionReason: () => (ownsChat() ? undefined : "chat-changed"),
+        canContinue: () => ownsChat() && this.settings().mode === settings.mode,
       },
     });
+    if (!ownsChat()) {
+      await this.#ports.tasks.cancel(current.spaceId, task.runId, "chat-changed");
+      return task;
+    }
     this.#observed.set(task.runId, task);
     this.#ports.notify({
       kind: "started",

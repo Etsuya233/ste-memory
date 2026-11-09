@@ -2325,6 +2325,25 @@ it("真实 ST 事件桥进入时只通知，收到有效 AI 楼层并结束生�
     runtime.autoFill.kick();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(submit).toHaveBeenCalledOnce();
+    await handlers.get("generation_started")!("normal", {}, false);
+    const stoppedGeneration = runtime.autoFill.getGenerationState();
+    handlers.get("generation_stopped")!();
+    context.chat = [...context.chat!, { mes: "停止后迟到的回复" }];
+    handlers.get("message_received")!(4, "normal");
+    handlers.get("generation_ended")!();
+    runtime.autoFill.kick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.autoFill.getGenerationState().kind).toBe("stopped");
+    expect(submit).toHaveBeenCalledOnce();
+
+    await handlers.get("generation_started")!("normal", {}, false);
+    expect(runtime.autoFill.getGenerationState()).not.toEqual(stoppedGeneration);
+    handlers.get("generation_ended")!();
+    context.chat = [...context.chat!, { mes: "结束事件之后到达的有效回复" }];
+    handlers.get("message_received")!(5, "normal");
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+    expect(submit.mock.calls[1]![0]).toMatchObject({ from: 0, to: 5 });
+    expect(runtime.autoFill.getGenerationState().kind).toBe("completed");
   } finally {
     runtime.autoFill.stop();
   }

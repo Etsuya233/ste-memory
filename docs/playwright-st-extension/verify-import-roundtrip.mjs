@@ -167,6 +167,11 @@ try {
   );
   await page.locator("#preloader").waitFor({ state: "hidden" });
   await page.evaluate(async () => {
+    // Persistence fixtures do not schedule or display automatic fill from an earlier E2E run.
+    const runtime = window.__STE_MEMORY_RUNTIME__;
+    const settings = runtime.settings.read();
+    runtime.settings.write({ ...settings, autoFill: { ...settings.autoFill, mode: "off" } });
+    runtime.autoFill.kick();
     const context = SillyTavern.getContext();
     await context.selectCharacterById(0);
     await SillyTavern.getContext().openCharacterChat(`ste-import-${Date.now()}`);
