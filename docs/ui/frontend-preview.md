@@ -99,6 +99,7 @@ node verify-log-copy.mjs
 node verify-log-export.mjs
 node verify-log-layout.mjs
 node verify-maintenance.mjs
+node verify-memory-history.mjs
 node verify-snapshot-save.mjs
 node verify-snapshot-diagnostics.mjs
 node verify-workflow-lifecycle.mjs
@@ -129,6 +130,7 @@ node verify-desktop-window.mjs
 保存使用 SQLite 提交与完整对话快照写回，已提交但文件未保存时明确提示，可重试最新快照。
 导入预检查通过后先门控并激活新内容，再请求 ST 保存和回读核验；保存失败保留同一份内容，重试无需再次导入。新 ID 导入的旧资源清理失败显示已保存及警告，“重试清理”不重新上传聊天。维护页的操作编号可跳转本次导入日志，旧空间加载失败时可对明确的目标聊天导入恢复。
 维护页仅接受单空间文件，不提供全部本地空间或可选同步设置。
+「历史版本」展示当前聊天的本机版本，恢复沿用空间替换和顶部保存重试，恢复前保留当前记忆副本。
 真实 ST 验收应使用专门的测试对话，重点检查保存期间切换对话、文件写回和刷新重载。
 
 ## 本轮验证（2026-10-28）
@@ -181,3 +183,15 @@ verify-connections 仍查找“查询 Agent”；verify-cleaning 假设初始无
 320px 与桌面布局专项 17 项检查及原有日志流程通过，覆盖滚轮、长日志正文滚动、元信息、
 关联日志可达、返回列表的位置恢复与横向溢出。类型检查、ESLint、相关文件格式检查和生产构建通过。
 使用独立预览模拟日志，未清空或修改真实 ST 日志。
+
+## 记忆历史版本验证（2026-11-11）
+
+单 worker 全仓 Vitest 通过 136 个文件、1530 项，覆盖真实 SQLite 和 IndexedDB、gzip 完整快照、楼层去重与刷新累计、恢复上限为 1、失败重试及 SQL 临时改动经强制同步和重载的隔离。
+复核补充了清理失败后重试、同名聊天在填表事务前后切换、恢复前备份落库后切聊三条路径，最终单 worker 定向回归通过 5 个文件、175 项。
+Edge 独立预览的 `verify-memory-history.mjs` 通过六组检查，覆盖 320px 与桌面布局、保存、改名、JSON 导出、切聊、恢复前保存、删除、自动保存设置和清理失败重试。验收使用预览数据和测试文件端口。
+
+类型检查、格式检查、生产构建及本次改动文件的 ESLint 通过。全仓 ESLint 在七个与基线相同的文件中报告 14 条 `curly` 错误：
+
+- `docs/playwright-st-extension/verify-agent-preset-scroll.mjs`、`verify-builtin-macros.mjs`、`verify-record-restoration.mjs` 各 1 条。
+- `src/features/agent/edit-text-tool.test.ts` 2 条，`src/features/agent/tools/proposal/edit-text-tool.ts` 4 条。
+- `src/frontend/models/memory/record-form-model.ts` 1 条，`src/frontend/pages/records-workspace.test.ts` 4 条。

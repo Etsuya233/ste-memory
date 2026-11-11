@@ -19,6 +19,7 @@ interface SpaceLifecyclePorts {
   readonly tasks: Pick<FillTaskService, "cancelAll" | "interruptForChatChange">;
   readonly vector: Pick<VectorIndexService, "stop" | "pauseSpace" | "purge">;
   readonly assistant: Pick<QueryChatStore, "cancelSpace" | "clearSpaceHistory">;
+  readonly resetHistoryProgress: (chatKey: string, snapshot: MemorySpaceBackup) => Promise<void>;
   readonly clearTasks: (id: MemorySpaceId) => Promise<void>;
   readonly reportSwitchError: (error: unknown) => void;
 }
@@ -290,9 +291,10 @@ export class MemorySpaceLifecycle {
       }
       const rebuilt = await this.ports.memory
         .structureRebuild((snapshot) =>
-          this.ports.persistence.replace(owner.target, snapshot, owner.binding, () =>
-            this.confirmSpaceOperation(request),
-          ),
+          this.ports.persistence.replace(owner.target, snapshot, owner.binding, async () => {
+            await this.ports.resetHistoryProgress(owner.target.identity, snapshot);
+            await this.confirmSpaceOperation(request);
+          }),
         )
         .rebuild(input);
       if (!rebuilt) {

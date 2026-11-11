@@ -630,6 +630,7 @@ const settingsService = new SettingsService({
     chatMacros.set(contexts[current].chatKey, structuredClone(macros));
   },
   refreshVectorIndex: async () => {},
+  trimHistory: (limit) => toolsFixture.trimHistory(limit),
   validateMacros: async (macros) => macros,
   getChatScopeMacros: () => chatMacros.get(contexts[current].chatKey) ?? [],
   getChatContext: () => contexts[current].chatKey,
@@ -1166,6 +1167,7 @@ const autoFillServices = {
   assertContext,
 };
 const toolsFixture = createToolsFixture({
+  historyLimit: () => settingsService.read().history.limit,
   readLedger: (spaceId) => previewFloorLedger(spaceId as MemorySpaceId),
   writeLedger: (spaceId, ledger) => {
     floorProgress.set(
@@ -1278,6 +1280,7 @@ function Preview() {
       delayQuery: toolsFixture.delayQuery,
       delaySQL: toolsFixture.delaySQL,
       failNextQuery: toolsFixture.failNextQuery,
+      failNextHistoryTrim: toolsFixture.failNextHistoryTrim,
       snapshot: () => structuredClone(records),
       tablesWorkspace,
       tasksWorkspace,

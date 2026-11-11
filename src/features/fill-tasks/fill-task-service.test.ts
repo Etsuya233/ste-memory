@@ -37,6 +37,7 @@ import {
   type FillTask,
 } from "./fill-task.ts";
 import { FillTaskService, type FillTaskPromptContext } from "./fill-task-service.ts";
+import type { SavedFillBatch } from "./fill-task-session.ts";
 import type { composePresetMessages } from "../agent-presets/preset-composer.ts";
 import type { AgentPromptPreset } from "../agent-presets/preset-model.ts";
 import {
@@ -213,6 +214,7 @@ async function createHarness(
     readonly onSave?: () => Promise<void>;
     readonly saveError?: boolean;
     readonly canStartAutomaticTask?: (task: FillTask) => boolean;
+    readonly onSavedSuccess?: (batch: SavedFillBatch) => Promise<void>;
     readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
   } = {},
 ): Promise<Harness> {
@@ -332,7 +334,8 @@ async function createHarness(
           }
           ended = true;
           try {
-            await memoryStore.commitTask(task.memorySpaceId, token);
+            const snapshot = await memoryStore.commitTask(task.memorySpaceId, token);
+            return { chatKey: target.identity, snapshot, newFloors: batch.floors };
           } catch (error) {
             if (!(error instanceof MemoryCommitPersistenceError)) {
               throw error;
@@ -378,6 +381,7 @@ async function createHarness(
     createPromptContext: options.createPromptContext,
     readCleaningRule: options.readCleaningRule,
     logError: options.logError,
+    onSavedSuccess: options.onSavedSuccess,
     onAutomaticSuccess: options.onAutomaticSuccess,
   });
   return {
@@ -656,12 +660,14 @@ describe("FillTaskService（手动楼层触发与运行，ticket 13）", () => {
       }
       return assistantMessage([textMessage("已提交")], "stop");
     });
-    const harness = await createHarness({ streamFn });
+    const onSavedSuccess = vi.fn(async () => {});
+    const harness = await createHarness({ streamFn, onSavedSuccess });
     const { service, spaceId } = harness;
 
     const view = await service.submit({ memorySpaceId: spaceId, from: 0, to: 5, blockSize: 2 });
     const terminal = await waitForTerminal(harness, view.runId);
     expect(terminal.status).toBe("failed");
+    expect(onSavedSuccess).not.toHaveBeenCalled();
     expect(terminal.errorMessage).toContain("模型炸了");
 
     // 块 1 已提交：楼层 processed、记录与证据落库；块 2 出错楼层标记 error；块 3 未跑

@@ -1,4 +1,9 @@
 import {
+  DEFAULT_HISTORY_SETTINGS,
+  validateHistorySettings,
+  type HistorySettings,
+} from "../memory-history/history.ts";
+import {
   DEFAULT_RERANK_SETTINGS,
   parseRerankSettings,
   type RerankSettings,
@@ -59,6 +64,7 @@ export interface PluginSettings {
   /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
   readonly autoFill: AutoFillSettings;
+  readonly history: HistorySettings;
   /** 插件总开关：关闭后暂停空间业务与事件桥；已提交内容仍保存（设置面板开关） */
   readonly enabled: boolean;
   /** 记忆宏全局前缀（ticket 15 生效；默认建议 {{ste}}，用户可直接粘贴进提示词预设）：
@@ -93,6 +99,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   rerank: DEFAULT_RERANK_SETTINGS,
   fillAgentTimeoutSeconds: 600,
   autoFill: DEFAULT_AUTO_FILL_SETTINGS,
+  history: DEFAULT_HISTORY_SETTINGS,
   enabled: true,
   macroName: "{{ste}}",
   macroLimit: 2000,
@@ -130,6 +137,11 @@ export function mergeSettings(raw: unknown): PluginSettings {
     ...migrateAutoFillSettings(source.autoFill as Partial<AutoFillSettings> | undefined),
   };
   validateAutoFillSettings(autoFill);
+  const history = {
+    ...DEFAULT_HISTORY_SETTINGS,
+    ...(source.history as Partial<HistorySettings> | undefined),
+  };
+  validateHistorySettings(history);
   if (
     source.fillAgentTimeoutSeconds !== undefined &&
     (typeof source.fillAgentTimeoutSeconds !== "number" ||
@@ -148,6 +160,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
         ? DEFAULT_SETTINGS.fillAgentTimeoutSeconds
         : (source.fillAgentTimeoutSeconds as number),
     autoFill,
+    history,
     enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
     macroName: typeof source.macroName === "string" ? source.macroName : DEFAULT_SETTINGS.macroName,
     macroLimit:

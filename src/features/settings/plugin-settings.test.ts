@@ -161,6 +161,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
       rerank: { enabled: false, candidateLimit: 50 },
       fillAgentTimeoutSeconds: 900,
       autoFill: DEFAULT_SETTINGS.autoFill,
+      history: DEFAULT_SETTINGS.history,
       enabled: false,
       macroName: "{{ctx}}",
       macroLimit: 4000,

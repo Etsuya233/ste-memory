@@ -1,3 +1,4 @@
+import type { HistoryProgress, HistoryVersion } from "../../features/memory-history/history.ts";
 import { Dexie, type Table } from "dexie";
 import type { AssistantSession } from "../../features/query-chat/session-store.ts";
 import type { MemorySpaceBackupLedgerEntry } from "../../features/memory-snapshot/snapshot.ts";
@@ -10,8 +11,11 @@ import type {
 
 export const ST_MEMORY_DB_NAME = "ste-memory";
 
-/** IndexedDB只管理任务、向量与助手会话，废弃空间内容不读取、不迁移。 */
+/** IndexedDB 管理任务、向量、助手会话与历史副本，废弃空间内容不读取、不迁移。 */
 export class SteMemoryDatabase extends Dexie {
+  memoryHistory!: Table<HistoryVersion, string>;
+  memoryHistoryPayloads!: Table<{ id: string; payload: ArrayBuffer }, string>;
+  memoryHistoryProgress!: Table<HistoryProgress, string>;
   assistantSessions!: Table<AssistantSession, string>;
   memoryFillTasks!: Table<FillTask, string>;
   /** 只供一次性迁移读取，核验聊天文件后逐空间清理。 */
@@ -89,6 +93,11 @@ export class SteMemoryDatabase extends Dexie {
       });
     this.version(14).stores({
       floorFillLedger: "id, &[memorySpaceId+floor], memorySpaceId",
+    });
+    this.version(15).stores({
+      memoryHistory: "id, [chatKey+createdAt]",
+      memoryHistoryPayloads: "id",
+      memoryHistoryProgress: "chatKey",
     });
   }
 }

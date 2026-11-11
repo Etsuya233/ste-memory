@@ -6,7 +6,10 @@ import {
   chatIdentityKey,
 } from "../../features/chat-binding/chat-space-manager.ts";
 import { ImportDiagnostic } from "../../features/backup/import-diagnostic.ts";
-import { spaceExportFilename } from "../../features/backup/space-transfer.ts";
+import {
+  historyExportFilename,
+  spaceExportFilename,
+} from "../../features/backup/space-transfer.ts";
 import {
   createBackupFile,
   parseBackupFile,
@@ -29,8 +32,9 @@ export function createMaintenanceServices(
     if (!runtime.settings.read().enabled || !chatKey) {
       return null;
     }
-    if (status?.kind === "active") {
-      return { chatKey, spaceId: status.space.id, title: status.space.name };
+    const active = runtime.manager.getActiveStatus(chatKey);
+    if (active) {
+      return { chatKey, spaceId: active.space.id, title: active.space.name };
     }
     if (status?.kind === "load-error" && runtime.adapter.captureFileTarget()) {
       return {
@@ -52,6 +56,85 @@ export function createMaintenanceServices(
   }
   return {
     currentContext,
+    history: {
+      onAutomaticChange: (listener) => runtime.history.onAutomaticChange(listener),
+      list: async (target) => {
+        assertTarget(target);
+        return runtime.history.list(target.chatKey);
+      },
+      failure: (target) => runtime.history.automaticFailure(target.chatKey),
+      retryAutomatic: async (target) => {
+        assertTarget(target);
+        await runtime.history.retryAutomatic(target.chatKey);
+      },
+      save: async (target, name) => {
+        assertTarget(target);
+        await runtime.history.save(target.chatKey, name);
+      },
+      rename: async (target, id, name) => {
+        assertTarget(target);
+        await runtime.history.rename(target.chatKey, id, name);
+      },
+      remove: async (target, id) => {
+        assertTarget(target);
+        await runtime.history.remove(target.chatKey, id);
+      },
+      exportBackup: async (target, id) => {
+        assertTarget(target);
+        const versions = await runtime.history.list(target.chatKey);
+        const version = versions.find((item) => item.id === id);
+        if (!version) {
+          throw new Error("当前聊天没有此历史版本");
+        }
+        const unit = await runtime.history.read(target.chatKey, id);
+        assertTarget(target);
+        const file = createBackupFile(
+          { spaces: [unit] },
+          runtime.version,
+          new Date().toISOString(),
+        );
+        const chatName = buildChatSpaceName(runtime.adapter.getChatSnapshot());
+        downloadTextFile(
+          serializeBackupFile(file),
+          historyExportFilename(chatName, version.name, version.createdAt),
+        );
+        return true;
+      },
+      prepareRestore: async (target, id) => {
+        assertTarget(target);
+        const prepared = await runtime.history.prepareRestore(target.chatKey, id);
+        assertTarget(target);
+        return {
+          recordCount: prepared.version.recordCount,
+          summary: `「${prepared.version.name}」包含 ${prepared.version.recordCount} 条记录；当前空间包含 ${prepared.current.records.length} 条记录。`,
+          confirmMessage: `将替换「${target.title}」的表格、字段、记忆记录、修订、证据、对话宏及填表进度。恢复前将保存当前版本。旧填表任务、向量与助手会话将停止并清理，聊天正文和隐藏状态保持当前状态。`,
+          apply: async () => {
+            assertTarget(target);
+            try {
+              await runtime.history.restore(prepared);
+            } catch (cause) {
+              if (cause instanceof ChatSnapshotReplacementSaveError) {
+                return { kind: "replacement-unverified", message: cause.humanMsg };
+              }
+              throw cause;
+            }
+            try {
+              await refresh();
+              const cleanup = runtime.persistence.getStatus(target.chatKey).cleanup;
+              if (cleanup.kind === "failed") {
+                return { kind: "applied-with-sync-issue", message: cleanup.message };
+              }
+              return { kind: "done", message: `已恢复「${prepared.version.name}」。` };
+            } catch (cause) {
+              return {
+                kind: "applied-with-sync-issue",
+                message: `历史版本已恢复，后续刷新未完成：${cause instanceof Error ? cause.message : String(cause)}`,
+              };
+            }
+          },
+        };
+      },
+    },
     exportBackup: async () => {
       const target = currentContext();
       if (!target?.spaceId) {

@@ -53,6 +53,10 @@ function harness() {
     },
     manager: {
       getStatus: () => ({ kind: statusKind, space: { id: "space", name: "A" } }),
+      getActiveStatus: (chatKey: string) =>
+        statusKind === "active" && chatKey === `char:1:${chatId}`
+          ? { kind: "active", space: { id: "space", name: "A" } }
+          : undefined,
       importSpace: restore,
     },
     backup: { exportCurrentSpace: async () => unit },

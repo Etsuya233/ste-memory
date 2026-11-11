@@ -14,6 +14,8 @@ import type { PresetSettingsServices } from "./preset-settings-services.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import { LogsPage } from "../activity/logs-page.tsx";
 import { MaintenancePage, type MaintenanceServices } from "../maintenance/maintenance-page.tsx";
+import { MemoryHistoryPage } from "../maintenance/memory-history-page.tsx";
+import { MemoryHistorySettingsPage } from "./memory-history-settings-page.tsx";
 import type { QueryServices } from "../query/query-page.tsx";
 import { SearchPage, type SearchServices, type SearchPageProps } from "../search/search-page.tsx";
 import { SqlPage, type SqlServices } from "../sql/sql-page.tsx";
@@ -61,6 +63,8 @@ export type SettingsSection =
   | "table-presets"
   | "logs"
   | "maintenance"
+  | "history"
+  | "history-settings"
   | "search"
   | "sql";
 
@@ -200,12 +204,32 @@ export function SettingsPage(
       <MaintenancePage
         {...detailProps}
         services={props.tools.maintenance}
+        onHistory={() => setSection("history")}
         onViewLog={(key) => {
           setImportLogKey(key);
           setSection("logs");
         }}
       />
     );
+  }
+  if (section === "history") {
+    const { currentContext, history } = props.tools.maintenance;
+    const context = currentContext();
+    return (
+      <MemoryHistoryPage
+        key={context?.chatKey}
+        context={context}
+        currentContext={currentContext}
+        services={history}
+        controls={props.controls}
+        registerLeaveGuard={props.registerLeaveGuard}
+        onBack={() => setSection("maintenance")}
+        onSettings={() => setSection("history-settings")}
+      />
+    );
+  }
+  if (section === "history-settings") {
+    return <MemoryHistorySettingsPage {...props} onBack={() => setSection("history")} />;
   }
   if (section === "search") {
     return (

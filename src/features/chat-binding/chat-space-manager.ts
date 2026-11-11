@@ -33,6 +33,7 @@ export interface ChatSpaceManagerPorts {
     binding: ChatSpaceBinding,
     unit: MemorySpaceBackup,
   ) => Promise<void>;
+  readonly onReplacement?: (target: ChatFileTarget, unit: MemorySpaceBackup) => Promise<void>;
   readonly unloadSnapshot: (id: MemorySpaceId, target: ChatFileTarget) => Promise<void>;
   readonly prepareReplacement: (
     target: ChatFileTarget,
@@ -62,6 +63,7 @@ interface CandidateRequest {
 export class ChatSpaceManager {
   #status: SpaceContextStatus | undefined;
   #selection: ChatSelection | undefined;
+  #activeSelection: ChatSelection | undefined;
   #candidate: CandidateRequest | undefined;
   readonly #listeners = new Set<() => void>();
   private readonly ports: ChatSpaceManagerPorts;
@@ -74,6 +76,16 @@ export class ChatSpaceManager {
     return this.#status;
   }
 
+  getActiveStatus(chatKey: string): Extract<SpaceContextStatus, { kind: "active" }> | undefined {
+    if (
+      this.#activeSelection === this.#selection &&
+      this.#selection?.target.identity === chatKey &&
+      this.#status?.kind === "active"
+    ) {
+      return this.#status;
+    }
+  }
+
   onStatusChange(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => {
@@ -83,6 +95,7 @@ export class ChatSpaceManager {
 
   clearCurrent(): void {
     this.#selection = undefined;
+    this.#activeSelection = undefined;
     this.#status = undefined;
     this.notify();
   }
@@ -221,6 +234,10 @@ export class ChatSpaceManager {
   async importSpace(
     unit: MemorySpaceBackup,
     stage?: (phase: ImportPhase) => void,
+    hooks?: {
+      beforeActivate: () => Promise<void>;
+      confirmed: () => Promise<void>;
+    },
   ): Promise<SpaceContextStatus> {
     const selection = this.requireSelection();
     return this.saveCandidate(
@@ -233,8 +250,9 @@ export class ChatSpaceManager {
           this.ports.now(),
         ),
       "replacement",
-      undefined,
+      hooks?.confirmed,
       stage,
+      hooks?.beforeActivate,
     );
   }
 
@@ -248,7 +266,11 @@ export class ChatSpaceManager {
 
   private assertCandidateCurrent(request: CandidateRequest): void {
     // 请求身份同时约束聊天选择与本次候选，较早的导入/克隆不能覆盖后来的操作。
-    if (this.#selection !== request.selection || this.#candidate !== request) {
+    if (
+      this.#selection !== request.selection ||
+      this.#candidate !== request ||
+      chatIdentityKey(this.ports.getChat()) !== request.selection.target.identity
+    ) {
       throw new Error("候选操作已过期，请在当前聊天重新确认");
     }
   }
@@ -259,6 +281,7 @@ export class ChatSpaceManager {
     origin: "created" | "replacement",
     confirmed?: () => Promise<void>,
     stage?: (phase: ImportPhase) => void,
+    beforeActivate?: () => Promise<void>,
   ): Promise<SpaceContextStatus> {
     this.ports.assertCanReplace(selection.target);
     const request: CandidateRequest = {
@@ -277,6 +300,10 @@ export class ChatSpaceManager {
     const release = await this.ports.prepareReplacement(selection.target, request.oldId);
     try {
       this.assertCandidateCurrent(request);
+      if (beforeActivate) {
+        await beforeActivate();
+        this.assertCandidateCurrent(request);
+      }
       if (request.oldId && request.oldId !== unit.space.id) {
         request.retireOld = this.ports.captureRetirement(request.oldId, selection.target);
       }
@@ -288,12 +315,18 @@ export class ChatSpaceManager {
       stage?.("activate");
       await this.activate(selection, binding, unit, origin);
       this.assertCandidateCurrent(request);
+      const onReplacement = origin === "replacement" ? this.ports.onReplacement : undefined;
       stage?.("save-confirm-retire");
       await this.ports.persistence.replace(
         selection.target,
         unit,
         binding,
-        confirmed,
+        onReplacement
+          ? async () => {
+              await onReplacement(selection.target, unit);
+              await confirmed?.();
+            }
+          : confirmed,
         request.retireOld,
       );
       return {
@@ -322,6 +355,7 @@ export class ChatSpaceManager {
       await this.ports.unloadSnapshot(unit.space.id, selection.target);
       return { kind: "load-error", humanMsg: "聊天已切换" };
     }
+    this.#activeSelection = selection;
     return this.publish({
       kind: "active",
       binding,

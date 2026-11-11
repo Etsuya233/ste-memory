@@ -30,6 +30,7 @@ import type { MemorySpaceBackup } from "./features/backup/index.ts";
 import type { MemoryMacro, MemorySpaceId } from "./features/memory/index.ts";
 import { UNSAVED_CHAT_MESSAGE } from "./features/chat-binding/chat-space-manager.ts";
 import { createRuntimeTestPorts } from "./infrastructure/memory-runtime/test-support.ts";
+import { SqliteMemoryStore } from "./infrastructure/memory-runtime/sqlite-memory-store.ts";
 import { createMaintenanceServices } from "./frontend/host/maintenance-services.ts";
 import { createBackupFile } from "./features/backup/backup-codec.ts";
 
@@ -551,20 +552,17 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const db = createTestDatabase();
     const { context, handlers } = fakeStContext();
     const ports = createRuntimeTestPorts(() => context);
-    const createSqlite = vi.fn(ports.createSqlite);
     const runtime = await startTestRuntime(() => context, {
       createDb: () => db,
       log: fakeLog(),
       ...ports,
-      createSqlite,
     });
     const original = await runtime.backup.exportCurrentSpace();
     const metadata = structuredClone(context.chatMetadata);
     const preset = { ...SYSTEM_TABLE_PRESET, prompt: "过期更新" };
     const plan = await runtime.presetUpdate.preview(original.space.id, preset, "char:3:story");
     const selected = presetUpdateChanges(plan.nodes).map((change) => change.id);
-    const sqlite = await createSqlite.mock.results[0]!.value;
-    const exportSpace = sqlite.exportSpace.bind(sqlite);
+    const readSnapshot = SqliteMemoryStore.prototype.snapshot;
     let markStarted!: () => void;
     let releaseRead!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -573,11 +571,14 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
     const released = new Promise<void>((resolve) => {
       releaseRead = resolve;
     });
-    vi.spyOn(sqlite, "exportSpace").mockImplementationOnce(async (...args) => {
-      markStarted();
-      await released;
-      return exportSpace(...args);
-    });
+    const read = vi
+      .spyOn(SqliteMemoryStore.prototype, "snapshot")
+      .mockImplementationOnce(async function (this: SqliteMemoryStore, spaceId) {
+        const snapshot = await readSnapshot.call(this, spaceId);
+        markStarted();
+        await released;
+        return snapshot;
+      });
     const cancelTasks = vi.spyOn(runtime.tasks, "cancelAll");
     const updating = runtime.presetUpdate.apply(plan, selected, "char:3:story");
     // 先注册拒绝断言，迟到读取失败也不会成为未观察的 Promise 拒绝。
@@ -593,6 +594,7 @@ describe("startSteMemory（组合根：持久层 + 事件桥 + 首次同步）",
       });
     } finally {
       releaseRead();
+      read.mockRestore();
     }
     await rejected;
     expect(cancelTasks).not.toHaveBeenCalled();
@@ -2021,6 +2023,52 @@ describe("关键清理与填表同步交错", () => {
     },
   );
 
+  it.each(["before-begin", "after-begin"] as const)(
+    "同名聊天切换发生在填表事务边界 %s 时，不跨聊天保存",
+    async (phase) => {
+      const db = createTestDatabase();
+      const { context } = fakeStContext({
+        chat: [{ name: "用户", is_user: true, mes: "原楼层" }],
+        chatCompletionSettings: { chat_completion_source: "openai" },
+        getChatCompletionModel: () => "test-model",
+      });
+      const ports = createRuntimeTestPorts(() => context);
+      const createSqlite = vi.fn(ports.createSqlite);
+      const runtime = await startTestRuntime(() => context, {
+        createDb: () => db,
+        log: fakeLog(),
+        ...ports,
+        createSqlite,
+      });
+      const spaceId = (await runtime.backup.exportCurrentSpace()).space.id;
+      const sqlite = await createSqlite.mock.results[0]!.value;
+      const beginTransaction = sqlite.begin.bind(sqlite);
+      const begin = vi.spyOn(sqlite, "begin");
+      if (phase === "before-begin") {
+        context.characterId = 0;
+      } else {
+        begin.mockImplementationOnce(async (id) => {
+          await beginTransaction(id);
+          context.characterId = 0;
+        });
+      }
+      const task = await runtime.tasks.submit({ memorySpaceId: spaceId, from: 0, to: 0 });
+      await vi.waitFor(async () => {
+        expect(await db.memoryFillTasks.get(task.runId)).toMatchObject({
+          status: "failed",
+          errorMessage: expect.stringContaining("填表批次所属聊天已变化"),
+        });
+      });
+      expect(begin).toHaveBeenCalledTimes(phase === "before-begin" ? 0 : 1);
+      expect(await db.memoryHistory.count()).toBe(0);
+      expect(await db.memoryHistoryProgress.count()).toBe(0);
+      expect(ports.snapshotWrites).toHaveLength(1);
+      // A transaction interrupted after begin has released both SQLite and the runtime writer.
+      context.characterId = 3;
+      await runtime.tasks.markFloorStatuses(spaceId, 0, 0, "processed");
+    },
+  );
+
   it("多批填表在强制核验边界等待，完成后续跑且不重放前批", async () => {
     const db = createTestDatabase();
     const { context } = fakeStContext({
@@ -2112,6 +2160,87 @@ describe("关键清理与填表同步交错", () => {
 });
 
 describe("已激活候选的核验恢复", () => {
+  it("历史恢复隔离 SQL 临时数据、核验失败后保留候选及恢复前版本", async () => {
+    const db = createTestDatabase();
+    const { context } = fakeStContext({
+      chat: [
+        { name: "用户", is_user: true, mes: "保持正文" },
+        { name: "角色", mes: "保持隐藏", is_system: true },
+      ],
+    });
+    const ports = createRuntimeTestPorts(() => context);
+    let runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    const chatKey = "char:3:story";
+    const original = await runtime.backup.exportCurrentSpace();
+    await runtime.tasks.markFloorStatuses(original.space.id, 1, 1, "error");
+    expect(await runtime.history.list(chatKey)).toEqual([]);
+    await runtime.sqlConsole.execute(
+      original.space.id,
+      "UPDATE __entities SET data=json_set(data, '$.name', '临时 SQL') WHERE kind='space'",
+    );
+    expect(
+      (
+        await runtime.sqlConsole.execute(
+          original.space.id,
+          "SELECT json_extract(data, '$.name') FROM __entities WHERE kind='space'",
+        )
+      ).results[0]!.rows,
+    ).toEqual([["临时 SQL"]]);
+    expect((await runtime.backup.exportCurrentSpace()).space.name).toBe(original.space.name);
+    await runtime.forceSyncMemory();
+    expect(ports.snapshotWrites.at(-1)?.file.data.space.name).toBe(original.space.name);
+    runtime = await startTestRuntime(() => context, {
+      createDb: () => db,
+      log: fakeLog(),
+      ...ports,
+    });
+    expect((await runtime.backup.exportCurrentSpace()).space.name).toBe(original.space.name);
+    const saved = await runtime.history.save(chatKey, "保留进度");
+    expect((await runtime.history.read(chatKey, saved.id)).space.name).toBe(original.space.name);
+    await runtime.tasks.markFloorStatuses(original.space.id, 1, 1, "processed");
+    expect(await runtime.history.list(chatKey)).toHaveLength(1);
+
+    const maintenance = createMaintenanceServices(runtime, async () => {});
+    const preview = await maintenance.history.prepareRestore(
+      maintenance.currentContext()!,
+      saved.id,
+    );
+    vi.spyOn(ports.snapshotFiles, "verify").mockRejectedValueOnce(new Error("verify offline"));
+    expect(await preview.apply()).toMatchObject({ kind: "replacement-unverified" });
+    const candidate = await runtime.backup.exportCurrentSpace();
+    expect(candidate.space.id).not.toBe(original.space.id);
+    expect(candidate.floorLedger).toEqual(
+      expect.arrayContaining([expect.objectContaining({ floor: 1, status: "error" })]),
+    );
+    const pendingVersions = await runtime.history.list(chatKey);
+    const before = pendingVersions.find((version) => version.source === "before-restore")!;
+    expect((await runtime.history.read(chatKey, before.id)).floorLedger).toEqual(
+      expect.arrayContaining([expect.objectContaining({ floor: 1, status: "processed" })]),
+    );
+
+    vi.spyOn(db.memoryHistoryProgress, "put").mockRejectedValueOnce(new Error("累计写入失败"));
+    await expect(runtime.retryMemorySave()).rejects.toThrow("累计写入失败");
+    expect(await runtime.history.list(chatKey)).toHaveLength(pendingVersions.length);
+    await runtime.retryMemorySave();
+    expect(runtime.persistence.getStatus(chatKey).kind).toBe("verified");
+    expect(await db.memoryHistoryProgress.get(chatKey)).toMatchObject({
+      established: true,
+      floors: [],
+    });
+    expect((await runtime.backup.exportCurrentSpace()).space.id).toBe(candidate.space.id);
+    expect((await runtime.history.list(chatKey)).map(({ id }) => id).sort()).toEqual(
+      pendingVersions.map(({ id }) => id).sort(),
+    );
+    expect(context.chat).toEqual([
+      { name: "用户", is_user: true, mes: "保持正文" },
+      { name: "角色", mes: "保持隐藏", is_system: true },
+    ]);
+  });
+
   it("目标聊天快照损坏时可通过完整维护导入恢复", async () => {
     const { context, handlers } = fakeStContext();
     const ports = createRuntimeTestPorts(() => context);

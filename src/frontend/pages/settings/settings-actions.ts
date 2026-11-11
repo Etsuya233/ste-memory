@@ -12,6 +12,9 @@ export interface SettingsServices {
     | "setEmbeddingConnection"
     | "setRerankSettings"
     | "setEntryPlacement"
+    | "setHistorySettings"
+    | "historyTrimPending"
+    | "trimHistoryVersions"
   >;
   testAgentConnection: (connection: AgentConnection) => Promise<ConnectionTestResult>;
   onChanged: () => void | Promise<void>;

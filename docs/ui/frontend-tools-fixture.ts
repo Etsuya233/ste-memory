@@ -14,6 +14,7 @@ import {
   parseBackupFile,
   serializeBackupFile,
 } from "../../src/features/backup/backup-codec.ts";
+import { historyExportFilename } from "../../src/features/backup/space-transfer.ts";
 import { downloadTextFile } from "../../src/infrastructure/browser/download.ts";
 import { QueryChatStore } from "../../src/features/query-chat/query-chat-state.ts";
 import { QueryChatService } from "../../src/features/query-chat/query-chat-service.ts";
@@ -35,6 +36,12 @@ import {
   toolCallMessage,
 } from "../../src/features/fill-tasks/stream-fn-support.ts";
 import type { LogEntry } from "../../src/features/logging/log.ts";
+import {
+  decodeHistoryVersion,
+  encodeHistoryVersion,
+  type HistorySource,
+} from "../../src/features/memory-history/history.ts";
+import type { MaintenanceContext } from "../../src/frontend/pages/maintenance/maintenance-page.tsx";
 
 interface FixtureData {
   tables: MemoryTable[];
@@ -53,6 +60,7 @@ export function createToolsFixture(options: {
   recordWriter: Pick<MemoryRecordService, "commitProposal">;
   readLedger: (spaceId: string) => readonly MemorySpaceBackupLedgerEntry[];
   writeLedger: (spaceId: string, ledger: readonly MemorySpaceBackupLedgerEntry[]) => void;
+  historyLimit: () => number;
 }) {
   const queryStore = new QueryChatStore(
     new IndexedDbAssistantSessions(new SteMemoryDatabase("ste-memory-assistant-preview")),
@@ -61,6 +69,45 @@ export function createToolsFixture(options: {
   let sqlDelay = 0;
   let queryFailure = false;
   const queryInputs: (readonly QueryChatHistoryMessage[])[] = [];
+  const versions = new Map<string, Awaited<ReturnType<typeof encodeHistoryVersion>>>();
+  function historyContext(target: MaintenanceContext) {
+    const current = options.current();
+    if (current?.chatKey !== target.chatKey || current.spaceId !== target.spaceId) {
+      throw new Error("当前对话已切换或记忆空间已变化");
+    }
+    return current;
+  }
+  function historyEntry(target: MaintenanceContext, id: string) {
+    historyContext(target);
+    const entry = versions.get(id);
+    if (entry?.version.chatKey !== target.chatKey) {
+      throw new Error("历史版本不存在");
+    }
+    return entry;
+  }
+  async function captureVersion(target: MaintenanceContext, source: HistorySource, name?: string) {
+    const current = historyContext(target);
+    const unit = snapshot().spaces.find((space) => space.space.id === current.spaceId)!;
+    const entry = await encodeHistoryVersion(
+      current.chatKey,
+      crypto.randomUUID(),
+      new Date().toISOString(),
+      source,
+      unit,
+      name,
+    );
+    historyContext(target);
+    versions.set(entry.version.id, entry);
+  }
+  let historyTrimFailure = false;
+  function trimHistory(chatKey: string, limit: number) {
+    const automatic = [...versions.values()].filter(
+      ({ version }) => version.chatKey === chatKey && version.source !== "manual",
+    );
+    for (const { version } of automatic.slice(0, Math.max(0, automatic.length - limit))) {
+      versions.delete(version.id);
+    }
+  }
   let logs: LogEntry[] = Array.from({ length: 38 }, (_, i) => ({
     id: i + 1,
     type: ["fill", "vector", "query"][i % 3]!,
@@ -75,7 +122,8 @@ export function createToolsFixture(options: {
       spaces: options.contexts.map((context) => {
         const ownTables = data.tables.filter((table) => table.memorySpaceId === context.spaceId);
         const ownFields = data.fields.filter((field) => field.memorySpaceId === context.spaceId);
-        const fieldId = (tableId: string, id: string) => `${tableId}:${id}` as MemoryField["id"];
+        const fieldId = (tableId: string, id: string) =>
+          (id.startsWith(`${tableId}:`) ? id : `${tableId}:${id}`) as MemoryField["id"];
         const ownRecords = data.records
           .filter((record) => record.memorySpaceId === context.spaceId)
           .map((record) => ({
@@ -91,8 +139,9 @@ export function createToolsFixture(options: {
                 fieldId(record.tableId, id),
                 entries.map((entry) => ({
                   ...entry,
-                  evidence_id:
-                    `${context.spaceId}:${entry.evidence_id}` as MemoryEvidence["evidence_id"],
+                  evidence_id: (entry.evidence_id.startsWith(`${context.spaceId}:`)
+                    ? entry.evidence_id
+                    : `${context.spaceId}:${entry.evidence_id}`) as MemoryEvidence["evidence_id"],
                 })),
               ]),
             ),
@@ -146,6 +195,59 @@ export function createToolsFixture(options: {
     },
     maintenance: {
       currentContext: options.current,
+      history: {
+        list: async (target) => {
+          historyContext(target);
+          return [...versions.values()]
+            .filter(({ version }) => version.chatKey === target.chatKey)
+            .reverse()
+            .map(({ version }) => version);
+        },
+        failure: () => undefined,
+        retryAutomatic: async () => {
+          throw new Error("当前没有待重试的自动版本");
+        },
+        save: (target, name) => captureVersion(target, "manual", name),
+        rename: async (target, id, name) => {
+          const entry = historyEntry(target, id);
+          versions.set(id, { ...entry, version: { ...entry.version, name } });
+        },
+        remove: async (target, id) => {
+          historyEntry(target, id);
+          versions.delete(id);
+        },
+        exportBackup: async (target, id) => {
+          const { version, payload } = historyEntry(target, id);
+          const unit = await decodeHistoryVersion(version, payload);
+          historyContext(target);
+          const file = createBackupFile({ spaces: [unit] }, "preview", version.createdAt);
+          downloadTextFile(
+            serializeBackupFile(file),
+            historyExportFilename(target.title, version.name, version.createdAt),
+          );
+          return true;
+        },
+        prepareRestore: async (target, id) => {
+          const { version, payload } = historyEntry(target, id);
+          const unit = await decodeHistoryVersion(version, payload);
+          historyContext(target);
+          const file = createBackupFile({ spaces: [unit] }, "preview", version.createdAt);
+          const preview = await tools.maintenance.previewImport(serializeBackupFile(file));
+          return {
+            ...preview,
+            confirmMessage: `${preview.confirmMessage} 旧空间的任务、向量及 Agent 会话按空间替换规则停止或清理。`,
+            apply: async () => {
+              historyEntry(target, id);
+              await captureVersion(target, "before-restore");
+              try {
+                return await preview.apply();
+              } finally {
+                trimHistory(target.chatKey, options.historyLimit());
+              }
+            },
+          };
+        },
+      },
       exportBackup: async () => {
         const context = options.current();
         if (!context) {
@@ -365,6 +467,18 @@ export function createToolsFixture(options: {
   };
   return {
     tools,
+    trimHistory: async (limit: number) => {
+      if (historyTrimFailure) {
+        historyTrimFailure = false;
+        throw new Error("预览：历史存储暂不可用");
+      }
+      for (const context of options.contexts) {
+        trimHistory(context.chatKey, limit);
+      }
+    },
+    failNextHistoryTrim: () => {
+      historyTrimFailure = true;
+    },
     setLogText: (id: number, text: string) => {
       logs = logs.map((entry) => (entry.id === id ? { ...entry, text } : entry));
     },

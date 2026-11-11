@@ -1,3 +1,4 @@
+import { validateHistorySettings, type HistorySettings } from "../memory-history/history.ts";
 import { parseRerankSettings, type RerankSettings } from "./rerank-settings.ts";
 import {
   hasSemanticSource,
@@ -14,6 +15,7 @@ interface SettingsDependencies {
   readonly refreshAgentMacros: () => Promise<void>;
   readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void> | void;
   readonly refreshVectorIndex: () => Promise<void>;
+  readonly trimHistory?: (limit: number) => Promise<void>;
   readonly refreshAutoFill?: () => void;
   readonly validateMacros: (
     macros: readonly MemoryMacro[],
@@ -24,6 +26,7 @@ interface SettingsDependencies {
 }
 
 export class SettingsService {
+  #historyTrimPending = false;
   private readonly dependencies: SettingsDependencies;
 
   constructor(dependencies: SettingsDependencies) {
@@ -37,6 +40,30 @@ export class SettingsService {
   save(settings: PluginSettings): void {
     this.dependencies.store.write(settings);
     this.dependencies.refreshAutoFill?.();
+  }
+
+  async setHistorySettings(history: HistorySettings): Promise<void> {
+    validateHistorySettings(history);
+    const previous = this.read();
+    this.save({ ...previous, history });
+    if (history.limit < previous.history.limit) {
+      await this.trimHistoryVersions();
+    }
+  }
+
+  get historyTrimPending(): boolean {
+    return this.#historyTrimPending;
+  }
+
+  async trimHistoryVersions(): Promise<void> {
+    this.#historyTrimPending = true;
+    try {
+      await this.dependencies.trimHistory?.(this.read().history.limit);
+      this.#historyTrimPending = false;
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`历史版本清理失败：${detail}`, { cause });
+    }
   }
 
   async setPluginEnabled(enabled: boolean): Promise<void> {

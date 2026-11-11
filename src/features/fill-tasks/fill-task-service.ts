@@ -10,7 +10,12 @@ import {
   type MemoryEvidenceId,
   type MemorySpaceId,
 } from "../memory/index.ts";
-import type { BeginFillTaskSession, FillTaskSession } from "./fill-task-session.ts";
+import type {
+  BeginFillTaskSession,
+  CommittedFillBatch,
+  FillTaskSession,
+  SavedFillBatch,
+} from "./fill-task-session.ts";
 import {
   buildMemorySpaceTableDigest,
   composeProposalAgentMessages,
@@ -120,6 +125,7 @@ export interface FillTaskServiceOptions {
   readonly canStartAutomaticTask?: (task: FillTask) => boolean;
   /** 整次自动楼层填表提交完成后的宿主动作，失败不改变填表结果。 */
   readonly onAutomaticSuccess?: (task: FillTask) => Promise<void>;
+  readonly onSavedSuccess?: (batch: SavedFillBatch) => Promise<void>;
   readonly readAgentTimeoutMs?: () => number;
   readonly tasks: FillTaskRepository;
   readonly ledger: FloorLedgerRepository;
@@ -153,6 +159,7 @@ export class FillTaskService {
   readonly #assertCanEditSpace: (id: MemorySpaceId) => void;
   readonly #canStartAutomaticTask: FillTaskServiceOptions["canStartAutomaticTask"];
   readonly #onAutomaticSuccess: FillTaskServiceOptions["onAutomaticSuccess"];
+  readonly #onSavedSuccess: FillTaskServiceOptions["onSavedSuccess"];
   readonly #readAgentTimeoutMs: () => number;
   #suspended = false;
   #worker: Promise<void> | undefined;
@@ -188,6 +195,7 @@ export class FillTaskService {
   constructor(options: FillTaskServiceOptions) {
     this.#assertCanEditSpace = options.assertCanEditSpace;
     this.#onAutomaticSuccess = options.onAutomaticSuccess;
+    this.#onSavedSuccess = options.onSavedSuccess;
     this.#canStartAutomaticTask = options.canStartAutomaticTask;
     this.#readAgentTimeoutMs = options.readAgentTimeoutMs ?? (() => BLOCK_AGENT_TIMEOUT_MS);
     this.#tasks = options.tasks;
@@ -552,12 +560,13 @@ export class FillTaskService {
     task: FillTask,
     session: FillTaskSession,
     batch: FillTaskBatchResult,
-  ): Promise<void> {
+  ): Promise<CommittedFillBatch | void> {
     if (!(await this.#tasks.beginBatchCommit(task.runId, batch))) {
       throw new FillTaskStateError(task);
     }
+    let saved: CommittedFillBatch | void;
     try {
-      await session.commitAndSave(batch);
+      saved = await session.commitAndSave(batch);
     } catch (error) {
       if (error instanceof MemoryCommitPersistenceError) {
         await this.#tasks.completeBatchCommit(task.runId, batch);
@@ -571,6 +580,7 @@ export class FillTaskService {
     } catch (cause) {
       throw new MemoryCommitPersistenceError(cause);
     }
+    return saved;
   }
 
   /** 当前非终态任务视图（无则 undefined；单空间单活动任务守卫的 UI 侧查询）。 */
@@ -724,6 +734,8 @@ export class FillTaskService {
     },
     automatic?: FillTaskSubmitInput["automatic"],
   ): Promise<void> {
+    const committed: { lastBatch?: CommittedFillBatch } = {};
+    const newlyProcessed = new Set<number>();
     let failingBlock: { from: number; to: number } | undefined;
     try {
       for (let from = task.from; from <= task.to; from += task.blockSize) {
@@ -783,7 +795,10 @@ export class FillTaskService {
                 nextFrom: task.kind === "init" || to === task.to ? null : to + 1,
               };
               // 任务历史仅记录执行归属，权威楼层状态随 SQLite 快照保存。
-              await this.#saveBatch(task, session!, batch);
+              committed.lastBatch = (await this.#saveBatch(task, session!, batch)) ?? undefined;
+              for (const floor of committed.lastBatch?.newFloors ?? []) {
+                newlyProcessed.add(floor);
+              }
               failingBlock = undefined;
             },
             async () => {
@@ -824,6 +839,18 @@ export class FillTaskService {
       }
       control.controller.signal.throwIfAborted();
       if (await this.#tasks.markSucceeded(task.runId)) {
+        const savedBatch = committed.lastBatch;
+        if (savedBatch?.snapshot) {
+          try {
+            await this.#onSavedSuccess?.({
+              ...savedBatch,
+              snapshot: savedBatch.snapshot,
+              newFloors: [...newlyProcessed],
+            });
+          } catch (error) {
+            this.#logError(`填表任务 ${task.runId} 已成功，历史版本保存失败`, error);
+          }
+        }
         await this.#announceSucceededTask(task);
       }
     } catch (error) {

@@ -25,11 +25,24 @@ function harness() {
     getChatScopeMacros: (): readonly MemoryMacro[] => [],
     getChatContext: () => "test-chat",
     refreshVectorIndex: vi.fn(async () => {}),
+    trimHistory: vi.fn(async (_limit: number) => {}),
   };
   return { service: new SettingsService(dependencies), dependencies, observed };
 }
 
 describe("SettingsService", () => {
+  it("下调历史上限后清理失败仍保留设置，允许按已保存上限重试", async () => {
+    const { service, dependencies } = harness();
+    const next = { ...service.read().history, limit: 1 };
+    dependencies.trimHistory.mockRejectedValueOnce(new Error("IndexedDB 暂不可用"));
+    await expect(service.setHistorySettings(next)).rejects.toThrow("历史版本清理失败");
+    expect(service.read().history).toEqual(next);
+    expect(service.historyTrimPending).toBe(true);
+    await service.trimHistoryVersions();
+    expect(service.historyTrimPending).toBe(false);
+    expect(dependencies.trimHistory.mock.calls).toEqual([[1], [1]]);
+  });
+
   it("编译分类覆盖输入元数据，新增语义宏停用且已有宏保留显式启用", async () => {
     const { service, dependencies } = harness();
     const existing: MemoryMacro = {

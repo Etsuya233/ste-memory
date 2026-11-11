@@ -28,7 +28,7 @@ export interface SqliteMemoryStorePorts {
 /** SQLite持有在线内容与事务；这里不管理任何本地空间缓存或辅助数据。 */
 export class SqliteMemoryStore {
   readonly client: SqliteMemoryClient;
-  readonly #loaded = new Set<string>();
+  readonly #managed = new Map<string, MemorySpaceBackup>();
   readonly #writers = new Map<string, symbol>();
   readonly #idle = new Map<string, { promise: Promise<void>; resolve: () => void }>();
   #savepoint = 0;
@@ -51,7 +51,7 @@ export class SqliteMemoryStore {
   }
 
   hasSpace(spaceId: string): boolean {
-    return this.#loaded.has(spaceId);
+    return this.#managed.has(spaceId);
   }
 
   private publish(spaceId: string): void {
@@ -71,7 +71,7 @@ export class SqliteMemoryStore {
     this.assertWritable(id, token);
     try {
       await this.client.importSpace(snapshot);
-      this.#loaded.add(id);
+      this.#managed.set(id, snapshot);
       this.publish(id);
     } finally {
       if (owner === undefined) {
@@ -136,15 +136,16 @@ export class SqliteMemoryStore {
     this.#idle.delete(spaceId);
   }
 
-  async commitTask(spaceId: string, token: symbol): Promise<void> {
+  async commitTask(spaceId: string, token: symbol): Promise<MemorySpaceBackup> {
     this.assertWritable(spaceId, token);
-    let saving: Promise<void>;
+    let result: Awaited<ReturnType<SqliteMemoryStore["commitAndHandoff"]>>;
     try {
-      ({ saving } = await this.commitAndHandoff(spaceId));
+      result = await this.commitAndHandoff(spaceId);
     } finally {
       this.releaseWriter(spaceId);
     }
-    await saving;
+    await result.saving;
+    return result.snapshot;
   }
 
   async rollbackTask(
@@ -218,7 +219,9 @@ export class SqliteMemoryStore {
     }
   }
 
-  private async commitAndHandoff(spaceId: string): Promise<{ saving: Promise<void> }> {
+  private async commitAndHandoff(
+    spaceId: string,
+  ): Promise<{ saving: Promise<void>; snapshot: MemorySpaceBackup }> {
     try {
       await this.client.commit(spaceId);
     } catch (error) {
@@ -226,24 +229,27 @@ export class SqliteMemoryStore {
       throw error;
     }
     try {
+      const snapshot = await this.client.exportSpace(spaceId, "write");
+      this.#managed.set(spaceId, snapshot);
       this.publish(spaceId);
-      const snapshot = await this.client.exportSpace(spaceId);
       // 返回对象避免 async 自动等待 saving。调用者同步交接快照后释放 writer，
       // 再在锁外等待网络；较早保存的 finally 不再触及新 writer。
       const saving = this.saveSnapshot(snapshot).catch((cause) => {
         throw new MemoryCommitPersistenceError(cause);
       });
-      return { saving };
+      return { saving, snapshot };
     } catch (cause) {
       throw new MemoryCommitPersistenceError(cause);
     }
   }
 
+  managedSnapshot(spaceId: string): MemorySpaceBackup | undefined {
+    return this.#managed.get(spaceId);
+  }
+
   async snapshot(spaceId: string): Promise<MemorySpaceBackup | undefined> {
-    if (!this.hasSpace(spaceId)) {
-      return undefined;
-    }
-    return this.client.exportSpace(spaceId);
+    // The console may mutate the browsing connection. Space-level operations use the managed commit.
+    return this.#managed.get(spaceId);
   }
 
   consolidateTask(
@@ -257,11 +263,11 @@ export class SqliteMemoryStore {
 
   async unload(spaceId: string, token?: symbol): Promise<void> {
     this.assertWritable(spaceId, token);
-    if (!this.#loaded.has(spaceId)) {
+    if (!this.#managed.has(spaceId)) {
       return;
     }
     await this.client.removeSpace(spaceId);
-    this.#loaded.delete(spaceId);
+    this.#managed.delete(spaceId);
   }
 
   repositories(view: SqliteView = "committed", token?: symbol): SqliteRepositories {

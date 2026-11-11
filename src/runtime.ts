@@ -1,3 +1,5 @@
+import { MemoryHistoryService } from "./features/memory-history/history-service.ts";
+import { IndexedDbMemoryHistory } from "./infrastructure/indexeddb/memory-history.ts";
 import { SqliteFloorLedger } from "./infrastructure/memory-runtime/sqlite-floor-ledger.ts";
 import { errorDetails } from "./features/logging/error-details.ts";
 import { PresetSpaceUpdater } from "./infrastructure/memory-runtime/preset-space-updater.ts";
@@ -127,6 +129,7 @@ import type { PluginLog } from "./bootstrap.ts";
 
 /** 插件运行时（UI 与后续 ticket 的访问点） */
 export interface SteMemoryRuntime {
+  readonly history: MemoryHistoryService;
   readonly publicRead: MemoryReadApi;
   readonly manager: ChatSpaceManager;
   readonly adapter: StChatAdapter;
@@ -469,6 +472,7 @@ export async function startSteMemory(
   const floorLedgerRepository = new SqliteFloorLedger(memoryStore, now);
   const tasks = new FillTaskService({
     assertCanEditSpace: (id) => lifecycle.assertCanEdit(id),
+    onSavedSuccess: (batch) => history.recordSuccessfulFill(batch),
     onAutomaticSuccess: (task): Promise<void> => autoFill.taskSucceeded(task),
     canStartAutomaticTask: (task): boolean => autoFill.canStartTask(task),
     tasks: fillTaskRepository,
@@ -477,8 +481,23 @@ export async function startSteMemory(
     source: adapter,
     beginTask: async (task, signal): Promise<FillTaskSession> => {
       signal.throwIfAborted();
+      const chatKey = adapter.captureFileTarget()?.identity;
+      if (!chatKey || manager.getActiveStatus(chatKey)?.space.id !== task.memorySpaceId) {
+        throw new Error("填表批次所属聊天已变化");
+      }
+      const selection = memorySelectionKey();
       const token = await lifecycle.beginFillBatch(task.memorySpaceId, signal);
-      const baseline = await sqlite.exportSpace(task.memorySpaceId, "write");
+      let baseline: MemorySpaceBackup;
+      try {
+        baseline = await sqlite.exportSpace(task.memorySpaceId, "write");
+        signal.throwIfAborted();
+        if (memorySelectionKey() !== selection) {
+          throw new Error("填表批次所属聊天已变化");
+        }
+      } catch (error) {
+        await memoryStore.rollbackTask(task.memorySpaceId, token);
+        throw error;
+      }
       const taskRepos = memoryStore.repositories("write", token);
       const taskRecords = new MemoryRecordService(
         taskRepos.tables,
@@ -511,14 +530,23 @@ export async function startSteMemory(
               batch.floors,
             );
           }
+          const processed = new Set(
+            baseline.floorLedger
+              .filter((row) => row.status === "processed")
+              .map((row) => row.floor),
+          );
+          const newFloors =
+            task.kind === "floor" ? batch.floors.filter((floor) => !processed.has(floor)) : [];
           ended = true;
           try {
-            await memoryStore.commitTask(task.memorySpaceId, token);
+            const snapshot = await memoryStore.commitTask(task.memorySpaceId, token);
+            return { chatKey, snapshot, newFloors };
           } catch (error) {
             // SQL 已提交：宿主保存失败由独立保存状态呈现，任务继续前进，不能重放本批。
             if (!(error instanceof MemoryCommitPersistenceError)) {
               throw error;
             }
+            return { chatKey, newFloors };
           }
         },
         rollback: async (failedFloors) => {
@@ -657,6 +685,7 @@ export async function startSteMemory(
     },
     validateSnapshot: (unit) => backup.validateSnapshot(unit),
     activateSnapshot: (target, binding, unit) => lifecycle.activate(target, binding, unit),
+    onReplacement: (target, unit) => history.resetAfterReplacement(target.identity, unit),
     unloadSnapshot: (id, target) => lifecycle.unload(id, target),
     prepareReplacement: (target, id) => lifecycle.prepareReplacement(target, id),
     assertCanReplace: (target) => lifecycle.assertCanReplace(target),
@@ -710,8 +739,47 @@ export async function startSteMemory(
       chatEpoch,
       chatIdentityKey(adapter.getChatSnapshot()),
       status?.kind === "active" ? status.space.id : null,
+      status?.kind === "active"
+        ? memoryStore.managedSnapshot(status.space.id)?.space.stableId
+        : null,
     ]);
   };
+  const history = new MemoryHistoryService({
+    store: new IndexedDbMemoryHistory(db),
+    settings: () => settings.read().history,
+    now,
+    createId: () => createId("history-version"),
+    selection: (chatKey) => {
+      if (chatIdentityKey(adapter.getChatSnapshot()) !== chatKey) {
+        throw new Error("当前聊天已切换，请重新打开历史版本");
+      }
+      return memorySelectionKey();
+    },
+    currentSnapshot: (chatKey) => {
+      const status = manager.getActiveStatus(chatKey);
+      return status && adapter.captureFileTarget()?.identity === chatKey
+        ? memoryStore.managedSnapshot(status.space.id)
+        : undefined;
+    },
+    capture: async (chatKey) => {
+      const status = manager.getActiveStatus(chatKey);
+      if (!status || adapter.captureFileTarget()?.identity !== chatKey) {
+        throw new Error("当前聊天的记忆空间尚未就绪");
+      }
+      await memoryStore.whenIdle(status.space.id);
+      const snapshot = memoryStore.managedSnapshot(status.space.id);
+      if (
+        !snapshot ||
+        manager.getActiveStatus(chatKey)?.space.id !== status.space.id ||
+        adapter.captureFileTarget()?.identity !== chatKey
+      ) {
+        throw new Error("当前聊天或记忆空间已变化");
+      }
+      return snapshot;
+    },
+    normalize: (snapshot) => normalizeImportedSpace(snapshot),
+    importSpace: (snapshot, stage, hooks) => manager.importSpace(snapshot, stage, hooks),
+  });
   const retrieval = new VectorRetrievalService(
     tableRepository,
     fieldRepository,
@@ -798,6 +866,7 @@ export async function startSteMemory(
     tasks,
     vector,
     assistant: assistantStore,
+    resetHistoryProgress: (chatKey, snapshot) => history.resetAfterReplacement(chatKey, snapshot),
     clearTasks: (id) => fillTaskRepository.clear(id),
     reportSwitchError: (error) => {
       manager.reportLoadError(error);
@@ -1150,6 +1219,7 @@ export async function startSteMemory(
   });
   const settingsService = new SettingsService({
     store: settings,
+    trimHistory: (limit) => history.trim(limit),
     refreshAutoFill: () => autoFill.kick(),
     syncToCurrentChat: () => syncCurrentChat(),
     refreshMemoryMacros: () => macro.kick(),
@@ -1258,10 +1328,12 @@ export async function startSteMemory(
         throw new Error("聊天已切换，请在当前聊天重新强制同步");
       }
     });
+    await history.finishRestore(target.identity);
     autoFill.kick();
   };
   return {
     publicRead,
+    history,
     manager,
     retryMemorySave: async () => {
       const target = adapter.captureFileTarget();
@@ -1274,6 +1346,7 @@ export async function startSteMemory(
       }
       if (actions.recovery === "retry-cleanup") {
         await persistence.retryCleanup(target.identity);
+        await history.finishRestore(target.identity);
       } else {
         await forceSyncMemory();
       }

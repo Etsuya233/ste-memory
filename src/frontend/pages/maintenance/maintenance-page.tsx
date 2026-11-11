@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArchiveRestore, Download, Trash2 } from "lucide-react";
+import { ArchiveRestore, Download, History, Trash2 } from "lucide-react";
+import type { HistoryServices } from "./memory-history-page.tsx";
 import type { RecordsContext } from "../records-workspace.ts";
 import { Button } from "../../primitives/button.tsx";
 import { Input } from "../../primitives/input.tsx";
@@ -33,6 +34,7 @@ export interface MaintenanceImportPreview {
   apply: () => Promise<MaintenanceOutcome>;
 }
 export interface MaintenanceServices {
+  history: HistoryServices;
   currentContext: () => MaintenanceContext | null;
   exportBackup: () => Promise<boolean>;
   previewImport: (text: string) => Promise<MaintenanceImportPreview>;
@@ -49,12 +51,14 @@ export function MaintenancePage({
   onBack,
   registerLeaveGuard,
   onViewLog,
+  onHistory,
 }: {
   services: MaintenanceServices;
   controls: PageControls;
   onBack: () => void;
   registerLeaveGuard?: RegisterLeaveGuard;
   onViewLog: (key: string) => void;
+  onHistory: () => void;
 }) {
   const context = services.currentContext();
   const contextKey = JSON.stringify([context?.chatKey, context?.spaceId]);
@@ -209,6 +213,18 @@ export function MaintenancePage({
             )}
           </StatusNotice>
         )}
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle>记忆历史</CardTitle>
+            <CardDescription>查看当前对话的本机历史，保存或恢复完整记忆空间。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" disabled={busy} onClick={() => requestLeave(onHistory)}>
+              <History />
+              历史版本
+            </Button>
+          </CardContent>
+        </Card>
         <Card size="sm">
           <CardHeader>
             <CardTitle>导出备份</CardTitle>
