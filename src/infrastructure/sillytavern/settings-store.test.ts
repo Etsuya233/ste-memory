@@ -52,7 +52,11 @@ describe("StSettingsStore（extension_settings 宿主）", () => {
   it("写入后读回原值，并触发 saveSettingsDebounced", () => {
     const { context, extensionSettings, saveSettings } = fakeContext();
     const store = new StSettingsStore(() => context);
-    const settings: PluginSettings = { ...DEFAULT_SETTINGS, enabled: false };
+    const settings: PluginSettings = {
+      ...DEFAULT_SETTINGS,
+      enabled: false,
+      vectorQueuePaused: true,
+    };
 
     store.write(settings);
 
@@ -67,6 +71,7 @@ describe("StSettingsStore（extension_settings 宿主）", () => {
     const store = new StSettingsStore(() => context);
     const read = store.read();
     expect(read.enabled).toBe(false);
+    expect(read.vectorQueuePaused).toBe(false);
     expect(read.macroName).toBe(DEFAULT_SETTINGS.macroName);
     // 已移除的旧 r2 键不会进入读结果（下一次保存即从宿主设置消失）
     expect("r2" in read).toBe(false);

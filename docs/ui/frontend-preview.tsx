@@ -630,6 +630,7 @@ const settingsService = new SettingsService({
     chatMacros.set(contexts[current].chatKey, structuredClone(macros));
   },
   refreshVectorIndex: async () => {},
+  wakeVectorQueue: () => {},
   trimHistory: (limit) => toolsFixture.trimHistory(limit),
   validateMacros: async (macros) => macros,
   getChatScopeMacros: () => chatMacros.get(contexts[current].chatKey) ?? [],
@@ -981,6 +982,7 @@ const vectorTasks: VectorTask[] = Object.values(contexts).flatMap((context) =>
 );
 const agentPresetOverrides = new Map<string, string>();
 const taskServices: TasksServices = {
+  settings: settingsService,
   tasks: {
     pendingTasks: async (spaceId) =>
       structuredClone(
@@ -1096,8 +1098,8 @@ const taskServices: TasksServices = {
       return {
         items: structuredClone(matches.slice(offset, offset + (filters.limit ?? 30))),
         total: matches.length,
-        queued: matches.filter((task) => task.status === "queued").length,
-        running: matches.filter((task) => task.status === "running").length,
+        queued: vectorTasks.filter((task) => task.status === "queued").length,
+        running: vectorTasks.filter((task) => task.status === "running").length,
         blocked: 0,
       };
     },

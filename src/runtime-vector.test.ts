@@ -100,6 +100,50 @@ async function waitFor(assertion: () => Promise<void>): Promise<void> {
 }
 
 describe("runtime 向量索引接线", () => {
+  it("保存全局暂停设置后仅完成在途请求，开始后继续处理新增任务", async () => {
+    let completeFirst!: () => void;
+    const inputs: string[] = [];
+    const { runtime, db, spaceId, tableId, fieldId } = await setup({
+      getProfile: () => ({ model: "test", version: "v1", dimensions: 2, maxInputChars: 100 }),
+      embed: async (input) => {
+        inputs.push(input);
+        if (inputs.length === 1) {
+          await new Promise<void>((resolve) => {
+            completeFirst = resolve;
+          });
+        }
+        return [1, 2];
+      },
+    });
+    await runtime.tables.update(spaceId, tableId, {
+      vectorIndex: { enabled: true, source: "automatic", updateMode: "automatic", groups: [] },
+    });
+    await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "请求中" } });
+    await waitFor(async () => {
+      expect(inputs).toHaveLength(1);
+    });
+
+    runtime.settingsService.setVectorQueuePaused(true);
+    expect(runtime.settings.read().vectorQueuePaused).toBe(true);
+    await runtime.records.create(spaceId, tableId, { payload: { [fieldId]: "待执行" } });
+    completeFirst();
+    await waitFor(async () => {
+      expect(await db.recordVectors.count()).toBe(1);
+      expect(await runtime.vector.listTasks({ memorySpaceId: spaceId })).toMatchObject({
+        running: 0,
+        queued: 1,
+      });
+    });
+    expect(inputs).toEqual(["内容：请求中"]);
+
+    runtime.settingsService.setVectorQueuePaused(false);
+    expect(runtime.settings.read().vectorQueuePaused).toBe(false);
+    await waitFor(async () => {
+      expect(await db.recordVectors.count()).toBe(2);
+    });
+    expect(inputs).toEqual(["内容：请求中", "内容：待执行"]);
+  });
+
   it("自动更新在保存记录后通过真实 Dexie 建向量，删除记录后清理派生数据", async () => {
     const inputs: string[] = [];
     const { runtime, db, spaceId, tableId, fieldId } = await setup({

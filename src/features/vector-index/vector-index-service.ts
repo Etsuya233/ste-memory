@@ -57,6 +57,7 @@ export class VectorIndexService {
   private readonly repository: VectorIndexRepository;
   private readonly currentSpaceId: () => MemorySpaceId | null;
   private readonly readEnabled: () => boolean;
+  private readonly readPaused: () => boolean;
   private readonly createTaskId: () => string;
   private pumping = false;
   private wakeRequested = false;
@@ -76,6 +77,7 @@ export class VectorIndexService {
     currentSpaceId: () => MemorySpaceId | null,
     readEnabled: () => boolean = () => true,
     createTaskId: () => string = () => crypto.randomUUID(),
+    readPaused: () => boolean = () => false,
   ) {
     this.tables = tables;
     this.fields = fields;
@@ -85,6 +87,7 @@ export class VectorIndexService {
     this.currentSpaceId = currentSpaceId;
     this.readEnabled = readEnabled;
     this.createTaskId = createTaskId;
+    this.readPaused = readPaused;
   }
 
   async start(): Promise<void> {
@@ -93,7 +96,7 @@ export class VectorIndexService {
     }
     this.started = true;
     for (const task of await this.repository.listTasks()) {
-      if (active.has(task.status)) {
+      if (task.status === "running") {
         await this.repository.saveTask({
           ...task,
           status: "interrupted",
@@ -218,7 +221,7 @@ export class VectorIndexService {
       await this.createTask(target, options.source, !!options.force, null);
       counts.created++;
     }
-    this.kick();
+    this.wakeQueue();
     return counts;
   }
 
@@ -351,7 +354,7 @@ export class VectorIndexService {
         skipped: result.skipped + next.skipped,
       };
     }
-    this.kick();
+    this.wakeQueue();
     return result;
   }
 
@@ -681,10 +684,10 @@ export class VectorIndexService {
     this.blocked.clear();
     this.capacityBlocked = null;
     this.backgroundError = null;
-    this.kick();
+    this.wakeQueue();
   }
 
-  private kick(): void {
+  wakeQueue(): void {
     if (this.pumping) {
       this.wakeRequested = true;
       return;
@@ -901,7 +904,7 @@ export class VectorIndexService {
     this.pumping = true;
     try {
       while (true) {
-        if (!this.readEnabled()) {
+        if (!this.readEnabled() || this.readPaused()) {
           break;
         }
         const profile = this.embedding.getProfile();
@@ -956,6 +959,7 @@ export class VectorIndexService {
           if (
             currentTask?.status !== "queued" ||
             !this.readEnabled() ||
+            this.readPaused() ||
             currentTask.memorySpaceId !== this.currentSpaceId()
           ) {
             return null;
@@ -990,6 +994,17 @@ export class VectorIndexService {
             memorySpaceId: task.memorySpaceId,
             fingerprint: task.fingerprint,
             reason: "failed",
+          });
+          continue;
+        }
+        // 暂停可能发生在 running 状态写入 IndexedDB 期间。
+        if (this.readPaused()) {
+          this.controllers.delete(task.id);
+          await this.changeTasks(async () => {
+            const currentTask = await this.repository.getTask(task.id);
+            if (currentTask?.status === "running") {
+              await this.repository.saveTask({ ...currentTask, status: "queued", startedAt: null });
+            }
           });
           continue;
         }
@@ -1075,7 +1090,7 @@ export class VectorIndexService {
       this.pumping = false;
       if (this.wakeRequested) {
         this.wakeRequested = false;
-        this.kick();
+        this.wakeQueue();
       }
     }
   }

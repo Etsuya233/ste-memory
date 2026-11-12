@@ -20,6 +20,7 @@ function harness() {
     refreshAgentMacros: async () => {},
     refreshMemoryMacros,
     refreshVectorIndex: async () => {},
+    wakeVectorQueue: () => {},
     writeChatScopeMacros: () => {},
     validateMacros: async (macros) => macros,
     getChatScopeMacros: () => [],

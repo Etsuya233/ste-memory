@@ -15,6 +15,7 @@ interface SettingsDependencies {
   readonly refreshAgentMacros: () => Promise<void>;
   readonly writeChatScopeMacros: (macros: readonly MemoryMacro[]) => Promise<void> | void;
   readonly refreshVectorIndex: () => Promise<void>;
+  readonly wakeVectorQueue: () => void;
   readonly trimHistory?: (limit: number) => Promise<void>;
   readonly refreshAutoFill?: () => void;
   readonly validateMacros: (
@@ -84,6 +85,13 @@ export class SettingsService {
   async setEmbeddingConnection(connection: EmbeddingConnection | undefined): Promise<void> {
     this.save({ ...this.read(), embeddingConnection: parseEmbeddingConnection(connection) });
     await this.dependencies.refreshVectorIndex();
+  }
+
+  setVectorQueuePaused(vectorQueuePaused: boolean): void {
+    this.dependencies.store.write({ ...this.read(), vectorQueuePaused });
+    if (!vectorQueuePaused) {
+      this.dependencies.wakeVectorQueue();
+    }
   }
 
   async setRerankSettings(rerank: RerankSettings): Promise<void> {

@@ -66,6 +66,7 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   const tasks = new TasksWorkspace({
     tasks: runtime.tasks,
     vector: runtime.vector,
+    settings: runtime.settingsService,
     chatConfig: {
       readCleaningSelection: () => runtime.cleaning.readSelection(),
       writeCleaningSelection: (ruleId) => runtime.cleaning.writeSelection(ruleId),

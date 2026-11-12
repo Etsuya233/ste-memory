@@ -731,6 +731,7 @@ export async function startSteMemory(
     },
     () => settings.read().enabled,
     () => createId("vector-task"),
+    () => settings.read().vectorQueuePaused,
   );
   let chatEpoch = 0;
   const memorySelectionKey = () => {
@@ -1228,6 +1229,7 @@ export async function startSteMemory(
     getChatContext: memorySelectionKey,
     refreshAgentMacros: () => agentMacro.kick(),
     writeChatScopeMacros: writeChatMacros,
+    wakeVectorQueue: () => vector.wakeQueue(),
     refreshVectorIndex: () => {
       retrieval.profileChanged();
       return vectorSync.refreshSettings();

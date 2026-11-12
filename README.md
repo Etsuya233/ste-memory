@@ -159,6 +159,10 @@ Authorization 时发送空鉴权值。`Content-Type` 固定为 `application/json
 任务页可按空间、表、状态、来源筛选向量任务，并逐项或勾选取消。队列优先手动任务，
 同来源中优先当前对话；每次请求结束后重新排序。向量可补建、强制重算或单独清除，不改变记忆正文。
 
+向量任务页的「开始 / 暂停」控制所有记忆空间的索引队列，默认开启，选择随 SillyTavern 插件设置保存。
+暂停后当前请求可以完成，手动与自动任务继续入队。开始后先处理已加载空间的任务，其他空间在打开后继续。
+刷新保留排队任务，正在运行的任务标为已中断。向量检索仍可使用已有有效索引。
+
 连接由浏览器直接请求服务的 `/embeddings` 接口，服务需允许当前 ST 站点跨域访问。
 输入字符上限是本地限制，模型的 token 限制仍由服务校验；接口格式见
 [embedding API 文档](https://developers.openai.com/api/reference/resources/embeddings/methods/create)。

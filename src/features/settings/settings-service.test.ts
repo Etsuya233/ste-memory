@@ -25,6 +25,7 @@ function harness() {
     getChatScopeMacros: (): readonly MemoryMacro[] => [],
     getChatContext: () => "test-chat",
     refreshVectorIndex: vi.fn(async () => {}),
+    wakeVectorQueue: vi.fn(),
     trimHistory: vi.fn(async (_limit: number) => {}),
   };
   return { service: new SettingsService(dependencies), dependencies, observed };

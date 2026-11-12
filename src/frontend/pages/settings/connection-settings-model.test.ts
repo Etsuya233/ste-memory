@@ -17,6 +17,7 @@ function harness() {
     refreshMemoryMacros: async () => {},
     refreshAgentMacros: async () => {},
     refreshVectorIndex,
+    wakeVectorQueue: vi.fn(),
     writeChatScopeMacros: () => {},
     validateMacros: async (macros) => macros,
     getChatScopeMacros: () => [],

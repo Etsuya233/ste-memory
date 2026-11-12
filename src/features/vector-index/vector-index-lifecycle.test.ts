@@ -36,6 +36,7 @@ function fixture() {
     reject: (error: Error) => void;
   }[] = [];
   let currentSpace = current;
+  let paused = false;
   function add(
     spaceId: MemorySpaceId,
     suffix: string,
@@ -149,6 +150,9 @@ function fixture() {
       embedding,
       repository,
       () => currentSpace,
+      undefined,
+      undefined,
+      () => paused,
     );
   }
   return {
@@ -161,6 +165,10 @@ function fixture() {
     records,
     tables,
     fieldRepository,
+    repository,
+    setPaused: (value: boolean) => {
+      paused = value;
+    },
     setCurrent: (id: MemorySpaceId) => {
       currentSpace = id;
     },
@@ -172,6 +180,79 @@ async function flush() {
 }
 
 describe("向量任务生命周期与调度", () => {
+  it("全局暂停在重启和切换空间后保留队列，只恢复当前空间的任务", async () => {
+    const ctx = fixture();
+    const first = ctx.add(current, "running");
+    const second = ctx.add(current, "queued");
+    const other = ctx.add(background, "other");
+    const service = ctx.service();
+    await service.submit(first.scope, { source: "manual" });
+    await flush();
+    expect(ctx.requests).toHaveLength(1);
+    ctx.setPaused(true);
+    await service.submit(second.scope, { source: "manual" });
+    await service.submit(other.scope, { source: "manual" });
+
+    const restarted = ctx.service();
+    await restarted.start();
+    ctx.setCurrent(background);
+    await restarted.reconcile(other.scope);
+    await flush();
+    expect(ctx.requests).toHaveLength(1);
+    expect([...ctx.tasks.values()].map((task) => task.status)).toEqual([
+      "interrupted",
+      "queued",
+      "queued",
+    ]);
+
+    ctx.setPaused(false);
+    restarted.wakeQueue();
+    await flush();
+    expect(ctx.requests.map(({ input }) => input)).toEqual(["内容：running", "内容：other"]);
+    ctx.requests[1]!.resolve([1, 2]);
+    await flush();
+    ctx.setCurrent(current);
+    await restarted.reconcile(second.scope);
+    await flush();
+    expect(ctx.requests[2]?.input).toBe("内容：queued");
+    ctx.requests[2]!.resolve([1, 2]);
+    ctx.requests[0]!.resolve([1, 2]);
+    await flush();
+    expect([...ctx.tasks.values()].map((task) => task.status)).toEqual([
+      "interrupted",
+      "succeeded",
+      "succeeded",
+    ]);
+  });
+
+  it("写入运行状态期间暂停时，原任务回到队列且不发出请求", async () => {
+    const ctx = fixture();
+    const item = ctx.add(current, "before-request");
+    const service = ctx.service();
+    const saveTask = ctx.repository.saveTask;
+    ctx.repository.saveTask = async (task) => {
+      await saveTask(task);
+      if (task.status === "running") {
+        ctx.setPaused(true);
+      }
+    };
+
+    await service.submit(item.scope, { source: "manual" });
+    await flush();
+    const [task] = ctx.tasks.values();
+    expect(task).toMatchObject({ status: "queued", startedAt: null });
+    expect(ctx.requests).toHaveLength(0);
+
+    ctx.repository.saveTask = saveTask;
+    ctx.setPaused(false);
+    service.wakeQueue();
+    await flush();
+    expect(ctx.requests).toHaveLength(1);
+    ctx.requests[0]!.resolve([1, 2]);
+    await flush();
+    expect(ctx.tasks.get(task!.id)?.status).toBe("succeeded");
+  });
+
   it.each(["cancel", "stop", "purge"] as const)(
     "目标检查期间 %s 不会复活排队任务",
     async (action) => {

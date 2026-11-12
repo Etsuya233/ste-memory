@@ -967,6 +967,15 @@ function VectorList({
   const retryIds = selected
     .filter((task) => ["failed", "interrupted", "cancelled", "obsolete"].includes(task.status))
     .map((task) => task.id);
+  const draining = state.vectorQueuePaused && state.vectorRunning > 0;
+  let queueStatus = "空闲";
+  if (state.vectorQueuePaused) {
+    queueStatus = draining ? "等待当前请求结束" : "已暂停";
+  } else if (state.vectorRunning > 0) {
+    queueStatus = "运行中";
+  } else if (state.vectorQueued > 0) {
+    queueStatus = "有排队任务";
+  }
   return (
     <PageSection
       title="向量任务"
@@ -976,6 +985,18 @@ function VectorList({
       bodyClassName="ste:p-0"
     >
       <div className="ste:flex ste:flex-col ste:gap-2 ste:border-b ste:border-border ste:p-3">
+        <div className="ste:flex ste:flex-wrap ste:items-center ste:justify-between ste:gap-2">
+          <span role="status" className="ste:text-xs ste:text-muted-foreground">
+            全局索引队列 · {queueStatus}
+          </span>
+          <Button
+            size="sm"
+            disabled={draining}
+            onClick={() => workspace.setVectorQueuePaused(!state.vectorQueuePaused)}
+          >
+            {draining ? "暂停中…" : state.vectorQueuePaused ? "开始" : "暂停"}
+          </Button>
+        </div>
         <div className="ste:flex ste:flex-wrap ste:gap-2">
           <NativeSelect
             aria-label="向量任务状态"

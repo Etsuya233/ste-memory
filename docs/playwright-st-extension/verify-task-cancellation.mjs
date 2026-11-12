@@ -85,6 +85,23 @@ try {
   );
 
   await page.getByRole("tab", { name: "向量任务", exact: true }).click();
+  await button("暂停").click();
+  await button("开始").waitFor();
+  await page.getByRole("combobox", { name: "向量任务状态" }).selectOption("failed");
+  await page.locator('[data-vector-task="space-b-vector-failed"]').waitFor();
+  await page.locator('[data-vector-task="space-b-vector-queued"]').waitFor({ state: "hidden" });
+  check("global pause stays visible under task filters", await button("开始").isVisible());
+  await page.evaluate(() => window.frontendPreview.switchChat("a"));
+  await page.getByRole("tab", { name: "向量任务", exact: true }).click();
+  await page.locator('[data-vector-task="space-a-vector-queued"]').waitFor();
+  await button("开始").click();
+  await page.evaluate(() => window.frontendPreview.switchChat("b"));
+  await page.getByRole("tab", { name: "向量任务", exact: true }).click();
+  await button("暂停").waitFor();
+  check(
+    "queue control applies across spaces and preserves queued tasks",
+    (await snapshot()).vectorTasks.filter((task) => task.status === "queued").length === 2,
+  );
   const vector = page.locator('[data-vector-task="space-b-vector-queued"]');
   await vector.getByRole("button", { name: "取消任务", exact: true }).click();
   check(

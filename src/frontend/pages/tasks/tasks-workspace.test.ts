@@ -3,6 +3,7 @@ import type { MemorySpaceId } from "../../../features/memory/index.ts";
 import type { RecordsContext } from "../records-workspace.ts";
 import { TasksWorkspace, type TasksServices } from "./tasks-workspace.ts";
 import { MemoryCommitPersistenceError } from "../../../features/memory/index.ts";
+import { DEFAULT_SETTINGS } from "../../../features/settings/plugin-settings.ts";
 const a: RecordsContext = { chatKey: "a", spaceId: "a" as MemorySpaceId, title: "A" };
 const b: RecordsContext = { chatKey: "b", spaceId: "b" as MemorySpaceId, title: "B" };
 function setup() {
@@ -24,6 +25,10 @@ function setup() {
       cancel: vi.fn(),
       cancelMany: vi.fn(),
       retry: vi.fn(),
+    },
+    settings: {
+      read: vi.fn(() => DEFAULT_SETTINGS),
+      setVectorQueuePaused: vi.fn(),
     },
     chatConfig: {
       readCleaningSelection: vi.fn(),

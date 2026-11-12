@@ -5,6 +5,7 @@ import type {
   FloorLedgerEntry,
 } from "../../../features/fill-tasks/fill-task.ts";
 import type { VectorIndexService } from "../../../features/vector-index/vector-index-service.ts";
+import type { SettingsService } from "../../../features/settings/settings-service.ts";
 import type {
   VectorTask,
   VectorTaskStatus,
@@ -33,6 +34,7 @@ export interface TasksServices {
     | "retry"
   >;
   vector: Pick<VectorIndexService, "listTasks" | "cancel" | "cancelMany" | "retry">;
+  settings: Pick<SettingsService, "read" | "setVectorQueuePaused">;
   chatConfig: TasksChatConfigServices;
   messageCount: () => number;
   assertContext: (context: RecordsContext) => void;
@@ -46,6 +48,9 @@ export interface TasksSnapshot {
   vectors: readonly VectorTask[];
   vectorTotal: number;
   vectorPage: number;
+  vectorQueuePaused: boolean;
+  vectorQueued: number;
+  vectorRunning: number;
   status: VectorTaskStatus | "";
   source: VectorTaskSource | "";
   selected: readonly string[];
@@ -71,6 +76,9 @@ const empty = (): TasksSnapshot => ({
   vectors: [],
   vectorTotal: 0,
   vectorPage: 0,
+  vectorQueuePaused: false,
+  vectorQueued: 0,
+  vectorRunning: 0,
   status: "",
   source: "",
   selected: [],
@@ -134,6 +142,7 @@ export class TasksWorkspace {
     this.state = {
       ...empty(),
       context,
+      vectorQueuePaused: this.services.settings.read().vectorQueuePaused,
       ...(context ? this.readChatConfig() : {}),
       busy: context
         ? this.pendingOperations.has(JSON.stringify([context.chatKey, context.spaceId]))
@@ -280,6 +289,9 @@ export class TasksWorkspace {
             messageCount,
             vectors: vectors.items,
             vectorTotal: vectors.total,
+            vectorQueuePaused: this.services.settings.read().vectorQueuePaused,
+            vectorQueued: vectors.queued,
+            vectorRunning: vectors.running,
             selected: this.state.selected.filter((id) => vectors.items.some((t) => t.id === id)),
             ...this.readChatConfig(),
             loading: false,
@@ -304,6 +316,18 @@ export class TasksWorkspace {
     this.generation++;
     this.publish({ status, source, vectorPage, selected: [] });
     void this.refresh();
+  };
+  setVectorQueuePaused = (paused: boolean) => {
+    try {
+      this.services.settings.setVectorQueuePaused(paused);
+      this.publish({
+        vectorQueuePaused: this.services.settings.read().vectorQueuePaused,
+        error: null,
+      });
+      void this.refresh();
+    } catch (error) {
+      this.publish({ error: error instanceof Error ? error.message : String(error) });
+    }
   };
   select = (id: string, checked: boolean) =>
     this.publish({

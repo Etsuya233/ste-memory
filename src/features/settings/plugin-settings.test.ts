@@ -158,6 +158,7 @@ describe("mergeSettings（旧数据/损坏数据补齐默认值，向前兼容�
     const settings: PluginSettings = {
       macroSchemaVersion: 1,
       macros: [],
+      vectorQueuePaused: true,
       rerank: { enabled: false, candidateLimit: 50 },
       fillAgentTimeoutSeconds: 900,
       autoFill: DEFAULT_SETTINGS.autoFill,

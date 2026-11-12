@@ -60,6 +60,7 @@ export interface PluginSettings {
   readonly macros: readonly MemoryMacro[];
   /** 独立的 OpenAI 兼容向量连接，浏览器直连；旧设置未配置时保持关闭。 */
   readonly embeddingConnection?: EmbeddingConnection;
+  readonly vectorQueuePaused: boolean;
   readonly rerank: RerankSettings;
   /** 每批填写 Agent 总时限（秒）；缺省十分钟，保留已有显式设置。 */
   readonly fillAgentTimeoutSeconds: number;
@@ -96,6 +97,7 @@ export const SETTINGS_KEY = "steMemory";
 export const DEFAULT_SETTINGS: PluginSettings = {
   macroSchemaVersion: MACRO_SCHEMA_VERSION,
   macros: [],
+  vectorQueuePaused: false,
   rerank: DEFAULT_RERANK_SETTINGS,
   fillAgentTimeoutSeconds: 600,
   autoFill: DEFAULT_AUTO_FILL_SETTINGS,
@@ -154,6 +156,7 @@ export function mergeSettings(raw: unknown): PluginSettings {
   return {
     macroSchemaVersion: MACRO_SCHEMA_VERSION,
     embeddingConnection: parseEmbeddingConnection(source.embeddingConnection),
+    vectorQueuePaused: source.vectorQueuePaused === true,
     rerank: parseRerankSettings(source.rerank),
     fillAgentTimeoutSeconds:
       source.fillAgentTimeoutSeconds === undefined
