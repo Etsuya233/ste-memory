@@ -71,6 +71,7 @@ export class AutoFillService {
   #epoch = 0;
   #reminded: string | undefined;
   #promptedResume: string | undefined;
+  readonly #authorizedRetryRunIds = new Set<string>();
   #observed = new Map<string, FillTaskView>();
 
   constructor(ports: AutoFillPorts) {
@@ -108,11 +109,29 @@ export class AutoFillService {
     return (
       !!current &&
       !this.#suspended &&
-      this.#authorization.kind === "authorized" &&
+      (this.#authorization.kind === "authorized" || this.#authorizedRetryRunIds.has(task.runId)) &&
       this.settings().mode === "auto" &&
       task.memorySpaceId === current.spaceId &&
       (task.chatId ?? undefined) === current.chatId
     );
+  }
+
+  async retryTaskManually(memorySpaceId: MemorySpaceId, runId: string): Promise<FillTaskView> {
+    const epoch = this.#epoch;
+    const identity = this.#ports.current()?.identity;
+    const retried = await this.#ports.tasks.retry(memorySpaceId, runId);
+    const current = this.#ports.current();
+    if (
+      this.#epoch === epoch &&
+      current?.spaceId === memorySpaceId &&
+      current.identity === identity
+    ) {
+      if (retried.automatic && retried.status === "queued") {
+        this.#authorizedRetryRunIds.add(retried.runId);
+      }
+      this.kick();
+    }
+    return retried;
   }
 
   async taskSucceeded(task: FillTask): Promise<void> {
@@ -272,6 +291,7 @@ export class AutoFillService {
     this.#generationState = { kind: "loading-chat" };
     this.#epoch += 1;
     this.#authorization = { kind: "waiting-for-reply" };
+    this.#authorizedRetryRunIds.clear();
     this.#ports.dismissReminder();
     this.#ports.tasks.suspend();
     this.#reminded = undefined;
@@ -336,9 +356,15 @@ export class AutoFillService {
     } else if (scheduleReply) {
       this.#authorization = { kind: "authorized", pendingReply: null };
     }
+    const authorizedRetries = [...this.#authorizedRetryRunIds];
     let pending = await this.#ports.tasks.pendingTasks(current.spaceId);
     if (!unchanged()) {
       return;
+    }
+    for (const runId of authorizedRetries) {
+      if (!pending.some((task) => task.runId === runId && task.status === "queued")) {
+        this.#authorizedRetryRunIds.delete(runId);
+      }
     }
 
     // 旧版本的聊天暂存项只在升级时转入任务表，之后删除旧状态。
@@ -520,7 +546,7 @@ export class AutoFillService {
         }
       }
     }
-    if (unchanged() && (!pending[0]?.automatic || this.#authorization.kind === "authorized")) {
+    if (unchanged() && (!head?.automatic || this.canStartTask(head))) {
       this.#ports.tasks.kick(current.spaceId);
     }
   }

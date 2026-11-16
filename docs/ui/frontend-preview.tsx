@@ -1069,22 +1069,22 @@ const taskServices: TasksServices = {
       fillTasks[index] = task;
       return structuredClone(task);
     },
-    retry: async (spaceId, id) => {
-      const index = fillTasks.findIndex(
-        (task) => task.memorySpaceId === spaceId && task.runId === id,
-      );
-      if (index < 0) {
-        throw new Error("任务不存在");
-      }
-      const task = {
-        ...fillTasks[index]!,
-        status: "queued" as const,
-        errorMessage: null,
-        blocksQueue: false,
-      };
-      fillTasks[index] = task;
-      return structuredClone(task);
-    },
+  },
+  retryFillTaskManually: async (spaceId, id) => {
+    const index = fillTasks.findIndex(
+      (task) => task.memorySpaceId === spaceId && task.runId === id,
+    );
+    if (index < 0) {
+      throw new Error("任务不存在");
+    }
+    const task = {
+      ...fillTasks[index]!,
+      status: "queued" as const,
+      errorMessage: null,
+      blocksQueue: false,
+    };
+    fillTasks[index] = task;
+    return structuredClone(task);
   },
   vector: {
     listTasks: async (filters = {}) => {

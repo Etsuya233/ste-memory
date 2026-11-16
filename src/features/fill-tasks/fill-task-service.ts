@@ -165,8 +165,9 @@ export class FillTaskService {
   #worker: Promise<void> | undefined;
   #requestedSpace: MemorySpaceId | undefined;
   #currentSpace: MemorySpaceId | undefined;
+  #chatEpoch = 0;
   #submissions: Promise<unknown> = Promise.resolve();
-  readonly #policies = new Map<string, FillTaskSubmitInput["automatic"]>();
+  readonly #submissionPolicies = new Map<string, NonNullable<FillTaskSubmitInput["automatic"]>>();
 
   readonly retryStates = new Map<string, FillTaskRetryState>();
   readonly #tasks: FillTaskRepository;
@@ -258,6 +259,20 @@ export class FillTaskService {
         if (task.automatic && this.#canStartAutomaticTask && !this.#canStartAutomaticTask(task)) {
           break;
         }
+        const chatEpoch = this.#chatEpoch;
+        const submissionPolicy = this.#submissionPolicies.get(task.runId);
+        const automatic: FillTaskSubmitInput["automatic"] = task.retryPolicy && {
+          ...task.retryPolicy,
+          canContinue: () =>
+            this.#chatEpoch === chatEpoch &&
+            (submissionPolicy?.canContinue() ??
+              this.#source.chatId() === (task.chatId ?? undefined)),
+          interruptionReason: () =>
+            this.#chatEpoch !== chatEpoch || !submissionPolicy
+              ? "chat-changed"
+              : submissionPolicy.interruptionReason?.(),
+          onFailure: submissionPolicy?.onFailure,
+        };
         if (!(await this.#tasks.markRunning(task.runId))) {
           break;
         }
@@ -284,15 +299,6 @@ export class FillTaskService {
           const promptContext = await this.#createPromptContext?.(
             task.kind === "init" ? task.initText : buildMergedStoryText(input),
           );
-          const automatic =
-            this.#policies.get(task.runId) ??
-            (task.retryPolicy
-              ? {
-                  ...task.retryPolicy,
-                  canContinue: () => this.#source.chatId() === (task.chatId ?? undefined),
-                  interruptionReason: () => "chat-changed" as const,
-                }
-              : undefined);
           await this.#appendLog(
             fillTaskStartLog(running),
             `填表任务 ${task.runId} 开始日志写入失败`,
@@ -301,7 +307,7 @@ export class FillTaskService {
         } catch (error) {
           await this.#failTask(running, error);
         } finally {
-          this.#policies.delete(task.runId);
+          this.#submissionPolicies.delete(task.runId);
         }
       }
     }
@@ -366,7 +372,9 @@ export class FillTaskService {
       updatedAt: now,
     };
     const queued = await this.#tasks.enqueue(task, input.retryOf);
-    this.#policies.set(task.runId, input.automatic);
+    if (input.automatic) {
+      this.#submissionPolicies.set(task.runId, input.automatic);
+    }
     if (!this.#suspended) {
       this.kick(task.memorySpaceId);
     }
@@ -416,7 +424,7 @@ export class FillTaskService {
         );
       }
     }
-    this.#policies.delete(runId);
+    this.#submissionPolicies.delete(runId);
     if (!this.#suspended && !reason) {
       this.kick(memorySpaceId);
     }
@@ -425,6 +433,9 @@ export class FillTaskService {
 
   async interruptForChatChange(): Promise<void> {
     this.suspend();
+    this.#chatEpoch++;
+    // 等待项留在任务表，下次获准启动时从持久化配置绑定当前对话。
+    this.#submissionPolicies.clear();
     await Promise.all(
       [...this.#runs.keys()].map(async (runId) => {
         const task = await this.#tasks.find(runId);

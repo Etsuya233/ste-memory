@@ -1,4 +1,5 @@
 import type { FillTaskService } from "../../../features/fill-tasks/fill-task-service.ts";
+import type { AutoFillService } from "../../../features/fill-tasks/auto-fill-service.ts";
 import type {
   FillTaskView,
   FloorFillStatus,
@@ -31,8 +32,8 @@ export interface TasksServices {
     | "submit"
     | "submitInit"
     | "cancel"
-    | "retry"
   >;
+  retryFillTaskManually: AutoFillService["retryTaskManually"];
   vector: Pick<VectorIndexService, "listTasks" | "cancel" | "cancelMany" | "retry">;
   settings: Pick<SettingsService, "read" | "setVectorQueuePaused">;
   chatConfig: TasksChatConfigServices;
@@ -443,7 +444,10 @@ export class TasksWorkspace {
   };
   fillAction = (id: string, action: "cancel" | "retry") =>
     this.perform(
-      (context) => this.services.tasks[action](context.spaceId, id),
+      (context) =>
+        action === "cancel"
+          ? this.services.tasks.cancel(context.spaceId, id)
+          : this.services.retryFillTaskManually(context.spaceId, id),
       action === "cancel" ? "任务已取消" : "任务已重新提交",
     );
   vectorAction = (ids: readonly string[], action: "cancel" | "retry") =>

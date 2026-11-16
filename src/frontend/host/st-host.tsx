@@ -65,6 +65,7 @@ export function mountRecordsFrontend(runtime: SteMemoryRuntime): void {
   });
   const tasks = new TasksWorkspace({
     tasks: runtime.tasks,
+    retryFillTaskManually: (spaceId, runId) => runtime.autoFill.retryTaskManually(spaceId, runId),
     vector: runtime.vector,
     settings: runtime.settingsService,
     chatConfig: {

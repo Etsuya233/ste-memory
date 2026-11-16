@@ -2399,6 +2399,101 @@ describe("已激活候选的核验恢复", () => {
   });
 });
 
+it("切回对话后手动重试只放行所选自动任务，后续自动任务仍等待有效回复", async () => {
+  const db = createTestDatabase();
+  const { context, handlers } = fakeStContext({
+    chat: [{ mes: "第一问", is_user: true }],
+    chatCompletionSettings: { chat_completion_source: "openai" },
+    getChatCompletionModel: () => "test-model",
+    eventTypes: {
+      CHAT_CHANGED: "chat_id_changed",
+      MESSAGE_SENT: "message_sent",
+      MESSAGE_RECEIVED: "message_received",
+      GENERATION_STARTED: "generation_started",
+      GENERATION_ENDED: "generation_ended",
+    },
+  });
+  const runtime = await startTestRuntime(() => context, {
+    createDb: () => db,
+    log: fakeLog(),
+    settingsStore: {
+      read: () => ({
+        ...DEFAULT_SETTINGS,
+        autoFill: { ...DEFAULT_SETTINGS.autoFill, mode: "auto", interval: 2, delayFloors: 0 },
+      }),
+      write() {},
+    },
+  });
+  let requests = 0;
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    if (String(url) === "/csrf-token") {
+      return Response.json({ token: "test-token" });
+    }
+    expect(url).toBe("/api/backends/chat-completions/generate");
+    if (++requests === 1) {
+      return Response.json({ error: "invalid API key" }, { status: 401 });
+    }
+    const event = {
+      choices: [{ index: 0, delta: { content: "无需变更" }, finish_reason: "stop" }],
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const reply = async () => {
+    await handlers.get("generation_started")!("normal", {}, false);
+    context.chat = [...context.chat!, { mes: "有效回复" }];
+    handlers.get("message_received")!(context.chat.length - 1, "normal");
+    handlers.get("generation_ended")!();
+  };
+  const spaceId = (await runtime.backup.exportCurrentSpace()).space.id;
+  try {
+    await reply();
+    const failed = await vi.waitFor(async () => {
+      const [head] = await runtime.tasks.pendingTasks(spaceId);
+      expect(head).toMatchObject({ automatic: true, status: "failed", blocksQueue: true });
+      return head!;
+    });
+    context.chat = [...context.chat!, { mes: "第二问", is_user: true }, { mes: "第二答" }];
+    const manual = await runtime.tasks.submit({ memorySpaceId: spaceId, from: 2, to: 3 });
+    context.chat = [...context.chat!, { mes: "第三问", is_user: true }];
+    await reply();
+    const waiting = await vi.waitFor(async () => {
+      const [, , tail] = await runtime.tasks.pendingTasks(spaceId);
+      expect(tail).toMatchObject({ automatic: true, status: "queued", from: 4, to: 5 });
+      return tail!;
+    });
+    const metadata = structuredClone(context.chatMetadata);
+    context.chatId = "other";
+    context.chatMetadata = {};
+    await handlers.get("chat_id_changed")!();
+    context.chatId = "story";
+    context.chatMetadata = metadata;
+    await handlers.get("chat_id_changed")!();
+
+    const retried = await runtime.autoFill.retryTaskManually(spaceId, failed.runId);
+    expect(retried.queuePosition).toBe(failed.queuePosition);
+    await vi.waitFor(async () => {
+      expect((await db.memoryFillTasks.get(retried.runId))?.status).toBe("succeeded");
+      expect((await db.memoryFillTasks.get(manual.runId))?.status).toBe("succeeded");
+    });
+    expect(await runtime.tasks.pendingTasks(spaceId)).toMatchObject([
+      { runId: waiting.runId, status: "queued" },
+    ]);
+    expect(requests).toBe(3);
+    expect(runtime.autoFill.canStartTask(waiting)).toBe(false);
+
+    await reply();
+    await vi.waitFor(async () => {
+      expect((await db.memoryFillTasks.get(waiting.runId))?.status).toBe("succeeded");
+    });
+    expect(requests).toBe(4);
+  } finally {
+    runtime.autoFill.stop();
+    fetch.mockRestore();
+  }
+});
+
 it("真实 ST 事件桥进入时只通知，收到有效 AI 楼层并结束生成后才申请自动入队", async () => {
   const db = createTestDatabase();
   const { context, handlers } = fakeStContext({

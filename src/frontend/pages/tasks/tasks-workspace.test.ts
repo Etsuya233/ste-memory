@@ -16,8 +16,8 @@ function setup() {
       submit: vi.fn(),
       submitInit: vi.fn(),
       cancel: vi.fn(),
-      retry: vi.fn(),
     },
+    retryFillTaskManually: vi.fn(),
     vector: {
       listTasks: vi
         .fn()
@@ -48,6 +48,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("TasksWorkspace", () => {
+  it("retries the selected fill task through the manual action in the current space", async () => {
+    const { services, workspace } = setup();
+    workspace.setContext(b);
+    expect(await workspace.fillAction("failed-fill", "retry")).toEqual({ ok: true, error: null });
+    expect(services.retryFillTaskManually).toHaveBeenCalledExactlyOnceWith(
+      b.spaceId,
+      "failed-fill",
+    );
+  });
   it("marks the current space and refreshes its floor ledger", async () => {
     vi.stubGlobal("document", {
       hidden: false,
