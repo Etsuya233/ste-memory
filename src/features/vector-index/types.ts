@@ -8,6 +8,15 @@ export type VectorScope = {
   readonly tableId?: MemoryTableId;
   readonly recordId?: MemoryRecordId;
 };
+export type VectorListScope = VectorScope &
+  (
+    | { readonly groupIds?: undefined }
+    | {
+        readonly tableId: MemoryTableId;
+        readonly recordId?: never;
+        readonly groupIds: readonly string[];
+      }
+  );
 
 export interface VectorEmbeddingProfile {
   readonly model: string;
@@ -119,7 +128,7 @@ export interface VectorIndexRepository {
   saveVector(vector: RecordVector): Promise<void>;
   getVector(id: string): Promise<RecordVector | undefined>;
   deleteVector(id: string): Promise<void>;
-  listVectors(scope: VectorScope): Promise<RecordVector[]>;
+  listVectors(scope: VectorListScope): Promise<RecordVector[]>;
   deleteVectors(scope: VectorScope): Promise<void>;
   saveSuppression(suppression: VectorSuppression): Promise<void>;
   getSuppression(id: string): Promise<VectorSuppression | undefined>;

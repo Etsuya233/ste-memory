@@ -15,6 +15,7 @@ import {
   type VectorEmbeddingPort,
   type VectorEmbeddingProfile,
   type VectorIndexRepository,
+  type VectorListScope,
 } from "../vector-index/index.ts";
 import { VectorRetrievalService, type RetrievalRequest } from "./vector-retrieval-service.ts";
 
@@ -62,7 +63,9 @@ function setup() {
   };
   const vectors: RecordVector[] = [];
   const repository = {
-    listVectors: vi.fn(async () => vectors),
+    listVectors: vi.fn(async ({ groupIds }: VectorListScope) =>
+      vectors.filter((vector) => groupIds?.includes(vector.groupId) ?? true),
+    ),
     listTasks: vi.fn(async () => []),
     saveTask: vi.fn(),
     saveVector: vi.fn(),
@@ -151,6 +154,16 @@ it("filtered record/group unions keep view pairing and deduplicate overlap befor
     ["r3", "a"],
   ]);
   expect(result.hits[0]!.score).toBeCloseTo(Math.SQRT1_2);
+  expect(ctx.repository.listVectors).toHaveBeenCalledWith({
+    memorySpaceId: space,
+    tableId: ctx.table.id,
+    groupIds: ["b"],
+  });
+  expect(ctx.repository.listVectors).toHaveBeenCalledWith({
+    memorySpaceId: space,
+    tableId: ctx.table.id,
+    groupIds: ["a"],
+  });
   expect(ctx.embedding.embed).toHaveBeenCalledTimes(1);
 });
 

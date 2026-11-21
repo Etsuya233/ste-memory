@@ -382,7 +382,11 @@ export class VectorRetrievalService {
             undefined,
             controller.signal,
           ),
-          this.repository.listVectors({ memorySpaceId: spaceId, tableId: range.tableId }),
+          this.repository.listVectors({
+            memorySpaceId: spaceId,
+            tableId: range.tableId,
+            groupIds: range.groupIds,
+          }),
         ]);
         const byTarget = new Map(
           vectors.map((vector) => [JSON.stringify([vector.recordId, vector.groupId]), vector]),

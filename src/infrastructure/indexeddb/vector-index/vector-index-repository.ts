@@ -1,6 +1,7 @@
 import type {
   RecordVector,
   VectorIndexRepository,
+  VectorListScope,
   VectorScope,
   VectorSuppression,
   VectorTask,
@@ -59,7 +60,12 @@ export class DexieVectorIndexRepository implements VectorIndexRepository {
   async deleteVector(id: string): Promise<void> {
     await this.db.recordVectors.delete(id);
   }
-  async listVectors(scope: VectorScope): Promise<RecordVector[]> {
+  async listVectors(scope: VectorListScope): Promise<RecordVector[]> {
+    if (scope.groupIds !== undefined) {
+      const index = this.db.recordVectors.where("[memorySpaceId+tableId+groupId]");
+      const keys = scope.groupIds.map((groupId) => [scope.memorySpaceId, scope.tableId, groupId]);
+      return (keys.length === 1 ? index.equals(keys[0]!) : index.anyOf(keys)).toArray();
+    }
     if (scope.tableId !== undefined && scope.recordId !== undefined) {
       return this.db.recordVectors
         .where("[memorySpaceId+tableId+recordId]")

@@ -6,6 +6,7 @@ export type {
   VectorEmbeddingPort,
   VectorEmbeddingProfile,
   VectorIndexRepository,
+  VectorListScope,
   VectorPreview,
   VectorScope,
   VectorSubmissionResult,

@@ -1,10 +1,54 @@
 import "../test-support.ts";
+import { Dexie } from "dexie";
 import { describe, expect, it } from "vitest";
-import type { MemorySpaceId } from "../../../features/memory/index.ts";
+import type { MemorySpaceId, MemoryTableId } from "../../../features/memory/index.ts";
 import { createTestDatabase } from "../test-support.ts";
 import { DexieVectorIndexRepository } from "./vector-index-repository.ts";
 
 describe("DexieVectorIndexRepository", () => {
+  it("升级后可按空间、表与所选组读取已有向量", async () => {
+    const name = "ste-memory-v15-vector-groups";
+    const old = new Dexie(name);
+    old.version(15).stores({
+      recordVectors: "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId]",
+    });
+    await old.table("recordVectors").bulkAdd(
+      [
+        ["one", "table", "summary"],
+        ["one", "table", "details"],
+        ["one", "table", "other"],
+        ["one", "other-table", "summary"],
+        ["two", "table", "summary"],
+      ].map(([memorySpaceId, tableId, groupId]) => ({
+        id: `${memorySpaceId}/${tableId}/${groupId}`,
+        memorySpaceId,
+        tableId,
+        recordId: "record",
+        groupId,
+        fingerprint: "fingerprint",
+        values: [1, 2],
+        model: "m",
+        version: "v",
+        updatedAt: "2026-01-01",
+      })),
+    );
+    old.close();
+
+    const db = createTestDatabase(name);
+    const repository = new DexieVectorIndexRepository(db);
+    const scope = { memorySpaceId: "one" as MemorySpaceId, tableId: "table" as MemoryTableId };
+    const selected = await repository.listVectors({ ...scope, groupIds: ["summary", "details"] });
+    expect(selected.map((vector) => vector.id).sort()).toEqual([
+      "one/table/details",
+      "one/table/summary",
+    ]);
+    expect(await repository.listVectors({ ...scope, groupIds: ["summary"] })).toMatchObject([
+      { id: "one/table/summary", values: [1, 2] },
+    ]);
+    expect(await repository.listVectors({ ...scope, groupIds: [] })).toEqual([]);
+    expect(await db.recordVectors.count()).toBe(5);
+  });
+
   it("按空间清理向量和持久抑制，保留其他空间", async () => {
     const db = createTestDatabase();
     const repository = new DexieVectorIndexRepository(db);

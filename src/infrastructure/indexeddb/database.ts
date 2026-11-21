@@ -99,5 +99,9 @@ export class SteMemoryDatabase extends Dexie {
       memoryHistoryPayloads: "id",
       memoryHistoryProgress: "chatKey",
     });
+    this.version(16).stores({
+      recordVectors:
+        "id, memorySpaceId, [memorySpaceId+tableId], [memorySpaceId+tableId+recordId], [memorySpaceId+tableId+groupId]",
+    });
   }
 }

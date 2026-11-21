@@ -136,7 +136,8 @@ async function setup(
   };
   const controller = new AbortController();
   const revision = cache.revisionFor(embedding.getProfile());
-  const vectorRepository = { listVectors: vi.fn(async () => vectors) };
+  // IndexedDB returns detached values, so writes never mutate the rows already read.
+  const vectorRepository = { listVectors: vi.fn(async () => structuredClone(vectors)) };
   const queryVectors = cache.createExecution({
     embedding,
     revision,
@@ -681,7 +682,7 @@ it("stops after a real SQL error without another preparation or API retry", asyn
   expect(execute).toHaveBeenCalledTimes(2);
   expect(embedding.embed).toHaveBeenCalledOnce();
 });
-it("clones each table's vector list once so later SQL rounds cannot mix new vector data", async () => {
+it("reads each table once so later SQL rounds score all groups from the same snapshot", async () => {
   const { batch, sql, vectors, vectorRepository } = await setup(fixture(1));
   const execute = sql.evaluateSemanticSql.bind(sql);
   vi.spyOn(sql, "evaluateSemanticSql").mockImplementation(async (input) => {
@@ -689,14 +690,16 @@ it("clones each table's vector list once so later SQL rounds cannot mix new vect
     if (result.status === "needs-semantic-source" && input.sources.length === 1) {
       Object.assign(
         vectors.find((vector) => vector.groupId === "g2")!,
-        { fingerprint: "new record version", values: [1, 0] },
+        { values: [1, 0] },
       );
     }
     return result;
   });
   const result = await batch.evaluate({
     language: "sql",
-    sql: `SELECT a.score AS a,b.score AS b FROM semantic_scores('facts','["facts"]','question') a CROSS JOIN semantic_scores('facts','["extra"]','question') b`,
+    sql: `SELECT a.score AS a,b.score AS b
+          FROM semantic_scores('facts','["facts"]','question') a
+          CROSS JOIN semantic_scores('facts','["extra"]','question') b`,
   });
   expect(result.rows).toEqual([[0, 0]]);
   expect(result.sources.map((source) => [source.coverage.ready, source.coverage.stale])).toEqual([
@@ -705,6 +708,7 @@ it("clones each table's vector list once so later SQL rounds cannot mix new vect
   ]);
   expect(result.execution?.sqlPasses).toBe(3);
   expect(vectorRepository.listVectors).toHaveBeenCalledOnce();
+  expect(vectorRepository.listVectors).toHaveBeenCalledWith({ memorySpaceId: "s", tableId: "t" });
 });
 
 it("shares successful query vectors between macros and standalone semantic SQL while refreshing record scores", async () => {

@@ -166,11 +166,10 @@ export function createSemanticScores(input: {
       return result;
     }
     if (!stored.has(table.id)) {
+      // IndexedDB materializes independent rows. Keep this read for all groups in the session.
       stored.set(
         table.id,
-        vectors
-          .listVectors({ memorySpaceId: snapshot.space.id, tableId: table.id })
-          .then((rows) => structuredClone(rows)),
+        vectors.listVectors({ memorySpaceId: snapshot.space.id, tableId: table.id }),
       );
     }
     const recordIds = new Set(records.map((record) => record.id));
