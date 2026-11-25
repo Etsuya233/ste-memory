@@ -11,6 +11,7 @@ import {
   type ChatFileTarget,
 } from "../chat-mirror/chat-snapshot-persistence.ts";
 import { createChatMirrorFile } from "../chat-mirror/chat-mirror-codec.ts";
+import { CHAT_MIRROR_FORMAT } from "../chat-mirror/chat-mirror-file.ts";
 import { migrateMemorySpaceSnapshot } from "../memory-snapshot/snapshot-migration.ts";
 import { legacySnapshotFixture } from "../memory-snapshot/snapshot-test-fixture.ts";
 import type { MemorySpaceBackup } from "../backup/index.ts";
@@ -146,6 +147,131 @@ function gate() {
   });
   return { promise, release };
 }
+
+describe("聊天文件的冲突快照恢复", () => {
+  function conflict() {
+    const h = harness();
+    const binding: ChatSpaceBinding = {
+      version: 2,
+      spaceId: "other-space" as MemorySpaceId,
+      chatIdentity: h.target().identity,
+    };
+    const source = legacySnapshotFixture();
+    const file = {
+      format: CHAT_MIRROR_FORMAT,
+      version: 1,
+      spaceId: source.space.id,
+      updatedAt: "2026-09-19T15:25:17.158Z",
+      appVersion: "0.1.3",
+      data: source,
+    };
+    h.metadata.set(h.target().identity, binding);
+    vi.mocked(h.store.read).mockResolvedValueOnce(file).mockResolvedValueOnce(file);
+    return { ...h, file, binding };
+  }
+
+  it("预览旧快照不写入，显式恢复后复制新空间并可从文件重新加载", async () => {
+    const h = conflict();
+    const preview = await h.manager.syncToCurrentChat();
+    expect(preview).toMatchObject({
+      kind: "snapshot-conflict",
+      name: h.file.data.space.name,
+      updatedAt: h.file.updatedAt,
+      tableCount: h.file.data.tables.length,
+      recordCount: h.file.data.records.length,
+      hasFloorProgress: false,
+    });
+    if (preview.kind !== "snapshot-conflict") {
+      throw new Error("缺少恢复预览");
+    }
+    expect(h.store.submit).not.toHaveBeenCalled();
+    expect(h.activate).not.toHaveBeenCalled();
+
+    await h.manager.recoverFileSnapshot(preview);
+    const saved = h.files.get(h.target().identity)!;
+    expect(saved.binding.spaceId).toBe(saved.unit.space.id);
+    expect(saved.binding.spaceId).not.toBe(h.binding.spaceId);
+    expect(saved.binding.spaceId).not.toBe(h.file.spaceId);
+    expect(saved.unit.records).toHaveLength(h.file.data.records.length);
+    expect(saved.unit.history).toHaveLength(h.file.data.history.length);
+    expect(saved.unit.evidence).toHaveLength(h.file.data.evidence.length);
+    expect(h.persistence.getStatus(h.target().identity).kind).toBe("verified");
+    expect(h.manager.getStatus()).toMatchObject({ kind: "active", recoveredFromFile: true });
+    expect(h.retire).not.toHaveBeenCalled();
+    expect(h.stop).not.toHaveBeenCalled();
+
+    h.select("A");
+    expect(await h.manager.syncToCurrentChat()).toMatchObject({
+      kind: "active",
+      binding: saved.binding,
+      restored: true,
+    });
+  });
+
+  it("核验失败可重试同一份候选，核验前没有恢复成功标记", async () => {
+    const h = conflict();
+    const preview = await h.manager.syncToCurrentChat();
+    if (preview.kind !== "snapshot-conflict") {
+      throw new Error("缺少恢复预览");
+    }
+    vi.mocked(h.store.verify).mockRejectedValueOnce(new Error("offline"));
+    await expect(h.manager.recoverFileSnapshot(preview)).rejects.toThrow("offline");
+    expect(h.manager.getStatus()).not.toHaveProperty("recoveredFromFile");
+    const pending = h.persistence.current(h.target().identity)!;
+    await h.persistence.forceSync(h.target(), pending.binding, pending.snapshot, () => {});
+    expect(h.manager.getStatus()).toMatchObject({ kind: "active", recoveredFromFile: true });
+    expect(h.files.get(h.target().identity)?.binding).toEqual(pending.binding);
+    expect(h.activate).toHaveBeenCalledOnce();
+    expect(h.retire).not.toHaveBeenCalled();
+  });
+
+  it("预览后即使回到同一个聊天，旧确认也不能保存", async () => {
+    const h = conflict();
+    const preview = await h.manager.syncToCurrentChat();
+    if (preview.kind !== "snapshot-conflict") {
+      throw new Error("缺少恢复预览");
+    }
+    h.select("B");
+    h.select("A");
+    await h.manager.syncToCurrentChat();
+    await expect(h.manager.recoverFileSnapshot(preview)).rejects.toThrow("重新加载");
+    expect(h.store.submit).not.toHaveBeenCalled();
+  });
+
+  it.each(["binding", "snapshot"])("确认前 %s 变化时拒绝覆盖", async (changed) => {
+    const h = conflict();
+    const preview = await h.manager.syncToCurrentChat();
+    if (preview.kind !== "snapshot-conflict") {
+      throw new Error("缺少恢复预览");
+    }
+    if (changed === "binding") {
+      h.metadata.set(h.target().identity, { ...h.binding, spaceId: h.sample().space.id });
+    } else {
+      vi.mocked(h.store.read).mockReset();
+      vi.mocked(h.store.read).mockResolvedValue({
+        ...h.file,
+        data: { ...h.file.data, space: { ...h.file.data.space, name: "更新后的名称" } },
+      });
+    }
+    await expect(h.manager.recoverFileSnapshot(preview)).rejects.toThrow("重新加载");
+    expect(h.store.submit).not.toHaveBeenCalled();
+    expect(h.activate).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "unsupported", "inconsistent"])("%s 快照不可直接恢复", async (problem) => {
+    const h = conflict();
+    vi.mocked(h.store.read).mockReset();
+    vi.mocked(h.store.read).mockResolvedValue(
+      problem === "missing"
+        ? undefined
+        : problem === "unsupported"
+          ? { ...h.file, version: 999 }
+          : { ...h.file, spaceId: "wrong-envelope-space" },
+    );
+    await expect(h.manager.syncToCurrentChat()).rejects.toThrow(/没有记忆快照|损坏或版本无法识别/);
+    expect(h.store.submit).not.toHaveBeenCalled();
+  });
+});
 
 describe("当前聊天空间的候选提交", () => {
   it("初始化和导入先启用候选，失败保留候选与旧辅助，核验后清理", async () => {

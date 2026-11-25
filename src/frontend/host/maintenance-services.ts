@@ -36,7 +36,10 @@ export function createMaintenanceServices(
     if (active) {
       return { chatKey, spaceId: active.space.id, title: active.space.name };
     }
-    if (status?.kind === "load-error" && runtime.adapter.captureFileTarget()) {
+    if (
+      (status?.kind === "load-error" || status?.kind === "snapshot-conflict") &&
+      runtime.adapter.captureFileTarget()
+    ) {
       return {
         chatKey,
         spaceId: null,

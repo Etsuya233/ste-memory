@@ -1274,6 +1274,25 @@ function Preview() {
         }),
       dismissAutoFillReminder: () => autoFillNotifications.dismissReminder(),
       switchChat,
+      showSnapshotConflict: async () => {
+        ready = false;
+        syncSearchContext();
+        await Promise.all([
+          workspace.setContext(null),
+          tablesWorkspace.setContext(null),
+          tasksWorkspace.setContext(null),
+        ]);
+        setStatus({
+          kind: "snapshot-conflict",
+          humanMsg: "对话元数据中的记忆快照与空间绑定不一致",
+          name: contexts[current].title,
+          updatedAt: date,
+          tableCount: tables.filter((table) => table.memorySpaceId === contexts[current].spaceId).length,
+          recordCount: records.filter((record) => record.memorySpaceId === contexts[current].spaceId)
+            .length,
+          hasFloorProgress: false,
+        });
+      },
       setLogText: toolsFixture.setLogText,
       workspace,
       queryStore: toolsFixture.queryStore,
@@ -1438,6 +1457,17 @@ function Preview() {
               onClose={() => setOpen(false)}
               onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
               onRetryContext={() => switchChat(current)}
+              onRecoverFileSnapshot={async (preview) => {
+                if (preview !== status) {
+                  throw new Error("恢复预览已过期");
+                }
+                await switchChat(current);
+                await snapshotSaveFixture.replace();
+                const recovered = activeStatus();
+                if (recovered.kind === "active") {
+                  setStatus({ ...recovered, recoveredFromFile: true });
+                }
+              }}
               onResolveBranch={() => switchChat(current)}
               onRetrySave={snapshotSaveFixture.retry}
               onForceSync={snapshotSaveFixture.forceSync}

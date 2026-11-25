@@ -41,6 +41,16 @@ export interface ChatBindingStore {
   read(): ChatBindingStoreRead;
 }
 
+export interface FileSnapshotRecoveryPreview {
+  readonly kind: "snapshot-conflict";
+  readonly humanMsg: string;
+  readonly name: string;
+  readonly updatedAt: string;
+  readonly tableCount: number;
+  readonly recordCount: number;
+  readonly hasFloorProgress: boolean;
+}
+
 export type SpaceContextStatus =
   | {
       readonly kind: "active";
@@ -48,6 +58,7 @@ export type SpaceContextStatus =
       readonly space: MemorySpace;
       readonly created: boolean;
       readonly restored: boolean;
+      readonly recoveredFromFile?: true;
     }
   | {
       readonly kind: "branch-detected";
@@ -56,6 +67,7 @@ export type SpaceContextStatus =
       readonly originalChatIdentity: string;
       readonly source: MemorySpaceBackup;
     }
+  | FileSnapshotRecoveryPreview
   | {
       readonly kind: "unsaved-chat" | "binding-unrecognized" | "load-error";
       readonly humanMsg: string;

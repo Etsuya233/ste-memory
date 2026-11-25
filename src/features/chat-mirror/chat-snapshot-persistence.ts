@@ -1,4 +1,8 @@
-import { ChatSnapshotSaveTask, type SavedChatContent } from "./chat-snapshot-save-task.ts";
+import {
+  ChatSnapshotSaveTask,
+  firstDifference,
+  type SavedChatContent,
+} from "./chat-snapshot-save-task.ts";
 import type { MemorySpaceBackup } from "../backup/index.ts";
 import type { ChatSpaceBinding } from "../chat-binding/chat-space-manager.ts";
 import { decodeChatMirrorFile } from "./chat-mirror-codec.ts";
@@ -50,6 +54,16 @@ export interface ChatSnapshotFileStore {
   verify(target: ChatFileTarget): Promise<Record<string, unknown>>;
 }
 const IDLE_STATUS: ChatSnapshotSaveStatus = { kind: "idle", cleanup: { kind: "idle" } };
+
+export class ChatSnapshotBindingConflict extends Error {
+  readonly file: ChatMirrorFile;
+
+  constructor(file: ChatMirrorFile) {
+    super("对话元数据中的记忆快照与空间绑定不一致");
+    this.name = "ChatSnapshotBindingConflict";
+    this.file = file;
+  }
+}
 
 export class ChatSnapshotReplacementSaveError extends Error {
   readonly humanMsg: string;
@@ -282,6 +296,30 @@ export class ChatSnapshotPersistence {
     if (this.hasPendingReplacement(target.identity)) {
       return { snapshot: this.current(target.identity)!.snapshot };
     }
+    const file = await this.readFile(target);
+    if (!file) {
+      return undefined;
+    }
+    if (binding !== undefined && file.spaceId !== binding.spaceId) {
+      throw new ChatSnapshotBindingConflict(file);
+    }
+    if (binding && this.legacyFloorLedger) {
+      return migrateLegacyFloorLedger(target, binding, file.data, this.legacyFloorLedger);
+    }
+    return { snapshot: file.data };
+  }
+
+  async assertRecoveryFileUnchanged(
+    target: ChatFileTarget,
+    expected: ChatMirrorFile,
+  ): Promise<void> {
+    const current = await this.readFile(target);
+    if (firstDifference(expected, current, "steMemoryMirror")) {
+      throw new Error("聊天文件中的记忆快照已变化，请重新加载后再恢复");
+    }
+  }
+
+  private async readFile(target: ChatFileTarget): Promise<ChatMirrorFile | undefined> {
     const raw = await this.store.read(target);
     if (raw === undefined) {
       return undefined;
@@ -290,13 +328,7 @@ export class ChatSnapshotPersistence {
     if (!file) {
       throw new Error("对话元数据中的记忆快照损坏或版本无法识别");
     }
-    if (binding !== undefined && file.spaceId !== binding.spaceId) {
-      throw new Error("对话元数据中的记忆快照与空间绑定不一致");
-    }
-    if (binding && this.legacyFloorLedger) {
-      return migrateLegacyFloorLedger(target, binding, file.data, this.legacyFloorLedger);
-    }
-    return { snapshot: file.data };
+    return file;
   }
 
   saveCommitted(

@@ -1,5 +1,9 @@
 import { PageHeader, PageContent, PageFooter } from "../components/page-layout.tsx";
-import { usePageLeave, type RegisterLeaveGuard } from "../components/confirmation.tsx";
+import {
+  ConfirmAction,
+  usePageLeave,
+  type RegisterLeaveGuard,
+} from "../components/confirmation.tsx";
 import { RecordDetailPage } from "./record-detail.tsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId } from "react";
 import {
@@ -14,7 +18,10 @@ import {
   Table2,
 } from "lucide-react";
 import type { MemoryRecordId, MemoryTableId } from "../../features/memory/index.ts";
-import type { SpaceContextStatus } from "../../features/chat-binding/chat-space-manager.ts";
+import type {
+  FileSnapshotRecoveryPreview,
+  SpaceContextStatus,
+} from "../../features/chat-binding/chat-space-manager.ts";
 import type {
   StChatMessage,
   FloorJumpResult,
@@ -58,6 +65,8 @@ export interface RecordsPageProps {
   onToggleTone: () => void;
   onRetryContext: () => Promise<unknown>;
   onResolveBranch: (action: "create" | "clone") => Promise<unknown>;
+  onRecoverFileSnapshot: (preview: FileSnapshotRecoveryPreview) => Promise<void>;
+  onOpenBackupImport: () => void;
   getMessageAt: (floor: number) => StChatMessage | undefined;
   onJumpFloor: (floor: number) => FloorJumpResult;
 }
@@ -75,6 +84,7 @@ export function RecordsPage(props: RecordsPageProps) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
   const [hostError, setHostError] = useState<string | null>(null);
   const [hostBusy, setHostBusy] = useState(false);
+  const [recoveryPreview, setRecoveryPreview] = useState<FileSnapshotRecoveryPreview | null>(null);
   const hostOperation = useRef(0);
   const [search, setSearch] = useState(state.search);
   const listRef = useRef<HTMLDivElement>(null);
@@ -99,6 +109,8 @@ export function RecordsPage(props: RecordsPageProps) {
   const labels = referenceLabels(state.references);
   const totalPages = Math.max(1, state.records?.totalPages ?? 1);
   const formId = useId();
+  const conflict = props.status?.kind === "snapshot-conflict" ? props.status : null;
+  const showBackupImport = conflict !== null || props.status?.kind === "load-error";
 
   useEffect(() => {
     setSearch(state.search);
@@ -115,7 +127,7 @@ export function RecordsPage(props: RecordsPageProps) {
     setHostError(null);
     setHostBusy(false);
     hostOperation.current++;
-  }, [state.context?.chatKey, state.context?.spaceId]);
+  }, [state.context?.chatKey, state.context?.spaceId, conflict]);
 
   useLayoutEffect(() => {
     if (showingDetail) {
@@ -273,8 +285,18 @@ export function RecordsPage(props: RecordsPageProps) {
             </EmptyContent>
           ) : props.status ? (
             <EmptyContent>
+              {conflict ? (
+                <Button disabled={hostBusy} onClick={() => setRecoveryPreview(conflict)}>
+                  从聊天文件恢复记忆
+                </Button>
+              ) : null}
+              {showBackupImport ? (
+                <Button variant="outline" disabled={hostBusy} onClick={props.onOpenBackupImport}>
+                  导入记忆备份
+                </Button>
+              ) : null}
               <Button
-                variant="outline"
+                variant={showBackupImport ? "ghost" : "outline"}
                 disabled={hostBusy}
                 onClick={() => void runHost(props.onRetryContext)}
               >
@@ -527,6 +549,37 @@ export function RecordsPage(props: RecordsPageProps) {
           ) : null}
         </>
       )}
+      {recoveryPreview && recoveryPreview === conflict ? (
+        <ConfirmAction
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setRecoveryPreview(null);
+            }
+          }}
+          title="从聊天文件恢复记忆"
+          description={
+            <>
+              <span className="ste:block ste:break-words">{recoveryPreview.name}</span>
+              <span className="ste:block">
+                {new Date(recoveryPreview.updatedAt).toLocaleString("zh-CN", { hour12: false })}
+                {" 保存 · "}
+                {recoveryPreview.tableCount} 张表 · {recoveryPreview.recordCount} 条记录
+              </span>
+              <span className="ste:mt-2 ste:block">
+                将把这份快照复制到当前对话。快照可能早于你最后一次使用 Memory。
+              </span>
+              {recoveryPreview.hasFloorProgress ? null : (
+                <span className="ste:mt-2 ste:block">
+                  这份快照没有填表进度，自动填表可能从第 0 楼开始计算。
+                </span>
+              )}
+            </>
+          }
+          confirmLabel="确认恢复"
+          onConfirm={() => props.onRecoverFileSnapshot(recoveryPreview)}
+        />
+      ) : null}
       {confirmation}
     </div>
   );

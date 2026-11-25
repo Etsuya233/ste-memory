@@ -96,7 +96,7 @@ interface SnapshotDifference {
 }
 
 /** 对象忽略键序，数组保留顺序；定位首个真实差异，避免在错误中倾倒整个空间。 */
-function firstDifference(
+export function firstDifference(
   expected: unknown,
   actual: unknown,
   path: string,

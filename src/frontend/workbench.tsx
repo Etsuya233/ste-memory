@@ -25,7 +25,7 @@ import { PageHeader } from "./components/page-layout.tsx";
 import { PageEmpty } from "./components/page-state.tsx";
 import { StatusNotice } from "./components/page-state.tsx";
 
-export interface WorkbenchProps extends RecordsPageProps {
+export interface WorkbenchProps extends Omit<RecordsPageProps, "onOpenBackupImport"> {
   persistence: ChatSnapshotSaveStatus;
   onRetrySave: () => Promise<void>;
   onForceSync: () => Promise<void>;
@@ -103,6 +103,12 @@ export function WorkbenchApp(props: WorkbenchProps) {
           available={context !== null}
           onRetry={props.onRetrySave}
         />
+        {props.status?.kind === "active" &&
+        props.status.recoveredFromFile &&
+        props.persistence.kind === "verified" &&
+        props.persistence.operation === "replacement" ? (
+          <StatusNotice>记忆已从聊天文件恢复并核验。</StatusNotice>
+        ) : null}
         {props.writeBlockReason ? <StatusNotice>{props.writeBlockReason}</StatusNotice> : null}
         <div className="ste:min-h-0 ste:flex-1">
           {!enabled && page !== "settings" ? (
@@ -114,7 +120,17 @@ export function WorkbenchApp(props: WorkbenchProps) {
               />
             </div>
           ) : page === "records" ? (
-            <RecordsPage {...props} {...controls} registerLeaveGuard={registerLeaveGuard} />
+            <RecordsPage
+              {...props}
+              {...controls}
+              registerLeaveGuard={registerLeaveGuard}
+              onOpenBackupImport={() =>
+                navigate(() => {
+                  setSettingsSection("maintenance");
+                  setPage("settings");
+                })
+              }
+            />
           ) : page === "tables" ? (
             <TablesPage
               workspace={props.tables}

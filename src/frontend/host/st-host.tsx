@@ -265,6 +265,7 @@ function StFrontend({
           onClose={() => setOpen(false)}
           onToggleTone={() => setTone(tone === "light" ? "dark" : "light")}
           onRetryContext={() => runtime.manager.syncToCurrentChat()}
+          onRecoverFileSnapshot={(preview) => runtime.manager.recoverFileSnapshot(preview)}
           onResolveBranch={(action) => {
             const current = runtime.manager.getStatus();
             if (current?.kind !== "branch-detected") {

@@ -2,10 +2,12 @@ import type { BackupIdFactory, MemorySpaceBackup } from "../backup/index.ts";
 import type { ImportPhase } from "../backup/import-diagnostic.ts";
 import type { MemorySpace, MemorySpaceId } from "../memory/index.ts";
 import { cloneMemorySnapshot } from "../memory-snapshot/snapshot-clone.ts";
-import type {
-  ChatFileTarget,
-  ChatSnapshotPersistence,
+import {
+  ChatSnapshotBindingConflict,
+  type ChatFileTarget,
+  type ChatSnapshotPersistence,
 } from "../chat-mirror/chat-snapshot-persistence.ts";
+import type { ChatMirrorFile } from "../chat-mirror/chat-mirror-file.ts";
 import {
   buildChatSpaceName,
   chatIdentityKey,
@@ -17,6 +19,7 @@ import type {
   ChatBindingStore,
   ChatSpaceBinding,
   ChatSpaceBindingV2,
+  FileSnapshotRecoveryPreview,
   SpaceContextStatus,
 } from "./chat-space-context.ts";
 export * from "./chat-space-context.ts";
@@ -65,6 +68,7 @@ export class ChatSpaceManager {
   #selection: ChatSelection | undefined;
   #activeSelection: ChatSelection | undefined;
   #candidate: CandidateRequest | undefined;
+  #recovery: { file: ChatMirrorFile; binding: ChatSpaceBinding } | undefined;
   readonly #listeners = new Set<() => void>();
   private readonly ports: ChatSpaceManagerPorts;
 
@@ -97,6 +101,7 @@ export class ChatSpaceManager {
     this.#selection = undefined;
     this.#activeSelection = undefined;
     this.#status = undefined;
+    this.#recovery = undefined;
     this.notify();
   }
 
@@ -130,6 +135,7 @@ export class ChatSpaceManager {
     // 每次进入聊天都建立新的选择对象；A→B→A 不能让第一次 A 的异步结果重新生效。
     const selection = { chat, target };
     this.#selection = selection;
+    this.#recovery = undefined;
     const read = this.ports.bindingStore.read();
     if (read.kind === "unrecognized") {
       return this.publish({ kind: "binding-unrecognized", humanMsg: BINDING_UNRECOGNIZED_MESSAGE });
@@ -171,9 +177,27 @@ export class ChatSpaceManager {
     binding: ChatSpaceBinding,
   ): Promise<SpaceContextStatus> {
     const { target } = selection;
-    const loaded = await this.ports.persistence.load(target, binding);
+    const loaded = await this.ports.persistence.load(target, binding).catch((error: unknown) => {
+      if (error instanceof ChatSnapshotBindingConflict) {
+        return error;
+      }
+      throw error;
+    });
     if (this.#selection !== selection) {
       return { kind: "load-error", humanMsg: "聊天已切换" };
+    }
+    if (loaded instanceof ChatSnapshotBindingConflict) {
+      const file = loaded.file;
+      this.#recovery = structuredClone({ file, binding });
+      return this.publish({
+        kind: "snapshot-conflict",
+        humanMsg: loaded.message,
+        name: file.data.space.name,
+        updatedAt: file.updatedAt,
+        tableCount: file.data.tables.length,
+        recordCount: file.data.records.length,
+        hasFloorProgress: file.data.floorLedger.length > 0,
+      });
     }
     if (!loaded) {
       throw new Error("当前聊天文件没有记忆快照，无法加载已绑定空间");
@@ -254,6 +278,37 @@ export class ChatSpaceManager {
       stage,
       hooks?.beforeActivate,
     );
+  }
+
+  async recoverFileSnapshot(preview: FileSnapshotRecoveryPreview): Promise<void> {
+    const recovery = this.#recovery;
+    if (!recovery || this.#status !== preview) {
+      throw new Error("恢复预览已过期，请重新加载当前对话");
+    }
+    const { target } = this.requireSelection();
+    await this.importSpace(recovery.file.data, undefined, {
+      beforeActivate: async () => {
+        await this.ports.persistence.assertRecoveryFileUnchanged(target, recovery.file);
+        const current = this.ports.bindingStore.read();
+        const binding = recovery.binding;
+        if (
+          current.kind !== "bound" ||
+          current.binding.spaceId !== binding.spaceId ||
+          current.binding.version !== binding.version ||
+          (binding.version === 2 &&
+            (current.binding.version !== 2 ||
+              current.binding.chatIdentity !== binding.chatIdentity))
+        ) {
+          throw new Error("聊天文件中的记忆空间绑定已变化，请重新加载后再恢复");
+        }
+      },
+      confirmed: async () => {
+        const status = this.getActiveStatus(target.identity);
+        if (status) {
+          this.publish({ ...status, recoveredFromFile: true });
+        }
+      },
+    });
   }
 
   private requireSelection(): ChatSelection {
@@ -366,6 +421,9 @@ export class ChatSpaceManager {
   }
 
   private publish(status: SpaceContextStatus): SpaceContextStatus {
+    if (status.kind !== "snapshot-conflict") {
+      this.#recovery = undefined;
+    }
     this.#status = status;
     this.notify();
     return status;
